@@ -11,11 +11,8 @@ export const meta: MetaFunction = () => {
 
 export default function Index({ children }: { children: React.ReactNode }) {
     return (
-        <SidebarProvider>
-            <AppSidebar />
-            <main>
-                {children}
-            </main>
-        </SidebarProvider>
+        <div className="text-center text-9xl">
+            Hi i am
+        </div>
     );
 }
