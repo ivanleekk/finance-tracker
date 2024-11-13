@@ -48,12 +48,6 @@ export function AppSidebar() {
                                 Statistics
                             </Link>
                         </SidebarMenuButton>
-                        <SidebarMenuButton asChild>
-                            <Link to="/portfolio/fail">
-                                <FileChartColumn />
-                                fail
-                            </Link>
-                        </SidebarMenuButton>
                     </SidebarMenuSub>
                 </SidebarGroup>
             </SidebarContent>

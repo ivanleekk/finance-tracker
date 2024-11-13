@@ -46,7 +46,7 @@ export default function App() {
         <Layout>
             <SidebarProvider>
                 <AppSidebar />
-                <main className="w-full">
+                <main className="w-full p-2">
                     <Outlet />
                 </main>
             </SidebarProvider>
