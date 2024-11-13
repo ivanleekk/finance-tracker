@@ -4,6 +4,7 @@ import {
     Outlet,
     Scripts,
     ScrollRestoration,
+    useRouteError,
 } from "@remix-run/react";
 import type { LinksFunction } from "@remix-run/node";
 
