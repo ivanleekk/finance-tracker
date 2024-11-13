@@ -15,10 +15,11 @@ export function AppSidebar() {
     return (
         <Sidebar>
             <SidebarHeader>
-                <p className="text-lg font-bold">
-                    Finance Tracker
-
-                </p>
+                <Link to="/">
+                    <p className="text-lg font-bold">
+                        Finance Tracker
+                    </p>
+                </Link>
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
@@ -45,6 +46,12 @@ export function AppSidebar() {
                             <Link to="/portfolio/statistics">
                                 <FileChartColumn />
                                 Statistics
+                            </Link>
+                        </SidebarMenuButton>
+                        <SidebarMenuButton asChild>
+                            <Link to="/portfolio/fail">
+                                <FileChartColumn />
+                                fail
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuSub>

@@ -1,4 +1,5 @@
 import {
+    isRouteErrorResponse,
     Links,
     Meta,
     Outlet,
@@ -9,6 +10,8 @@ import {
 import type { LinksFunction } from "@remix-run/node";
 
 import styles from "./tailwind.css";
+import { SidebarProvider } from "./components/ui/sidebar";
+import { AppSidebar } from "./components/ui/app-sidebar";
 
 export const links: LinksFunction = () => [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -39,5 +42,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-    return <Outlet />;
+    return (
+        <Layout>
+            <SidebarProvider>
+                <AppSidebar />
+                <main className="w-full">
+                    <Outlet />
+                </main>
+            </SidebarProvider>
+        </Layout>
+    );
+}
+
+export function ErrorBoundary() {
+    const error = useRouteError();
+    return (
+        <Layout>
+            <SidebarProvider>
+                <AppSidebar />
+                <main className="w-full">
+                    <p>test</p>
+                    <div className="text-center text-9xl">
+                        {isRouteErrorResponse(error) ? error.status : "Unknown Error"}
+                    </div>
+                    <div className="text-center text-xl">
+                        {isRouteErrorResponse(error) ? error.statusText : (error as Error).message}
+                    </div>
+                </main>
+            </SidebarProvider>
+        </Layout>
+    );
 }
