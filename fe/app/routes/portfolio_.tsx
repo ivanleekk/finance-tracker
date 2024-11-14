@@ -1,6 +1,41 @@
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 export default function Portfolio() {
+
+    const portfolioData = [
+        {
+            symbol: "AAPL",
+            quantity: 10,
+            averagePrice: 150,
+            totalInitialValue: 1500,
+            currentPrice: 151,
+            totalCurrentValue: 1510,
+            percentageGainLoss: 0.67,
+            totalGainLoss: 10
+        },
+        {
+            symbol: "GOOGL",
+            quantity: 5,
+            averagePrice: 2000,
+            totalInitialValue: 10000,
+            currentPrice: 1500,
+            totalCurrentValue: 7500,
+            percentageGainLoss: -25,
+            totalGainLoss: -2500
+        },
+        {
+            symbol: "AMZN",
+            quantity: 2,
+            averagePrice: 3500,
+            totalInitialValue: 7000,
+            currentPrice: 3000,
+            totalCurrentValue: 6000,
+            percentageGainLoss: -14.29,
+            totalGainLoss: -1000
+        }
+    ];
+
+
     return (
         <div>
             <h1>Portfolio</h1>
@@ -21,37 +56,24 @@ export default function Portfolio() {
                         <TableHead>Total Gain/Loss</TableHead>
                     </TableRow>
                 </TableHeader>
+
                 <TableBody>
-                    <TableRow>
-                        <TableCell>APPL</TableCell>
-                        <TableCell>10</TableCell>
-                        <TableCell>$150</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>GOOGL</TableCell>
-                        <TableCell>5</TableCell>
-                        <TableCell>$2000</TableCell>
-                        <TableCell>$10000</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>AMZN</TableCell>
-                        <TableCell>2</TableCell>
-                        <TableCell>$3500</TableCell>
-                        <TableCell>$7000</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                        <TableCell>$1500</TableCell>
-                    </TableRow>
+                    {portfolioData.map((item, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{item.symbol}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>${item.averagePrice}</TableCell>
+                            <TableCell>${item.totalInitialValue}</TableCell>
+                            <TableCell>${item.currentPrice}</TableCell>
+                            <TableCell>${item.totalCurrentValue}</TableCell>
+                            <TableCell style={{ color: item.percentageGainLoss > 0 ? 'green' : 'red' }}>
+                                {item.percentageGainLoss}%
+                            </TableCell>
+                            <TableCell style={{ color: item.totalGainLoss > 0 ? 'green' : 'red' }}>
+                                ${item.totalGainLoss}
+                            </TableCell>
+                        </TableRow>
+                    ))}
                 </TableBody>
             </Table>
         </div>
