@@ -1,18 +1,17 @@
-import type { MetaFunction } from "@remix-run/node";
-import { SidebarProvider, SidebarTrigger } from "~/components/ui/sidebar";
-import { AppSidebar } from "~/components/ui/app-sidebar";
+import {Button} from "~/components/ui/button";
+import {Link} from "@remix-run/react";
 
-export const meta: MetaFunction = () => {
-    return [
-        { title: "Finance Tracker" },
-        { name: "Finance Tracker", content: "Finance Tracker" },
-    ];
-};
-
-export default function Index({ children }: { children: React.ReactNode }) {
+export default function Home() {
     return (
-        <div className="text-center text-9xl">
-            Hi i am
+        <div className="space-y-4">
+            <h1 className="text-4xl font-bold">Welcome to your Personal Finance Manager</h1>
+            <h2 className="text-2xl">Please login to continue</h2>
+            <Link to="/login">
+                <Button>Login</Button>
+
+            </Link>
+            <p className="text-xs mt-auto">Built by Ivan</p>
+
         </div>
     );
 }

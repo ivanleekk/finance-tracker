@@ -33,7 +33,7 @@ export function AppSidebar() {
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarMenuButton asChild>
-                        <Link to="/">
+                        <Link to="/dashboard">
                             <Gauge />
                             Dashboard
                         </Link>

@@ -10,6 +10,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     return null;
 };
+
 export default function Portfolio() {
 
     const portfolioData = [

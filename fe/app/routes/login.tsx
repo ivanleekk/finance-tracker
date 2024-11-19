@@ -20,7 +20,7 @@ export let action = async ({ request }:ActionFunctionArgs) => {
 export default function Login() {
     return (
         <div>
-            <Form method="post">
+            <Form method="post" className="space-y-4">
                 <Label>
                     Email
                     <Input type="email" name="email" required />
