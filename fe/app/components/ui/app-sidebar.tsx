@@ -1,5 +1,13 @@
 import { Link } from "@remix-run/react"
-import { ArrowRightLeft, ChartCandlestick, FileChartColumn, Gauge, ReceiptText, Settings } from "lucide-react"
+import {
+    ArrowRightLeft,
+    ChartCandlestick,
+    FileChartColumn,
+    Gauge,
+    LucideLogIn, LucideLogOut,
+    ReceiptText,
+    Settings
+} from "lucide-react"
 import {
     Sidebar,
     SidebarContent,
@@ -9,9 +17,11 @@ import {
     SidebarMenuButton,
     SidebarMenuSub,
 } from "~/components/ui/sidebar"
+import {getUserSession} from "~/utils/session.server";
 
 
 export function AppSidebar() {
+    const isLoggedIn = false
     return (
         <Sidebar>
             <SidebarHeader>
@@ -58,6 +68,18 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
+                {isLoggedIn ? <SidebarMenuButton asChild>
+                        <Link to="/login">
+                            <LucideLogOut/>
+                            Logout
+                        </Link>
+                    </SidebarMenuButton> :
+                    <SidebarMenuButton asChild>
+                    <Link to="/login">
+                    <LucideLogIn/>
+                    Login
+                    </Link>
+                    </SidebarMenuButton>}
                 <SidebarMenuButton asChild>
                     <Link to="/settings">
                         <Settings />

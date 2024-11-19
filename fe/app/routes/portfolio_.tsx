@@ -1,5 +1,15 @@
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import {getUserSession} from "~/utils/session.server";
+import {redirect} from "@remix-run/node";
 
+export const loader = async ({ request }) => {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+
+    return null;
+};
 export default function Portfolio() {
 
     const portfolioData = [

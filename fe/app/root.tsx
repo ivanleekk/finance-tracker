@@ -61,7 +61,6 @@ export function ErrorBoundary() {
             <SidebarProvider>
                 <AppSidebar />
                 <main className="w-full">
-                    <p>test</p>
                     <div className="text-center text-9xl">
                         {isRouteErrorResponse(error) ? error.status : "Unknown Error"}
                     </div>
