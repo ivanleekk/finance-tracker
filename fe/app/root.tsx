@@ -9,7 +9,7 @@ import {
 } from "@remix-run/react";
 import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs} from "@remix-run/node";
 
-import styles from "./tailwind.css";
+import styles from "./tailwind.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/ui/app-sidebar";
 import { json } from "@remix-run/node";

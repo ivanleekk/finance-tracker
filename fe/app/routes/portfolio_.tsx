@@ -41,9 +41,9 @@ export default function Portfolio() {
                             <TableCell>{item.symbol}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
                             <TableCell>${item.averagePrice}</TableCell>
-                            <TableCell>${item.totalInitialValue}</TableCell>
+                            <TableCell>${item.totalInitialValue.toFixed(2)}</TableCell>
                             <TableCell>${item.currentPrice}</TableCell>
-                            <TableCell>${item.totalCurrentValue}</TableCell>
+                            <TableCell>${item.totalCurrentValue.toFixed(2)}</TableCell>
                             <TableCell style={{ color: item.percentageGainLoss > 0 ? 'green' : 'red' }}>
                                 {item.percentageGainLoss.toFixed(2)}%
                             </TableCell>
