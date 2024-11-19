@@ -1,5 +1,5 @@
 import { Link } from "@remix-run/react"
-import { ArrowRightLeft, ChartCandlestick, FileChartColumn, Gauge, Settings } from "lucide-react"
+import { ArrowRightLeft, ChartCandlestick, FileChartColumn, Gauge, ReceiptText, Settings } from "lucide-react"
 import {
     Sidebar,
     SidebarContent,
@@ -38,8 +38,14 @@ export function AppSidebar() {
                     <SidebarMenuSub>
                         <SidebarMenuButton asChild>
                             <Link to="/portfolio/transactions">
-                                <ArrowRightLeft />
+                                <ReceiptText />
                                 Transactions
+                            </Link>
+                        </SidebarMenuButton>
+                        <SidebarMenuButton asChild>
+                            <Link to="/portfolio/trade">
+                                <ArrowRightLeft />
+                                Trade
                             </Link>
                         </SidebarMenuButton>
                         <SidebarMenuButton asChild>
