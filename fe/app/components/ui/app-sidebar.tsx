@@ -1,13 +1,14 @@
-import { Link } from "@remix-run/react"
+import { Form, Link, useLoaderData } from "@remix-run/react";
 import {
     ArrowRightLeft,
     ChartCandlestick,
     FileChartColumn,
     Gauge,
-    LucideLogIn, LucideLogOut,
+    LucideLogIn,
+    LucideLogOut,
     ReceiptText,
     Settings
-} from "lucide-react"
+} from "lucide-react";
 import {
     Sidebar,
     SidebarContent,
@@ -16,12 +17,10 @@ import {
     SidebarHeader,
     SidebarMenuButton,
     SidebarMenuSub,
-} from "~/components/ui/sidebar"
-import {getUserSession} from "~/utils/session.server";
-
+} from "~/components/ui/sidebar";
 
 export function AppSidebar() {
-    const isLoggedIn = false
+    const isLoggedIn = useLoaderData();
     return (
         <Sidebar>
             <SidebarHeader>
@@ -68,18 +67,21 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
-                {isLoggedIn ? <SidebarMenuButton asChild>
-                        <Link to="/login">
-                            <LucideLogOut/>
+                {isLoggedIn ? (
+                    <Form method="post">
+                        <SidebarMenuButton type="submit">
+                            <LucideLogOut />
                             Logout
-                        </Link>
-                    </SidebarMenuButton> :
+                        </SidebarMenuButton>
+                    </Form>
+                ) : (
                     <SidebarMenuButton asChild>
-                    <Link to="/login">
-                    <LucideLogIn/>
-                    Login
-                    </Link>
-                    </SidebarMenuButton>}
+                        <Link to="/login">
+                            <LucideLogIn />
+                            Login
+                        </Link>
+                    </SidebarMenuButton>
+                )}
                 <SidebarMenuButton asChild>
                     <Link to="/settings">
                         <Settings />
@@ -88,5 +90,5 @@ export function AppSidebar() {
                 </SidebarMenuButton>
             </SidebarFooter>
         </Sidebar>
-    )
+    );
 }

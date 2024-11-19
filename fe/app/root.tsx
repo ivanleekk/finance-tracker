@@ -7,11 +7,22 @@ import {
     ScrollRestoration,
     useRouteError,
 } from "@remix-run/react";
-import type { LinksFunction } from "@remix-run/node";
+import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs} from "@remix-run/node";
 
 import styles from "./tailwind.css";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/ui/app-sidebar";
+import { json } from "@remix-run/node";
+import {getUserSession, signOut} from "~/utils/session.server";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+    const sessionUser = await getUserSession(request);
+    return json({ isLoggedIn: !!sessionUser });
+};
+
+export let action = async ({ request }: ActionFunctionArgs) => {
+    return signOut(request);
+}
 
 export const links: LinksFunction = () => [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },

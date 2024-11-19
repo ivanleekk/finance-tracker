@@ -1,8 +1,8 @@
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import {getUserSession} from "~/utils/session.server";
-import {redirect} from "@remix-run/node";
+import {LoaderFunctionArgs, redirect} from "@remix-run/node";
 
-export const loader = async ({ request }) => {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
     if (!sessionUser) {
         return redirect("/login");
