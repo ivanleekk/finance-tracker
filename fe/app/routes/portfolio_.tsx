@@ -40,9 +40,9 @@ export default function Portfolio() {
                         <TableRow key={index}>
                             <TableCell>{item.symbol}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
-                            <TableCell>${item.averagePrice}</TableCell>
+                            <TableCell>${item.averagePrice.toFixed(2)}</TableCell>
                             <TableCell>${item.totalInitialValue.toFixed(2)}</TableCell>
-                            <TableCell>${item.currentPrice}</TableCell>
+                            <TableCell>${item.currentPrice.toFixed(2)}</TableCell>
                             <TableCell>${item.totalCurrentValue.toFixed(2)}</TableCell>
                             <TableCell style={{ color: item.percentageGainLoss > 0 ? 'green' : 'red' }}>
                                 {item.percentageGainLoss.toFixed(2)}%

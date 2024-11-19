@@ -63,3 +63,61 @@ export async function addPortfolioItem(request: Request, symbol: string, quantit
 
     return null;
 }
+
+export async function updatePortfolioItem(request: Request, id: string, quantity: number, averagePrice: number) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+
+    await db.collection("portfolio").doc(id).update({
+        quantity: quantity,
+        averagePrice: averagePrice
+    });
+}
+
+export async function addTrade(request: Request, symbol: string, quantity: number, price: number, tradeType: string) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+    symbol = symbol.toUpperCase();
+    await db.collection("transaction").add({
+        symbol: symbol,
+        quantity: quantity,
+        price: price,
+        tradeType: tradeType,
+        datetime: new Date(),
+        user: sessionUser.uid
+    });
+
+    let portfolioItem = await db.collection("portfolio").where(
+        "user", "==", sessionUser.uid
+    ).where(
+        "symbol", "==", symbol
+    ).get();
+
+    if (portfolioItem.docs.length === 0) {
+        // Add the new stock to the portfolio
+        await addPortfolioItem(request, symbol, quantity, price);
+    } else {
+        // Update the average price and quantity
+        const doc = portfolioItem.docs[0];
+        const docData = doc.data();
+        let totalInitialValue = 0;
+        let newQuantity = 0;
+        if (tradeType === "Buy") {
+
+            totalInitialValue = docData.quantity * docData.averagePrice + quantity * price;
+            newQuantity = docData.quantity + quantity;
+        }
+        if (tradeType === "Sell") {
+            totalInitialValue = docData.quantity * docData.averagePrice - quantity * price;
+            newQuantity = docData.quantity - quantity;
+        }
+        const newAveragePrice = totalInitialValue / newQuantity;
+        await updatePortfolioItem(request, doc.id, newQuantity, newAveragePrice);
+
+    }
+    return null;
+}
