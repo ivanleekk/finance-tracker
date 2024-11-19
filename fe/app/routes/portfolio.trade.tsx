@@ -10,7 +10,7 @@ import {
     SelectItem,
     SelectTrigger, SelectValue
 } from "~/components/ui/select";
-import {addTrade} from "~/portfolio";
+import {addTrade} from "~/portfolio/portfolio";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);

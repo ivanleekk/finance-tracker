@@ -1,6 +1,6 @@
 import { redirect } from "@remix-run/node";
 import { db } from "~/utils/db.server";
-import { getUserSession } from "./utils/session.server";
+import { getUserSession } from "../utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 
 export async function getPortfolio(request: Request) {
@@ -120,4 +120,32 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
 
     }
     return null;
+}
+
+export async function getTransactions(request: Request) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+
+    const querySnapshot = await db.collection("transaction").where(
+        "user", "==", sessionUser.uid
+    ).get();
+    const data: { id: string; symbol: string; buySell: string; quantity: number; price: number; totalValue: number; date: string; }[] = [];
+
+    for (const doc of querySnapshot.docs) {
+        const docData = doc.data();
+        const totalValue = docData.quantity * docData.price;
+        data.push({
+            id: doc.id,
+            symbol: docData.symbol,
+            buySell: docData.tradeType,
+            quantity: docData.quantity,
+            price: docData.price,
+            totalValue: totalValue,
+            date: docData.datetime.toDate().toISOString()
+        });
+    }
+
+    return data;
 }

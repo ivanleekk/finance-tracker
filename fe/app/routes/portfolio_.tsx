@@ -1,7 +1,7 @@
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import {getUserSession} from "~/utils/session.server";
 import {LoaderFunctionArgs, redirect} from "@remix-run/node";
-import {getPortfolio} from "~/portfolio";
+import {getPortfolio} from "~/portfolio/portfolio";
 import {useLoaderData} from "@remix-run/react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
