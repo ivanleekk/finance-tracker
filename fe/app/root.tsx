@@ -11,7 +11,7 @@ import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs} from "@remix-run/
 
 import styles from "./tailwind.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";
-import { AppSidebar } from "./components/ui/app-sidebar";
+import { AppSidebar } from "./components/app-sidebar";
 import { json } from "@remix-run/node";
 import {getUserSession, signOut} from "~/utils/session.server";
 

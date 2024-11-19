@@ -20,11 +20,11 @@ export const transactionColumns: ColumnDef<Transaction>[] = [
         header: ({ column }) => {
     return (
         <Button
-            variant="ghost"
+            variant="tableHead"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
             Symbol
-            <ArrowUpDown className="ml-2 h-4 w-4" />
+            <ArrowUpDown  />
             </Button>
         )
         },
@@ -38,11 +38,11 @@ export const transactionColumns: ColumnDef<Transaction>[] = [
         header: ({ column }) => {
             return (
                 <Button
-                    variant="ghost"
+                    variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Quantity
-                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                    <ArrowUpDown  />
                 </Button>
             )
         },
@@ -52,11 +52,11 @@ export const transactionColumns: ColumnDef<Transaction>[] = [
         header: ({ column }) => {
             return (
                 <Button
-                    variant="ghost"
+                    variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Price
-                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                    <ArrowUpDown  />
                 </Button>
             )
         },
@@ -75,11 +75,11 @@ export const transactionColumns: ColumnDef<Transaction>[] = [
         header: ({ column }) => {
             return (
                 <Button
-                    variant="ghost"
+                    variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Total Value
-                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                    <ArrowUpDown  />
                 </Button>
             )
         },
@@ -98,11 +98,11 @@ export const transactionColumns: ColumnDef<Transaction>[] = [
         header: ({ column }) => {
             return (
                 <Button
-                    variant="ghost"
+                    variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Date
-                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                    <ArrowUpDown  />
                 </Button>
             )
         },

@@ -22,7 +22,7 @@ import {
 export function AppSidebar() {
     const isLoggedIn = useLoaderData();
     return (
-        <Sidebar>
+        <Sidebar className="w-fit">
             <SidebarHeader>
                 <Link to="/">
                     <p className="text-lg font-bold">
