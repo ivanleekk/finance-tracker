@@ -1,7 +1,6 @@
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import {getUserSession} from "~/utils/session.server";
 import {LoaderFunctionArgs, redirect} from "@remix-run/node";
-import {db} from "~/utils/db.server";
 import {getPortfolio} from "~/portfolio";
 import {useLoaderData} from "@remix-run/react";
 
@@ -46,10 +45,10 @@ export default function Portfolio() {
                             <TableCell>${item.currentPrice}</TableCell>
                             <TableCell>${item.totalCurrentValue}</TableCell>
                             <TableCell style={{ color: item.percentageGainLoss > 0 ? 'green' : 'red' }}>
-                                {item.percentageGainLoss}%
+                                {item.percentageGainLoss.toFixed(2)}%
                             </TableCell>
                             <TableCell style={{ color: item.totalGainLoss > 0 ? 'green' : 'red' }}>
-                                ${item.totalGainLoss}
+                                ${item.totalGainLoss.toFixed(2)}
                             </TableCell>
                         </TableRow>
                     ))}
