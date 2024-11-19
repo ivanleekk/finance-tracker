@@ -9,7 +9,9 @@ export async function getPortfolio(request: Request) {
         return redirect("/login");
     }
 
-    const querySnapshot = await db.collection("portfolio").get();
+    const querySnapshot = await db.collection("portfolio").where(
+        "user", "==", sessionUser.uid
+    ).get();
     const data: { id: string; symbol: string; quantity: number; averagePrice: number; totalInitialValue: number; currentPrice: number; totalCurrentValue: number; percentageGainLoss: number; totalGainLoss: number; }[] = [];
 
     for (const doc of querySnapshot.docs) {
@@ -51,11 +53,12 @@ export async function addPortfolioItem(request: Request, symbol: string, quantit
     if (!sessionUser) {
         return redirect("/login");
     }
-    console.log('hi', symbol, quantity, averagePrice);
+
     await db.collection("portfolio").add({
         symbol: symbol.toUpperCase(),
         quantity: quantity,
-        averagePrice: averagePrice
+        averagePrice: averagePrice,
+        user: sessionUser.uid
     });
 
     return null;
