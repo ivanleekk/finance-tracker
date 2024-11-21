@@ -19,19 +19,19 @@ export async function getPortfolio(request: Request) {
         const totalInitialValue = docData.quantity * docData.averagePrice;
 
         // Fetch current price from Yahoo Finance
-        const quote = await yahooFinance.quote(docData.symbol);
+        const quote = (await yahooFinance.quoteSummary(docData.symbol));
         let currentPrice = 0;
         if (!quote) {
             console.log(`Failed to fetch quote for ${docData.symbol}`);
         }
-        if (quote && quote.regularMarketPrice) {
-            currentPrice = quote.regularMarketPrice;
+        if (quote && quote.price.regularMarketPrice) {
+            currentPrice = quote.price.regularMarketPrice;
         }
 
         const totalCurrentValue = docData.quantity * currentPrice;
         const totalGainLoss = totalCurrentValue - totalInitialValue;
         const percentageGainLoss = (totalGainLoss / totalInitialValue) * 100;
-
+        // console.log(quote)
         data.push({
             id: doc.id,
             symbol: docData.symbol,
@@ -41,10 +41,11 @@ export async function getPortfolio(request: Request) {
             currentPrice: currentPrice,
             totalCurrentValue: totalCurrentValue,
             percentageGainLoss: percentageGainLoss,
-            totalGainLoss: totalGainLoss
+            totalGainLoss: totalGainLoss,
+            beta: quote.summaryDetail.beta
         });
     }
-
+    
     return data;
 }
 
