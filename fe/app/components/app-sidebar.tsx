@@ -20,7 +20,7 @@ import {
 } from "~/components/ui/sidebar";
 
 export function AppSidebar() {
-    const isLoggedIn = useLoaderData();
+    const isLoggedIn = useLoaderData().isLoggedIn;
     return (
         <Sidebar className="w-fit">
             <SidebarHeader>
