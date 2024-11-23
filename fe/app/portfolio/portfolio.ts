@@ -1,6 +1,6 @@
-import { redirect } from "@remix-run/node";
-import { db } from "~/utils/db.server";
-import { getUserSession } from "../utils/session.server";
+import {redirect} from "@remix-run/node";
+import {db} from "~/utils/db.server";
+import {getUserSession} from "../utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 
 export async function getPortfolio(request: Request) {
@@ -45,7 +45,7 @@ export async function getPortfolio(request: Request) {
             beta: quote.summaryDetail.beta
         });
     }
-    
+
     return data;
 }
 
@@ -149,4 +149,53 @@ export async function getTransactions(request: Request) {
     }
 
     return data;
+}
+
+export async function getPortfolioStandardDeviation(request: Request, portfolioData: any) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+
+    // get historical prices for each stock in the portfolio
+    const symbols = portfolioData.map((item) => item.symbol);
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const totalValue = portfolioData.reduce((acc: number, item: any) => acc + item.totalCurrentValue, 0);
+
+    for (const symbol of portfolioData) {
+        symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
+    }
+    // console.log(portfolioData);
+    // find the price movement of the whole portfolio for each day
+    // calculate the standard deviation of the price movement
+
+    const portfolioPrices = [];
+    for (const symbol of symbols) {
+        const quote = await yahooFinance.historical(symbol, {period1: oneYearAgo});
+        for (const item of quote) {
+            const date = new Date(item.date).toDateString();
+            const price = item.close * portfolioData.find((item) => item.symbol === symbol).quantity;
+            const portfolioPrice = portfolioPrices.find((item) => item.date === date);
+            if (portfolioPrice) {
+                portfolioPrice.price += price;
+            } else {
+                portfolioPrices.push({date: date, price: price});
+            }
+        }
+    }
+    // get the change in price for each day
+    const priceChanges = [];
+    for (let i = 0; i < portfolioPrices.length - 1; i++) {
+        const change = portfolioPrices[i + 1].price - portfolioPrices[i].price;
+        priceChanges.push(change);
+    }
+    // calculate the standard deviation
+    const mean = priceChanges.reduce((acc, item) => acc + item, 0) / priceChanges.length;
+    const variance = priceChanges.reduce((acc, item) => acc + Math.pow(item - mean, 2), 0) / priceChanges.length;
+    const standardDeviation = Math.sqrt(variance);
+    // console.log(standardDeviation);
+    // normalise this sd by the total value of the portfolio
+    const normalisedStandardDeviation = standardDeviation / totalValue;
+    return normalisedStandardDeviation;
 }

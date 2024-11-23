@@ -1,5 +1,4 @@
 import { Card } from "./ui/card";
-import yahooFinance from "yahoo-finance2";
 
 function calculateBeta(data) {
     let totalValue = 0;

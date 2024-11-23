@@ -1,4 +1,3 @@
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import {LoaderFunctionArgs, redirect} from "@remix-run/node";
 import {getUserSession} from "~/utils/session.server";
 import {getTransactions} from "~/portfolio/portfolio";
