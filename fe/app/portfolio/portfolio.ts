@@ -2,6 +2,7 @@ import {redirect} from "@remix-run/node";
 import {db} from "~/utils/db.server";
 import {getUserSession} from "../utils/session.server";
 import yahooFinance from 'yahoo-finance2';
+import redisClient from "~/utils/redisClient";
 
 export async function getPortfolio(request: Request) {
     const sessionUser = await getUserSession(request);
@@ -157,6 +158,14 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
         return redirect("/login");
     }
 
+    // // use redis cache
+    // const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
+    // const cachedValue = await redisClient.get(redisKey);
+    // if (cachedValue) {
+    //     return parseFloat(cachedValue);
+    // }
+
+
     // get historical prices for each stock in the portfolio
     const symbols = portfolioData.map((item) => item.symbol);
     const oneYearAgo = new Date();
@@ -197,5 +206,9 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
     // console.log(standardDeviation);
     // normalise this sd by the total value of the portfolio
     const normalisedStandardDeviation = standardDeviation / totalValue;
+
+    // store in redis cache
+    // await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60 * 24});
+
     return normalisedStandardDeviation;
 }
