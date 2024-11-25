@@ -7,11 +7,21 @@ import {
     ScrollRestoration,
     useRouteError,
 } from "@remix-run/react";
-import type { LinksFunction } from "@remix-run/node";
+import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs, json} from "@remix-run/node";
 
-import styles from "./tailwind.css";
+import styles from "./tailwind.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";
-import { AppSidebar } from "./components/ui/app-sidebar";
+import { AppSidebar } from "./components/app-sidebar";
+import {getUserSession, signOut} from "~/utils/session.server";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+    const sessionUser = await getUserSession(request);
+    return json({ isLoggedIn: !!sessionUser });
+};
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+    return signOut(request);
+}
 
 export const links: LinksFunction = () => [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -27,6 +37,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return (
         <html lang="en">
             <head>
+                <title>Finance Tracker</title>
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <Meta />
@@ -61,7 +72,6 @@ export function ErrorBoundary() {
             <SidebarProvider>
                 <AppSidebar />
                 <main className="w-full">
-                    <p>test</p>
                     <div className="text-center text-9xl">
                         {isRouteErrorResponse(error) ? error.status : "Unknown Error"}
                     </div>

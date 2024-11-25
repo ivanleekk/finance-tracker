@@ -1,5 +1,14 @@
-import { Link } from "@remix-run/react"
-import { ArrowRightLeft, ChartCandlestick, FileChartColumn, Gauge, ReceiptText, Settings } from "lucide-react"
+import { Form, Link, useLoaderData } from "@remix-run/react";
+import {
+    ArrowRightLeft,
+    ChartCandlestick,
+    FileChartColumn,
+    Gauge,
+    LucideLogIn,
+    LucideLogOut,
+    ReceiptText,
+    Settings
+} from "lucide-react";
 import {
     Sidebar,
     SidebarContent,
@@ -8,14 +17,14 @@ import {
     SidebarHeader,
     SidebarMenuButton,
     SidebarMenuSub,
-} from "~/components/ui/sidebar"
-
+} from "~/components/ui/sidebar";
 
 export function AppSidebar() {
+    const isLoggedIn = useLoaderData().isLoggedIn;
     return (
-        <Sidebar>
+        <Sidebar className="w-fit">
             <SidebarHeader>
-                <Link to="/">
+                <Link to="/public">
                     <p className="text-lg font-bold">
                         Finance Tracker
                     </p>
@@ -24,7 +33,7 @@ export function AppSidebar() {
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarMenuButton asChild>
-                        <Link to="/">
+                        <Link to="/dashboard">
                             <Gauge />
                             Dashboard
                         </Link>
@@ -58,6 +67,21 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
+                {isLoggedIn ? (
+                    <Form method="post">
+                        <SidebarMenuButton type="submit">
+                            <LucideLogOut />
+                            Logout
+                        </SidebarMenuButton>
+                    </Form>
+                ) : (
+                    <SidebarMenuButton asChild>
+                        <Link to="/login">
+                            <LucideLogIn />
+                            Login
+                        </Link>
+                    </SidebarMenuButton>
+                )}
                 <SidebarMenuButton asChild>
                     <Link to="/settings">
                         <Settings />
@@ -66,5 +90,5 @@ export function AppSidebar() {
                 </SidebarMenuButton>
             </SidebarFooter>
         </Sidebar>
-    )
+    );
 }
