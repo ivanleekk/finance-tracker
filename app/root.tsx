@@ -76,7 +76,18 @@ export default function App() {
                 <main className="w-full p-2">
                     <Outlet />
                 </main>
-                <Toaster position="top-center" />
+                <Toaster
+                    position="top-center"
+                    toastOptions={{
+                        unstyled: true,
+                        classNames: {
+                            error: 'bg-red-500 text-white rounded-xl p-3',
+                            success: 'bg-green-500 text-white rounded-xl p-3',
+                            warning: 'bg-yellow-500 text-white rounded-xl p-3',
+                            info: 'bg-blue-500 text-white rounded-xl p-3',
+                        },
+                    }}
+                />
 
             </SidebarProvider>
         </Layout>
