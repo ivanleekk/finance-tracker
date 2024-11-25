@@ -70,7 +70,7 @@ export function ErrorBoundary() {
     return (
         <Layout>
             <SidebarProvider>
-                <AppSidebar />
+                {/*<AppSidebar />*/}
                 <main className="w-full">
                     <div className="text-center text-9xl">
                         {isRouteErrorResponse(error) ? error.status : "Unknown Error"}

@@ -4,8 +4,10 @@ import {Input} from "~/components/ui/input";
 import {Label} from "~/components/ui/label";
 import {ActionFunctionArgs} from "@remix-run/node";
 import {authenticator} from "~/utils/auth.server";
+import {clientAuth} from "~/utils/db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+    console.log(clientAuth)
     return await authenticator.authenticate("email-password", request);
 };
 
@@ -28,9 +30,9 @@ export default function Login() {
                 </Label>
                 <Button type="submit">Login</Button>
             </Form>
-            {/*<Form action="/login/google" method="post">*/}
-            {/*    <Button>Login with Google</Button>*/}
-            {/*</Form>*/}
+            <Form action="/login/google" method="post">
+                <Button>Login with Google</Button>
+            </Form>
             <Link to={"/signup"}>Don't have an account? Sign up here</Link>
         </div>
     );

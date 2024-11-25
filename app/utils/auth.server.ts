@@ -2,13 +2,29 @@
 import {Authenticator} from "remix-auth";
 import {FormStrategy} from "remix-auth-form";
 import {
-    signInWithEmailAndPasswordFirebase,
+    signInWithEmailAndPasswordFirebase, signInWithGoogleIdToken,
     signUpWithEmailAndPasswordFirebase
 } from "~/utils/db.server";
-import {createUserSession} from "~/utils/session.server";
+import {createUserSession, sessionStorage} from "~/utils/session.server";
 import {json} from "@remix-run/node";
+import {GoogleStrategy} from "remix-auth-google";
+import dotenv from "dotenv";
 
-const authenticator = new Authenticator();
+dotenv.config();
+
+const googleStrategy = new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "/login/google/callback",
+}, async ({  extraParams }) => {
+    // Get the user data from your DB or API using the tokens and profile
+    const { user } = await signInWithGoogleIdToken(extraParams.id_token);
+    const token = await user.getIdToken();
+    return createUserSession(token, "/portfolio");
+    }
+);
+
+const authenticator = new Authenticator(sessionStorage);
 
 authenticator.use(
     new FormStrategy(async ({form}) => {
@@ -36,6 +52,8 @@ authenticator.use(
         const { user } = await signUpWithEmailAndPasswordFirebase(email, password);
         const token = await user.getIdToken();
         return createUserSession(token, "/portfolio");
-    }), "signup-email-password");
+    }), "signup-email-password").use(
+    googleStrategy, "google"
+);
 
 export { authenticator };

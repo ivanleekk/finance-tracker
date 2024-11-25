@@ -24,7 +24,7 @@ export function AppSidebar() {
     return (
         <Sidebar className="w-fit">
             <SidebarHeader>
-                <Link to="/public">
+                <Link to="/">
                     <p className="text-lg font-bold">
                         Finance Tracker
                     </p>

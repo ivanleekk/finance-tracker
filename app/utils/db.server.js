@@ -1,8 +1,15 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
+import {initializeApp} from "firebase/app";
 import admin from "firebase-admin";
 import {applicationDefault} from "firebase-admin/app";
-import {createUserWithEmailAndPassword, signOut, getAuth, signInWithEmailAndPassword} from "firebase/auth";
+import {
+    createUserWithEmailAndPassword,
+    getAuth,
+    GoogleAuthProvider,
+    signInWithCredential,
+    signInWithEmailAndPassword,
+    signOut
+} from "firebase/auth";
 import dotenv from "dotenv";
 
 
@@ -37,7 +44,7 @@ if (!Firebase) {
 
 export const db = admin.firestore();
 export const adminAuth = admin.auth();
-export const clientAuth = getAuth(Firebase);
+export const clientAuth = getAuth();
 
 export async function signUpWithEmailAndPasswordFirebase(email, password) {
     return createUserWithEmailAndPassword(clientAuth, email, password);
@@ -49,6 +56,7 @@ export async function signInWithEmailAndPasswordFirebase(email, password) {
 
 export async function getSessionToken(idToken) {
     const decodedToken = await adminAuth.verifyIdToken(idToken);
+
     if (new Date().getTime() / 1000 - decodedToken.auth_time > 5 * 60) {
         throw new Error('Recent sign-in required');
     }
@@ -61,3 +69,13 @@ export async function signOutFirebase() {
     await signOut(clientAuth);
 }
 
+export async function signInWithGoogleIdToken(googleIdToken) {
+    const credential = GoogleAuthProvider.credential(googleIdToken);
+
+    try {
+        return await signInWithCredential(clientAuth, credential); // Use this token for backend verification
+    } catch (error) {
+        console.error("Error signing in with Google ID token:", error);
+        throw error;
+    }
+}
