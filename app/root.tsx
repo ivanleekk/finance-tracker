@@ -65,14 +65,17 @@ export default function App() {
         if (toast?.type === "error") {
             notify.error(toast.message);
         }
-        if (toast?.type === "success") {
+        else if (toast?.type === "success") {
             notify.success(toast.message);
         }
-        if (toast?.type === "warning") {
+        else if (toast?.type === "warning") {
             notify.warning(toast.message);
         }
-        if (toast?.type === "info") {
+        else if (toast?.type === "info") {
             notify.info(toast.message);
+        }
+        else if (toast) {
+            notify(toast.message);
         }
     }, [toast]);
     return (
@@ -83,6 +86,7 @@ export default function App() {
                     <Outlet />
                 </main>
                 <Toaster richColors
+                    closeButton
                 />
 
             </SidebarProvider>
