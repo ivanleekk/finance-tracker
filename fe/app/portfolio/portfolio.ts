@@ -213,3 +213,73 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
 
     return normalisedStandardDeviation;
 }
+
+
+export async function getPortfolioSharpeRatio(request:Request, portfolioData: any) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }   
+
+    // console.log(redisClient)
+    // // use redis cache
+    const redisKey = `portfolioSharpeRatio:${sessionUser.uid}`;
+    const cachedValue = await redisClient.get(redisKey);
+    if (cachedValue) {
+        return parseFloat(cachedValue);
+    }
+
+
+    // get historical prices for each stock in the portfolio
+    const symbols = portfolioData.map((item) => item.symbol);
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const totalValue = portfolioData.reduce((acc: number, item: any) => acc + item.totalCurrentValue, 0);
+
+    for (const symbol of portfolioData) {
+        symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
+    }
+
+    // find the price movement of the whole portfolio for each day
+    // calculate the standard deviation of the price movement
+
+    const portfolioPrices = [];
+    for (const symbol of symbols) {
+        const quote = await yahooFinance.chart(symbol, {period1: oneYearAgo});
+        for (const item of quote.quotes) {
+            const date = new Date(item.date).toDateString();
+            const price = item.close * portfolioData.find((item) => item.symbol === symbol).quantity;
+            const portfolioPrice = portfolioPrices.find((item) => item.date === date);
+            if (portfolioPrice) {
+                portfolioPrice.price += price;
+            } else {
+                portfolioPrices.push({date: date, price: price});
+            }
+        }
+    }
+    // get the change in price for each day
+    const priceChanges = [];
+    for (let i = 0; i < portfolioPrices.length - 1; i++) {
+        const change = portfolioPrices[i + 1].price - portfolioPrices[i].price;
+        priceChanges.push(change);
+    }
+    // calculate the standard deviation
+    const mean = priceChanges.reduce((acc, item) => acc + item, 0) / priceChanges.length;
+    const variance = priceChanges.reduce((acc, item) => acc + Math.pow(item - mean, 2), 0) / priceChanges.length;
+    const standardDeviation = Math.sqrt(variance);
+    // console.log(standardDeviation);
+    // normalise this sd by the total value of the portfolio
+    const normalisedReturn = mean / totalValue;
+    const normalisedStandardDeviation = standardDeviation / totalValue;
+
+    const annualisedReturn = Math.pow(1 + normalisedReturn, 252) - 1;
+    
+
+    // find the risk free rate
+    // use 10 year US treasury bond yield
+    const riskFreeRate = (await yahooFinance.quoteSummary("^TNX")).price.regularMarketPrice/100;
+    // calculate the sharpe ratio
+    const sharpeRatio = (annualisedReturn - riskFreeRate) / normalisedStandardDeviation;
+
+    return sharpeRatio;
+}
