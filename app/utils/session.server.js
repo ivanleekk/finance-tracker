@@ -31,7 +31,7 @@ export async function createUserSession(idToken, redirectTo) {
     const token = await getSessionToken(idToken)
     const session = await sessionStorage.getSession();
     session.set('token', token);
-    console.log("token set")
+
     return redirect(redirectTo, {
         headers: {
             'Set-Cookie': await sessionStorage.commitSession(session),

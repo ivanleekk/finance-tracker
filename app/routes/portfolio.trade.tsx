@@ -1,16 +1,17 @@
-import {Form, useActionData, useRouteError} from "@remix-run/react";
+import { Form, useActionData, useRouteError } from "@remix-run/react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import {json, LoaderFunctionArgs, redirect} from "@remix-run/node";
-import {getUserSession} from "~/utils/session.server";
+import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
+import { getUserSession } from "~/utils/session.server";
 import {
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger, SelectValue
 } from "~/components/ui/select";
-import {addTrade} from "~/portfolio/portfolio";
+import { addTrade } from "~/portfolio/portfolio";
+import { dataWithError, dataWithSuccess } from "remix-toast";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
@@ -32,20 +33,27 @@ export const action = async ({ request }: LoaderFunctionArgs) => {
     const result = await addTrade(request, String(ticker), Number(quantity), Number(price), String(tradeType));
 
     if (result && result.status === 400) {
-        return json({ error: result.statusText }, { status: 400, statusText: result.statusText });
+        return dataWithError(json({ error: result.statusText }, { status: 400, statusText: result.statusText }), `Failed to add trade: ${result.statusText}`);
     }
-    return null;
+    else {
+        return dataWithSuccess(null, `Trade added successfully for ${ticker?.toString().toLocaleUpperCase()}`);
+    }
 }
 
 export default function Trade() {
     const actionData = useActionData();
-    console.log(actionData);
+
     return (
         <div className="space-y-2">
             <Form method="post" className="max-w-md space-y-4">
                 {actionData?.error && (
                     <div className="text-red-500">
                         {actionData.error}
+                    </div>
+                )}
+                {actionData?.success && (
+                    <div className="text-green-500">
+                        Trade added successfully
                     </div>
                 )}
                 <Label htmlFor="Ticker">

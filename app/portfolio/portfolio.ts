@@ -30,7 +30,7 @@ export async function getPortfolio(request: Request) {
         const quote = (await yahooFinance.quoteSummary(docData.symbol));
         let currentPrice = 0;
         if (!quote) {
-            console.log(`Failed to fetch quote for ${docData.symbol}`);
+            // console.log(`Failed to fetch quote for ${docData.symbol}`);
         }
         if (quote && quote.price.regularMarketPrice) {
             currentPrice = quote.price.regularMarketPrice;
