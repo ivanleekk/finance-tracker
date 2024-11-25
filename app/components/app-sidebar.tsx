@@ -4,10 +4,13 @@ import {
     ChartCandlestick,
     FileChartColumn,
     Gauge,
+    Landmark,
     LucideLogIn,
     LucideLogOut,
     ReceiptText,
-    Settings
+    Settings,
+    RotateCcw,
+    History,
 } from "lucide-react";
 import {
     Sidebar,
@@ -61,6 +64,26 @@ export function AppSidebar() {
                             <Link to="/portfolio/statistics">
                                 <FileChartColumn />
                                 Statistics
+                            </Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuSub>
+                    <SidebarMenuButton asChild>
+                        <Link to="/bank">
+                            <Landmark />
+                            Bank
+                        </Link>
+                    </SidebarMenuButton>
+                    <SidebarMenuSub>
+                        <SidebarMenuButton asChild>
+                            <Link to="/bank/history">
+                                <History />
+                                History
+                            </Link>
+                        </SidebarMenuButton>
+                        <SidebarMenuButton asChild>
+                            <Link to="/bank/update">
+                                <RotateCcw />
+                                Update
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuSub>
