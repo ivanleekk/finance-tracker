@@ -15,7 +15,7 @@ if (!sessionSecret) {
     throw new Error('SESSION_SECRET is required');
 }
 
-const storage = createCookieSessionStorage({
+export const sessionStorage = createCookieSessionStorage({
     cookie: {
         name: '__session',
         secrets: [sessionSecret],
@@ -29,18 +29,18 @@ const storage = createCookieSessionStorage({
 
 export async function createUserSession(idToken, redirectTo) {
     const token = await getSessionToken(idToken)
-    const session = await storage.getSession();
+    const session = await sessionStorage.getSession();
     session.set('token', token);
-
+    console.log("token set")
     return redirect(redirectTo, {
         headers: {
-            'Set-Cookie': await storage.commitSession(session),
+            'Set-Cookie': await sessionStorage.commitSession(session),
         },
     });
 }
 
 export async function getUserSession(request) {
-    const cookieSession = await storage.getSession(request.headers.get("Cookie"));
+    const cookieSession = await sessionStorage.getSession(request.headers.get("Cookie"));
     const token = cookieSession.get("token");
     if (!token) return null;
 
@@ -60,8 +60,8 @@ export async function getUserSession(request) {
 }
 
 export async function destroyUserSession(request) {
-    const session = await storage.getSession(request.headers.get("Cookie"));
-    const newCookie = await storage.destroySession(session);
+    const session = await sessionStorage.getSession(request.headers.get("Cookie"));
+    const newCookie = await sessionStorage.destroySession(session);
     return redirect("/login", { headers: { "Set-Cookie": newCookie } });
 }
 
