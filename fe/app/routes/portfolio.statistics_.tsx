@@ -1,11 +1,12 @@
-import { Card } from "~/components/ui/card";
-import { LoaderFunctionArgs, redirect } from "@remix-run/node";
+import { defer, LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { getUserSession } from "~/utils/session.server";
 import BetaCard from "~/components/betaCard";
-import { getPortfolio, getPortfolioSharpeRatio, getPortfolioStandardDeviation, } from "~/portfolio/portfolio";
-import { useLoaderData } from "@remix-run/react";
+import { getPortfolio, getPortfolioBeta, getPortfolioSharpeRatio, getPortfolioStandardDeviation, } from "~/portfolio/portfolio";
+import { Await, useLoaderData } from "@remix-run/react";
 import StandardDeviationCard from "~/components/standardDeviationCard";
 import SharpeRatioCard from "~/components/sharpeRatioCard";
+import { Suspense } from "react";
+import { Card } from "~/components/ui/card";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
@@ -13,30 +14,41 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         return redirect("/login");
     }
 
-    const portfolioData = await getPortfolio(request);
-    const standardDeviation = await getPortfolioStandardDeviation(request, portfolioData);
-    const sharpeRatio = await getPortfolioSharpeRatio(request, portfolioData);
-
+    const standardDeviation = getPortfolioStandardDeviation(request);
+    const sharpeRatio = getPortfolioSharpeRatio(request);
+    const portfolioBeta = getPortfolioBeta(request);
 
     const result = {
-        portfolioData: portfolioData,
         standardDeviation: standardDeviation,
         sharpeRatio: sharpeRatio,
+        portfolioBeta: portfolioBeta,
     };
 
-    return result;
+    return defer(result);
 
 };
 
 export default function Statistics() {
-    const portfolioData = useLoaderData();
+    const { standardDeviation, sharpeRatio, portfolioBeta } = useLoaderData();
     return (
-        <div>
-            <div className="space-y-2">
-                <BetaCard data={portfolioData.portfolioData} />
-                <StandardDeviationCard data={portfolioData.standardDeviation} />
-                <SharpeRatioCard data={portfolioData.sharpeRatio} />
-            </div>
+        <div className="space-y-4">
+            <Suspense fallback={<Card className="w-fit p-2">Loading Standard Deviation</Card>}>
+                <Await resolve={standardDeviation}>
+                    {(data) => <StandardDeviationCard data={data} />}
+                </Await>
+            </Suspense>
+            <Suspense fallback={<Card className="w-fit p-2">Loading Sharpe Ratio</Card>}>
+
+                <Await resolve={sharpeRatio}>
+                    {(data) => <SharpeRatioCard data={data} />}
+                </Await>
+            </Suspense>
+            <Suspense fallback={<Card className="w-fit p-2">Loading Beta</Card>}>
+                <Await resolve={portfolioBeta}>
+                    {(data) => <BetaCard data={data} />}
+                </Await>
+            </Suspense>
+
         </div>
     );
 }

@@ -153,6 +153,8 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
     await redisClient.del(redisKey2);
     const redisKey3 = `portfolio:${sessionUser.uid}`;
     await redisClient.del(redisKey3);
+    const redisKey4 = `portfolioBeta:${sessionUser.uid}`;
+    await redisClient.del(redisKey4);
 
     return null;
 }
@@ -185,11 +187,13 @@ export async function getTransactions(request: Request) {
     return data;
 }
 
-export async function getPortfolioStandardDeviation(request: Request, portfolioData: any) {
+export async function getPortfolioStandardDeviation(request: Request) {
     const sessionUser = await getUserSession(request);
     if (!sessionUser) {
         return redirect("/login");
     }   
+
+    const portfolioData = await getPortfolio(request);
 
     // console.log(redisClient)
     // // use redis cache
@@ -248,11 +252,13 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
 }
 
 
-export async function getPortfolioSharpeRatio(request:Request, portfolioData: any) {
+export async function getPortfolioSharpeRatio(request:Request) {
     const sessionUser = await getUserSession(request);
     if (!sessionUser) {
         return redirect("/login");
     }   
+
+    const portfolioData = await getPortfolio(request);
 
     // console.log(redisClient)
     // // use redis cache
@@ -318,4 +324,34 @@ export async function getPortfolioSharpeRatio(request:Request, portfolioData: an
     await redisClient.set(redisKey, sharpeRatio.toString(), {'EX': 60 * 60 * 24});
 
     return sharpeRatio;
+}
+
+export async function getPortfolioBeta(request: Request) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }   
+
+    const portfolioData = await getPortfolio(request);
+
+    // console.log(redisClient)
+    // // use redis cache
+    const redisKey = `portfolioBeta:${sessionUser.uid}`;
+    const cachedValue = await redisClient.get(redisKey);
+    if (cachedValue) {
+        return parseFloat(cachedValue);
+    }
+
+    let totalValue = 0;
+    for (const stock of portfolioData) {
+        totalValue += stock.totalCurrentValue;
+    }
+    let beta = 0;
+    for (const stock of portfolioData) {
+        beta += (stock.totalCurrentValue / totalValue) * stock.beta;
+    }
+
+    // store in redis cache
+    await redisClient.set(redisKey, beta.toString(), {'EX': 60 * 60 * 24});
+    return beta;
 }

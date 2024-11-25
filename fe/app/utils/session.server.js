@@ -1,8 +1,14 @@
-import {createCookieSessionStorage, redirect} from "@remix-run/node";
-import {adminAuth, getSessionToken, signOutFirebase} from "./db.server.js";
+import { createCookieSessionStorage, redirect } from "@remix-run/node";
+import { adminAuth, getSessionToken, signOutFirebase } from "./db.server.js";
 import dotenv from "dotenv";
+import { LRUCache } from 'lru-cache';
 
 dotenv.config();
+
+const cache = new LRUCache({
+    max: 1000, // Maximum number of items in the cache
+    ttl: 1000 * 60 * 5 // Time-to-live in milliseconds (5 minutes)
+});
 
 const sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
@@ -23,7 +29,7 @@ const storage = createCookieSessionStorage({
 
 export async function createUserSession(idToken, redirectTo) {
     const token = await getSessionToken(idToken)
-    const session =  await storage.getSession();
+    const session = await storage.getSession();
     session.set('token', token);
 
     return redirect(redirectTo, {
@@ -38,8 +44,16 @@ export async function getUserSession(request) {
     const token = cookieSession.get("token");
     if (!token) return null;
 
+    // Check if the token is in the cache
+    if (cache.has(token)) {
+        return cache.get(token);
+    }
+
     try {
-        return await adminAuth.verifySessionCookie(token, true);
+        const session = await adminAuth.verifySessionCookie(token, true);
+        // Store the verified session in the cache
+        cache.set(token, session);
+        return session;
     } catch (error) {
         return null;
     }
