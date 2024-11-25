@@ -82,16 +82,7 @@ export default function App() {
                 <main className="w-full p-2">
                     <Outlet />
                 </main>
-                <Toaster
-                    toastOptions={{
-                        unstyled: true,
-                        classNames: {
-                            error: 'bg-red-50 text-red-600 rounded-xl p-3 shadow-lg',
-                            success: 'bg-green-50 text-green-600 rounded-xl p-3 shadow-md',
-                            warning: 'bg-yellow-50 text-yellow-600 rounded-xl p-3 shadow-md',
-                            info: 'bg-blue-50 text-blue-600 rounded-xl p-3 shadow-lg ',
-                        },
-                    }}
+                <Toaster richColors
                 />
 
             </SidebarProvider>
