@@ -1,4 +1,4 @@
-import {redirect} from "@remix-run/node";
+import {json, redirect} from "@remix-run/node";
 import {db} from "~/utils/db.server";
 import {getUserSession} from "~/utils/session.server";
 import yahooFinance from 'yahoo-finance2';
@@ -108,6 +108,18 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
         return redirect("/login");
     }
     symbol = symbol.toUpperCase();
+
+    // check if the symbol is valid
+    try {
+        const quote = await yahooFinance.quoteSummary(symbol);
+        if (!quote) {
+            return json({ error: `Invalid ticker symbol: ${symbol}` }, { status: 400, statusText: `Invalid ticker symbol: ${symbol}` });
+        }
+    } catch (error) {
+        return json({ error: `Invalid ticker symbol: ${symbol}` }, { status: 400, statusText: `Invalid ticker symbol: ${symbol}` });
+
+    }
+
     await db.collection("transaction").add({
         symbol: symbol,
         quantity: quantity,
@@ -208,7 +220,7 @@ export async function getPortfolioStandardDeviation(request: Request) {
     const symbols = portfolioData.map((item) => item.symbol);
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const totalValue = portfolioData.reduce((acc: number, item: any) => acc + item.totalCurrentValue, 0);
+    const totalValue = portfolioData.reduce((acc: number, item) => acc + item.totalCurrentValue, 0);
 
     for (const symbol of portfolioData) {
         symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
@@ -273,7 +285,7 @@ export async function getPortfolioSharpeRatio(request:Request) {
     const symbols = portfolioData.map((item) => item.symbol);
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const totalValue = portfolioData.reduce((acc: number, item: any) => acc + item.totalCurrentValue, 0);
+    const totalValue = portfolioData.reduce((acc: number, item) => acc + item.totalCurrentValue, 0);
 
     for (const symbol of portfolioData) {
         symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
