@@ -1,19 +1,12 @@
-import {signUpWithEmailAndPasswordFirebase} from "~/utils/db.server";
 import {Form, Link} from "@remix-run/react";
 import {Label} from "~/components/ui/label";
 import {Input} from "~/components/ui/input";
 import {Button} from "~/components/ui/button";
-import {createUserSession} from "~/utils/session.server";
 import {ActionFunctionArgs} from "@remix-run/node";
+import {authenticator} from "~/utils/auth.server";
 
 export const action = async ({request}: ActionFunctionArgs) => {
-    const formData = await request.formData();
-    const email = formData.get("email");
-    const password = formData.get("password");
-
-    const { user } = await signUpWithEmailAndPasswordFirebase(email, password);
-    const token = await user.getIdToken();
-    return createUserSession(token, "/portfolio");
+    return authenticator.authenticate("signup-email-password", request);
 }
 
 export default function SignUp() {

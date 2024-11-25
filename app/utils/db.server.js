@@ -27,8 +27,7 @@ if (!admin.apps.length) {
     });
 }
 
-export const db = admin.firestore();
-export const adminAuth = admin.auth();
+
 
 let Firebase;
 
@@ -36,14 +35,16 @@ if (!Firebase) {
     Firebase = initializeApp(firebaseConfig);
 }
 
+export const db = admin.firestore();
+export const adminAuth = admin.auth();
+export const clientAuth = getAuth(Firebase);
+
 export async function signUpWithEmailAndPasswordFirebase(email, password) {
-    const auth = getAuth(Firebase);
-    return createUserWithEmailAndPassword(auth, email, password);
+    return createUserWithEmailAndPassword(clientAuth, email, password);
 }
 
 export async function signInWithEmailAndPasswordFirebase(email, password) {
-    const auth = getAuth(Firebase);
-    return signInWithEmailAndPassword(auth, email, password);
+    return signInWithEmailAndPassword(clientAuth, email, password);
 }
 
 export async function getSessionToken(idToken) {
@@ -57,6 +58,6 @@ export async function getSessionToken(idToken) {
 }
 
 export async function signOutFirebase() {
-    await signOut(getAuth());
+    await signOut(clientAuth);
 }
 
