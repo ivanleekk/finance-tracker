@@ -2,6 +2,7 @@ import { createCookieSessionStorage, redirect } from "@remix-run/node";
 import { adminAuth, getSessionToken, signOutFirebase } from "./db.server.js";
 import dotenv from "dotenv";
 import { LRUCache } from 'lru-cache';
+import { redirectWithInfo } from "remix-toast";
 
 dotenv.config();
 
@@ -32,7 +33,7 @@ export async function createUserSession(idToken, redirectTo) {
     const session = await sessionStorage.getSession();
     session.set('token', token);
 
-    return redirect(redirectTo, {
+    return redirectWithInfo(redirectTo, "You are now signed in", {
         headers: {
             'Set-Cookie': await sessionStorage.commitSession(session),
         },
@@ -62,7 +63,7 @@ export async function getUserSession(request) {
 export async function destroyUserSession(request) {
     const session = await sessionStorage.getSession(request.headers.get("Cookie"));
     const newCookie = await sessionStorage.destroySession(session);
-    return redirect("/login", { headers: { "Set-Cookie": newCookie } });
+    return redirectWithInfo("/login", "You are now signed out", { headers: { "Set-Cookie": newCookie } });
 }
 
 

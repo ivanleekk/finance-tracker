@@ -68,6 +68,12 @@ export default function App() {
         if (toast?.type === "success") {
             notify.success(toast.message);
         }
+        if (toast?.type === "warning") {
+            notify.warning(toast.message);
+        }
+        if (toast?.type === "info") {
+            notify.info(toast.message);
+        }
     }, [toast]);
     return (
         <Layout>
@@ -77,14 +83,13 @@ export default function App() {
                     <Outlet />
                 </main>
                 <Toaster
-                    position="top-center"
                     toastOptions={{
                         unstyled: true,
                         classNames: {
-                            error: 'bg-red-500 text-white rounded-xl p-3',
-                            success: 'bg-green-500 text-white rounded-xl p-3',
-                            warning: 'bg-yellow-500 text-white rounded-xl p-3',
-                            info: 'bg-blue-500 text-white rounded-xl p-3',
+                            error: 'bg-red-50 text-red-600 rounded-xl p-3 shadow-lg',
+                            success: 'bg-green-50 text-green-600 rounded-xl p-3 shadow-md',
+                            warning: 'bg-yellow-50 text-yellow-600 rounded-xl p-3 shadow-md',
+                            info: 'bg-blue-50 text-blue-600 rounded-xl p-3 shadow-lg ',
                         },
                     }}
                 />
