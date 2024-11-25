@@ -74,9 +74,6 @@ export default function App() {
         else if (toast?.type === "info") {
             notify.info(toast.message);
         }
-        else if (toast) {
-            notify(toast.message);
-        }
     }, [toast]);
     return (
         <Layout>
