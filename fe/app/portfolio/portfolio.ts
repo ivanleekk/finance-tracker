@@ -10,6 +10,13 @@ export async function getPortfolio(request: Request) {
         return redirect("/login");
     }
 
+    // use redis cache
+    const redisKey = `portfolio:${sessionUser.uid}`;
+    const cachedValue = await redisClient.get(redisKey);
+    if (cachedValue) {
+        return JSON.parse(cachedValue);
+    }
+
     const querySnapshot = await db.collection("portfolio").where(
         "user", "==", sessionUser.uid
     ).get();
@@ -47,6 +54,9 @@ export async function getPortfolio(request: Request) {
         });
     }
 
+    // store in redis cache store only for 1 minute since the prices change frequently
+    await redisClient.set(redisKey, JSON.stringify(data), {'EX': 60});
+
     return data;
 }
 
@@ -72,10 +82,24 @@ export async function updatePortfolioItem(request: Request, id: string, quantity
         return redirect("/login");
     }
 
+    if (quantity === 0) {
+        await deletePortfolioItem(request, id);
+        return;
+    }
+
     await db.collection("portfolio").doc(id).update({
         quantity: quantity,
         averagePrice: averagePrice
     });
+}
+
+export async function deletePortfolioItem(request: Request, id: string) {
+    const sessionUser = await getUserSession(request);
+    if (!sessionUser) {
+        return redirect("/login");
+    }
+
+    await db.collection("portfolio").doc(id).delete();
 }
 
 export async function addTrade(request: Request, symbol: string, quantity: number, price: number, tradeType: string) {
@@ -121,6 +145,15 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
         await updatePortfolioItem(request, doc.id, newQuantity, newAveragePrice);
 
     }
+
+    // if new trade is added, invalidate the cache
+    const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
+    await redisClient.del(redisKey);
+    const redisKey2 = `portfolioSharpeRatio:${sessionUser.uid}`;
+    await redisClient.del(redisKey2);
+    const redisKey3 = `portfolio:${sessionUser.uid}`;
+    await redisClient.del(redisKey3);
+
     return null;
 }
 
@@ -280,6 +313,9 @@ export async function getPortfolioSharpeRatio(request:Request, portfolioData: an
     const riskFreeRate = (await yahooFinance.quoteSummary("^TNX")).price.regularMarketPrice/100;
     // calculate the sharpe ratio
     const sharpeRatio = (annualisedReturn - riskFreeRate) / normalisedStandardDeviation;
+
+    // store in redis cache
+    await redisClient.set(redisKey, sharpeRatio.toString(), {'EX': 60 * 60 * 24});
 
     return sharpeRatio;
 }
