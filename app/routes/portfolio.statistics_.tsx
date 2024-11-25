@@ -1,7 +1,7 @@
 import { defer, LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { getUserSession } from "~/utils/session.server";
 import BetaCard from "~/components/betaCard";
-import { getPortfolio, getPortfolioBeta, getPortfolioSharpeRatio, getPortfolioStandardDeviation, } from "~/portfolio/portfolio";
+import { getPortfolioBeta, getPortfolioSharpeRatio, getPortfolioStandardDeviation, } from "~/portfolio/portfolio";
 import { Await, useLoaderData } from "@remix-run/react";
 import StandardDeviationCard from "~/components/standardDeviationCard";
 import SharpeRatioCard from "~/components/sharpeRatioCard";

@@ -1,6 +1,6 @@
 import {redirect} from "@remix-run/node";
 import {db} from "~/utils/db.server";
-import {getUserSession} from "../utils/session.server";
+import {getUserSession} from "~/utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 import redisClient from "~/utils/redisClient";
 
@@ -117,7 +117,7 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
         user: sessionUser.uid
     });
 
-    let portfolioItem = await db.collection("portfolio").where(
+    const portfolioItem = await db.collection("portfolio").where(
         "user", "==", sessionUser.uid
     ).where(
         "symbol", "==", symbol

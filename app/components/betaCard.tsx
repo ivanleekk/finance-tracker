@@ -1,6 +1,6 @@
 import { Card } from "./ui/card";
 
-export default function BetaCard({ data }) {
+export default function BetaCard({ data }: { data: number }) {
     return (
         <Card className="w-fit p-2">
             <h2>Portfolio Beta</h2>

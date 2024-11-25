@@ -1,4 +1,3 @@
-import { Outlet } from "@remix-run/react";
 import { ActionFunctionArgs, redirect } from "@remix-run/node";
 import { signOut } from "~/utils/session.server";
 

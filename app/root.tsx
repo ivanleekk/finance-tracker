@@ -7,12 +7,11 @@ import {
     ScrollRestoration,
     useRouteError,
 } from "@remix-run/react";
-import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs} from "@remix-run/node";
+import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs, json} from "@remix-run/node";
 
 import styles from "./tailwind.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/app-sidebar";
-import { json } from "@remix-run/node";
 import {getUserSession, signOut} from "~/utils/session.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -20,7 +19,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({ isLoggedIn: !!sessionUser });
 };
 
-export let action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request }: ActionFunctionArgs) => {
     return signOut(request);
 }
 

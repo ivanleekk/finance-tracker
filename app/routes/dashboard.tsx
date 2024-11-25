@@ -1,7 +1,6 @@
 import {LoaderFunctionArgs, MetaFunction, redirect} from "@remix-run/node";
-import { SidebarProvider, SidebarTrigger } from "~/components/ui/sidebar";
-import { AppSidebar } from "~/components/app-sidebar";
 import {getUserSession} from "~/utils/session.server";
+import React from "react";
 
 export const meta: MetaFunction = () => {
     return [

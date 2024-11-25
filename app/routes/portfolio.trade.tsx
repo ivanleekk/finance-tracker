@@ -22,12 +22,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: LoaderFunctionArgs) => {
-    let formData = await request.formData();
+    const formData = await request.formData();
 
-    let ticker = formData.get("Ticker");
-    let quantity = formData.get("Number of Shares");
-    let price = formData.get("Price");
-    let tradeType = formData.get("Trade Type");
+    const ticker = formData.get("Ticker");
+    const quantity = formData.get("Number of Shares");
+    const price = formData.get("Price");
+    const tradeType = formData.get("Trade Type");
     // Add the trade to the database
     await addTrade(request, String(ticker), Number(quantity), Number(price), String(tradeType));
     return redirect("/portfolio");

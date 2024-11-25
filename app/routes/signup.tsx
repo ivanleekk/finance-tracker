@@ -6,10 +6,10 @@ import {Button} from "~/components/ui/button";
 import {createUserSession} from "~/utils/session.server";
 import {ActionFunctionArgs} from "@remix-run/node";
 
-export let action = async ({request}: ActionFunctionArgs) => {
-    let formData = await request.formData();
-    let email = formData.get("email");
-    let password = formData.get("password");
+export const action = async ({request}: ActionFunctionArgs) => {
+    const formData = await request.formData();
+    const email = formData.get("email");
+    const password = formData.get("password");
 
     const { user } = await signUpWithEmailAndPasswordFirebase(email, password);
     const token = await user.getIdToken();

@@ -17,7 +17,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Transactions() {
     const transactionData = useLoaderData();
 
-    // @ts-ignore
     return (
         <div>
             <DataTable columns={transactionColumns} data={transactionData} />
