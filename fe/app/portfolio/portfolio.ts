@@ -156,14 +156,15 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
     const sessionUser = await getUserSession(request);
     if (!sessionUser) {
         return redirect("/login");
-    }
+    }   
 
+    // console.log(redisClient)
     // // use redis cache
-    // const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
-    // const cachedValue = await redisClient.get(redisKey);
-    // if (cachedValue) {
-    //     return parseFloat(cachedValue);
-    // }
+    const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
+    const cachedValue = await redisClient.get(redisKey);
+    if (cachedValue) {
+        return parseFloat(cachedValue);
+    }
 
 
     // get historical prices for each stock in the portfolio
@@ -175,14 +176,14 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
     for (const symbol of portfolioData) {
         symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
     }
-    // console.log(portfolioData);
+
     // find the price movement of the whole portfolio for each day
     // calculate the standard deviation of the price movement
 
     const portfolioPrices = [];
     for (const symbol of symbols) {
-        const quote = await yahooFinance.historical(symbol, {period1: oneYearAgo});
-        for (const item of quote) {
+        const quote = await yahooFinance.chart(symbol, {period1: oneYearAgo});
+        for (const item of quote.quotes) {
             const date = new Date(item.date).toDateString();
             const price = item.close * portfolioData.find((item) => item.symbol === symbol).quantity;
             const portfolioPrice = portfolioPrices.find((item) => item.date === date);
@@ -208,7 +209,7 @@ export async function getPortfolioStandardDeviation(request: Request, portfolioD
     const normalisedStandardDeviation = standardDeviation / totalValue;
 
     // store in redis cache
-    // await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60 * 24});
+    await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60 * 24});
 
     return normalisedStandardDeviation;
 }
