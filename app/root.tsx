@@ -4,19 +4,24 @@ import {
     Meta,
     Outlet,
     Scripts,
-    ScrollRestoration,
+    ScrollRestoration, useLoaderData,
     useRouteError,
 } from "@remix-run/react";
-import {ActionFunctionArgs, LinksFunction, LoaderFunctionArgs, json} from "@remix-run/node";
+import { ActionFunctionArgs, LinksFunction, LoaderFunctionArgs, json } from "@remix-run/node";
 
 import styles from "./tailwind.css?url";
+import sonnerStyles from "./sonner.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/app-sidebar";
-import {getUserSession, signOut} from "~/utils/session.server";
+import { getUserSession, signOut } from "~/utils/session.server";
+import { getToast } from "remix-toast";
+import { useEffect } from "react";
+import { Toaster, toast as notify } from "sonner";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
-    return json({ isLoggedIn: !!sessionUser });
+    const { toast, headers } = await getToast(request);
+    return json({ sessionUser, toast }, { headers });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -31,6 +36,7 @@ export const links: LinksFunction = () => [
         crossOrigin: "anonymous",
     },
     { rel: "stylesheet", href: styles },
+    { rel: 'stylesheet', href: sonnerStyles },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -53,6 +59,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+    const { toast } = useLoaderData<typeof loader>();
+
+    useEffect(() => {
+        if (toast?.type === "error") {
+            notify.error(toast.message);
+        }
+        else if (toast?.type === "success") {
+            notify.success(toast.message);
+        }
+        else if (toast?.type === "warning") {
+            notify.warning(toast.message);
+        }
+        else if (toast?.type === "info") {
+            notify.info(toast.message);
+        }
+        else if (toast) {
+            notify(toast.message);
+        }
+    }, [toast]);
     return (
         <Layout>
             <SidebarProvider>
@@ -60,6 +85,10 @@ export default function App() {
                 <main className="w-full p-2">
                     <Outlet />
                 </main>
+                <Toaster richColors
+                    closeButton
+                />
+
             </SidebarProvider>
         </Layout>
     );
@@ -70,7 +99,7 @@ export function ErrorBoundary() {
     return (
         <Layout>
             <SidebarProvider>
-                {/*<AppSidebar />*/}
+                <AppSidebar />
                 <main className="w-full">
                     <div className="text-center text-9xl">
                         {isRouteErrorResponse(error) ? error.status : "Unknown Error"}

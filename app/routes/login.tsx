@@ -7,7 +7,6 @@ import {authenticator} from "~/utils/auth.server";
 import {clientAuth} from "~/utils/db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-    console.log(clientAuth)
     return await authenticator.authenticate("email-password", request);
 };
 
