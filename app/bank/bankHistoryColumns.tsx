@@ -36,13 +36,63 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
         accessorKey: "bankName",
     },
 
+    // BF Column
+    {
+        header: () => <MonthHeader month="B/F from previous year" />,
+        accessorKey: "history",
+        id: "bf",
+        cell: ({ row }) => {
+            // get the lates value for the year
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            const selectedYear = new Date(temp[0].date).getFullYear() - 1;
+
+            // sort the selected year
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the year
+            if (selectedYearData[0]) {
+                return selectedYearData[0].balance;
+            }
+            return 'N/A';
+            // return the balance if it exists
+            // if (monthValue) {
+            //     return monthValue.balance;
+            // }
+        },
+    },
+
     // Jan Column
     {
         header: () => <MonthHeader month="Jan" />,
         accessorKey: "history",
+        id: "jan",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 0;
             });
 
@@ -57,9 +107,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Feb" />,
         accessorKey: "history",
+        id: "feb",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 1;
             });
 
@@ -74,9 +142,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Mar" />,
         accessorKey: "history",
+        id: "mar",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 2;
             });
 
@@ -91,9 +177,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Apr" />,
         accessorKey: "history",
+        id: "apr",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 3;
             });
 
@@ -108,9 +212,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="May" />,
         accessorKey: "history",
+        id: "may",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 4;
             });
 
@@ -125,9 +247,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Jun" />,
         accessorKey: "history",
+        id: "jun",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 5;
             });
 
@@ -142,9 +282,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Jul" />,
         accessorKey: "history",
+        id: "jul",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 6;
             });
 
@@ -159,9 +317,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Aug" />,
         accessorKey: "history",
+        id: "aug",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 7;
             });
 
@@ -176,9 +352,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Sep" />,
         accessorKey: "history",
+        id: "sep",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 8;
             });
 
@@ -193,9 +387,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Oct" />,
         accessorKey: "history",
+        id: "oct",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 9;
             });
 
@@ -210,9 +422,27 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
     {
         header: () => <MonthHeader month="Nov" />,
         accessorKey: "history",
+        id: "nov",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 10;
             });
 
@@ -229,7 +459,24 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
         accessorKey: "history",
         cell: ({ row }) => {
             // get the latest value for the month
-            const monthValue = row.getValue("history").find((entry: any) => {
+            // sort the data
+            const temp = row.getValue("history").sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            })
+
+            // filter the data
+            const selectedYear = new Date(temp[0].date).getFullYear();
+
+            // sort the selected year
+
+            const selectedYearData = temp.filter((entry: any) => {
+                return new Date(entry.date).getFullYear() === selectedYear;
+            }).sort((a: any, b: any) => {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            });
+
+            // get the latest value for the month
+            const monthValue = selectedYearData.find((entry: any) => {
                 return new Date(entry.date).getMonth() === 11;
             });
 

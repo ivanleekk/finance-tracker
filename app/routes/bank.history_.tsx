@@ -29,15 +29,25 @@ export default function BankHistory({ children }: { children: React.ReactNode })
 
 
     useEffect(() => {
-        let temp = bankHistory;
-        temp = temp.filter((record: any) => {
+        const filteredData = bankHistory.map((record: any) => {
             const filteredHistory = record.history.filter((entry: any) => {
-                return new Date(entry.date).getFullYear().toString() === selectedYear.toString();
+                const entryYear = new Date(entry.date).getFullYear().toString();
+                return entryYear === selectedYear.toString() || entryYear === (Number(selectedYear) - 1).toString();
             });
-            return filteredHistory.length > 0;
-        });
-        setBankData(temp);
+
+            // Return the record with the filtered history
+            return {
+                ...record,
+                history: filteredHistory,
+            };
+        }).filter((record: any) => record.history.length > 0); // Only include records with non-empty history
+
+        setBankData(filteredData);
     }, [selectedYear]);
+
+    useEffect(() => {
+        console.log(bankData);
+    }, [bankData]);
 
 
     return (
