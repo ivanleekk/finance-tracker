@@ -8,11 +8,17 @@ export type bankHistory = {
     bankName: string;
     currentBalance: number;
     latestDate: string;
-    history: {
-        date: string; // ISO string date
-        balance: number; // Balance for the given date
-    }[];
+    history: bankHistoryColumn[];
 };
+
+export type bankHistoryColumn = {
+    bankName: string;
+    history: bankHistory;
+};
+
+const MonthHeader = ({ month }: { month: string }) => {
+    return <div className="min-w-10 text-center mx-4">{month}</div>;
+}
 
 // Define columns for the bank history table
 export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
@@ -30,84 +36,207 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
         accessorKey: "bankName",
     },
 
-    // Current Balance Column
+    // Jan Column
     {
-        header: ({ column }) => (
-            <Button
-                variant="tableHead"
-                onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-                Current Balance
-                <ArrowUpDown />
-            </Button>
-        ),
-        accessorKey: "currentBalance",
+        header: () => <MonthHeader month="Jan" />,
+        accessorKey: "history",
         cell: ({ row }) => {
-            const amount = parseFloat(row.getValue("currentBalance"));
-            const formatted = new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: "USD",
-            }).format(amount);
-            return <div className="text-right font-medium">{formatted}</div>;
-        },
-    },
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 0;
+            });
 
-    // Latest Date Column
-    {
-        header: "Latest Date",
-        accessorKey: "latestDate",
-        cell: ({ row }) => {
-            const latestDate = new Date(row.getValue("latestDate"));
-            return latestDate.toLocaleDateString();
-        },
-    },
-
-    {
-        header: "History",
-        accessorKey: "history", // accessorKey for history
-        cell: ({ row }) => {
-            const history = row.getValue("history"); // Access history array
-
-            // Ensure history exists and is an array
-            if (!history || !Array.isArray(history) || history.length === 0) {
-                return <div>No history available</div>;
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
             }
-
-            // Extract all unique dates and sort them in ascending order
-            const uniqueDates = [
-                ...new Set(history.map(entry => new Date(entry.date).toLocaleDateString())),
-            ].sort();
-
-            return (
-                <div className="space-y-2">
-                    <div className="flex gap-4 ">
-                        <>
-                            {uniqueDates.map((date, dateIdx) => {
-                                // Find the latest balance for the corresponding date
-                                const entryForDate = history
-                                    .filter(entry => new Date(entry.date).toLocaleDateString() === date)
-                                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-
-                                return (
-                                    <div key={dateIdx} className="w-full text-right">
-                                        {entryForDate
-                                            ? <div className="flex-row">
-                                                <div>{new Date(entryForDate.date).toLocaleDateString()}</div>
-                                                <div>{entryForDate.balance.toLocaleString("en-US", {
-                                                    style: "currency",
-                                                    currency: "USD",
-                                                })}
-                                                </div>
-                                            </div>
-                                            : "-"}
-                                    </div>
-                                );
-                            })}
-                        </>
-                    </div>
-                </div>
-            );
         },
-    }
+    },
 
+    // Feb Column
+    {
+        header: () => <MonthHeader month="Feb" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 1;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Mar Column
+    {
+        header: () => <MonthHeader month="Mar" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 2;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Apr Column
+    {
+        header: () => <MonthHeader month="Apr" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 3;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // May Column
+    {
+        header: () => <MonthHeader month="May" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 4;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Jun Column
+    {
+        header: () => <MonthHeader month="Jun" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 5;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Jul Column
+    {
+        header: () => <MonthHeader month="Jul" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 6;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Aug Column
+    {
+        header: () => <MonthHeader month="Aug" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 7;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Sep Column
+    {
+        header: () => <MonthHeader month="Sep" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 8;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Oct Column
+    {
+        header: () => <MonthHeader month="Oct" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 9;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Nov Column
+    {
+        header: () => <MonthHeader month="Nov" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 10;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
+
+    // Dec Column
+    {
+        header: () => <MonthHeader month="Dec" />,
+        accessorKey: "history",
+        cell: ({ row }) => {
+            // get the latest value for the month
+            const monthValue = row.getValue("history").find((entry: any) => {
+                return new Date(entry.date).getMonth() === 11;
+            });
+
+            // return the balance if it exists
+            if (monthValue) {
+                return monthValue.balance;
+            }
+        },
+    },
 ];
