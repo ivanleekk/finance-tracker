@@ -5,10 +5,15 @@ import {
     signInWithEmailAndPasswordFirebase, signInWithGoogleIdToken,
     signUpWithEmailAndPasswordFirebase
 } from "~/utils/db.server";
-import {createUserSession, sessionStorage} from "~/utils/session.server";
+import {
+    createUserSession,
+    getUserSession,
+    sessionStorage
+} from "~/utils/session.server";
 import {json} from "@remix-run/node";
 import {GoogleStrategy} from "remix-auth-google";
 import dotenv from "dotenv";
+import {redirectWithError} from "remix-toast";
 
 dotenv.config();
 
@@ -24,7 +29,7 @@ const googleStrategy = new GoogleStrategy({
     }
 );
 
-const authenticator = new Authenticator(sessionStorage);
+export const authenticator = new Authenticator(sessionStorage);
 
 authenticator.use(
     new FormStrategy(async ({form}) => {
@@ -56,4 +61,10 @@ authenticator.use(
     googleStrategy, "google"
 );
 
-export { authenticator };
+export async function requireUserSession(request: Request) {
+    if (await getUserSession(request)) {
+        return;
+    } else {
+        throw await redirectWithError("/login", "You must be logged in to access this page");
+    }
+}

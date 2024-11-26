@@ -12,12 +12,11 @@ import {
 } from "~/components/ui/select";
 import { addTrade } from "~/portfolio/portfolio";
 import { dataWithError, dataWithSuccess } from "remix-toast";
+import {requireUserSession} from "~/utils/auth.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    await requireUserSession(request);
+
 
     return null;
 };

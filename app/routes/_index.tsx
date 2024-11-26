@@ -8,7 +8,6 @@ export default function Home() {
             <h2 className="text-2xl">Please login to continue</h2>
             <Link to="/login">
                 <Button>Login</Button>
-
             </Link>
             <p className="text-xs mt-auto">Built by Ivan</p>
 

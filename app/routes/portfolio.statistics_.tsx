@@ -7,12 +7,11 @@ import StandardDeviationCard from "~/components/standardDeviationCard";
 import SharpeRatioCard from "~/components/sharpeRatioCard";
 import { Suspense } from "react";
 import { Card } from "~/components/ui/card";
+import {requireUserSession} from "~/utils/auth.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    await requireUserSession(request);
+
 
     const standardDeviation = getPortfolioStandardDeviation(request);
     const sharpeRatio = getPortfolioSharpeRatio(request);
