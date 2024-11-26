@@ -3,6 +3,8 @@ import React from "react";
 import { requireUserSession } from "~/utils/auth.server";
 import { getBankHistory } from "~/bank/bank";
 import { useLoaderData } from "@remix-run/react";
+import { DataTable } from "~/components/dataTable";
+import { bankHistoryColumns } from "~/bank/bankHistoryColumns";
 
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -13,11 +15,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export default function BankHistory({ children }: { children: React.ReactNode }) {
     const bankHistory = useLoaderData();
-    console.log(bankHistory);
-    console.log(bankHistory[0].history);
     return (
         <div className="text-center text-9xl">
-            Banks History
+            <DataTable columns={bankHistoryColumns} data={bankHistory} />
         </div>
     );
 }
