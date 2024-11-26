@@ -38,9 +38,9 @@ export const bankColumns: ColumnDef<Bank>[] = [
                 </Button>
             )
         },
-        accessorKey: "balance",
+        accessorKey: "currentBalance",
         cell: ({ row }) => {
-            const amount = parseFloat(row.getValue("balance"))
+            const amount = parseFloat(row.getValue("currentBalance"))
             const formatted = new Intl.NumberFormat("en-US", {
                 style: "currency",
                 currency: "USD",
@@ -48,24 +48,6 @@ export const bankColumns: ColumnDef<Bank>[] = [
 
             return <div className="text-right font-medium">{formatted}</div>
         },
-    },
-    {
-        header: ({ column }) => {
-            return (
-                <Button
-                    variant="tableHead"
-                    onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-                >
-                    Date
-                    <ArrowUpDown />
-                </Button>
-            )
-        },
-        accessorKey: "date",
-        cell: ({ row }) => {
-            const date = new Date(row.getValue("date"))
-            return <div>{date.toLocaleDateString()}</div>
-        }
     },
 ]
 
