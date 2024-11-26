@@ -29,6 +29,10 @@ export default function BankUpdate() {
                     Balance
                     <Input type="number" name="balance" step="0.01" required/>
                 </Label>
+                <Label>
+                    Date
+                    <Input type="date" name="date"/>
+                </Label>
                 <Button type="submit">Add Bank</Button>
             </Form>
         </div>

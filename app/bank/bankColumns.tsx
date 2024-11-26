@@ -1,8 +1,8 @@
 "use client"
 
-import {ColumnDef} from "@tanstack/react-table"
-import {Button} from "~/components/ui/button";
-import {ArrowUpDown} from "lucide-react";
+import { ColumnDef } from "@tanstack/react-table"
+import { Button } from "~/components/ui/button";
+import { ArrowUpDown } from "lucide-react";
 
 // This type is used to define the shape of our data.
 // You can use a Zod schema here if you want.
@@ -13,33 +13,33 @@ export type Bank = {
 
 export const bankColumns: ColumnDef<Bank>[] = [
     {
-        header: ({column}) => {
+        header: ({ column }) => {
             return (
                 <Button
                     variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Bank
-                    <ArrowUpDown/>
+                    <ArrowUpDown />
                 </Button>
             )
         },
         accessorKey: "bankName",
     },
     {
-        header: ({column}) => {
+        header: ({ column }) => {
             return (
                 <Button
                     variant="tableHead"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Balance
-                    <ArrowUpDown/>
+                    <ArrowUpDown />
                 </Button>
             )
         },
         accessorKey: "balance",
-        cell: ({row}) => {
+        cell: ({ row }) => {
             const amount = parseFloat(row.getValue("balance"))
             const formatted = new Intl.NumberFormat("en-US", {
                 style: "currency",
@@ -48,6 +48,24 @@ export const bankColumns: ColumnDef<Bank>[] = [
 
             return <div className="text-right font-medium">{formatted}</div>
         },
+    },
+    {
+        header: ({ column }) => {
+            return (
+                <Button
+                    variant="tableHead"
+                    onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                >
+                    Date
+                    <ArrowUpDown />
+                </Button>
+            )
+        },
+        accessorKey: "date",
+        cell: ({ row }) => {
+            const date = new Date(row.getValue("date"))
+            return <div>{date.toLocaleDateString()}</div>
+        }
     },
 ]
 

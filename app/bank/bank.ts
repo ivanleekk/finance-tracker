@@ -1,6 +1,7 @@
 import {db} from "~/utils/db.server";
 import {requireUserSession} from "~/utils/auth.server";
 import {dataWithError, dataWithSuccess} from "remix-toast";
+import { date } from "zod";
 
 export async function getBankInfo(request: Request) {
     const sessionUser = await requireUserSession(request);
@@ -31,7 +32,8 @@ export async function addBankInfo(request: Request) {
     const bankData = {
         user: sessionUser.uid,
         bankName: data.get('bankName').toString().toUpperCase(),
-        balance: Number(data.get('balance'))
+        balance: Number(data.get('balance')),
+        date: data.get('date') || new Date().toDateString(),
     };
 
     if (isNaN(bankData.balance)) {
