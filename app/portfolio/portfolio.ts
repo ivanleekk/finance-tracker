@@ -3,12 +3,10 @@ import {db} from "~/utils/db.server";
 import {getUserSession} from "~/utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 import redisClient from "~/utils/redisClient";
+import {requireUserSession} from "~/utils/auth.server";
 
 export async function getPortfolio(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
 
     // use redis cache
     const redisKey = `portfolio:${sessionUser.uid}`;
@@ -61,10 +59,8 @@ export async function getPortfolio(request: Request) {
 }
 
 export async function addPortfolioItem(request: Request, symbol: string, quantity: number, averagePrice: number) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     await db.collection("portfolio").add({
         symbol: symbol.toUpperCase(),
@@ -77,10 +73,8 @@ export async function addPortfolioItem(request: Request, symbol: string, quantit
 }
 
 export async function updatePortfolioItem(request: Request, id: string, quantity: number, averagePrice: number) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     if (quantity === 0) {
         await deletePortfolioItem(request, id);
@@ -94,19 +88,15 @@ export async function updatePortfolioItem(request: Request, id: string, quantity
 }
 
 export async function deletePortfolioItem(request: Request, id: string) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     await db.collection("portfolio").doc(id).delete();
 }
 
 export async function addTrade(request: Request, symbol: string, quantity: number, price: number, tradeType: string) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
     symbol = symbol.toUpperCase();
 
     // check if the symbol is valid
@@ -172,10 +162,8 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
 }
 
 export async function getTransactions(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     const querySnapshot = await db.collection("transaction").where(
         "user", "==", sessionUser.uid
@@ -200,10 +188,8 @@ export async function getTransactions(request: Request) {
 }
 
 export async function getPortfolioStandardDeviation(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 
@@ -265,10 +251,8 @@ export async function getPortfolioStandardDeviation(request: Request) {
 
 
 export async function getPortfolioSharpeRatio(request:Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 
@@ -339,10 +323,8 @@ export async function getPortfolioSharpeRatio(request:Request) {
 }
 
 export async function getPortfolioBeta(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 

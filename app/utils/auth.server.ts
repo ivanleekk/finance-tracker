@@ -62,8 +62,9 @@ authenticator.use(
 );
 
 export async function requireUserSession(request: Request) {
-    if (await getUserSession(request)) {
-        return;
+    const userSession = await getUserSession(request);
+    if (userSession) {
+        return userSession;
     } else {
         throw await redirectWithError("/login", "You must be logged in to access this page");
     }
