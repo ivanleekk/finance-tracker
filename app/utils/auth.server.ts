@@ -15,7 +15,7 @@ import {GoogleStrategy} from "remix-auth-google";
 import dotenv from "dotenv";
 import {redirectWithError} from "remix-toast";
 
-dotenv.config();
+dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
 const googleStrategy = new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -25,7 +25,7 @@ const googleStrategy = new GoogleStrategy({
     // Get the user data from your DB or API using the tokens and profile
     const { user } = await signInWithGoogleIdToken(extraParams.id_token);
     const token = await user.getIdToken();
-    return createUserSession(token, "/portfolio");
+    return createUserSession(token, "/dashboard");
     }
 );
 
@@ -41,7 +41,7 @@ authenticator.use(
             try {
                 const { user } = await signInWithEmailAndPasswordFirebase(email, password);
                 const token = await user.getIdToken();
-                return createUserSession(token, "/portfolio");
+                return createUserSession(token, "/dashboard");
             } catch (error) {
                 return json({ error: "Invalid email or password" }, { status: 400 });
             }
@@ -56,7 +56,7 @@ authenticator.use(
 
         const { user } = await signUpWithEmailAndPasswordFirebase(email, password);
         const token = await user.getIdToken();
-        return createUserSession(token, "/portfolio");
+        return createUserSession(token, "/dashboard");
     }), "signup-email-password").use(
     googleStrategy, "google"
 );

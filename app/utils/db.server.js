@@ -1,7 +1,7 @@
 // Import the functions you need from the SDKs you need
-import {initializeApp} from "firebase/app";
+import { initializeApp } from "firebase/app";
 import admin from "firebase-admin";
-import {applicationDefault} from "firebase-admin/app";
+import { applicationDefault } from "firebase-admin/app";
 import {
     createUserWithEmailAndPassword,
     getAuth,
@@ -13,24 +13,24 @@ import {
 import dotenv from "dotenv";
 
 
-dotenv.config();
+dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSyC-tNeIxNn_X6eyj5z1jizoWz9aguFSI7c",
-    authDomain: "finance-tracker-5a29c.firebaseapp.com",
-    projectId: "finance-tracker-5a29c",
-    storageBucket: "finance-tracker-5a29c.firebasestorage.app",
-    messagingSenderId: "49464458067",
-    appId: "1:49464458067:web:402267ff2c61192f133fa6",
-    measurementId: "G-XHV4B21QGD"
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    measurementId: process.env.FIREBASE_MEASUREMENT_ID
 };
 
 if (!admin.apps.length) {
     admin.initializeApp({
         credential: applicationDefault(),
-        databaseURL: "https://finance-tracker-5a29c.asia-southeast1.firebaseio.com"
+        databaseURL: process.env.FIREBASE_DATABASE_URL
     });
 }
 
@@ -61,7 +61,7 @@ export async function getSessionToken(idToken) {
         throw new Error('Recent sign-in required');
     }
     const twoWeeks = 60 * 60 * 24 * 14 * 1000;
-    return adminAuth.createSessionCookie(idToken, {expiresIn: twoWeeks});
+    return adminAuth.createSessionCookie(idToken, { expiresIn: twoWeeks });
 
 }
 

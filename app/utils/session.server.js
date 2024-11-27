@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import { LRUCache } from 'lru-cache';
 import { redirectWithInfo } from "remix-toast";
 
-dotenv.config();
+dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
 const cache = new LRUCache({
     max: 1000, // Maximum number of items in the cache
