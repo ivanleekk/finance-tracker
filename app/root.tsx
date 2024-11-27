@@ -1,5 +1,6 @@
 import {
     isRouteErrorResponse,
+    Link,
     Links,
     Meta,
     Outlet,
@@ -96,7 +97,7 @@ export function ErrorBoundary() {
     return (
         <Layout>
             <SidebarProvider>
-                <AppSidebar />
+                {/* <AppSidebar /> */}
                 <main className="w-full">
                     <div className="text-center text-9xl">
                         {isRouteErrorResponse(error) ? error.status : "Unknown Error"}
@@ -104,6 +105,9 @@ export function ErrorBoundary() {
                     <div className="text-center text-xl">
                         {isRouteErrorResponse(error) ? error.statusText : (error as Error).message}
                     </div>
+                    <Link to="/">
+                        <div className="text-center text-xl underline text-blue-500">Go Home</div>
+                    </Link>
                 </main>
             </SidebarProvider>
         </Layout>
