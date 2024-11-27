@@ -2,5 +2,6 @@ node_modules
 /.idea
 /.cache
 /build
-.env
-serviceAccountKey.json
+.env*
+devServiceAccountKey.json
+prodServiceAccountKey.json

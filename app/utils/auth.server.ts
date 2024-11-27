@@ -15,7 +15,7 @@ import {GoogleStrategy} from "remix-auth-google";
 import dotenv from "dotenv";
 import {redirectWithError} from "remix-toast";
 
-dotenv.config();
+dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
 const googleStrategy = new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
