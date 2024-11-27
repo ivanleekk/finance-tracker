@@ -38,7 +38,7 @@ export default function Statistics() {
                 loadingMessage="Loading Current Portfolio Value"
                 resolvePromise={portfolio}
                 renderContent={(data) => (
-                    "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0)
+                    "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0).toFixed(2)
                 )}
             />
             <SuspenseCard

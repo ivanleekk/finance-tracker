@@ -56,7 +56,7 @@ export default function Index() {
                         resolvePromise={portfolio.portfolio}
                         className="col-span-3"
                         renderContent={(data) => (
-                            "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0)
+                            "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0).toFixed(2)
                         )}
                     />
                     <SuspenseCard
@@ -100,10 +100,15 @@ export default function Index() {
                         title="Largest Bank Account"
                         loadingMessage="Loading Largest Bank Account"
                         resolvePromise={bank}
-                        renderContent={(data) => (
-                            data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).bankName +
-                            " $" + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
-                        )
+                        renderContent={(data) => {
+                            if (data.length === 0) {
+                                return "No bank accounts";
+                            }
+                            else {
+                                data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance)))?.bankName +
+                                    " $" + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
+                            }
+                        }
                         }
                     />
 
