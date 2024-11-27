@@ -36,7 +36,7 @@ export function AppSidebar() {
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarMenuButton asChild>
-                        <Link to="/dashboard" prefetch="intent">
+                        <Link to="/dashboard">
                             <Gauge />
                             Dashboard
                         </Link>
