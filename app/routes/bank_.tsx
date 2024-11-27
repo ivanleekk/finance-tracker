@@ -5,11 +5,12 @@ import { useLoaderData } from "@remix-run/react";
 import { DataTable } from "~/components/dataTable";
 import { bankColumns } from "~/bank/bankColumns";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
+import SuspenseCard from "~/components/suspenseCard";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     await requireUserSession(request);
 
-    return await getBankInfo(request);
+    return getBankInfo(request);
 };
 
 export default function Bank() {
@@ -17,14 +18,16 @@ export default function Bank() {
     return (
         <div className="flex flex-row space-x-4">
             <DataTable columns={bankColumns} data={bankData} />
-            <Card className="h-fit">
-                <CardHeader>Total Cash</CardHeader>
-                <CardContent>
-                    <div className="text-3xl font-bold text-center">
-                        ${bankData.reduce((acc, bank) => acc + bank.currentBalance, 0)}
-                    </div>
-                </CardContent>
-            </Card>
+            <SuspenseCard
+                title="Total Cash"
+                loadingMessage="Loading Total Cash"
+                resolvePromise={bankData}
+                className="w-fit h-fit"
+                renderContent={(data) => (
+                    "$" + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
+                )
+                }
+            />
         </div>
     );
 }
