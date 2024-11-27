@@ -87,14 +87,16 @@ export function BankHistoryTable<TData, TValue>({
                     )}
                 </TableBody>
                 <TableFooter>
-                    {table.getFooterGroups().map((footerGroup) => (
+                    {table.getFooterGroups().map(footerGroup => (
                         <TableRow key={footerGroup.id}>
-                            {footerGroup.headers.map((footer) => (
-                                <TableCell key={footer.id} className="p-2 m-2 text-center">
-                                    {flexRender(
-                                        footer.column.columnDef.footer,
-                                        footer.getContext()
-                                    )}
+                            {footerGroup.headers.map(header => (
+                                <TableCell key={header.id}>
+                                    {header.isPlaceholder
+                                        ? null
+                                        : flexRender(
+                                            header.column.columnDef.footer,
+                                            header.getContext()
+                                        )}
                                 </TableCell>
                             ))}
                         </TableRow>
