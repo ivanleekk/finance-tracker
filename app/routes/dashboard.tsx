@@ -1,4 +1,4 @@
-import { defer, LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
+import { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
 import { requireUserSession } from "~/utils/auth.server";
 import { getPortfolio, getPortfolioBeta, getPortfolioSharpeRatio, getPortfolioStandardDeviation } from "~/portfolio/portfolio";
 import { getBankInfo } from "~/bank/bank";
@@ -10,6 +10,7 @@ import { Suspense } from "react";
 import StandardDeviationCard from "~/components/standardDeviationCard";
 import BetaCard from "~/components/betaCard";
 import SharpeRatioCard from "~/components/sharpeRatioCard";
+import { defer } from "@vercel/remix";
 import SuspenseCard from "~/components/suspenseCard";
 
 export const meta: MetaFunction = () => {

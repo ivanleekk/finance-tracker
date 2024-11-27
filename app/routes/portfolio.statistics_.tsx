@@ -1,4 +1,4 @@
-import { defer, LoaderFunctionArgs, redirect } from "@remix-run/node";
+import { LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { getUserSession } from "~/utils/session.server";
 import BetaCard from "~/components/betaCard";
 import { getPortfolio, getPortfolioBeta, getPortfolioSharpeRatio, getPortfolioStandardDeviation, } from "~/portfolio/portfolio";
@@ -9,6 +9,8 @@ import { Suspense } from "react";
 import { Card } from "~/components/ui/card";
 import { requireUserSession } from "~/utils/auth.server";
 import SuspenseCard from "~/components/suspenseCard";
+import { defer } from "@vercel/remix";
+
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     await requireUserSession(request);

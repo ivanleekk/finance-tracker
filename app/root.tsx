@@ -7,8 +7,8 @@ import {
     ScrollRestoration, useLoaderData,
     useRouteError,
 } from "@remix-run/react";
-import { ActionFunctionArgs, LinksFunction, LoaderFunctionArgs, json } from "@remix-run/node";
-
+import { ActionFunctionArgs, LinksFunction, LoaderFunctionArgs } from "@remix-run/node";
+import { json } from "@vercel/remix";
 import styles from "./tailwind.css?url";
 import sonnerStyles from "./sonner.css?url";
 import { SidebarProvider } from "./components/ui/sidebar";

@@ -21,9 +21,11 @@ import {
     SidebarMenuButton,
     SidebarMenuSub,
 } from "~/components/ui/sidebar";
+import { loader } from "~/root";
 
 export function AppSidebar() {
-    const isLoggedIn = useLoaderData().sessionUser;
+    const isLoggedIn = useLoaderData<typeof loader>().sessionUser ? true : false;
+
     return (
         <Sidebar className="w-fit">
             <SidebarHeader>

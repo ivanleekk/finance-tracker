@@ -10,7 +10,8 @@ import {
     getUserSession,
     sessionStorage
 } from "~/utils/session.server";
-import {json} from "@remix-run/node";
+import { json } from "@vercel/remix";
+
 import {GoogleStrategy} from "remix-auth-google";
 import dotenv from "dotenv";
 import {redirectWithError} from "remix-toast";
