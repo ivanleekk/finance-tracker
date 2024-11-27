@@ -64,20 +64,20 @@ export default function Index() {
                         loadingMessage="Loading Standard Deviation"
                         resolvePromise={portfolio.standardDeviation}
                         className="col-span-2"
-                        renderContent={(data) => data.toFixed(4)}
+                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
                     />
                     <SuspenseCard
                         title="Beta"
                         loadingMessage="Loading Beta"
                         resolvePromise={portfolio.portfolioBeta}
-                        renderContent={(data) => data.toFixed(2)}
+                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(2)}
                     />
                     <SuspenseCard
                         title="Sharpe Ratio"
                         loadingMessage="Loading Sharpe Ratio"
                         className="col-span-2"
                         resolvePromise={portfolio.sharpeRatio}
-                        renderContent={(data) => data.toFixed(4)}
+                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
                     />
 
                 </CardContent>

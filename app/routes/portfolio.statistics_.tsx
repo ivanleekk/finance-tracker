@@ -45,19 +45,19 @@ export default function Statistics() {
                 title="Standard Deviation"
                 loadingMessage="Loading Standard Deviation"
                 resolvePromise={standardDeviation}
-                renderContent={(data) => data.toFixed(4)}
+                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
             />
             <SuspenseCard
                 title="Sharpe Ratio"
                 loadingMessage="Loading Sharpe Ratio"
                 resolvePromise={sharpeRatio}
-                renderContent={(data) => data.toFixed(4)}
+                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
             />
             <SuspenseCard
                 title="Beta"
                 loadingMessage="Loading Beta"
                 resolvePromise={portfolioBeta}
-                renderContent={(data) => data.toFixed(4)}
+                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
             />
         </div>
     );
