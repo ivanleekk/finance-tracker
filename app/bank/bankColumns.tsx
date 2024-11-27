@@ -49,6 +49,13 @@ export const bankColumns: ColumnDef<Bank>[] = [
             return <div className="text-right font-medium">{formatted}</div>
         },
     },
+    {
+        header: "Last Updated",
+        accessorFn: (row) => new Date(row.latestDate).toLocaleDateString(),
+        cell: (info) => {
+            return <div className="text-right">{info.getValue()}</div>
+        }
+    }
 ]
 
 

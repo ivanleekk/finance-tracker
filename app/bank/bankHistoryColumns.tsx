@@ -18,9 +18,16 @@ export type bankHistoryColumn = {
 };
 
 const columnHelper = createColumnHelper<bankHistory>();
+const futureBalance = '-';
 
 // Helper function to find balance for a specific month
 const getMonthBalance = (row: bankHistory, month: number) => {
+    if (row.monthlyData.length === 0) {
+        return 0;
+    }
+    if (row.monthlyData[0].year === new Date().getFullYear() && month > new Date().getMonth()) {
+        return futureBalance;
+    }
     return row.monthlyData.find((data) => data.month === month)?.balance || 0;
 };
 
@@ -75,6 +82,11 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
             const total = info.table.getRowModel().rows
                 .reduce((sum, row) => sum + getMonthBalance(row.original, monthIndex), 0);
 
+
+            // check if the future balance is in total as a string
+            if (total.toString().includes(futureBalance)) {
+                return futureBalance;
+            }
             return total.toLocaleString('en-US', {
                 style: 'currency',
                 currency: 'USD'
