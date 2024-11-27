@@ -101,11 +101,12 @@ export default function Index() {
                         loadingMessage="Loading Largest Bank Account"
                         resolvePromise={bank}
                         renderContent={(data) => {
+                            console.log(data);
                             if (data.length === 0) {
                                 return "No bank accounts";
                             }
                             else {
-                                data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance)))?.bankName +
+                                return data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance)))?.bankName +
                                     " $" + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
                             }
                         }
