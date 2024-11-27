@@ -43,11 +43,32 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
         header: monthName,
         accessorFn: (row: bankHistory) => getMonthBalance(row, monthIndex),
         cell: (info) => {
-            const value = info.getValue() as number;
-            return value.toLocaleString('en-US', {
-                style: 'currency',
-                currency: 'USD'
-            });
+            const currentValue = info.getValue() as number;
+
+            // Get the previous month's balance
+            const row = info.row.original;
+            const prevMonthBalance = monthIndex > 0
+                ? getMonthBalance(row, monthIndex - 1)
+                : null;
+
+            // Determine cell style
+            let textColor = '';
+            if (prevMonthBalance !== null) {
+                if (currentValue > prevMonthBalance) {
+                    textColor = 'text-green-600'; // Increased
+                } else if (currentValue < prevMonthBalance) {
+                    textColor = 'text-red-600'; // Decreased
+                }
+            }
+
+            return (
+                <span className={`${textColor}`}>
+                    {currentValue.toLocaleString('en-US', {
+                        style: 'currency',
+                        currency: 'USD'
+                    })}
+                </span>
+            );
         },
         footer: (info) => {
             // Calculate total for this month across all rows

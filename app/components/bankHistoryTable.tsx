@@ -52,7 +52,7 @@ export function BankHistoryTable<TData, TValue>({
                     {table.getHeaderGroups().map((headerGroup) => (
                         <TableRow key={headerGroup.id}>
                             {headerGroup.headers.map((header) => (
-                                <TableHead key={header.id} className="p-2 m-2 text-center">
+                                <TableHead key={header.id} className="p-2 m-2 text-center border">
                                     {header.isPlaceholder
                                         ? null
                                         : flexRender(
@@ -72,7 +72,7 @@ export function BankHistoryTable<TData, TValue>({
                                 data-state={row.getIsSelected() && "selected"}
                             >
                                 {row.getVisibleCells().map((cell) => (
-                                    <TableCell key={cell.id}>
+                                    <TableCell key={cell.id} className="border">
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                     </TableCell>
                                 ))}
@@ -90,7 +90,7 @@ export function BankHistoryTable<TData, TValue>({
                     {table.getFooterGroups().map(footerGroup => (
                         <TableRow key={footerGroup.id}>
                             {footerGroup.headers.map(header => (
-                                <TableCell key={header.id}>
+                                <TableCell key={header.id} className="border">
                                     {header.isPlaceholder
                                         ? null
                                         : flexRender(
