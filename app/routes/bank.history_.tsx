@@ -1,71 +1,87 @@
 import { LoaderFunctionArgs } from "@remix-run/node";
-import React, { useEffect, useState } from "react";
 import { requireUserSession } from "~/utils/auth.server";
-import { getBankHistory } from "~/bank/bank";
+import { getBankHistoryMonthly } from "~/bank/bank";
 import { useLoaderData } from "@remix-run/react";
-import { DataTable } from "~/components/dataTable";
 import { bankHistoryColumns } from "~/bank/bankHistoryColumns";
-import { Select, SelectItem, SelectValue, SelectContent, SelectTrigger } from "~/components/ui/select";
+import { BankHistoryTable } from "~/components/bankHistoryTable";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { ReactNode, useEffect, useState } from "react";
 
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     await requireUserSession(request);
 
-    return await getBankHistory(request);
+    return await getBankHistoryMonthly(request);
 };
 
-export default function BankHistory({ children }: { children: React.ReactNode }) {
+export default function BankHistory({ children }: { children: ReactNode }) {
     const bankHistory = useLoaderData<typeof loader>();
-    const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
-    const [bankData, setBankData] = useState<any>(bankHistory);
-
-    const availableYears = Array.from(
-        new Set(
-            bankHistory.flatMap((record: any) =>
-                record.history.map((entry: any) => new Date(entry.date).getFullYear())
-            )
-        )
-    ).sort();
-
+    const availableYears: string[] = bankHistory.availableYears;
+    const [selectedYear, setSelectedYear] = useState<string | null>(new Date().getFullYear().toString());
+    const [data, setData] = useState<typeof bankHistory.data>([]);
 
     useEffect(() => {
-        const filteredData = bankHistory.map((record: any) => {
-            const filteredHistory = record.history.filter((entry: any) => {
-                const entryYear = new Date(entry.date).getFullYear().toString();
-                return entryYear === selectedYear.toString() || entryYear === (Number(selectedYear) - 1).toString();
-            });
+        // on page load
+        if (!selectedYear) return;
+        const selectedData = [];
+        // Filter the data based on the selected year
+        for (const bank of bankHistory.data) {
+            // except monthlyData
+            const newBank = { ...bank, monthlyData: [] };
+            for (const monthlyData of bank.monthlyData) {
+                if (monthlyData.year === Number(selectedYear)) {
+                    newBank.monthlyData.push(monthlyData);
+                }
+            }
+            selectedData.push(newBank);
+        }
 
-            // Return the record with the filtered history
-            return {
-                ...record,
-                history: filteredHistory,
-            };
-        }).filter((record: any) => record.history.length > 0); // Only include records with non-empty history
-
-        setBankData(filteredData);
-    }, [selectedYear]);
+        setData(selectedData);
+    }, []);
 
     useEffect(() => {
-        console.log(bankData);
-    }, [bankData]);
+        if (!selectedYear) return;
+        const selectedData = [];
+        // Filter the data based on the selected year
+        for (const bank of bankHistory.data) {
+            // except monthlyData
+            const newBank = { ...bank, monthlyData: [] };
+            for (const monthlyData of bank.monthlyData) {
+                if (monthlyData.year === Number(selectedYear)) {
+                    newBank.monthlyData.push(monthlyData);
+                }
+            }
+            selectedData.push(newBank);
+        }
+
+        setData(selectedData);
+    }, [selectedYear, bankHistory.data]);
 
 
     return (
         <div className="text-center text-9xl space-y-4">
-            <Select defaultValue={selectedYear} onValueChange={setSelectedYear}>
-                <SelectTrigger className="w-1/3">
-                    <SelectValue>{selectedYear ? selectedYear : "Select the Year you want to view"} </SelectValue>
+            <Select onValueChange={setSelectedYear}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select Year to view" />
                 </SelectTrigger>
                 <SelectContent>
-                    {availableYears.map(year => (
-                        <SelectItem key={year} value={year}>
+                    {availableYears.map((year) => (
+                        <SelectItem value={year} className="p-2">
                             {year}
                         </SelectItem>
                     ))}
                 </SelectContent>
-
             </Select>
-            <DataTable columns={bankHistoryColumns} data={bankData} />
+            <BankHistoryTable columns={bankHistoryColumns} data={data} />
+        </div>
+    );
+}
+
+export function ErrorBoundary() {
+    return (
+        <div className="text-center text-9xl space-y-4">
+            <h1>Bank History</h1>
+            <p>There was an error</p>
         </div>
     );
 }

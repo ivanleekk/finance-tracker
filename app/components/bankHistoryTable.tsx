@@ -25,7 +25,7 @@ interface DataTableProps<TData, TValue> {
     data: TData[]
 }
 
-export function DataTable<TData, TValue>({
+export function BankHistoryTable<TData, TValue>({
     columns,
     data,
 }: DataTableProps<TData, TValue>) {
@@ -43,6 +43,7 @@ export function DataTable<TData, TValue>({
         },
         onSortingChange: setSorting,
     })
+
 
     return (
         <div className="rounded-md border w-fit">
@@ -85,6 +86,20 @@ export function DataTable<TData, TValue>({
                         </TableRow>
                     )}
                 </TableBody>
+                <TableFooter>
+                    {table.getFooterGroups().map((footerGroup) => (
+                        <TableRow key={footerGroup.id}>
+                            {footerGroup.headers.map((footer) => (
+                                <TableCell key={footer.id} className="p-2 m-2 text-center">
+                                    {flexRender(
+                                        footer.column.columnDef.footer,
+                                        footer.getContext()
+                                    )}
+                                </TableCell>
+                            ))}
+                        </TableRow>
+                    ))}
+                </TableFooter>
             </Table>
         </div>
     )

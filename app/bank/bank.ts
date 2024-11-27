@@ -1,6 +1,7 @@
 import { db } from "~/utils/db.server";
 import { requireUserSession } from "~/utils/auth.server";
 import { dataWithError, dataWithSuccess } from "remix-toast";
+import { bankHistory } from "./bankHistoryColumns";
 
 export async function getBankInfo(request: Request) {
     const sessionUser = await requireUserSession(request);
@@ -126,6 +127,70 @@ export async function getBankHistory(request: Request) {
     }
 
     return data;
+}
+
+export async function getBankHistoryMonthly(request: Request): Promise<{data: {bankName: string, currentBalance: number, latestDate: string, monthlyData: {year: number, month: number, date: string, balance: number}[]}[], availableYears: string[]}> {
+    const sessionUser = await requireUserSession(request);
+
+    const data = [];
+    const querySnapshot = await db
+        .collection("bank")
+        .where("user", "==", sessionUser.uid)
+        .get();
+
+    const availableYears = new Set();
+
+    for (const bankDoc of querySnapshot.docs) {
+        const historySnapshot = await db
+            .collection("bank")
+            .doc(bankDoc.id)
+            .collection("bankHistory")
+            .get();
+
+        const history = historySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+
+        // get the MOST RECENT date for each month in each year
+        // and get the balance for that date
+        const monthlyData = history.reduce((acc, entry) => {
+            const entryDate = new Date(entry.date);
+            const year = entryDate.getFullYear();
+            availableYears.add(year.toString());
+            const month = entryDate.getMonth();
+
+            const existingEntry = acc.find(
+                item => item.year === year && item.month === month
+            );
+
+            if (!existingEntry) {
+                acc.push({
+                    year,
+                    month,
+                    date: entry.date,
+                    balance: entry.balance,
+                });
+            } else {
+                const existingDate = new Date(existingEntry.date);
+                if (entryDate > existingDate) {
+                    existingEntry.date = entry.date;
+                    existingEntry.balance = entry.balance;
+                }
+            }
+
+            return acc;
+        }, []);
+
+        data.push({
+            bankName: bankDoc.data().bankName,
+            currentBalance: bankDoc.data().currentBalance,
+            latestDate: bankDoc.data().latestDate,
+            monthlyData,
+        });
+    }
+
+    return {data, availableYears: Array.from(availableYears).sort()};
 }
 
 function standardizeDate(inputDate) {
