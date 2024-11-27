@@ -92,7 +92,7 @@ export default function Index() {
                         loadingMessage="Loading Total Cash"
                         resolvePromise={bank}
                         renderContent={(data) => (
-                            "$" + data.reduce((acc, bank) => acc + bank.currentBalance, 0)
+                            "$" + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
                         )
                         }
                     />
