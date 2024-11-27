@@ -4,12 +4,11 @@ import {getTransactions} from "~/portfolio/portfolio";
 import {useLoaderData} from "@remix-run/react";
 import {DataTable} from "~/components/dataTable";
 import {transactionColumns} from "~/portfolio/transactionColumns";
+import {requireUserSession} from "~/utils/auth.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    await requireUserSession(request);
+
 
     return await getTransactions(request);
 };

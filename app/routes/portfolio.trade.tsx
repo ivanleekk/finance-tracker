@@ -1,43 +1,28 @@
-import { Form, useActionData, useRouteError } from "@remix-run/react";
-import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
-import { getUserSession } from "~/utils/session.server";
+import {Form, useActionData, useRouteError} from "@remix-run/react";
+import {Button} from "~/components/ui/button";
+import {Input} from "~/components/ui/input";
+import {Label} from "~/components/ui/label";
+import {LoaderFunctionArgs} from "@remix-run/node";
 import {
     Select,
     SelectContent,
     SelectItem,
-    SelectTrigger, SelectValue
+    SelectTrigger,
+    SelectValue
 } from "~/components/ui/select";
-import { addTrade } from "~/portfolio/portfolio";
-import { dataWithError, dataWithSuccess } from "remix-toast";
+import {addTrade} from "~/portfolio/portfolio";
+import {requireUserSession} from "~/utils/auth.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    await requireUserSession(request);
+
 
     return null;
 };
 
 export const action = async ({ request }: LoaderFunctionArgs) => {
-    const formData = await request.formData();
-
-    const ticker = formData.get("Ticker");
-    const quantity = formData.get("Number of Shares");
-    const price = formData.get("Price");
-    const tradeType = formData.get("Trade Type");
     // Add the trade to the database
-    const result = await addTrade(request, String(ticker), Number(quantity), Number(price), String(tradeType));
-
-    if (result && result.status === 400) {
-        return dataWithError(json({ error: result.statusText }, { status: 400, statusText: result.statusText }), `Failed to add trade: ${result.statusText}`);
-    }
-    else {
-        return dataWithSuccess(null, `Trade added successfully for ${ticker?.toString().toLocaleUpperCase()}`);
-    }
+    return await addTrade(request);
 }
 
 export default function Trade() {

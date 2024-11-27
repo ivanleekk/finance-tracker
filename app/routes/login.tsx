@@ -4,7 +4,6 @@ import {Input} from "~/components/ui/input";
 import {Label} from "~/components/ui/label";
 import {ActionFunctionArgs} from "@remix-run/node";
 import {authenticator} from "~/utils/auth.server";
-import {clientAuth} from "~/utils/db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
     return await authenticator.authenticate("email-password", request);

@@ -3,12 +3,11 @@ import {db} from "~/utils/db.server";
 import {getUserSession} from "~/utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 import redisClient from "~/utils/redisClient";
+import {requireUserSession} from "~/utils/auth.server";
+import {dataWithError, dataWithSuccess} from "remix-toast";
 
 export async function getPortfolio(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
 
     // use redis cache
     const redisKey = `portfolio:${sessionUser.uid}`;
@@ -61,10 +60,8 @@ export async function getPortfolio(request: Request) {
 }
 
 export async function addPortfolioItem(request: Request, symbol: string, quantity: number, averagePrice: number) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     await db.collection("portfolio").add({
         symbol: symbol.toUpperCase(),
@@ -77,10 +74,8 @@ export async function addPortfolioItem(request: Request, symbol: string, quantit
 }
 
 export async function updatePortfolioItem(request: Request, id: string, quantity: number, averagePrice: number) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     if (quantity === 0) {
         await deletePortfolioItem(request, id);
@@ -94,29 +89,41 @@ export async function updatePortfolioItem(request: Request, id: string, quantity
 }
 
 export async function deletePortfolioItem(request: Request, id: string) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     await db.collection("portfolio").doc(id).delete();
 }
 
-export async function addTrade(request: Request, symbol: string, quantity: number, price: number, tradeType: string) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
+export async function addTrade(request: Request) {
+    const sessionUser = await requireUserSession(request);
+
+    const formData = await request.formData();
+    const symbol = formData.get("Ticker").toString().toUpperCase();
+    const quantity = Number(formData.get("Number of Shares"));
+    const price = Number(formData.get("Price"));
+    const tradeType = formData.get("Trade Type").toString();
+
+    if (isNaN(Number(quantity)) || isNaN(Number(price))) {
+        return dataWithError({ status: 400, error: "Quantity and price must be numbers" }, {message: "Quantity and price must be numbers" });
     }
-    symbol = symbol.toUpperCase();
+
+    if (quantity <= 0) {
+        return dataWithError({  status: 400, error: "Quantity must be greater than 0" }, {message: "Quantity must be greater than 0" });
+    }
+
+    if (symbol.length === 0) {
+        return dataWithError({ status: 400, error: "Ticker symbol cannot be empty" }, { message: "Ticker symbol cannot be empty" });
+    }
 
     // check if the symbol is valid
     try {
         const quote = await yahooFinance.quoteSummary(symbol);
         if (!quote) {
-            return json({ error: `Invalid ticker symbol: ${symbol}` }, { status: 400, statusText: `Invalid ticker symbol: ${symbol}` });
+            return dataWithError({ status: 400, error: `Invalid ticker symbol: ${symbol}` }, { message: `Invalid ticker symbol: ${symbol}` });
         }
     } catch (error) {
-        return json({ error: `Invalid ticker symbol: ${symbol}` }, { status: 400, statusText: `Invalid ticker symbol: ${symbol}` });
+        return dataWithError({ status: 400, error: `Invalid ticker symbol: ${symbol}` }, { message: `Invalid ticker symbol: ${symbol}` });
 
     }
 
@@ -168,14 +175,12 @@ export async function addTrade(request: Request, symbol: string, quantity: numbe
     const redisKey4 = `portfolioBeta:${sessionUser.uid}`;
     await redisClient.del(redisKey4);
 
-    return null;
+    return dataWithSuccess(null, `Trade added successfully for ${symbol}`);
 }
 
 export async function getTransactions(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }
+    const sessionUser = await requireUserSession(request);
+
 
     const querySnapshot = await db.collection("transaction").where(
         "user", "==", sessionUser.uid
@@ -200,10 +205,8 @@ export async function getTransactions(request: Request) {
 }
 
 export async function getPortfolioStandardDeviation(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 
@@ -265,10 +268,8 @@ export async function getPortfolioStandardDeviation(request: Request) {
 
 
 export async function getPortfolioSharpeRatio(request:Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 
@@ -339,10 +340,8 @@ export async function getPortfolioSharpeRatio(request:Request) {
 }
 
 export async function getPortfolioBeta(request: Request) {
-    const sessionUser = await getUserSession(request);
-    if (!sessionUser) {
-        return redirect("/login");
-    }   
+    const sessionUser = await requireUserSession(request);
+
 
     const portfolioData = await getPortfolio(request);
 
