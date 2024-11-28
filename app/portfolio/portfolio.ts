@@ -5,9 +5,30 @@ import yahooFinance from 'yahoo-finance2';
 import redisClient from "~/utils/redisClient";
 import {requireUserSession} from "~/utils/auth.server";
 import {dataWithError, dataWithSuccess} from "remix-toast";
+import { getUserByRequest } from "~/user/user";
+
+type portfolioItem = { 
+        id: string; 
+        symbol: string; 
+        quantity: number; 
+        averagePrice: number; 
+        totalInitialValue: number; 
+        currentPrice: number; 
+        totalCurrentValue: number;
+        percentageGainLoss: number; 
+        totalGainLoss: number; 
+        beta: number | undefined;
+        currencySymbol: string | undefined;
+        currency: string | undefined;
+        homeCurrentPrice: number | undefined;
+        homeTotalCurrentValue: number | undefined;
+    }
 
 export async function getPortfolio(request: Request) {
     const sessionUser = await requireUserSession(request);
+
+    const userData = await getUserByRequest(request);
+
 
     // use redis cache
     const redisKey = `portfolio:${sessionUser.uid}`;
@@ -19,7 +40,7 @@ export async function getPortfolio(request: Request) {
     const querySnapshot = await db.collection("portfolio").where(
         "user", "==", sessionUser.uid
     ).get();
-    const data: { id: string; symbol: string; quantity: number; averagePrice: number; totalInitialValue: number; currentPrice: number; totalCurrentValue: number; percentageGainLoss: number; totalGainLoss: number; }[] = [];
+    const data: portfolioItem[] = [];
 
     for (const doc of querySnapshot.docs) {
         const docData = doc.data();
@@ -31,14 +52,29 @@ export async function getPortfolio(request: Request) {
         if (!quote) {
             // console.log(`Failed to fetch quote for ${docData.symbol}`);
         }
-        if (quote && quote.price.regularMarketPrice) {
+        if (quote && quote.price?.regularMarketPrice) {
             currentPrice = quote.price.regularMarketPrice;
         }
+
 
         const totalCurrentValue = docData.quantity * currentPrice;
         const totalGainLoss = totalCurrentValue - totalInitialValue;
         const percentageGainLoss = (totalGainLoss / totalInitialValue) * 100;
-        // console.log(quote)
+        const stockCurrency = quote.price?.currency || "USD";
+        const homeCurrency = userData?.homeCurrency || "USD";
+        let homeCurrentPrice = currentPrice;
+
+
+        if (stockCurrency !== homeCurrency) {
+            const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+            console.log(forexQuote);
+            if (forexQuote && forexQuote.price) {
+                homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
+            }
+        }
+
+        const homeTotalCurrentValue = docData.quantity * homeCurrentPrice;
+
         data.push({
             id: doc.id,
             symbol: docData.symbol,
@@ -49,7 +85,11 @@ export async function getPortfolio(request: Request) {
             totalCurrentValue: totalCurrentValue,
             percentageGainLoss: percentageGainLoss,
             totalGainLoss: totalGainLoss,
-            beta: quote.summaryDetail.beta
+            beta: quote.summaryDetail?.beta,
+            currencySymbol  : quote.price?.currencySymbol,
+            currency: stockCurrency,
+            homeCurrentPrice: homeCurrentPrice,
+            homeTotalCurrentValue: homeTotalCurrentValue
         });
     }
 
@@ -329,7 +369,8 @@ export async function getPortfolioSharpeRatio(request:Request) {
 
     // find the risk free rate
     // use 10 year US treasury bond yield
-    const riskFreeRate = (await yahooFinance.quoteSummary("^TNX")).price.regularMarketPrice/100;
+    const tnxQuote = await yahooFinance.quoteSummary("^TNX");
+    const riskFreeRate = tnxQuote && tnxQuote.price && tnxQuote.price.regularMarketPrice ? tnxQuote.price.regularMarketPrice / 100 : 0;
     // calculate the sharpe ratio
     const sharpeRatio = (annualisedReturn - riskFreeRate) / normalisedStandardDeviation;
 

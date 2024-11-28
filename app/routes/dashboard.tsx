@@ -57,7 +57,7 @@ export default function Index() {
                         resolvePromise={portfolio.portfolio}
                         className="col-span-3"
                         renderContent={(data) => (
-                            "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0).toFixed(2)
+                            "$" + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
                         )}
                     />
                     <SuspenseCard
