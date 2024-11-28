@@ -1,7 +1,6 @@
 import { json } from "@vercel/remix";
 
 import {db} from "~/utils/db.server";
-import {getUserSession} from "~/utils/session.server";
 import yahooFinance from 'yahoo-finance2';
 import redisClient from "~/utils/redisClient";
 import {requireUserSession} from "~/utils/auth.server";
