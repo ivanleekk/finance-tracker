@@ -23,6 +23,7 @@ import {
     useSidebar,
 } from "~/components/ui/sidebar";
 import { loader } from "~/root";
+import { ModeToggle } from "./mode-toggle";
 
 
 export function AppSidebar() {
@@ -132,6 +133,7 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
+                <ModeToggle />
                 {isLoggedIn ? (
                     <Form method="post">
                         <SidebarMenuButton type="submit">

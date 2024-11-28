@@ -2,6 +2,7 @@ import {
     isRouteErrorResponse,
     Link,
     Links,
+    LiveReload,
     Meta,
     Outlet,
     Scripts,
@@ -14,15 +15,19 @@ import styles from "./tailwind.css?url";
 import sonnerStyles from "./sonner.css?url";
 import { SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/app-sidebar";
-import { getUserSession, signOut } from "~/utils/session.server";
+import { getUserSession, signOut, themeSessionResolver } from "~/utils/session.server";
 import { getToast } from "remix-toast";
 import { useEffect } from "react";
 import { Toaster, toast as notify } from "sonner";
+import clsx from "clsx"
+import { PreventFlashOnWrongTheme, Theme, ThemeProvider, useTheme } from "remix-themes"
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
     const { toast, headers } = await getToast(request);
-    return json({ sessionUser, toast }, { headers });
+    const { getTheme } = await themeSessionResolver(request)
+
+    return json({ sessionUser, toast, theme: getTheme() }, { headers });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -40,15 +45,16 @@ export const links: LinksFunction = () => [
     { rel: 'stylesheet', href: sonnerStyles },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
-
+export function App({ children }: { children: React.ReactNode }) {
+    const theme = useTheme();
     return (
-        <html lang="en">
+        <html lang="en" className={clsx(theme)}>
             <head>
                 <title>Finance Tracker</title>
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <Meta />
+                <PreventFlashOnWrongTheme ssrTheme={Boolean(theme)} />
                 <Links />
             </head>
             <body>
@@ -60,8 +66,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     );
 }
 
-export default function App() {
-    const { toast } = useLoaderData<typeof loader>();
+export default function AppWithProviders() {
+    const { theme, toast } = useLoaderData<typeof loader>();
 
     useEffect(() => {
         if (toast?.type === "error") {
@@ -77,42 +83,25 @@ export default function App() {
             notify.info(toast.message);
         }
     }, [toast]);
+
+
     return (
-        <Layout>
-            <SidebarProvider>
-                <SidebarTrigger />
+        <ThemeProvider specifiedTheme={theme} themeAction="/api/set-theme">
+            <App>
+                <SidebarProvider>
+                    <SidebarTrigger />
+                    <AppSidebar />
+                    <main className="w-full p-2">
+                        <Outlet />
+                    </main>
+                    <Toaster richColors
+                        closeButton
+                    />
+                </SidebarProvider>
 
-                <AppSidebar />
-                <main className="w-full p-2">
-                    <Outlet />
-                </main>
-                <Toaster richColors
-                    closeButton
-                />
+            </App>
 
-            </SidebarProvider>
-        </Layout>
-    );
-}
 
-export function ErrorBoundary() {
-    const error = useRouteError();
-    return (
-        <Layout>
-            <SidebarProvider>
-                {/* <AppSidebar /> */}
-                <main className="w-full">
-                    <div className="text-center text-9xl">
-                        {isRouteErrorResponse(error) ? error.status : "Unknown Error"}
-                    </div>
-                    <div className="text-center text-xl">
-                        {isRouteErrorResponse(error) ? error.statusText : (error as Error).message}
-                    </div>
-                    <Link to="/">
-                        <div className="text-center text-xl underline text-blue-500">Go Home</div>
-                    </Link>
-                </main>
-            </SidebarProvider>
-        </Layout>
-    );
+        </ThemeProvider>
+    )
 }

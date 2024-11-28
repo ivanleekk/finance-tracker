@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { LRUCache } from 'lru-cache';
 import { redirectWithInfo } from "remix-toast";
 import { DecodedIdToken } from "node_modules/firebase-admin/lib/auth/token-verifier.js";
+import { createThemeSessionResolver } from "remix-themes"
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
@@ -28,6 +29,17 @@ export const sessionStorage = createCookieSessionStorage({
         maxAge: 60 * 60 * 24 * 30, // 30 days
     },
 });
+
+export const themeStorage = createCookieSessionStorage({
+    cookie: {
+      name: "theme",
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secrets: [sessionSecret],
+      secure: process.env.NODE_ENV === 'production',
+    },
+  })
 
 export async function createUserSession(idToken: string, redirectTo: string) {
     const token = await getSessionToken(idToken)
@@ -72,3 +84,5 @@ export async function signOut(request: Request) {
     await signOutFirebase();
     return await destroyUserSession(request);
 }
+
+export const themeSessionResolver = createThemeSessionResolver(themeStorage)
