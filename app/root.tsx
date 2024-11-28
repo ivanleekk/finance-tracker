@@ -12,7 +12,7 @@ import { ActionFunctionArgs, LinksFunction, LoaderFunctionArgs } from "@remix-ru
 import { json } from "@vercel/remix";
 import styles from "./tailwind.css?url";
 import sonnerStyles from "./sonner.css?url";
-import { SidebarProvider } from "./components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/app-sidebar";
 import { getUserSession, signOut } from "~/utils/session.server";
 import { getToast } from "remix-toast";
@@ -41,6 +41,7 @@ export const links: LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+
     return (
         <html lang="en">
             <head>
@@ -79,6 +80,8 @@ export default function App() {
     return (
         <Layout>
             <SidebarProvider>
+                <SidebarTrigger />
+
                 <AppSidebar />
                 <main className="w-full p-2">
                     <Outlet />

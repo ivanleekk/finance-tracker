@@ -20,16 +20,32 @@ import {
     SidebarHeader,
     SidebarMenuButton,
     SidebarMenuSub,
+    useSidebar,
 } from "~/components/ui/sidebar";
 import { loader } from "~/root";
 
+
 export function AppSidebar() {
     const isLoggedIn = useLoaderData<typeof loader>().sessionUser ? true : false;
+    // if user is on mobile, if link is clicked, close sidebar
+    const {
+        state,
+        open,
+        setOpen,
+        openMobile,
+        setOpenMobile,
+        isMobile,
+        toggleSidebar,
+    } = useSidebar()
 
     return (
         <Sidebar className="w-fit">
             <SidebarHeader>
-                <Link to="/" prefetch="intent">
+                <Link
+                    to="/"
+                    prefetch="intent"
+                    onClick={() => setOpenMobile(false)}
+                >
                     <p className="text-lg font-bold">
                         Finance Tracker
                     </p>
@@ -38,52 +54,76 @@ export function AppSidebar() {
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarMenuButton asChild>
-                        <Link to="/dashboard" prefetch="intent">
+                        <Link
+                            to="/dashboard"
+                            prefetch="intent"
+                            onClick={() => setOpenMobile(false)}>
                             <Gauge />
                             Dashboard
                         </Link>
                     </SidebarMenuButton>
                     <SidebarMenuButton asChild>
-                        <Link to="/portfolio" prefetch="intent">
+                        <Link
+                            to="/portfolio"
+                            prefetch="intent"
+                            onClick={() => setOpenMobile(false)}>
                             <ChartCandlestick />
                             Portfolio
                         </Link>
                     </SidebarMenuButton>
                     <SidebarMenuSub>
                         <SidebarMenuButton asChild>
-                            <Link to="/portfolio/transactions" prefetch="intent">
+                            <Link
+                                to="/portfolio/transactions"
+                                prefetch="intent"
+                                onClick={() => setOpenMobile(false)}>
                                 <ReceiptText />
                                 Transactions
                             </Link>
                         </SidebarMenuButton>
                         <SidebarMenuButton asChild>
-                            <Link to="/portfolio/trade" prefetch="intent">
+                            <Link
+                                to="/portfolio/trade"
+                                prefetch="intent"
+                                onClick={() => setOpenMobile(false)}>
                                 <ArrowRightLeft />
                                 Trade
                             </Link>
                         </SidebarMenuButton>
                         <SidebarMenuButton asChild>
-                            <Link to="/portfolio/statistics" prefetch="intent">
+                            <Link
+                                to="/portfolio/statistics"
+                                prefetch="intent"
+                                onClick={() => setOpenMobile(false)}>
                                 <FileChartColumn />
                                 Statistics
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuSub>
                     <SidebarMenuButton asChild>
-                        <Link to="/bank" prefetch="intent">
+                        <Link
+                            to="/bank"
+                            prefetch="intent"
+                            onClick={() => setOpenMobile(false)}>
                             <Landmark />
                             Bank
                         </Link>
                     </SidebarMenuButton>
                     <SidebarMenuSub>
                         <SidebarMenuButton asChild>
-                            <Link to="/bank/history" prefetch="intent">
+                            <Link
+                                to="/bank/history"
+                                prefetch="intent"
+                                onClick={() => setOpenMobile(false)}>
                                 <History />
                                 History
                             </Link>
                         </SidebarMenuButton>
                         <SidebarMenuButton asChild>
-                            <Link to="/bank/update" prefetch="intent">
+                            <Link
+                                to="/bank/update"
+                                prefetch="intent"
+                                onClick={() => setOpenMobile(false)}>
                                 <RotateCcw />
                                 Update
                             </Link>
@@ -101,14 +141,20 @@ export function AppSidebar() {
                     </Form>
                 ) : (
                     <SidebarMenuButton asChild>
-                        <Link to="/login" prefetch="intent">
+                        <Link
+                            to="/login"
+                            prefetch="intent"
+                            onClick={() => setOpenMobile(false)}>
                             <LucideLogIn />
                             Login
                         </Link>
                     </SidebarMenuButton>
                 )}
                 <SidebarMenuButton asChild>
-                    <Link to="/settings" prefetch="intent">
+                    <Link
+                        to="/settings"
+                        prefetch="intent"
+                        onClick={() => setOpenMobile(false)}>
                         <Settings />
                         Settings
                     </Link>
