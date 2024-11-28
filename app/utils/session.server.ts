@@ -3,10 +3,11 @@ import { adminAuth, getSessionToken, signOutFirebase } from "./db.server.js";
 import dotenv from "dotenv";
 import { LRUCache } from 'lru-cache';
 import { redirectWithInfo } from "remix-toast";
+import { DecodedIdToken } from "node_modules/firebase-admin/lib/auth/token-verifier.js";
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
-const cache = new LRUCache({
+const cache = new LRUCache<string, DecodedIdToken>({
     max: 1000, // Maximum number of items in the cache
     ttl: 1000 * 60 * 5 // Time-to-live in milliseconds (5 minutes)
 });
@@ -28,7 +29,7 @@ export const sessionStorage = createCookieSessionStorage({
     },
 });
 
-export async function createUserSession(idToken, redirectTo) {
+export async function createUserSession(idToken: string, redirectTo: string) {
     const token = await getSessionToken(idToken)
     const session = await sessionStorage.getSession();
     session.set('token', token);
@@ -40,14 +41,14 @@ export async function createUserSession(idToken, redirectTo) {
     });
 }
 
-export async function getUserSession(request) {
+export async function getUserSession(request : Request) : Promise<DecodedIdToken | null> {
     const cookieSession = await sessionStorage.getSession(request.headers.get("Cookie"));
     const token = cookieSession.get("token");
     if (!token) return null;
 
     // Check if the token is in the cache
     if (cache.has(token)) {
-        return cache.get(token);
+        return cache.get(token) || null;
     }
 
     try {
@@ -60,14 +61,14 @@ export async function getUserSession(request) {
     }
 }
 
-export async function destroyUserSession(request) {
+export async function destroyUserSession(request: Request) {
     const session = await sessionStorage.getSession(request.headers.get("Cookie"));
     const newCookie = await sessionStorage.destroySession(session);
     return redirectWithInfo("/login", "You are now signed out", { headers: { "Set-Cookie": newCookie } });
 }
 
 
-export async function signOut(request) {
+export async function signOut(request: Request) {
     await signOutFirebase();
     return await destroyUserSession(request);
 }

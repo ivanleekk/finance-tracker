@@ -10,6 +10,7 @@ import { Card } from "~/components/ui/card";
 import { requireUserSession } from "~/utils/auth.server";
 import SuspenseCard from "~/components/suspenseCard";
 import { defer } from "@vercel/remix";
+import { getUserByRequest } from "~/user/user";
 
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -20,11 +21,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sharpeRatio = getPortfolioSharpeRatio(request);
     const portfolioBeta = getPortfolioBeta(request);
     const portfolio = getPortfolio(request);
+    const user = await getUserByRequest(request);
+
     const result = {
         portfolio: portfolio,
         standardDeviation: standardDeviation,
         sharpeRatio: sharpeRatio,
         portfolioBeta: portfolioBeta,
+        user: user
     };
 
     return defer(result);
@@ -32,7 +36,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function Statistics() {
-    const { portfolio, standardDeviation, sharpeRatio, portfolioBeta } = useLoaderData();
+    const { portfolio, standardDeviation, sharpeRatio, portfolioBeta, user } = useLoaderData();
     return (
         <div className="grid grid-cols-2 gap-4">
             <SuspenseCard
@@ -40,7 +44,7 @@ export default function Statistics() {
                 loadingMessage="Loading Current Portfolio Value"
                 resolvePromise={portfolio}
                 renderContent={(data) => (
-                    "$" + data.reduce((acc, asset) => acc + asset.totalCurrentValue, 0).toFixed(2)
+                    user.homeCurrencySymbol + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
                 )}
             />
             <SuspenseCard
