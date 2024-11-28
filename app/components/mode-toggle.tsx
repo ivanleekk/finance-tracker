@@ -2,20 +2,9 @@ import { Moon, Sun } from "lucide-react"
 import { Theme, useTheme } from "remix-themes"
 
 import { Button } from "./ui/button"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "./ui/dropdown-menu"
-import { useEffect } from "react"
 
 export function ModeToggle() {
     const [theme, setTheme] = useTheme()
-
-    useEffect(() => {
-        console.log(theme)
-    }, [theme])
 
     return (
         <Button variant="ghost" size="icon" onClick={() => theme === Theme.LIGHT ? setTheme(Theme.DARK) : setTheme(Theme.LIGHT)}>

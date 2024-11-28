@@ -136,7 +136,7 @@ export function AppSidebar() {
                 <ModeToggle />
                 {isLoggedIn ? (
                     <Form method="post">
-                        <SidebarMenuButton type="submit">
+                        <SidebarMenuButton type="submit" onClick={() => setOpenMobile(false)}>
                             <LucideLogOut />
                             Logout
                         </SidebarMenuButton>
