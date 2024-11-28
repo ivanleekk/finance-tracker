@@ -38,33 +38,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Statistics() {
     const { portfolio, standardDeviation, sharpeRatio, portfolioBeta, user } = useLoaderData();
     return (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="flex flex-wrap gap-4">
             <SuspenseCard
                 title="Current Portfolio Value"
                 loadingMessage="Loading Current Portfolio Value"
                 resolvePromise={portfolio}
-                renderContent={(data) => (
+                className="w-fit flex-grow basis-auto"
+                renderContent={(data) =>
                     user.homeCurrencySymbol + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
-                )}
+                }
             />
             <SuspenseCard
                 title="Standard Deviation"
                 loadingMessage="Loading Standard Deviation"
                 resolvePromise={standardDeviation}
-                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
+                className="w-fit flex-grow basis-auto"
+                renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
             />
             <SuspenseCard
                 title="Sharpe Ratio"
                 loadingMessage="Loading Sharpe Ratio"
                 resolvePromise={sharpeRatio}
-                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
+                className="w-fit flex-grow basis-auto"
+                renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
             />
             <SuspenseCard
                 title="Beta"
                 loadingMessage="Loading Beta"
                 resolvePromise={portfolioBeta}
-                renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
+                className="w-fit flex-grow basis-auto"
+                renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
             />
         </div>
+
     );
 }

@@ -53,12 +53,11 @@ export default function Index() {
                 <CardHeader className="text-xl font-bold">
                     Portfolio
                 </CardHeader>
-                <CardContent className="flex-wrap gap-4">
+                <CardContent className="flex flex-wrap flex-grow gap-4">
                     <SuspenseCard
                         title="Current Portfolio Value"
                         loadingMessage="Loading Current Portfolio Value"
                         resolvePromise={portfolio.portfolio}
-                        className="col-span-3"
                         renderContent={(data) =>
                             user.homeCurrencySymbol + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
                         }
@@ -67,7 +66,6 @@ export default function Index() {
                         title="Standard Deviation"
                         loadingMessage="Loading Standard Deviation"
                         resolvePromise={portfolio.standardDeviation}
-                        className="col-span-2"
                         renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
                     />
                     <SuspenseCard
@@ -79,7 +77,6 @@ export default function Index() {
                     <SuspenseCard
                         title="Sharpe Ratio"
                         loadingMessage="Loading Sharpe Ratio"
-                        className="col-span-2"
                         resolvePromise={portfolio.sharpeRatio}
                         renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
                     />
@@ -89,7 +86,7 @@ export default function Index() {
                 <CardHeader className="text-xl font-bold">
                     Bank
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="flex flex-wrap flex-grow gap-4">
                     <SuspenseCard
                         title="Total Cash"
                         loadingMessage="Loading Total Cash"

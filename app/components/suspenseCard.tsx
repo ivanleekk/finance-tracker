@@ -27,13 +27,13 @@ const SuspenseCard: React.FC<SuspenseCardProps> = ({
 }) => {
     return (
         <Suspense fallback={
-            <Card className={cn("min-w-fit flex-auto p-2", className)}>
+            <Card className={cn("w-fit flex-grow basis-auto", className)}>
                 {loadingMessage}
             </Card>
         }>
             <Await resolve={resolvePromise}>
                 {(data) => (
-                    <Card className={cn("", cardClassName, className)} {...props}>
+                    <Card className={cn("w-fit flex-grow basis-auto", cardClassName, className)} {...props}>
                         <CardHeader className={headerClassName}>{title}</CardHeader>
                         <CardContent className={cn("text-3xl font-bold text-preety", contentClassName)}>
                             {renderContent(data)}
