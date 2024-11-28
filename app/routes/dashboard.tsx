@@ -48,45 +48,44 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Index() {
     const { portfolio, bank, user } = useLoaderData<typeof loader>();
     return (
-        < div className="flex flex-row space-x-4" >
-            <Card className="w-full">
+        <div className="flex flex-wrap gap-4">
+            <Card className="w-fit flex-grow basis-auto">
                 <CardHeader className="text-xl font-bold">
                     Portfolio
                 </CardHeader>
-                <CardContent className="grid grid-cols-3 gap-4">
+                <CardContent className="flex-wrap gap-4">
                     <SuspenseCard
                         title="Current Portfolio Value"
                         loadingMessage="Loading Current Portfolio Value"
                         resolvePromise={portfolio.portfolio}
                         className="col-span-3"
-                        renderContent={(data) => (
+                        renderContent={(data) =>
                             user.homeCurrencySymbol + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
-                        )}
+                        }
                     />
                     <SuspenseCard
                         title="Standard Deviation"
                         loadingMessage="Loading Standard Deviation"
                         resolvePromise={portfolio.standardDeviation}
                         className="col-span-2"
-                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
+                        renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
                     />
                     <SuspenseCard
                         title="Beta"
                         loadingMessage="Loading Beta"
                         resolvePromise={portfolio.portfolioBeta}
-                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(2)}
+                        renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(2))}
                     />
                     <SuspenseCard
                         title="Sharpe Ratio"
                         loadingMessage="Loading Sharpe Ratio"
                         className="col-span-2"
                         resolvePromise={portfolio.sharpeRatio}
-                        renderContent={(data) => isNaN(data) ? "N/A" : data.toFixed(4)}
+                        renderContent={(data) => (isNaN(data) ? "N/A" : data.toFixed(4))}
                     />
-
                 </CardContent>
             </Card>
-            <Card className="w-full">
+            <Card className="w-fit flex-grow basis-auto">
                 <CardHeader className="text-xl font-bold">
                     Bank
                 </CardHeader>
@@ -95,9 +94,8 @@ export default function Index() {
                         title="Total Cash"
                         loadingMessage="Loading Total Cash"
                         resolvePromise={bank}
-                        renderContent={(data) => (
+                        renderContent={(data) =>
                             user.homeCurrencySymbol + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
-                        )
                         }
                     />
                     <SuspenseCard
@@ -107,19 +105,22 @@ export default function Index() {
                         renderContent={(data) => {
                             if (data.length === 0) {
                                 return "No bank accounts";
+                            } else {
+                                const largestBank = data.find(
+                                    (bank) => bank.currentBalance === Math.max(...data.map((bank) => bank.currentBalance))
+                                );
+                                return (
+                                    largestBank?.bankName +
+                                    " " +
+                                    user.homeCurrencySymbol +
+                                    largestBank?.currentBalance
+                                );
                             }
-                            else {
-                                return data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance)))?.bankName +
-                                    " " + user.homeCurrencySymbol + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
-                            }
-                        }
-                        }
+                        }}
                     />
-
                 </CardContent>
-
             </Card>
-        </div >
+        </div>
 
     );
 }
