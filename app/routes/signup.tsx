@@ -1,11 +1,23 @@
-import {Form, Link} from "@remix-run/react";
-import {Label} from "~/components/ui/label";
-import {Input} from "~/components/ui/input";
-import {Button} from "~/components/ui/button";
-import {ActionFunctionArgs} from "@remix-run/node";
-import {authenticator} from "~/utils/auth.server";
+import { Form, Link } from "@remix-run/react";
+import { Label } from "~/components/ui/label";
+import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+import { ActionFunctionArgs } from "@remix-run/node";
+import { authenticator } from "~/utils/auth.server";
+import { LoaderFunctionArgs, redirect } from "@vercel/remix";
+import { getUserSession } from "~/utils/session.server";
 
-export const action = async ({request}: ActionFunctionArgs) => {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+    const user = await getUserSession(request);
+
+    if (user) {
+        return redirect("/dashboard");
+    }
+
+    return null
+}
+
+export const action = async ({ request }: ActionFunctionArgs) => {
     return authenticator.authenticate("signup-email-password", request);
 }
 

@@ -1,5 +1,17 @@
-import {Button} from "~/components/ui/button";
-import {Link} from "@remix-run/react";
+import { Button } from "~/components/ui/button";
+import { Link } from "@remix-run/react";
+import { getUserSession } from "~/utils/session.server";
+import { LoaderFunctionArgs, redirect } from "@vercel/remix";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+    const user = await getUserSession(request);
+
+    if (user) {
+        return redirect("/dashboard");
+    }
+
+    return null
+}
 
 export default function Home() {
     return (
