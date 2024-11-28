@@ -12,6 +12,7 @@ import BetaCard from "~/components/betaCard";
 import SharpeRatioCard from "~/components/sharpeRatioCard";
 import { defer } from "@vercel/remix";
 import SuspenseCard from "~/components/suspenseCard";
+import { getUserByRequest } from "~/user/user";
 
 export const meta: MetaFunction = () => {
     return [
@@ -28,6 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     const portfolio = getPortfolio(request);
     const bank = getBankInfo(request);
+    const user = await getUserByRequest(request);
 
     const result = {
         "portfolio": {
@@ -37,13 +39,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             portfolioBeta,
         },
         "bank": bank,
+        "user": user
     };
 
     return defer(result);
 };
 
 export default function Index() {
-    const { portfolio, bank } = useLoaderData<typeof loader>();
+    const { portfolio, bank, user } = useLoaderData<typeof loader>();
     return (
         < div className="flex flex-row space-x-4" >
             <Card className="w-full">
@@ -57,7 +60,7 @@ export default function Index() {
                         resolvePromise={portfolio.portfolio}
                         className="col-span-3"
                         renderContent={(data) => (
-                            "$" + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
+                            user.homeCurrencySymbol + data.reduce((acc, asset) => acc + asset.homeTotalCurrentValue, 0).toFixed(2)
                         )}
                     />
                     <SuspenseCard
@@ -93,7 +96,7 @@ export default function Index() {
                         loadingMessage="Loading Total Cash"
                         resolvePromise={bank}
                         renderContent={(data) => (
-                            "$" + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
+                            user.homeCurrencySymbol + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
                         )
                         }
                     />
@@ -107,7 +110,7 @@ export default function Index() {
                             }
                             else {
                                 return data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance)))?.bankName +
-                                    " $" + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
+                                    " " + user.homeCurrencySymbol + data.find(bank => bank.currentBalance === Math.max(...data.map(bank => bank.currentBalance))).currentBalance
                             }
                         }
                         }

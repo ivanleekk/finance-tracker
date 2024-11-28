@@ -67,7 +67,6 @@ export async function getPortfolio(request: Request) {
 
         if (stockCurrency !== homeCurrency) {
             const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
-            console.log(forexQuote);
             if (forexQuote && forexQuote.price) {
                 homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
             }
@@ -301,7 +300,7 @@ export async function getPortfolioStandardDeviation(request: Request) {
     const normalisedStandardDeviation = standardDeviation / totalValue;
 
     // store in redis cache
-    await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60 * 24});
+    await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60});
 
     return normalisedStandardDeviation;
 }
@@ -375,7 +374,7 @@ export async function getPortfolioSharpeRatio(request:Request) {
     const sharpeRatio = (annualisedReturn - riskFreeRate) / normalisedStandardDeviation;
 
     // store in redis cache
-    await redisClient.set(redisKey, sharpeRatio.toString(), {'EX': 60 * 60 * 24});
+    await redisClient.set(redisKey, sharpeRatio.toString(), {'EX': 60 * 60});
 
     return sharpeRatio;
 }
@@ -404,6 +403,6 @@ export async function getPortfolioBeta(request: Request) {
     }
 
     // store in redis cache
-    await redisClient.set(redisKey, beta.toString(), {'EX': 60 * 60 * 24});
+    await redisClient.set(redisKey, beta.toString(), {'EX': 60 * 60});
     return beta;
 }
