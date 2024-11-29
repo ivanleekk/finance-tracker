@@ -1,7 +1,4 @@
-import { ColumnDef, createColumnHelper, CellContext } from "@tanstack/react-table";
-import { Button } from "~/components/ui/button";
-import { ArrowUpDown } from "lucide-react";
-import { Fragment } from "react/jsx-runtime";
+import {ColumnDef, createColumnHelper} from "@tanstack/react-table";
 
 export type bankHistory = {
     bankName: string;
@@ -62,9 +59,9 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
             let textColor = '';
             if (prevMonthBalance !== null) {
                 if (currentValue > prevMonthBalance) {
-                    textColor = 'text-green-600'; // Increased
+                    textColor = 'text-pastel-green-600 dark:text-pastel-green-400'; // Increased
                 } else if (currentValue < prevMonthBalance) {
-                    textColor = 'text-red-600'; // Decreased
+                    textColor = 'text-froly-red-600 dark:text-froly-red-400'; // Decreased
                 }
             }
 
