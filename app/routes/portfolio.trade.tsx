@@ -1,17 +1,12 @@
-import {Form, useActionData, useRouteError} from "@remix-run/react";
+import {Form, useRouteError} from "@remix-run/react";
 import {Button} from "~/components/ui/button";
 import {Input} from "~/components/ui/input";
 import {Label} from "~/components/ui/label";
 import {LoaderFunctionArgs} from "@remix-run/node";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue
-} from "~/components/ui/select";
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "~/components/ui/select";
 import {addTrade} from "~/portfolio/portfolio";
 import {requireUserSession} from "~/utils/auth.server";
+import {Card, CardContent, CardHeader} from "~/components/ui/card";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     await requireUserSession(request);
@@ -26,21 +21,14 @@ export const action = async ({ request }: LoaderFunctionArgs) => {
 }
 
 export default function Trade() {
-    const actionData = useActionData();
 
     return (
-        <div className="space-y-2">
-            <Form method="post" className="max-w-md space-y-4">
-                {actionData?.error && (
-                    <div className="text-froly-red-500">
-                        {actionData.error}
-                    </div>
-                )}
-                {actionData?.success && (
-                    <div className="text-pastel-green-500">
-                        Trade added successfully
-                    </div>
-                )}
+        <Card className="max-w-xl flex flex-col flex-grow basis-auto p-2">
+            <CardHeader className="text-xl font-bold">
+                Trade
+            </CardHeader>
+            <CardContent>
+                <Form method="post" className="flex flex-col gap-4">
                 <Label htmlFor="Ticker">
                     Ticker
                     <Input name="Ticker" type="text" required />
@@ -67,7 +55,8 @@ export default function Trade() {
                 </Label>
                 <Button type="submit">Trade</Button>
             </Form>
-        </div>
+            </CardContent>
+        </Card>
     );
 }
 
