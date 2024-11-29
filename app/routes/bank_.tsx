@@ -7,7 +7,6 @@ import { bankColumns } from "~/bank/bankColumns";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import SuspenseCard from "~/components/suspenseCard";
 import { Suspense } from "react";
-import { portfolioColumns } from "~/portfolio/portfolioColumns";
 import { defer } from "@vercel/remix";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -28,23 +27,12 @@ export default function Bank() {
         <Suspense
           fallback={
             <DataTable
-              columns={portfolioColumns}
+              columns={bankColumns}
               data={[
                 {
-                  id: "abc",
-                  symbol: "Loading...",
-                  quantity: 0,
-                  averagePrice: 0,
-                  totalInitialValue: 0,
-                  currentPrice: 0,
-                  totalCurrentValue: 0,
-                  percentageGainLoss: 0,
-                  totalGainLoss: 0,
-                  beta: 0,
-                  currencySymbol: "$",
-                  currency: "USD",
-                  homeCurrentPrice: 0,
-                  homeTotalCurrentValue: 0,
+                  bankName: "Loading...",
+                  balance: 0,
+                  latestDate: "Loading...",
                 },
               ]}
             />
