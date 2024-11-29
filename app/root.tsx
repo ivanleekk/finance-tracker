@@ -101,8 +101,18 @@ export default function AppWithProviders() {
                     <main className="w-full p-2">
                         <Outlet />
                     </main>
-                    <Toaster richColors closeButton
-                             theme={theme ? theme : 'system'}/>
+                    <Toaster
+                        theme={theme ? theme : 'system'}
+                        toastOptions={{
+                            classNames: {
+                                error: 'bg-froly-red-100 border-froly-red-200 shadow text-froly-red-700 dark:bg-froly-red-900 dark:border-froly-red-700 dark:text-froly-red-300',
+                                success: 'bg-pastel-green-100 border-pastel-green-200 shadow text-pastel-green-700 dark:bg-pastel-green-900 dark:border-pastel-green-700 dark:text-pastel-green-300',
+                                warning: 'bg-goldenrod-100 border-goldenrod-200 shadow text-goldenrod-700 dark:bg-goldenrod-900 dark:border-goldenrod-700 dark:text-goldenrod-300',
+                                info: 'bg-chetwode-blue-100 border-chetwode-blue-200 shadow text-chetwode-blue-700 dark:bg-chetwode-blue-900 dark:border-chetwode-blue-700 dark:text-chetwode-blue-300',
+                            },
+
+                        }
+                        }/>
                 </SidebarProvider>
             </App>
             </TooltipProvider>
