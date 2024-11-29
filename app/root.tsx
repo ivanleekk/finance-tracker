@@ -101,9 +101,8 @@ export default function AppWithProviders() {
                     <main className="w-full p-2">
                         <Outlet />
                     </main>
-                    <Toaster richColors
-                        closeButton
-                    />
+                    <Toaster richColors closeButton
+                             theme={theme ? theme : 'system'}/>
                 </SidebarProvider>
             </App>
             </TooltipProvider>
