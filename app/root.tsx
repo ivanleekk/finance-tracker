@@ -63,7 +63,7 @@ export function App({ children }: { children: React.ReactNode }) {
                 <PreventFlashOnWrongTheme ssrTheme={Boolean(theme)} />
                 <Links />
             </head>
-            <body className="transition-all duration-500">
+            <body>
                 {children}
                 <ScrollRestoration />
                 <Scripts />
