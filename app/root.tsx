@@ -1,26 +1,32 @@
 import {
-    isRouteErrorResponse,
-    Link,
     Links,
-    LiveReload,
     Meta,
     Outlet,
     Scripts,
-    ScrollRestoration, useLoaderData,
-    useRouteError,
+    ScrollRestoration,
+    useLoaderData,
 } from "@remix-run/react";
-import { ActionFunctionArgs, LinksFunction, LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@vercel/remix";
+import {
+    ActionFunctionArgs,
+    LinksFunction,
+    LoaderFunctionArgs
+} from "@remix-run/node";
+import {json} from "@vercel/remix";
 import styles from "./tailwind.css?url";
 import sonnerStyles from "./sonner.css?url";
-import { SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
-import { AppSidebar } from "./components/app-sidebar";
-import { getUserSession, signOut, themeSessionResolver } from "~/utils/session.server";
-import { getToast } from "remix-toast";
-import { useEffect } from "react";
-import { Toaster, toast as notify } from "sonner";
+import {SidebarProvider, SidebarTrigger} from "./components/ui/sidebar";
+import {AppSidebar} from "./components/app-sidebar";
+import {
+    getUserSession,
+    signOut,
+    themeSessionResolver
+} from "~/utils/session.server";
+import {getToast} from "remix-toast";
+import {useEffect} from "react";
+import {toast as notify, Toaster} from "sonner";
 import clsx from "clsx"
-import { PreventFlashOnWrongTheme, Theme, ThemeProvider, useTheme } from "remix-themes"
+import {PreventFlashOnWrongTheme, ThemeProvider, useTheme} from "remix-themes"
+import {TooltipProvider} from "~/components/ui/tooltip";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const sessionUser = await getUserSession(request);
@@ -57,7 +63,7 @@ export function App({ children }: { children: React.ReactNode }) {
                 <PreventFlashOnWrongTheme ssrTheme={Boolean(theme)} />
                 <Links />
             </head>
-            <body>
+            <body className="transition-all duration-500">
                 {children}
                 <ScrollRestoration />
                 <Scripts />
@@ -87,6 +93,7 @@ export default function AppWithProviders() {
 
     return (
         <ThemeProvider specifiedTheme={theme} themeAction="/api/set-theme">
+            <TooltipProvider>
             <App>
                 <SidebarProvider>
                     <SidebarTrigger />
@@ -98,10 +105,8 @@ export default function AppWithProviders() {
                         closeButton
                     />
                 </SidebarProvider>
-
             </App>
-
-
+            </TooltipProvider>
         </ThemeProvider>
     )
 }
