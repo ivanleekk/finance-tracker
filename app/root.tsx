@@ -96,9 +96,10 @@ export default function AppWithProviders() {
             <TooltipProvider>
             <App>
                 <SidebarProvider>
-                    <SidebarTrigger />
+                    <SidebarTrigger
+                        className="fixed md:hidden bottom-2 inset-x-1 z-50"/>
                     <AppSidebar />
-                    <main className="w-full p-2">
+                    <main className="w-full p-2 pb-16">
                         <Outlet />
                     </main>
                     <Toaster
