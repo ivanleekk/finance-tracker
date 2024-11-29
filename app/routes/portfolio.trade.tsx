@@ -32,12 +32,12 @@ export default function Trade() {
         <div className="space-y-2">
             <Form method="post" className="max-w-md space-y-4">
                 {actionData?.error && (
-                    <div className="text-red-500">
+                    <div className="text-froly-red-500">
                         {actionData.error}
                     </div>
                 )}
                 {actionData?.success && (
-                    <div className="text-green-500">
+                    <div className="text-pastel-green-500">
                         Trade added successfully
                     </div>
                 )}
