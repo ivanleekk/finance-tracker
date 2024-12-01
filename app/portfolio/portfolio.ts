@@ -1,11 +1,10 @@
-import { json } from "@vercel/remix";
-
 import {db} from "~/utils/db.server";
 import yahooFinance from 'yahoo-finance2';
-import redisClient from "~/utils/redisClient";
 import {requireUserSession} from "~/utils/auth.server";
 import {dataWithError, dataWithSuccess} from "remix-toast";
 import { getUserByRequest } from "~/user/user";
+import { redisGet, redisReset, redisSet } from "~/utils/redisClient";
+import { RedisKeys } from "~/utils/redisKeys";
 
 type portfolioItem = { 
         id: string; 
@@ -31,8 +30,7 @@ export async function getPortfolio(request: Request) {
 
 
     // use redis cache
-    const redisKey = `portfolio:${sessionUser.uid}`;
-    const cachedValue = await redisClient.get(redisKey);
+    const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO);
     if (cachedValue) {
         return JSON.parse(cachedValue);
     }
@@ -93,12 +91,12 @@ export async function getPortfolio(request: Request) {
     }
 
     // store in redis cache store only for 1 minute since the prices change frequently
-    await redisClient.set(redisKey, JSON.stringify(data), {'EX': 60});
+    await redisSet(request, RedisKeys.PORTFOLIO, JSON.stringify(data), 60);
 
     return data;
 }
 
-export async function addPortfolioItem(request: Request, symbol: string, quantity: number, averagePrice: number) {
+async function addPortfolioItem(request: Request, symbol: string, quantity: number, averagePrice: number) {
     const sessionUser = await requireUserSession(request);
 
 
@@ -108,11 +106,9 @@ export async function addPortfolioItem(request: Request, symbol: string, quantit
         averagePrice: averagePrice,
         user: sessionUser.uid
     });
-
-    return null;
 }
 
-export async function updatePortfolioItem(request: Request, id: string, quantity: number, averagePrice: number) {
+async function updatePortfolioItem(request: Request, id: string, quantity: number, averagePrice: number) {
     const sessionUser = await requireUserSession(request);
 
 
@@ -127,10 +123,8 @@ export async function updatePortfolioItem(request: Request, id: string, quantity
     });
 }
 
-export async function deletePortfolioItem(request: Request, id: string) {
+async function deletePortfolioItem(request: Request, id: string) {
     const sessionUser = await requireUserSession(request);
-
-
     await db.collection("portfolio").doc(id).delete();
 }
 
@@ -138,7 +132,6 @@ export async function addTrade(request: Request) {
     const sessionUser = await requireUserSession(request);
 
     const formData = await request.formData();
-    console.log(formData);
     const symbol = formData.get("ticker").toString().toUpperCase();
     const quantity = Number(formData.get("number_of_shares"));
     const price = Number(formData.get("price"));
@@ -207,14 +200,7 @@ export async function addTrade(request: Request) {
     }
 
     // if new trade is added, invalidate the cache
-    const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
-    await redisClient.del(redisKey);
-    const redisKey2 = `portfolioSharpeRatio:${sessionUser.uid}`;
-    await redisClient.del(redisKey2);
-    const redisKey3 = `portfolio:${sessionUser.uid}`;
-    await redisClient.del(redisKey3);
-    const redisKey4 = `portfolioBeta:${sessionUser.uid}`;
-    await redisClient.del(redisKey4);
+    await redisReset(request);
 
     return dataWithSuccess(null, `Trade added successfully for ${symbol}`);
 }
@@ -222,6 +208,11 @@ export async function addTrade(request: Request) {
 export async function getTransactions(request: Request) {
     const sessionUser = await requireUserSession(request);
 
+    // use redis cache
+    const cachedValue = await redisGet(request, RedisKeys.TRANSACTIONS);
+    if (cachedValue) {
+        return JSON.parse(cachedValue);
+    }
 
     const querySnapshot = await db.collection("transaction").where(
         "user", "==", sessionUser.uid
@@ -242,23 +233,22 @@ export async function getTransactions(request: Request) {
         });
     }
 
+    // store in redis cache
+    await redisSet(request, RedisKeys.TRANSACTIONS, JSON.stringify(data));
+
     return data;
 }
 
 export async function getPortfolioStandardDeviation(request: Request) {
     const sessionUser = await requireUserSession(request);
 
-
-    const portfolioData = await getPortfolio(request);
-
-    // console.log(redisClient)
-    // // use redis cache
-    const redisKey = `portfolioStandardDeviation:${sessionUser.uid}`;
-    const cachedValue = await redisClient.get(redisKey);
+    // use redis cache
+    const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_STD_DEV);
     if (cachedValue) {
         return parseFloat(cachedValue);
     }
 
+    const portfolioData = await getPortfolio(request);
 
     // get historical prices for each stock in the portfolio
     const symbols = portfolioData.map((item) => item.symbol);
@@ -302,7 +292,7 @@ export async function getPortfolioStandardDeviation(request: Request) {
     const normalisedStandardDeviation = standardDeviation / totalValue;
 
     // store in redis cache
-    await redisClient.set(redisKey, normalisedStandardDeviation.toString(), {'EX': 60 * 60});
+    await redisSet(request, RedisKeys.PORTFOLIO_STD_DEV, normalisedStandardDeviation.toString());
 
     return normalisedStandardDeviation;
 }
@@ -314,10 +304,8 @@ export async function getPortfolioSharpeRatio(request:Request) {
 
     const portfolioData = await getPortfolio(request);
 
-    // console.log(redisClient)
     // // use redis cache
-    const redisKey = `portfolioSharpeRatio:${sessionUser.uid}`;
-    const cachedValue = await redisClient.get(redisKey);
+    const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_SHARPE_RATIO);
     if (cachedValue) {
         return parseFloat(cachedValue);
     }
@@ -376,7 +364,7 @@ export async function getPortfolioSharpeRatio(request:Request) {
     const sharpeRatio = (annualisedReturn - riskFreeRate) / normalisedStandardDeviation;
 
     // store in redis cache
-    await redisClient.set(redisKey, sharpeRatio.toString(), {'EX': 60 * 60});
+    await redisSet(request, RedisKeys.PORTFOLIO_SHARPE_RATIO, sharpeRatio.toString());
 
     return sharpeRatio;
 }
@@ -385,15 +373,14 @@ export async function getPortfolioBeta(request: Request) {
     const sessionUser = await requireUserSession(request);
 
 
-    const portfolioData = await getPortfolio(request);
 
-    // console.log(redisClient)
-    // // use redis cache
-    const redisKey = `portfolioBeta:${sessionUser.uid}`;
-    const cachedValue = await redisClient.get(redisKey);
+    // use redis cache
+    const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_BETA);
     if (cachedValue) {
         return parseFloat(cachedValue);
     }
+
+    const portfolioData = await getPortfolio(request);
 
     let totalValue = 0;
     for (const stock of portfolioData) {
@@ -405,6 +392,6 @@ export async function getPortfolioBeta(request: Request) {
     }
 
     // store in redis cache
-    await redisClient.set(redisKey, beta.toString(), {'EX': 60 * 60});
+    await redisSet(request, RedisKeys.PORTFOLIO_BETA, beta.toString());
     return beta;
 }
