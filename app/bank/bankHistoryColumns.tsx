@@ -93,7 +93,7 @@ export const bankHistoryColumns: ColumnDef<bankHistory>[] = [
             }
 
             const footer = Object.entries(currencyTotals).map(([currency, total]) => {
-                return `${currency} ${total}`;
+                return `${currency} ${total.toFixed(2)}`;
             }).join('\n');
             return footer;
             // // check if the future balance is in total as a string
