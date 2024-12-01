@@ -90,7 +90,7 @@ export function BankHistoryTable<TData, TValue>({
                     {table.getFooterGroups().map(footerGroup => (
                         <TableRow key={footerGroup.id}>
                             {footerGroup.headers.map(header => (
-                                <TableCell key={header.id} className="border">
+                                <TableCell key={header.id} className="border whitespace-pre-line">
                                     {header.isPlaceholder
                                         ? null
                                         : flexRender(

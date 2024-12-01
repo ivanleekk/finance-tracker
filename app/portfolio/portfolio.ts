@@ -65,7 +65,7 @@ export async function getPortfolio(request: Request) {
 
 
         if (stockCurrency !== homeCurrency) {
-            const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
+            const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
             if (forexQuote && forexQuote.price) {
                 homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
             }
@@ -277,7 +277,7 @@ export async function getPortfolioStandardDeviation(request: Request) {
             let homeCurrentPrice = price;
 
             if (stockCurrency !== homeCurrency) {
-            const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
+            const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
                 if (forexQuote && forexQuote.price) {
                     homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
                 }
@@ -349,7 +349,7 @@ export async function getPortfolioSharpeRatio(request:Request) {
             let homeCurrentPrice = price;
 
             if (stockCurrency !== homeCurrency) {
-                const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
+                const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
 
                 if (forexQuote && forexQuote.price) {
                     homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
