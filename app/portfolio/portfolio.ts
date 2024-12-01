@@ -5,6 +5,7 @@ import {dataWithError, dataWithSuccess} from "remix-toast";
 import { getUserByRequest } from "~/user/user";
 import { redisGet, redisReset, redisSet } from "~/utils/redisClient";
 import { RedisKeys } from "~/utils/redisKeys";
+import { s } from "node_modules/vite/dist/node/types.d-aGj9QkWt";
 
 type portfolioItem = { 
         id: string; 
@@ -64,7 +65,7 @@ export async function getPortfolio(request: Request) {
 
 
         if (stockCurrency !== homeCurrency) {
-            const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+            const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
             if (forexQuote && forexQuote.price) {
                 homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
             }
@@ -276,7 +277,7 @@ export async function getPortfolioStandardDeviation(request: Request) {
             let homeCurrentPrice = price;
 
             if (stockCurrency !== homeCurrency) {
-                const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+            const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
                 if (forexQuote && forexQuote.price) {
                     homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
                 }
@@ -348,7 +349,8 @@ export async function getPortfolioSharpeRatio(request:Request) {
             let homeCurrentPrice = price;
 
             if (stockCurrency !== homeCurrency) {
-                const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+                const forexQuote = await yahooFinance.quoteSummary((stockCurrency === "USD" ? "" : stockCurrency) + homeCurrency + "=X");
+
                 if (forexQuote && forexQuote.price) {
                     homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
                 }
