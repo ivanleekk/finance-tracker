@@ -92,7 +92,7 @@ export default function Index() {
                         loadingMessage="Loading Total Cash"
                         resolvePromise={bank}
                         renderContent={(data) =>
-                            user.homeCurrencySymbol + data.reduce((acc, bank) => acc + bank.currentBalance, 0).toFixed(2)
+                            user.homeCurrencySymbol + data.reduce((acc, bank) => acc + bank.homeCurrentBalance, 0).toFixed(2)
                         }
                     />
                     <SuspenseCard
@@ -104,13 +104,13 @@ export default function Index() {
                                 return "No bank accounts";
                             } else {
                                 const largestBank = data.find(
-                                    (bank) => bank.currentBalance === Math.max(...data.map((bank) => bank.currentBalance))
+                                    (bank) => bank.homeCurrentBalance === Math.max(...data.map((bank) => bank.homeCurrentBalance))
                                 );
                                 return (
                                     largestBank?.bankName +
                                     " " +
                                     user.homeCurrencySymbol +
-                                    largestBank?.currentBalance
+                                    largestBank?.homeCurrentBalance.toFixed(2)
                                 );
                             }
                         }}

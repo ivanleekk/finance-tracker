@@ -4,6 +4,9 @@ import { dataWithError, dataWithSuccess } from "remix-toast";
 import { bankHistory } from "./bankHistoryColumns";
 import { RedisKeys } from "~/utils/redisKeys";
 import { redisGet, redisReset, redisSet } from "~/utils/redisClient";
+import { getUserByRequest } from "~/user/user";
+import yahooFinance from "yahoo-finance2";
+import { C } from "node_modules/react-router/dist/production/fog-of-war-BDQTYoRQ.mjs";
 
 export async function getBankInfo(request: Request) {
     const sessionUser = await requireUserSession(request);
@@ -13,6 +16,8 @@ export async function getBankInfo(request: Request) {
     if (cachedValue) {
         return JSON.parse(cachedValue);
     }
+
+    const userData = await getUserByRequest(request);
 
     const querySnapshot = await db
         .collection("bank")
@@ -24,24 +29,60 @@ export async function getBankInfo(request: Request) {
         ...doc.data(),
     }));
 
+    const homeData = [];
+    for (const bank of data) {
+        // get the currency of the bank and add a field for value in home currency
+        const currency = bank.currency || "USD";
+        const homeCurrency = userData?.homeCurrency || "USD";
+        let homeCurrentBalance = bank.currentBalance;
+        if (currency === homeCurrency) {
+            homeData.push({
+                ...bank,
+                homeCurrentBalance,
+            });
+            continue;
+        }
+        const forexQuote = await yahooFinance.quoteSummary((currency === "USD" ? "" : currency) + homeCurrency + "=X");
+        if (forexQuote && forexQuote.price) {
+            homeCurrentBalance *= forexQuote.price.regularMarketPrice!;
+        }
+        homeData.push({
+            ...bank,
+            homeCurrentBalance,
+        });
+    }
+    
     // Store in Redis cache
-    await redisSet(request, RedisKeys.BANK, JSON.stringify(data));
+    await redisSet(request, RedisKeys.BANK, JSON.stringify(homeData));
 
-    return data;
+    return homeData;
 }
 
 export async function addBankInfo(request: Request) {
     const sessionUser = await requireUserSession(request);
 
     const data = await request.formData();
+    const bankName = data.get("bankName")?.toString().toUpperCase();
+    const balance = Number(data.get("balance"));
     const inputDate = data.get("date")?.toString(); // HTML date input
     const standardizedDate = standardizeDate(inputDate); // Standardize to full ISO string
+    const currency = data.get("currency")?.toString();
+    let forexQuote = null;
+    try {
+        forexQuote = await yahooFinance.quoteSummary('USD' + currency + "=X");
+    }
+    catch (e) {
+        return dataWithError(null, 'Invalid currency ' + currency);
+    }
+    const currencySymbol = forexQuote.price?.currencySymbol?.toString() || "$";
 
     const bankData = {
         user: sessionUser.uid,
-        bankName: data.get("bankName").toString().toUpperCase(),
-        balance: Number(data.get("balance")),
+        bankName: bankName,
+        balance: balance,
         date: standardizedDate, // Use standardized date
+        currency: currency,
+        currencySymbol: currencySymbol
     };
 
     if (isNaN(bankData.balance)) {
@@ -71,6 +112,8 @@ export async function addBankInfo(request: Request) {
             await bankRef.update({
                 currentBalance: bankData.balance,
                 latestDate: bankData.date,
+                currency: bankData.currency,
+                currencySymbol: bankData.currencySymbol,
             });
         }
 
@@ -85,6 +128,8 @@ export async function addBankInfo(request: Request) {
             bankName: bankData.bankName,
             currentBalance: bankData.balance,
             latestDate: bankData.date,
+            currency: bankData.currency,
+            currencySymbol: bankData.currencySymbol,
         });
 
         const historyRef = bankRef.collection("bankHistory");
@@ -132,6 +177,8 @@ export async function getBankHistory(request: Request) {
             bankName: bankDoc.data().bankName,
             currentBalance: bankDoc.data().currentBalance,
             latestDate: bankDoc.data().latestDate,
+            currency: bankDoc.data().currency,
+            currencySymbol: bankDoc.data().currencySymbol,
             history,
         });
     }
@@ -206,6 +253,8 @@ export async function getBankHistoryMonthly(request: Request): Promise<{data: {b
             bankName: bankDoc.data().bankName,
             currentBalance: bankDoc.data().currentBalance,
             latestDate: bankDoc.data().latestDate,
+            currency: bankDoc.data().currency,
+            currencySymbol: bankDoc.data().currencySymbol,
             monthlyData,
         });
     }
