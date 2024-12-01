@@ -241,6 +241,7 @@ export async function getTransactions(request: Request) {
 
 export async function getPortfolioStandardDeviation(request: Request) {
     const sessionUser = await requireUserSession(request);
+    const userData = await getUserByRequest(request);
 
     // use redis cache
     const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_STD_DEV);
@@ -248,16 +249,18 @@ export async function getPortfolioStandardDeviation(request: Request) {
         return parseFloat(cachedValue);
     }
 
+    const homeCurrency = userData?.homeCurrency || "USD";
+
     const portfolioData = await getPortfolio(request);
 
     // get historical prices for each stock in the portfolio
     const symbols = portfolioData.map((item) => item.symbol);
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const totalValue = portfolioData.reduce((acc: number, item) => acc + item.totalCurrentValue, 0);
+    const totalValue = portfolioData.reduce((acc: number, item) => acc + item.homeTotalCurrentValue, 0);
 
     for (const symbol of portfolioData) {
-        symbol.percentageOfPortfolio = symbol.totalCurrentValue / totalValue;
+        symbol.percentageOfPortfolio = symbol.homeTotalCurrentValue / totalValue;
     }
 
     // find the price movement of the whole portfolio for each day
@@ -266,12 +269,21 @@ export async function getPortfolioStandardDeviation(request: Request) {
     const portfolioPrices = [];
     for (const symbol of symbols) {
         const quote = await yahooFinance.chart(symbol, {period1: oneYearAgo});
-        for (const item of quote.quotes) {
+        const stockCurrency = quote.meta.currency || "USD";
+            for (const item of quote.quotes) {
             const date = new Date(item.date).toDateString();
             const price = item.close * portfolioData.find((item) => item.symbol === symbol).quantity;
+            let homeCurrentPrice = price;
+
+            if (stockCurrency !== homeCurrency) {
+                const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+                if (forexQuote && forexQuote.price) {
+                    homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
+                }
+            }
             const portfolioPrice = portfolioPrices.find((item) => item.date === date);
             if (portfolioPrice) {
-                portfolioPrice.price += price;
+                portfolioPrice.price += homeCurrentPrice;
             } else {
                 portfolioPrices.push({date: date, price: price});
             }
@@ -301,15 +313,17 @@ export async function getPortfolioStandardDeviation(request: Request) {
 export async function getPortfolioSharpeRatio(request:Request) {
     const sessionUser = await requireUserSession(request);
 
-
-    const portfolioData = await getPortfolio(request);
-
     // // use redis cache
     const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_SHARPE_RATIO);
     if (cachedValue) {
         return parseFloat(cachedValue);
     }
 
+    const userData = await getUserByRequest(request);
+
+    const homeCurrency = userData?.homeCurrency || "USD";
+
+    const portfolioData = await getPortfolio(request);
 
     // get historical prices for each stock in the portfolio
     const symbols = portfolioData.map((item) => item.symbol);
@@ -327,12 +341,21 @@ export async function getPortfolioSharpeRatio(request:Request) {
     const portfolioPrices = [];
     for (const symbol of symbols) {
         const quote = await yahooFinance.chart(symbol, {period1: oneYearAgo});
+        const stockCurrency = quote.meta.currency || "USD";
         for (const item of quote.quotes) {
             const date = new Date(item.date).toDateString();
             const price = item.close * portfolioData.find((item) => item.symbol === symbol).quantity;
+            let homeCurrentPrice = price;
+
+            if (stockCurrency !== homeCurrency) {
+                const forexQuote = await yahooFinance.quoteSummary(stockCurrency + homeCurrency + "=X");
+                if (forexQuote && forexQuote.price) {
+                    homeCurrentPrice *= forexQuote.price.regularMarketPrice!;
+                }
+            }
             const portfolioPrice = portfolioPrices.find((item) => item.date === date);
             if (portfolioPrice) {
-                portfolioPrice.price += price;
+                portfolioPrice.price += homeCurrentPrice;
             } else {
                 portfolioPrices.push({date: date, price: price});
             }
@@ -372,23 +395,23 @@ export async function getPortfolioSharpeRatio(request:Request) {
 export async function getPortfolioBeta(request: Request) {
     const sessionUser = await requireUserSession(request);
 
-
-
     // use redis cache
     const cachedValue = await redisGet(request, RedisKeys.PORTFOLIO_BETA);
     if (cachedValue) {
         return parseFloat(cachedValue);
     }
 
+    const userData = await getUserByRequest(request);
+
     const portfolioData = await getPortfolio(request);
 
     let totalValue = 0;
     for (const stock of portfolioData) {
-        totalValue += stock.totalCurrentValue;
+        totalValue += stock.homeTotalCurrentValue;
     }
     let beta = 0;
     for (const stock of portfolioData) {
-        beta += (stock.totalCurrentValue / totalValue) * stock.beta;
+        beta += (stock.homeTotalCurrentValue / totalValue) * stock.beta;
     }
 
     // store in redis cache
