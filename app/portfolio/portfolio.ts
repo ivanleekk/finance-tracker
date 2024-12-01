@@ -138,10 +138,11 @@ export async function addTrade(request: Request) {
     const sessionUser = await requireUserSession(request);
 
     const formData = await request.formData();
-    const symbol = formData.get("Ticker").toString().toUpperCase();
-    const quantity = Number(formData.get("Number of Shares"));
-    const price = Number(formData.get("Price"));
-    const tradeType = formData.get("Trade Type").toString();
+    const symbol = formData.get("ticker").toString().toUpperCase();
+    const quantity = Number(formData.get("number_of_shares"));
+    const price = Number(formData.get("price"));
+    const tradeType = formData.get("trade_type").toString();
+    const date = formData.get("date") ? new Date(formData.get("date")!.toString()) : new Date();
 
     if (isNaN(Number(quantity)) || isNaN(Number(price))) {
         return dataWithError({ status: 400, error: "Quantity and price must be numbers" }, {message: "Quantity and price must be numbers" });
@@ -171,7 +172,7 @@ export async function addTrade(request: Request) {
         quantity: quantity,
         price: price,
         tradeType: tradeType,
-        datetime: new Date(),
+        datetime: date,
         user: sessionUser.uid
     });
 
