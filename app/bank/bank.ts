@@ -42,7 +42,10 @@ export async function addBankInfo(request: Request) {
         bankName: data.get("bankName").toString().toUpperCase(),
         balance: Number(data.get("balance")),
         date: standardizedDate, // Use standardized date
+        currency: data.get("currency")?.toString(),
     };
+
+    console.log(bankData);
 
     if (isNaN(bankData.balance)) {
         return dataWithError(null, "Balance should be a number");
