@@ -1,4 +1,4 @@
-import { Form, useRouteError } from "@remix-run/react";
+import { Form, useNavigation, useRouteError } from "@remix-run/react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -31,6 +31,9 @@ export default function Trade() {
     // State to track whether the switch is toggled
     const [showDateInput, setShowDateInput] = useState(false);
     const dateInputRef = useRef<HTMLInputElement>(null); // Ref for the date input
+
+    const navigation = useNavigation()
+    const isSubmitting = navigation.state != 'idle'
 
     const handleSwitchChange = (checked: boolean) => {
         setShowDateInput(checked);
@@ -83,10 +86,10 @@ export default function Trade() {
                             <Input type="date" name="date" ref={dateInputRef} />
                         </Label>
                     )}
-                    <Button type="submit">Trade</Button>
+                    <Button disabled={isSubmitting} type="submit">{isSubmitting ? "Submitting" : "Trade"}</Button>
                 </Form>
             </CardContent>
-        </Card>
+        </Card >
     );
 }
 

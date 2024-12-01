@@ -138,6 +138,7 @@ export async function addTrade(request: Request) {
     const sessionUser = await requireUserSession(request);
 
     const formData = await request.formData();
+    console.log(formData);
     const symbol = formData.get("ticker").toString().toUpperCase();
     const quantity = Number(formData.get("number_of_shares"));
     const price = Number(formData.get("price"));
