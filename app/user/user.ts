@@ -2,6 +2,7 @@ import { dataWithError, dataWithSuccess } from "remix-toast";
 import yahooFinance from "yahoo-finance2";
 import { requireUserSession } from "~/utils/auth.server";
 import {db} from "~/utils/db.server";
+import { redisReset } from "~/utils/redisClient";
 
 export async function getUserByRequest(request: Request) {
     const sessionUser = await requireUserSession(request);
@@ -48,6 +49,9 @@ export async function setUserByRequest(request: Request) {
             homeCurrencySymbol: homeCurrencySymbol
         });
     }
+    
+    // reset the redis cache
+    await redisReset(request);
 
     return dataWithSuccess(null, 'Settings saved successfully');
 

@@ -1,6 +1,7 @@
 import { Form, useLoaderData } from "@remix-run/react";
-import { redirectWithSuccess } from "remix-toast";
+import { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { Button } from "~/components/ui/button";
+import { Card, CardHeader, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { getUserByRequest, setUserByRequest } from "~/user/user";
@@ -19,16 +20,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 }
 export default function Settings() {
     const userData = useLoaderData<typeof loader>();
-    console.log(userData);
+
     return (
-        <div className="space-y-4">
-            <Form method="post" className="space-y-4">
-                <Label>
-                    Home Currency
-                    <Input type="text" name="homeCurrency" />
-                </Label>
-                <Button type="submit">Save</Button>
-            </Form>
-        </div>
+        <Card className="max-w-xl flex flex-col flex-grow basis-auto p-2">
+            <CardHeader className="text-xl font-bold">Settings</CardHeader>
+            <CardContent>
+                <Form method="post" className="space-y-4">
+                    <Label>
+                        Home Currency
+                        <Input type="text" name="homeCurrency" />
+                    </Label>
+                    <Button type="submit">Save</Button>
+                </Form>
+            </CardContent>
+        </Card>
     );
 }

@@ -2,16 +2,17 @@ import { db } from "~/utils/db.server";
 import { requireUserSession } from "~/utils/auth.server";
 import { dataWithError, dataWithSuccess } from "remix-toast";
 import { bankHistory } from "./bankHistoryColumns";
+import { RedisKeys } from "~/utils/redisKeys";
+import { redisGet, redisReset, redisSet } from "~/utils/redisClient";
 
 export async function getBankInfo(request: Request) {
     const sessionUser = await requireUserSession(request);
 
-    // Use Redis cache (optional)
-    // const redisKey = `bank:${sessionUser.uid}`;
-    // const cachedValue = await redisClient.get(redisKey);
-    // if (cachedValue) {
-    //     return JSON.parse(cachedValue);
-    // }
+    // Use Redis cache 
+    const cachedValue = await redisGet(request, RedisKeys.BANK);
+    if (cachedValue) {
+        return JSON.parse(cachedValue);
+    }
 
     const querySnapshot = await db
         .collection("bank")
@@ -23,8 +24,8 @@ export async function getBankInfo(request: Request) {
         ...doc.data(),
     }));
 
-    // Store in Redis cache for 1 minute
-    // await redisClient.set(redisKey, JSON.stringify(data), { EX: 60 });
+    // Store in Redis cache
+    await redisSet(request, RedisKeys.BANK, JSON.stringify(data));
 
     return data;
 }
@@ -93,12 +94,21 @@ export async function addBankInfo(request: Request) {
         });
     }
 
+    // Clear Redis cache
+    await redisReset(request);
+
     return dataWithSuccess(null, `${bankData.bankName} added successfully`);
 }
 
 
 export async function getBankHistory(request: Request) {
     const sessionUser = await requireUserSession(request);
+
+    // Use Redis cache
+    const cachedValue = await redisGet(request, RedisKeys.BANK_HISTORY);
+    if (cachedValue) {
+        return JSON.parse(cachedValue);
+    }
 
     const data = [];
     const querySnapshot = await db
@@ -126,11 +136,21 @@ export async function getBankHistory(request: Request) {
         });
     }
 
+    // Store in Redis cache
+    await redisSet(request, RedisKeys.BANK_HISTORY, JSON.stringify(data));
+
     return data;
 }
 
 export async function getBankHistoryMonthly(request: Request): Promise<{data: {bankName: string, currentBalance: number, latestDate: string, monthlyData: {year: number, month: number, date: string, balance: number}[]}[], availableYears: string[]}> {
     const sessionUser = await requireUserSession(request);
+
+    // Use Redis cache
+    const cachedValue = await redisGet(request, RedisKeys.BANK_HISTORY_MONTHLY);
+    if (cachedValue) {
+        return JSON.parse(cachedValue);
+    }
+
 
     const data = [];
     const querySnapshot = await db
@@ -189,6 +209,9 @@ export async function getBankHistoryMonthly(request: Request): Promise<{data: {b
             monthlyData,
         });
     }
+
+    // Store in Redis cache
+    await redisSet(request, RedisKeys.BANK_HISTORY_MONTHLY, JSON.stringify({data, availableYears: Array.from(availableYears).sort()}));
 
     return {data, availableYears: Array.from(availableYears).sort()};
 }

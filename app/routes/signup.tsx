@@ -6,6 +6,7 @@ import { ActionFunctionArgs } from "@remix-run/node";
 import { authenticator } from "~/utils/auth.server";
 import { LoaderFunctionArgs, redirect } from "@vercel/remix";
 import { getUserSession } from "~/utils/session.server";
+import { Card, CardHeader, CardContent } from "~/components/ui/card";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const user = await getUserSession(request);
@@ -23,19 +24,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function SignUp() {
     return (
-        <div>
-            <Form method="post" className="space-y-4">
-                <Label>
-                    Email
-                    <Input type="email" name="email" required />
-                </Label>
-                <Label>
-                    Password
-                    <Input type="password" name="password" required />
-                </Label>
-                <Button type="submit">Sign Up</Button>
-            </Form>
-            <Link to={"/login"}>Already have an account? Login here</Link>
-        </div>
+        <Card className="max-w-xl flex flex-col flex-grow basis-auto p-2">
+            <CardHeader className="text-xl font-bold">Sign Up</CardHeader>
+            <CardContent className="flex flex-col gap-4">
+                <Form method="post" className="flex flex-col gap-4">
+                    <Label>
+                        Email
+                        <Input type="email" name="email" required />
+                    </Label>
+                    <Label>
+                        Password
+                        <Input type="password" name="password" required />
+                    </Label>
+                    <Button type="submit">Sign Up</Button>
+                </Form>
+                <Form action="/login/google" method="post" className="flex flex-col gap-4">
+                    <Button variant="secondary">Sign Up with Google</Button>
+                </Form>
+                <Link to={"/login"}>Already have an account? <u>Login here</u></Link>
+            </CardContent>
+        </Card>
     )
 }

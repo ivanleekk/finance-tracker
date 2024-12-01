@@ -14,7 +14,7 @@ import { json } from "@vercel/remix";
 
 import {GoogleStrategy} from "remix-auth-google";
 import dotenv from "dotenv";
-import {redirectWithError} from "remix-toast";
+import {dataWithError, redirectWithError} from "remix-toast";
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
@@ -44,7 +44,7 @@ authenticator.use(
                 const token = await user.getIdToken();
                 return createUserSession(token, "/dashboard");
             } catch (error) {
-                return json({ error: "Invalid email or password" }, { status: 400 });
+                return dataWithError(null, "Invalid email or password");
             }
 
         }
