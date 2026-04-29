@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+    --color-primary-50: var(--color-sky-50);
+    --color-primary-100: var(--color-sky-100);
+    --color-primary-200: var(--color-sky-200);
+    --color-primary-300: var(--color-sky-300);
+    --color-primary-400: var(--color-sky-400);
+    --color-primary-500: var(--color-sky-500);
+    --color-primary-600: var(--color-sky-600);
+    --color-primary-700: var(--color-sky-700);
+    --color-primary-800: var(--color-sky-800);
+    --color-primary-900: var(--color-sky-900);
+    --color-primary-950: var(--color-sky-950);
+
+    --color-secondary-50: var(--color-fuchsia-50);
+    --color-secondary-100: var(--color-fuchsia-100);
+    --color-secondary-200: var(--color-fuchsia-200);
+    --color-secondary-300: var(--color-fuchsia-300);
+    --color-secondary-400: var(--color-fuchsia-400);
+    --color-secondary-500: var(--color-fuchsia-500);
+    --color-secondary-600: var(--color-fuchsia-600);
+    --color-secondary-700: var(--color-fuchsia-700);
+    --color-secondary-800: var(--color-fuchsia-800);
+    --color-secondary-900: var(--color-fuchsia-900);
+    --color-secondary-950: var(--color-fuchsia-950);
+
+    --color-base-50: var(--color-mauve-50);
+    --color-base-100: var(--color-mauve-100);
+    --color-base-200: var(--color-mauve-200);
+    --color-base-300: var(--color-mauve-300);
+    --color-base-400: var(--color-mauve-400);
+    --color-base-500: var(--color-mauve-500);
+    --color-base-600: var(--color-mauve-600);
+    --color-base-700: var(--color-mauve-700);
+    --color-base-800: var(--color-mauve-800);
+    --color-base-900: var(--color-mauve-900);
+    --color-base-950: var(--color-mauve-950);
+}
+
+html,
+body {
+    height: 100%;
+    overflow: hidden; /* Forbids the page itself from ever scrolling */
+    overscroll-behavior: none; /* Kills the Mac/iOS "bounce" or "pull-to-refresh" effect */
+    margin: 0;
+    padding: 0;
+}
+#root {
+    height: 100%; /* Ensures the React root wrapper takes up the full space */
+}
+body {
+    background-color: var(--color-base-300);
+    overscroll-behavior: none;
+}
+
+main {
+    background-color: var(--color-base-100);
+    overflow-y: auto;
+    flex-grow: 1;
+    height: 100%;
+}
+
+h1 {
+    color: var(--color-base-600);
+    font-weight: bold;
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+h2 {
+    color: var(--color-base-600);
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+h3 {
+    color: var(--color-base-500);
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+p {
+    color: var(--color-base-950);
+    font-size: 1rem;
+    margin-bottom: 1rem;
+}

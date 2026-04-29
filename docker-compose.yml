@@ -1,0 +1,71 @@
+services:
+    # nginx:
+    #     build: ./nginx
+    #     ports:
+    #         - "80:80"
+    #     depends_on:
+    #         - frontend
+    #         - backend
+    #         # - backend_2
+    #     restart: always
+
+    # backend:
+    #     build: ./backend
+    #     expose:
+    #         - "5001"
+    #     ports:
+    #         - "5001:5001"
+    #     environment:
+    #         - PORT=5001
+    #         - HOST=0.0.0.0
+    #         - DEBUG=false
+    #         - POSTGRES_HOST=db
+    #         - POSTGRES_PORT=5432
+    #         - POSTGRES_DB=fin
+    #         - POSTGRES_USER=fin
+    #         - POSTGRES_PASSWORD=fin
+    #     env_file:
+    #         - .env
+    #     depends_on:
+    #         db:
+    #             condition: service_started
+    #     restart: unless-stopped
+
+
+    frontend:
+        build: ./frontend
+        expose:
+            - "5173"  # Updated to Vite's default port
+        ports:
+            - "5173:5173"
+        environment:
+            # Vite uses CHOKIDAR_USEPOLLING for hot-reloading inside Docker volumes
+            - CHOKIDAR_USEPOLLING=true
+            # Vite requires the VITE_ prefix for public variables instead of NEXT_PUBLIC_
+            - VITE_API_URL=http://localhost:5001/api
+            - VITE_API_URL_2=http://localhost:5002/api
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules
+            # The /app/.next volume was removed since it is Next.js specific
+        # depends_on:
+            # - backend
+            # - backend_2
+        restart: unless-stopped
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+      
+    db:
+      image: postgres:18-alpine
+      restart: always
+      environment:
+        POSTGRES_DB: fin
+        POSTGRES_USER: fin
+        POSTGRES_PASSWORD: fin
+      ports:
+        - "5432:5432"
+      volumes:
+        - finance_tracker_db_data:/var/lib/postgresql
+
+volumes:
+  finance_tracker_db_data:
