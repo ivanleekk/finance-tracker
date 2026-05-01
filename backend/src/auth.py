@@ -12,7 +12,7 @@ import uuid
 from src.database import get_db
 from src import models
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-for-development")
+SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-for-development-32")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
