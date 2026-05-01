@@ -1,0 +1,264 @@
+import enum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Enum,
+    Numeric,
+)
+from sqlalchemy.orm import relationship
+from src.database import Base
+
+
+# --- ENUMS ---
+class LiquidityStatus(enum.Enum):
+    liquid = "liquid"
+    market_liquid = "market_liquid"
+    time_locked = "time_locked"
+    retirement = "retirement"
+
+
+class TaxTreatment(enum.Enum):
+    taxable = "taxable"
+    tax_deferred = "tax_deferred"
+    tax_free = "tax_free"
+
+
+# --- 1. ACCESS & TENANCY ---
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    preferred_timezone = Column(String)
+
+    # Relationships
+    household_memberships = relationship("HouseholdMember", back_populates="user")
+    account_accesses = relationship("AccountAccess", back_populates="user")
+    portfolio_accesses = relationship("PortfolioAccess", back_populates="user")
+
+
+class Household(Base):
+    __tablename__ = "households"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    base_currency = Column(String)
+    country_code = Column(String)
+
+    # Relationships
+    members = relationship("HouseholdMember", back_populates="household")
+    accounts = relationship("FinancialAccount", back_populates="household")
+    categories = relationship("Category", back_populates="household")
+    sub_portfolios = relationship("SubPortfolio", back_populates="household")
+    trades = relationship("Trade", back_populates="household")
+    dividends = relationship("Dividend", back_populates="household")
+    portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="household")
+
+
+class HouseholdMember(Base):
+    __tablename__ = "household_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    household_id = Column(Integer, ForeignKey("households.id"))
+    role = Column(String)
+
+    user = relationship("User", back_populates="household_memberships")
+    household = relationship("Household", back_populates="members")
+
+
+# --- ACCESS CONTROL MAPPING ---
+
+
+class AccountAccess(Base):
+    __tablename__ = "account_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    role = Column(String)
+
+    account = relationship("FinancialAccount", back_populates="access_controls")
+    user = relationship("User", back_populates="account_accesses")
+
+
+class PortfolioAccess(Base):
+    __tablename__ = "portfolio_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    role = Column(String)
+
+    sub_portfolio = relationship("SubPortfolio", back_populates="access_controls")
+    user = relationship("User", back_populates="portfolio_accesses")
+
+
+# --- 2. UNIVERSAL ACCOUNTS & CASH BALANCES ---
+
+
+class FinancialAccount(Base):
+    __tablename__ = "financial_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    name = Column(String)
+    liquidity = Column(Enum(LiquidityStatus))
+    tax_status = Column(Enum(TaxTreatment))
+    currency = Column(String)
+
+    household = relationship("Household", back_populates="accounts")
+    access_controls = relationship("AccountAccess", back_populates="account")
+    balances = relationship("AccountBalance", back_populates="account")
+    transactions = relationship("Transaction", back_populates="account")
+    trades = relationship("Trade", back_populates="account")
+    dividends = relationship("Dividend", back_populates="account")
+
+
+class AccountBalance(Base):
+    __tablename__ = "account_balances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    date = Column(Date)
+    balance = Column(Numeric)
+
+    account = relationship("FinancialAccount", back_populates="balances")
+
+
+# --- 3. CASH FLOW (INCOME & EXPENSES) ---
+
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    name = Column(String)
+    type = Column(String)
+
+    household = relationship("Household", back_populates="categories")
+    transactions = relationship("Transaction", back_populates="category")
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    category_id = Column(Integer, ForeignKey("categories.id"))
+    date = Column(DateTime(timezone=True))
+    amount = Column(Numeric)
+    description = Column(String)
+
+    account = relationship("FinancialAccount", back_populates="transactions")
+    category = relationship("Category", back_populates="transactions")
+
+
+# --- 4. ASSETS, TRADES & PORTFOLIO ---
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String, index=True)
+    name = Column(String)
+    type = Column(String)
+    currency = Column(String)
+
+    trades = relationship("Trade", back_populates="asset")
+    dividends = relationship("Dividend", back_populates="asset")
+    portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="asset")
+
+
+class ExchangeRate(Base):
+    __tablename__ = "exchange_rates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    base_currency = Column(String)
+    target_currency = Column(String)
+    date = Column(Date)
+    rate = Column(Float)
+
+
+class SubPortfolio(Base):
+    __tablename__ = "sub_portfolios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    name = Column(String)
+    risk_profile = Column(String)
+    target_date = Column(Date, nullable=True)
+
+    household = relationship("Household", back_populates="sub_portfolios")
+    access_controls = relationship("PortfolioAccess", back_populates="sub_portfolio")
+    trades = relationship("Trade", back_populates="sub_portfolio")
+    portfolio_snapshots = relationship(
+        "PortfolioSnapshot", back_populates="sub_portfolio"
+    )
+    dividends = relationship("Dividend", back_populates="sub_portfolio")
+
+
+class Trade(Base):
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
+    asset_id = Column(Integer, ForeignKey("assets.id"))
+    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    type = Column(String)
+    date = Column(DateTime(timezone=True))
+    quantity = Column(Float)
+    price = Column(Numeric)
+    exchange_rate = Column(Float)
+
+    household = relationship("Household", back_populates="trades")
+    sub_portfolio = relationship("SubPortfolio", back_populates="trades")
+    asset = relationship("Asset", back_populates="trades")
+    account = relationship("FinancialAccount", back_populates="trades")
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
+    asset_id = Column(Integer, ForeignKey("assets.id"))
+    date = Column(Date)
+    quantity = Column(Float)
+    current_price = Column(Numeric)
+    exchange_rate_used = Column(Float)
+    current_value_home_currency = Column(Numeric)
+    average_cost_basis = Column(Numeric)
+
+    household = relationship("Household", back_populates="portfolio_snapshots")
+    sub_portfolio = relationship("SubPortfolio", back_populates="portfolio_snapshots")
+    asset = relationship("Asset", back_populates="portfolio_snapshots")
+
+
+class Dividend(Base):
+    __tablename__ = "dividends"
+
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"))
+    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
+    asset_id = Column(Integer, ForeignKey("assets.id"))
+    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    date = Column(DateTime(timezone=True))
+    amount = Column(Numeric)
+    exchange_rate = Column(Float)
+
+    household = relationship("Household", back_populates="dividends")
+    sub_portfolio = relationship("SubPortfolio", back_populates="dividends")
+    asset = relationship("Asset", back_populates="dividends")
+    account = relationship("FinancialAccount", back_populates="dividends")
