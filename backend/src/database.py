@@ -1,14 +1,19 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from dotenv import load_dotenv
+load_dotenv()
+
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:password@localhost:5432/financetracker"
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+metadata = MetaData(schema="finance_tracker")
+Base = declarative_base(metadata=metadata)
 
 
 # Dependency to inject the database session into your routes

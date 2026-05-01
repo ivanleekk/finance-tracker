@@ -1,4 +1,5 @@
 import enum
+import uuid
 from sqlalchemy import (
     Column,
     Integer,
@@ -9,8 +10,9 @@ from sqlalchemy import (
     ForeignKey,
     Enum,
     Numeric,
+    UUID
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from src.database import Base
 
 
@@ -38,6 +40,10 @@ class HouseholdRoleType(enum.Enum):
     editor = "editor"
     viewer = "viewer"
 
+class AccountRoleType(enum.Enum):
+    owner = "owner"
+    editor = "editor"
+    viewer = "viewer"
 
 class TradeType(enum.Enum):
     buy = "buy"
@@ -50,9 +56,12 @@ class TradeType(enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    preferred_timezone = Column(String)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    preferred_timezone: Mapped[str] = mapped_column(String, default="UTC")
+    salted_hashed_password: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String)
+    salt: Mapped[str] = mapped_column(String)
 
     # Relationships
     household_memberships = relationship("HouseholdMember", back_populates="user")
@@ -63,7 +72,7 @@ class User(Base):
 class Household(Base):
     __tablename__ = "households"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     name = Column(String)
     base_currency = Column(String)
     country_code = Column(String)
@@ -81,10 +90,10 @@ class Household(Base):
 class HouseholdMember(Base):
     __tablename__ = "household_members"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    household_id = Column(Integer, ForeignKey("households.id"))
-    role = Column(String)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    role = Column(Enum(HouseholdRoleType, name="household_role_type", schema="finance_tracker"))
 
     user = relationship("User", back_populates="household_memberships")
     household = relationship("Household", back_populates="members")
@@ -96,10 +105,10 @@ class HouseholdMember(Base):
 class AccountAccess(Base):
     __tablename__ = "account_access"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
-    role = Column(String)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    role = Column(Enum(AccountRoleType, name="account_role_type", schema="finance_tracker"))
 
     account = relationship("FinancialAccount", back_populates="access_controls")
     user = relationship("User", back_populates="account_accesses")
@@ -108,9 +117,9 @@ class AccountAccess(Base):
 class PortfolioAccess(Base):
     __tablename__ = "portfolio_access"
 
-    id = Column(Integer, primary_key=True, index=True)
-    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     role = Column(String)
 
     sub_portfolio = relationship("SubPortfolio", back_populates="access_controls")
@@ -123,11 +132,11 @@ class PortfolioAccess(Base):
 class FinancialAccount(Base):
     __tablename__ = "financial_accounts"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     name = Column(String)
-    liquidity = Column(Enum(LiquidityStatus))
-    tax_status = Column(Enum(TaxTreatment))
+    liquidity = Column(Enum(LiquidityStatus, name="liquidity_status", schema="finance_tracker"))
+    tax_status = Column(Enum(TaxTreatment, name="tax_treatment", schema="finance_tracker"))
     currency = Column(String)
 
     household = relationship("Household", back_populates="accounts")
@@ -141,8 +150,8 @@ class FinancialAccount(Base):
 class AccountBalance(Base):
     __tablename__ = "account_balances"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
     date = Column(Date)
     balance = Column(Numeric)
 
@@ -155,8 +164,8 @@ class AccountBalance(Base):
 class Category(Base):
     __tablename__ = "categories"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     name = Column(String)
     type = Column(String)
 
@@ -167,12 +176,13 @@ class Category(Base):
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
-    category_id = Column(Integer, ForeignKey("categories.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
     date = Column(DateTime(timezone=True))
     amount = Column(Numeric)
     description = Column(String)
+    transaction_type = Column(Enum(TransactionType, name="transaction_type", schema="finance_tracker"))
 
     account = relationship("FinancialAccount", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
@@ -184,7 +194,7 @@ class Transaction(Base):
 class Asset(Base):
     __tablename__ = "assets"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     ticker = Column(String, index=True)
     name = Column(String)
     type = Column(String)
@@ -198,7 +208,7 @@ class Asset(Base):
 class ExchangeRate(Base):
     __tablename__ = "exchange_rates"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     base_currency = Column(String)
     target_currency = Column(String)
     date = Column(Date)
@@ -208,8 +218,8 @@ class ExchangeRate(Base):
 class SubPortfolio(Base):
     __tablename__ = "sub_portfolios"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     name = Column(String)
     risk_profile = Column(String)
     target_date = Column(Date, nullable=True)
@@ -226,12 +236,12 @@ class SubPortfolio(Base):
 class Trade(Base):
     __tablename__ = "trades"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
-    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
-    asset_id = Column(Integer, ForeignKey("assets.id"))
-    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
-    type = Column(String)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    trade_type = Column(Enum(TradeType, name="trade_type", schema="finance_tracker"))
     date = Column(DateTime(timezone=True))
     quantity = Column(Float)
     price = Column(Numeric)
@@ -246,10 +256,10 @@ class Trade(Base):
 class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
-    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
-    asset_id = Column(Integer, ForeignKey("assets.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
     date = Column(Date)
     quantity = Column(Float)
     current_price = Column(Numeric)
@@ -265,11 +275,11 @@ class PortfolioSnapshot(Base):
 class Dividend(Base):
     __tablename__ = "dividends"
 
-    id = Column(Integer, primary_key=True, index=True)
-    household_id = Column(Integer, ForeignKey("households.id"))
-    sub_portfolio_id = Column(Integer, ForeignKey("sub_portfolios.id"))
-    asset_id = Column(Integer, ForeignKey("assets.id"))
-    account_id = Column(Integer, ForeignKey("financial_accounts.id"))
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
     date = Column(DateTime(timezone=True))
     amount = Column(Numeric)
     exchange_rate = Column(Float)

@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
+import uuid
 
 # Import our enums from models so Pydantic can validate them
 from src.models import (
@@ -36,7 +37,7 @@ class UserUpdate(BaseModel):
 
 
 class UserResponse(UserBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -57,18 +58,18 @@ class HouseholdUpdate(BaseModel):
 
 
 class HouseholdResponse(HouseholdBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
 class HouseholdMemberBase(BaseModel):
-    user_id: int
-    household_id: int
+    user_id: uuid.UUID
+    household_id: uuid.UUID
     role: HouseholdRoleType
 
 
 class HouseholdMemberCreate(HouseholdMemberBase):
-    id: int
+    id: uuid.UUID
 
 
 class HouseholdMemberUpdate(BaseModel):
@@ -76,7 +77,7 @@ class HouseholdMemberUpdate(BaseModel):
 
 
 class HouseholdMemberResponse(HouseholdMemberBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -93,7 +94,7 @@ class AccountBase(BaseModel):
 
 
 class AccountCreate(AccountBase):
-    household_id: int
+    household_id: uuid.UUID
 
 
 class AccountUpdate(BaseModel):
@@ -104,8 +105,8 @@ class AccountUpdate(BaseModel):
 
 
 class AccountResponse(AccountBase):
-    id: int
-    household_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -115,7 +116,7 @@ class BalanceBase(BaseModel):
 
 
 class BalanceCreate(BalanceBase):
-    account_id: int
+    account_id: uuid.UUID
 
 
 class BalanceUpdate(BaseModel):
@@ -124,19 +125,19 @@ class BalanceUpdate(BaseModel):
 
 
 class BalanceResponse(BalanceBase):
-    id: int
-    account_id: int
+    id: uuid.UUID
+    account_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
 class AccountAccessBase(BaseModel):
-    account_id: int
-    user_id: int
+    account_id: uuid.UUID
+    user_id: uuid.UUID
     role: str
 
 
 class AccountAccessCreate(AccountAccessBase):
-    id: int
+    id: uuid.UUID
 
 
 class AccountAccessUpdate(BaseModel):
@@ -144,18 +145,18 @@ class AccountAccessUpdate(BaseModel):
 
 
 class AccountAccessResponse(AccountAccessBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
 class PortfolioAccessBase(BaseModel):
-    sub_portfolio_id: int
-    user_id: int
+    sub_portfolio_id: uuid.UUID
+    user_id: uuid.UUID
     role: str
 
 
 class PortfolioAccessCreate(PortfolioAccessBase):
-    id: int
+    id: uuid.UUID
 
 
 class PortfolioAccessUpdate(BaseModel):
@@ -163,7 +164,7 @@ class PortfolioAccessUpdate(BaseModel):
 
 
 class PortfolioAccessResponse(PortfolioAccessBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -178,7 +179,7 @@ class CategoryBase(BaseModel):
 
 
 class CategoryCreate(CategoryBase):
-    household_id: int
+    household_id: uuid.UUID
 
 
 class CategoryUpdate(BaseModel):
@@ -187,8 +188,8 @@ class CategoryUpdate(BaseModel):
 
 
 class CategoryResponse(CategoryBase):
-    id: int
-    household_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -199,8 +200,8 @@ class TransactionBase(BaseModel):
 
 
 class TransactionCreate(TransactionBase):
-    account_id: int
-    category_id: int
+    account_id: uuid.UUID
+    category_id: uuid.UUID
 
 
 class TransactionUpdate(BaseModel):
@@ -212,9 +213,9 @@ class TransactionUpdate(BaseModel):
 
 
 class TransactionResponse(TransactionBase):
-    id: int
-    account_id: int
-    category_id: int
+    id: uuid.UUID
+    account_id: uuid.UUID
+    category_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -231,7 +232,7 @@ class AssetBase(BaseModel):
 
 
 class AssetCreate(AssetBase):
-    id: int
+    id: uuid.UUID
 
 
 class AssetUpdate(BaseModel):
@@ -242,7 +243,7 @@ class AssetUpdate(BaseModel):
 
 
 class AssetResponse(AssetBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -253,12 +254,12 @@ class SubPortfolioBase(BaseModel):
 
 
 class SubPortfolioCreate(SubPortfolioBase):
-    household_id: int
+    household_id: uuid.UUID
 
 
 class SubPortfolioResponse(SubPortfolioBase):
-    id: int
-    household_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -271,10 +272,10 @@ class TradeBase(BaseModel):
 
 
 class TradeCreate(TradeBase):
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
-    account_id: int
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
 
 
 class TradeUpdate(BaseModel):
@@ -290,11 +291,11 @@ class TradeUpdate(BaseModel):
 
 
 class TradeResponse(TradeBase):
-    id: int
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
-    account_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -308,9 +309,9 @@ class PortfolioSnapshotBase(BaseModel):
 
 
 class PortfolioSnapshotCreate(PortfolioSnapshotBase):
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
 
 
 class PortfolioSnapshotUpdate(BaseModel):
@@ -326,10 +327,10 @@ class PortfolioSnapshotUpdate(BaseModel):
 
 
 class PortfolioSnapshotResponse(PortfolioSnapshotBase):
-    id: int
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -340,10 +341,10 @@ class DividendBase(BaseModel):
 
 
 class DividendCreate(DividendBase):
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
-    account_id: int
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
 
 
 class DividendUpdate(BaseModel):
@@ -357,11 +358,11 @@ class DividendUpdate(BaseModel):
 
 
 class DividendResponse(DividendBase):
-    id: int
-    household_id: int
-    sub_portfolio_id: int
-    asset_id: int
-    account_id: int
+    id: uuid.UUID
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -373,7 +374,7 @@ class ExchangeRateBase(BaseModel):
 
 
 class ExchangeRateCreate(ExchangeRateBase):
-    id: int
+    id: uuid.UUID
 
 
 class ExchangeRateUpdate(BaseModel):
@@ -384,5 +385,5 @@ class ExchangeRateUpdate(BaseModel):
 
 
 class ExchangeRateResponse(ExchangeRateBase):
-    id: int
+    id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)

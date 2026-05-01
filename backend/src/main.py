@@ -1,7 +1,7 @@
 # src/main.py
 
 from fastapi import FastAPI
-from src.routers import accounts, cashflow, portfolio
+from src.routers import accounts, cashflow, portfolio, users
 
 app = FastAPI(
     title="Finance Tracker API",
@@ -10,6 +10,7 @@ app = FastAPI(
 )
 
 # Connect the modular routers
+app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(cashflow.router)
 app.include_router(portfolio.router)
