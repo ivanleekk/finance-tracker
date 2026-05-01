@@ -28,6 +28,22 @@ class TaxTreatment(enum.Enum):
     tax_free = "tax_free"
 
 
+class TransactionType(enum.Enum):
+    income = "income"
+    expense = "expense"
+
+
+class HouseholdRoleType(enum.Enum):
+    owner = "owner"
+    editor = "editor"
+    viewer = "viewer"
+
+
+class TradeType(enum.Enum):
+    buy = "buy"
+    sell = "sell"
+
+
 # --- 1. ACCESS & TENANCY ---
 
 
