@@ -7,7 +7,7 @@ from src import models
 @pytest.fixture
 def test_user(db_session):
     user = models.User(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         email="test_cashflow@example.com",
         name="Cashflow User",
         salted_hashed_password="fakehash",
@@ -27,7 +27,7 @@ def auth_headers(client, test_user):
 @pytest.fixture
 def test_household(db_session, test_user):
     household = models.Household(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         name="Cashflow Household",
         base_currency="USD",
         country_code="US",
@@ -41,7 +41,7 @@ def test_household(db_session, test_user):
 @pytest.fixture
 def test_account(db_session, test_household):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Checking",
         liquidity="liquid",
@@ -72,7 +72,7 @@ def test_create_category(client, auth_headers, test_household):
 
 def test_get_household_categories(client, auth_headers, test_household, db_session):
     category = models.Category(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Salary",
         type="income"
@@ -91,7 +91,7 @@ def test_get_household_categories(client, auth_headers, test_household, db_sessi
 
 def test_update_category(client, auth_headers, test_household, db_session):
     category = models.Category(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Old Salary",
         type="income"
@@ -110,7 +110,7 @@ def test_update_category(client, auth_headers, test_household, db_session):
 
 def test_delete_category(client, auth_headers, test_household, db_session):
     category = models.Category(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Delete Me",
         type="expense"
@@ -131,7 +131,7 @@ def test_delete_category(client, auth_headers, test_household, db_session):
 @pytest.fixture
 def test_category(db_session, test_household):
     category = models.Category(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Utilities",
         type="expense"
@@ -160,7 +160,7 @@ def test_log_transaction(client, auth_headers, test_account, test_category):
 
 def test_get_household_transactions(client, auth_headers, test_household, test_account, test_category, db_session):
     transaction = models.Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=test_account.id,
         category_id=test_category.id,
         date=datetime.now(timezone.utc),
@@ -182,7 +182,7 @@ def test_get_household_transactions(client, auth_headers, test_household, test_a
 
 def test_update_transaction(client, auth_headers, test_account, test_category, db_session):
     transaction = models.Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=test_account.id,
         category_id=test_category.id,
         date=datetime.now(timezone.utc),
@@ -208,7 +208,7 @@ def test_update_transaction(client, auth_headers, test_account, test_category, d
 
 def test_delete_transaction(client, auth_headers, test_account, test_category, db_session):
     transaction = models.Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=test_account.id,
         category_id=test_category.id,
         date=datetime.now(timezone.utc),

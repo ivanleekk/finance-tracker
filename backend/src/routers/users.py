@@ -27,7 +27,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 3. Create the SQLAlchemy Database Model instance (NOT the Pydantic schema)
     # Ensure your models.User matches these column names
     db_user = models.User(
-        id = uuid.uuid4(),
+        id = uuid.uuid7(),
         email=user.email,
         preferred_timezone=user.preferred_timezone,
         salted_hashed_password=hashed_password_hex,
@@ -108,7 +108,7 @@ def create_household(
     db: Session = Depends(get_db)
 ):
     new_household = models.Household(
-        id = uuid.uuid4(),
+        id = uuid.uuid7(),
         name = household.name,
         base_currency = household.base_currency,
         country_code = household.country_code,
@@ -198,7 +198,7 @@ def add_household_member(
         raise HTTPException(status_code=400, detail="User already exists in household")
     
     new_member = models.HouseholdMember(
-        id = uuid.uuid4(),
+        id = uuid.uuid7(),
         household_id = member.household_id,
         user_id = member.user_id,
         role = member.role

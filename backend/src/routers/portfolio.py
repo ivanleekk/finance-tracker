@@ -18,7 +18,7 @@ def create_asset(
     current_user: models.User = Depends(get_current_user)
 ):
     db_asset = models.Asset(
-        id=asset.id if asset.id else uuid.uuid4(),
+        id=asset.id if asset.id else uuid.uuid7(),
         ticker=asset.ticker,
         name=asset.name,
         type=asset.type,
@@ -84,7 +84,7 @@ def create_subportfolio(
     verify_household_access(subportfolio.household_id, current_user, db)
 
     db_subportfolio = models.SubPortfolio(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=subportfolio.household_id,
         name=subportfolio.name,
         risk_profile=subportfolio.risk_profile,
@@ -173,7 +173,7 @@ def execute_trade(
     verify_household_access(trade.household_id, current_user, db)
 
     db_trade = models.Trade(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=trade.household_id,
         sub_portfolio_id=trade.sub_portfolio_id,
         asset_id=trade.asset_id,
@@ -299,7 +299,7 @@ def grant_subportfolio_access(
     verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=["owner", "admin"])
 
     db_access = models.PortfolioAccess(
-        id=access.id if access.id else uuid.uuid4(),
+        id=access.id if access.id else uuid.uuid7(),
         sub_portfolio_id=subportfolio_id,
         user_id=access.user_id,
         role=access.role,
@@ -383,7 +383,7 @@ def create_portfolio_snapshot(
     verify_household_access(snapshot.household_id, current_user, db)
 
     db_snapshot = models.PortfolioSnapshot(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=snapshot.household_id,
         sub_portfolio_id=subportfolio_id,
         asset_id=snapshot.asset_id,
@@ -514,7 +514,7 @@ def log_dividend(
     verify_household_access(dividend.household_id, current_user, db)
 
     db_dividend = models.Dividend(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=dividend.household_id,
         sub_portfolio_id=dividend.sub_portfolio_id,
         asset_id=dividend.asset_id,
@@ -587,7 +587,7 @@ def log_exchange_rate(
     current_user: models.User = Depends(get_current_user)
 ):
     db_rate = models.ExchangeRate(
-        id=exchange_rate.id if exchange_rate.id else uuid.uuid4(),
+        id=exchange_rate.id if exchange_rate.id else uuid.uuid7(),
         base_currency=exchange_rate.base_currency,
         target_currency=exchange_rate.target_currency,
         date=exchange_rate.date,

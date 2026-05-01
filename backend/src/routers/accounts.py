@@ -19,7 +19,7 @@ def create_account(
     verify_household_access(account.household_id, current_user, db)
     
     db_account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=account.household_id,
         name=account.name,
         liquidity=account.liquidity,
@@ -95,7 +95,7 @@ def grant_account_access(
     verify_household_access(db_account.household_id, current_user, db, required_roles=["owner", "admin"])
 
     db_access = models.AccountAccess(
-        id=access.id if access.id else uuid.uuid4(),
+        id=access.id if access.id else uuid.uuid7(),
         account_id=access.account_id,
         user_id=access.user_id,
         role=access.role,
@@ -177,7 +177,7 @@ def add_account_balance(
     verify_household_access(db_account.household_id, current_user, db)
 
     db_balance = models.AccountBalance(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=balance.account_id,
         date=balance.date,
         balance=balance.balance,

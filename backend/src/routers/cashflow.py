@@ -31,7 +31,7 @@ def log_transaction(
     verify_household_access(db_account.household_id, current_user, db)
 
     db_transaction = models.Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=transaction.account_id,
         category_id=transaction.category_id,
         date=transaction.date,
@@ -134,7 +134,7 @@ def create_category(
     verify_household_access(category.household_id, current_user, db)
 
     db_category = models.Category(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=category.household_id,
         name=category.name,
         type=category.type.value,

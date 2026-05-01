@@ -9,7 +9,7 @@ from src import models
 @pytest.fixture
 def test_user(db_session):
     user = models.User(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         email="test_accounts@example.com",
         name="Test User",
         salted_hashed_password="fakehash",
@@ -29,7 +29,7 @@ def auth_headers(client, test_user, db_session):
 @pytest.fixture
 def test_household(db_session, test_user):
     household = models.Household(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         name="Test Household",
         base_currency="USD",
         country_code="US",
@@ -59,7 +59,7 @@ def test_create_account(client, auth_headers, test_household):
 
 def test_get_household_accounts(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Savings Account",
         liquidity="liquid",
@@ -80,7 +80,7 @@ def test_get_household_accounts(client, auth_headers, test_household, db_session
 
 def test_update_account(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Old Name",
         liquidity="liquid",
@@ -101,7 +101,7 @@ def test_update_account(client, auth_headers, test_household, db_session):
 
 def test_delete_account(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="To Delete",
         liquidity="liquid",
@@ -119,7 +119,7 @@ def test_delete_account(client, auth_headers, test_household, db_session):
 
 def test_add_account_balance(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Balance Account",
         liquidity="liquid",
@@ -144,7 +144,7 @@ def test_add_account_balance(client, auth_headers, test_household, db_session):
 
 def test_get_account_balances(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Balance Fetch Account",
         liquidity="liquid",
@@ -155,7 +155,7 @@ def test_get_account_balances(client, auth_headers, test_household, db_session):
     db_session.commit()
 
     balance = models.AccountBalance(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=account.id,
         date=date(2023, 10, 1),
         balance=Decimal("500.00")
@@ -174,7 +174,7 @@ def test_get_account_balances(client, auth_headers, test_household, db_session):
 
 def test_update_account_balance(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Balance Update Account",
         liquidity="liquid",
@@ -185,7 +185,7 @@ def test_update_account_balance(client, auth_headers, test_household, db_session
     db_session.commit()
 
     balance = models.AccountBalance(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=account.id,
         date=date(2023, 10, 1),
         balance=Decimal("500.00")
@@ -206,7 +206,7 @@ def test_update_account_balance(client, auth_headers, test_household, db_session
 
 def test_delete_account_balance(client, auth_headers, test_household, db_session):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Balance Delete Account",
         liquidity="liquid",
@@ -217,7 +217,7 @@ def test_delete_account_balance(client, auth_headers, test_household, db_session
     db_session.commit()
 
     balance = models.AccountBalance(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         account_id=account.id,
         date=date(2023, 10, 1),
         balance=Decimal("500.00")

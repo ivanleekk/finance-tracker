@@ -7,7 +7,7 @@ from src import models
 @pytest.fixture
 def test_user(db_session):
     user = models.User(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         email="test_portfolio@example.com",
         name="Portfolio User",
         salted_hashed_password="fakehash",
@@ -27,7 +27,7 @@ def auth_headers(client, test_user):
 @pytest.fixture
 def test_household(db_session, test_user):
     household = models.Household(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         name="Portfolio Household",
         base_currency="USD",
         country_code="US",
@@ -41,7 +41,7 @@ def test_household(db_session, test_user):
 @pytest.fixture
 def test_account(db_session, test_household):
     account = models.FinancialAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Brokerage",
         liquidity="liquid",
@@ -56,7 +56,7 @@ def test_account(db_session, test_household):
 @pytest.fixture
 def test_subportfolio(db_session, test_household):
     sub = models.SubPortfolio(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Tech Stocks",
         risk_profile="high"
@@ -69,7 +69,7 @@ def test_subportfolio(db_session, test_household):
 @pytest.fixture
 def test_asset(db_session):
     asset = models.Asset(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         ticker="AAPL",
         name="Apple Inc.",
         type="stock",
@@ -88,7 +88,7 @@ def test_create_asset(client, auth_headers):
         "/portfolio/assets",
         headers=auth_headers,
         json={
-            "id": str(uuid.uuid4()),
+            "id": str(uuid.uuid7()),
             "ticker": "MSFT",
             "name": "Microsoft",
             "type": "stock",
@@ -116,7 +116,7 @@ def test_update_asset(client, auth_headers, test_asset):
 
 def test_delete_asset(client, auth_headers, db_session):
     asset = models.Asset(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         ticker="DEL",
         name="Delete Me",
         type="stock",
@@ -165,7 +165,7 @@ def test_update_subportfolio(client, auth_headers, test_subportfolio):
 
 def test_delete_subportfolio(client, auth_headers, test_household, db_session):
     sub = models.SubPortfolio(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         name="Delete Me",
         risk_profile="low"
@@ -203,7 +203,7 @@ def test_execute_trade(client, auth_headers, test_household, test_subportfolio, 
 
 def test_get_household_trades(client, auth_headers, test_household, test_subportfolio, test_asset, test_account, db_session):
     trade = models.Trade(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         sub_portfolio_id=test_subportfolio.id,
         asset_id=test_asset.id,
@@ -224,7 +224,7 @@ def test_get_household_trades(client, auth_headers, test_household, test_subport
 
 def test_update_trade(client, auth_headers, test_household, test_subportfolio, test_asset, test_account, db_session):
     trade = models.Trade(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         sub_portfolio_id=test_subportfolio.id,
         asset_id=test_asset.id,
@@ -248,7 +248,7 @@ def test_update_trade(client, auth_headers, test_household, test_subportfolio, t
 
 def test_delete_trade(client, auth_headers, test_household, test_subportfolio, test_asset, test_account, db_session):
     trade = models.Trade(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         sub_portfolio_id=test_subportfolio.id,
         asset_id=test_asset.id,
@@ -290,7 +290,7 @@ def test_create_snapshot(client, auth_headers, test_household, test_subportfolio
 
 def test_get_snapshots(client, auth_headers, test_household, test_subportfolio, test_asset, db_session):
     snapshot = models.PortfolioSnapshot(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         household_id=test_household.id,
         sub_portfolio_id=test_subportfolio.id,
         asset_id=test_asset.id,
@@ -340,7 +340,7 @@ def test_log_exchange_rate(client, auth_headers):
         "/portfolio/exchangerates",
         headers=auth_headers,
         json={
-            "id": str(uuid.uuid4()),
+            "id": str(uuid.uuid7()),
             "date": "2023-10-01",
             "base_currency": "USD",
             "target_currency": "EUR",
@@ -352,7 +352,7 @@ def test_log_exchange_rate(client, auth_headers):
 
 def test_get_exchange_rates(client, auth_headers, db_session):
     rate = models.ExchangeRate(
-        id=uuid.uuid4(),
+        id=uuid.uuid7(),
         base_currency="USD",
         target_currency="GBP",
         date=date(2023, 10, 1),
