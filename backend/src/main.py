@@ -3,10 +3,19 @@
 from fastapi import FastAPI
 from src.routers import accounts, cashflow, portfolio, users, auth
 
+tags_metadata = [
+    {"name": "Authentication", 'description': 'Authentication Routes'},
+    {"name": "Users", 'description': 'User and Household Management Routes'},
+    {"name": "Financial Accounts", 'description': 'Financial Account Management Routes'},
+    {"name": "Income & Expenses", 'description': 'Income and Expense Management Routes'},
+    {"name": "Investments & Trades", 'description': 'Investment and Trade Management Routes'}
+]
+
 app = FastAPI(
     title="Finance Tracker API",
     description="Multi-tenant wealth, banking, and portfolio tracking.",
     version="1.0.0",
+    openapi_tags=tags_metadata,
     servers=[
         {
             "url": "http://localhost:8000", 
