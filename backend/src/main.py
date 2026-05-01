@@ -1,17 +1,20 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from src.database import get_db
+# src/main.py
 
-app = FastAPI(title="Finance Tracker API")
+from fastapi import FastAPI
+from src.routers import accounts, cashflow, portfolio
+
+app = FastAPI(
+    title="Finance Tracker API",
+    description="Multi-tenant wealth, banking, and portfolio tracking.",
+    version="1.0.0",
+)
+
+# Connect the modular routers
+app.include_router(accounts.router)
+app.include_router(cashflow.router)
+app.include_router(portfolio.router)
 
 
 @app.get("/")
 def read_root():
-    return {"message": "Finance Tracker API is running"}
-
-
-@app.get("/health/db")
-def check_db(db: Session = Depends(get_db)):
-    # A quick test to ensure Postgres is connected
-    result = db.execute("SELECT 1").fetchone()
-    return {"status": "connected" if result else "failed"}
+    return {"status": "online", "message": "Welcome to the Finance Tracker API"}
