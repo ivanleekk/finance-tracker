@@ -257,6 +257,12 @@ class SubPortfolioCreate(SubPortfolioBase):
     household_id: uuid.UUID
 
 
+class SubPortfolioUpdate(BaseModel):
+    name: Optional[str] = None
+    risk_profile: Optional[str] = None
+    target_date: Optional[date] = None
+
+
 class SubPortfolioResponse(SubPortfolioBase):
     id: uuid.UUID
     household_id: uuid.UUID
