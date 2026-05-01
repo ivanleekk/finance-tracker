@@ -3,7 +3,7 @@
 Run FastAPI in dev mode using
 
 ```bash
-uv run fastapi dev src/main.py
+uv run fastapi dev src/main.p
 ```
 
 ## Database

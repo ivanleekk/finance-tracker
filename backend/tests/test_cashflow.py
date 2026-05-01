@@ -55,6 +55,40 @@ def test_account(db_session, test_household):
 
 # --- CATEGORY TESTS ---
 
+@pytest.fixture
+def other_user(db_session):
+    user = models.User(
+        id=uuid.uuid7(),
+        email="other_cashflow@example.com",
+        name="Other User",
+        salted_hashed_password="fakehash",
+        salt="fakesalt",
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+@pytest.fixture
+def other_auth_headers(client, other_user):
+    from src.auth import create_access_token
+    token = create_access_token(data={"sub": str(other_user.id)})
+    return {"Authorization": f"Bearer {token}"}
+
+@pytest.fixture
+def other_household(db_session, other_user):
+    household = models.Household(
+        id=uuid.uuid7(),
+        name="Other Household",
+        base_currency="USD",
+        country_code="US",
+        owner_id=other_user.id,
+    )
+    db_session.add(household)
+    db_session.commit()
+    db_session.refresh(household)
+    return household
+
 def test_create_category(client, auth_headers, test_household):
     response = client.post(
         "/cashflow/categories",
@@ -69,6 +103,18 @@ def test_create_category(client, auth_headers, test_household):
     data = response.json()
     assert data["name"] == "Groceries"
     assert data["type"] == "expense"
+
+def test_create_category_unauthorized(client, other_auth_headers, test_household):
+    response = client.post(
+        "/cashflow/categories",
+        headers=other_auth_headers,
+        json={
+            "household_id": str(test_household.id),
+            "name": "Groceries",
+            "type": "expense"
+        }
+    )
+    assert response.status_code == 403
 
 def test_get_household_categories(client, auth_headers, test_household, db_session):
     category = models.Category(
@@ -89,6 +135,13 @@ def test_get_household_categories(client, auth_headers, test_household, db_sessi
     assert len(data) >= 1
     assert any(cat["name"] == "Salary" for cat in data)
 
+def test_get_household_categories_unauthorized(client, other_auth_headers, test_household):
+    response = client.get(
+        f"/cashflow/categories/household/{test_household.id}",
+        headers=other_auth_headers
+    )
+    assert response.status_code == 403
+
 def test_update_category(client, auth_headers, test_household, db_session):
     category = models.Category(
         id=uuid.uuid7(),
@@ -108,6 +161,31 @@ def test_update_category(client, auth_headers, test_household, db_session):
     data = response.json()
     assert data["name"] == "New Salary"
 
+def test_update_category_not_found(client, auth_headers):
+    response = client.put(
+        f"/cashflow/categories/{uuid.uuid7()}",
+        headers=auth_headers,
+        json={"name": "New Salary"}
+    )
+    assert response.status_code == 404
+
+def test_update_category_unauthorized(client, other_auth_headers, test_household, db_session):
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Old Salary",
+        type="income"
+    )
+    db_session.add(category)
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/categories/{category.id}",
+        headers=other_auth_headers,
+        json={"name": "New Salary"}
+    )
+    assert response.status_code == 403
+
 def test_delete_category(client, auth_headers, test_household, db_session):
     category = models.Category(
         id=uuid.uuid7(),
@@ -124,6 +202,29 @@ def test_delete_category(client, auth_headers, test_household, db_session):
     )
     assert response.status_code == 204
     assert db_session.query(models.Category).filter_by(id=category.id).first() is None
+
+def test_delete_category_not_found(client, auth_headers):
+    response = client.delete(
+        f"/cashflow/categories/{uuid.uuid7()}",
+        headers=auth_headers
+    )
+    assert response.status_code == 404
+
+def test_delete_category_unauthorized(client, other_auth_headers, test_household, db_session):
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Delete Me",
+        type="expense"
+    )
+    db_session.add(category)
+    db_session.commit()
+
+    response = client.delete(
+        f"/cashflow/categories/{category.id}",
+        headers=other_auth_headers
+    )
+    assert response.status_code == 403
 
 
 # --- TRANSACTION TESTS ---
@@ -158,6 +259,71 @@ def test_log_transaction(client, auth_headers, test_account, test_category):
     assert data["amount"] == "150.00"
     assert data["description"] == "Electric bill"
 
+def test_log_transaction_account_not_found(client, auth_headers, test_category):
+    response = client.post(
+        "/cashflow/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": str(uuid.uuid7()),
+            "category_id": str(test_category.id),
+            "date": datetime.now(timezone.utc).isoformat(),
+            "amount": "150.00",
+            "description": "Electric bill"
+        }
+    )
+    assert response.status_code == 404
+
+def test_log_transaction_category_not_found(client, auth_headers, test_account):
+    response = client.post(
+        "/cashflow/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": str(test_account.id),
+            "category_id": str(uuid.uuid7()),
+            "date": datetime.now(timezone.utc).isoformat(),
+            "amount": "150.00",
+            "description": "Electric bill"
+        }
+    )
+    assert response.status_code == 404
+
+def test_log_transaction_unauthorized(client, other_auth_headers, test_account, test_category):
+    response = client.post(
+        "/cashflow/transactions",
+        headers=other_auth_headers,
+        json={
+            "account_id": str(test_account.id),
+            "category_id": str(test_category.id),
+            "date": datetime.now(timezone.utc).isoformat(),
+            "amount": "150.00",
+            "description": "Electric bill"
+        }
+    )
+    assert response.status_code == 403
+
+def test_log_transaction_mismatched_household(client, auth_headers, test_account, other_household, db_session):
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=other_household.id,
+        name="Other Groceries",
+        type="expense"
+    )
+    db_session.add(category)
+    db_session.commit()
+
+    response = client.post(
+        "/cashflow/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": str(test_account.id),
+            "category_id": str(category.id),
+            "date": datetime.now(timezone.utc).isoformat(),
+            "amount": "150.00",
+            "description": "Electric bill"
+        }
+    )
+    assert response.status_code == 400
+
 def test_get_household_transactions(client, auth_headers, test_household, test_account, test_category, db_session):
     transaction = models.Transaction(
         id=uuid.uuid7(),
@@ -179,6 +345,13 @@ def test_get_household_transactions(client, auth_headers, test_household, test_a
     data = response.json()
     assert len(data) >= 1
     assert any(txn["description"] == "Water bill" for txn in data)
+
+def test_get_household_transactions_unauthorized(client, other_auth_headers, test_household):
+    response = client.get(
+        f"/cashflow/transactions/household/{test_household.id}",
+        headers=other_auth_headers
+    )
+    assert response.status_code == 403
 
 def test_update_transaction(client, auth_headers, test_account, test_category, db_session):
     transaction = models.Transaction(
@@ -206,6 +379,40 @@ def test_update_transaction(client, auth_headers, test_account, test_category, d
     assert data["description"] == "New description"
     assert data["amount"] == "60.00"
 
+def test_update_transaction_not_found(client, auth_headers):
+    response = client.put(
+        f"/cashflow/transactions/{uuid.uuid7()}",
+        headers=auth_headers,
+        json={
+            "description": "New description",
+            "amount": "60.00"
+        }
+    )
+    assert response.status_code == 404
+
+def test_update_transaction_unauthorized(client, other_auth_headers, test_account, test_category, db_session):
+    transaction = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=test_account.id,
+        category_id=test_category.id,
+        date=datetime.now(timezone.utc),
+        amount=Decimal("50.00"),
+        description="Old description",
+        transaction_type=test_category.type
+    )
+    db_session.add(transaction)
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/transactions/{transaction.id}",
+        headers=other_auth_headers,
+        json={
+            "description": "New description",
+            "amount": "60.00"
+        }
+    )
+    assert response.status_code == 403
+
 def test_delete_transaction(client, auth_headers, test_account, test_category, db_session):
     transaction = models.Transaction(
         id=uuid.uuid7(),
@@ -225,3 +432,29 @@ def test_delete_transaction(client, auth_headers, test_account, test_category, d
     )
     assert response.status_code == 204
     assert db_session.query(models.Transaction).filter_by(id=transaction.id).first() is None
+
+def test_delete_transaction_not_found(client, auth_headers):
+    response = client.delete(
+        f"/cashflow/transactions/{uuid.uuid7()}",
+        headers=auth_headers
+    )
+    assert response.status_code == 404
+
+def test_delete_transaction_unauthorized(client, other_auth_headers, test_account, test_category, db_session):
+    transaction = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=test_account.id,
+        category_id=test_category.id,
+        date=datetime.now(timezone.utc),
+        amount=Decimal("50.00"),
+        description="Delete me",
+        transaction_type=test_category.type
+    )
+    db_session.add(transaction)
+    db_session.commit()
+
+    response = client.delete(
+        f"/cashflow/transactions/{transaction.id}",
+        headers=other_auth_headers
+    )
+    assert response.status_code == 403

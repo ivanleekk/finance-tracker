@@ -83,6 +83,40 @@ def test_asset(db_session):
 
 # --- ASSETS ---
 
+@pytest.fixture
+def other_user(db_session):
+    user = models.User(
+        id=uuid.uuid7(),
+        email="other_portfolio@example.com",
+        name="Other User",
+        salted_hashed_password="fakehash",
+        salt="fakesalt",
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+@pytest.fixture
+def other_auth_headers(client, other_user):
+    from src.auth import create_access_token
+    token = create_access_token(data={"sub": str(other_user.id)})
+    return {"Authorization": f"Bearer {token}"}
+
+@pytest.fixture
+def other_household(db_session, other_user):
+    household = models.Household(
+        id=uuid.uuid7(),
+        name="Other Household",
+        base_currency="USD",
+        country_code="US",
+        owner_id=other_user.id,
+    )
+    db_session.add(household)
+    db_session.commit()
+    db_session.refresh(household)
+    return household
+
 def test_create_asset(client, auth_headers):
     response = client.post(
         "/portfolio/assets",
@@ -97,6 +131,19 @@ def test_create_asset(client, auth_headers):
     )
     assert response.status_code == 201
     assert response.json()["ticker"] == "MSFT"
+
+def test_create_asset_unauthorized(client):
+    response = client.post(
+        "/portfolio/assets",
+        json={
+            "id": str(uuid.uuid7()),
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "type": "stock",
+            "currency": "USD"
+        }
+    )
+    assert response.status_code == 401
 
 def test_search_assets(client, auth_headers, test_asset):
     response = client.get("/portfolio/assets?ticker=AAPL", headers=auth_headers)
@@ -114,6 +161,14 @@ def test_update_asset(client, auth_headers, test_asset):
     assert response.status_code == 200
     assert response.json()["name"] == "Apple Incorporated"
 
+def test_update_asset_not_found(client, auth_headers):
+    response = client.put(
+        f"/portfolio/assets/{uuid.uuid7()}",
+        headers=auth_headers,
+        json={"name": "Apple Incorporated"}
+    )
+    assert response.status_code == 404
+
 def test_delete_asset(client, auth_headers, db_session):
     asset = models.Asset(
         id=uuid.uuid7(),
@@ -128,6 +183,10 @@ def test_delete_asset(client, auth_headers, db_session):
     response = client.delete(f"/portfolio/assets/{asset.id}", headers=auth_headers)
     assert response.status_code == 204
     assert db_session.query(models.Asset).filter_by(id=asset.id).first() is None
+
+def test_delete_asset_not_found(client, auth_headers):
+    response = client.delete(f"/portfolio/assets/{uuid.uuid7()}", headers=auth_headers)
+    assert response.status_code == 404
 
 
 # --- SUBPORTFOLIOS ---
@@ -145,6 +204,18 @@ def test_create_subportfolio(client, auth_headers, test_household):
     assert response.status_code == 201
     assert response.json()["name"] == "Retirement"
 
+def test_create_subportfolio_unauthorized(client, other_auth_headers, test_household):
+    response = client.post(
+        "/portfolio/subportfolios",
+        headers=other_auth_headers,
+        json={
+            "household_id": str(test_household.id),
+            "name": "Retirement",
+            "risk_profile": "low"
+        }
+    )
+    assert response.status_code == 403
+
 def test_get_household_subportfolios(client, auth_headers, test_household, test_subportfolio):
     response = client.get(
         f"/portfolio/subportfolios/household/{test_household.id}",
@@ -154,6 +225,13 @@ def test_get_household_subportfolios(client, auth_headers, test_household, test_
     assert len(response.json()) >= 1
     assert any(s["name"] == "Tech Stocks" for s in response.json())
 
+def test_get_household_subportfolios_unauthorized(client, other_auth_headers, test_household):
+    response = client.get(
+        f"/portfolio/subportfolios/household/{test_household.id}",
+        headers=other_auth_headers
+    )
+    assert response.status_code == 403
+
 def test_update_subportfolio(client, auth_headers, test_subportfolio):
     response = client.put(
         f"/portfolio/subportfolios/{test_subportfolio.id}",
@@ -162,6 +240,22 @@ def test_update_subportfolio(client, auth_headers, test_subportfolio):
     )
     assert response.status_code == 200
     assert response.json()["risk_profile"] == "medium"
+
+def test_update_subportfolio_not_found(client, auth_headers):
+    response = client.put(
+        f"/portfolio/subportfolios/{uuid.uuid7()}",
+        headers=auth_headers,
+        json={"risk_profile": "medium"}
+    )
+    assert response.status_code == 404
+
+def test_update_subportfolio_unauthorized(client, other_auth_headers, test_subportfolio):
+    response = client.put(
+        f"/portfolio/subportfolios/{test_subportfolio.id}",
+        headers=other_auth_headers,
+        json={"risk_profile": "medium"}
+    )
+    assert response.status_code == 403
 
 def test_delete_subportfolio(client, auth_headers, test_household, db_session):
     sub = models.SubPortfolio(
@@ -176,6 +270,14 @@ def test_delete_subportfolio(client, auth_headers, test_household, db_session):
     response = client.delete(f"/portfolio/subportfolios/{sub.id}", headers=auth_headers)
     assert response.status_code == 204
     assert db_session.query(models.SubPortfolio).filter_by(id=sub.id).first() is None
+
+def test_delete_subportfolio_not_found(client, auth_headers):
+    response = client.delete(f"/portfolio/subportfolios/{uuid.uuid7()}", headers=auth_headers)
+    assert response.status_code == 404
+
+def test_delete_subportfolio_unauthorized(client, other_auth_headers, test_subportfolio):
+    response = client.delete(f"/portfolio/subportfolios/{test_subportfolio.id}", headers=other_auth_headers)
+    assert response.status_code == 403
 
 
 # --- TRADES ---
