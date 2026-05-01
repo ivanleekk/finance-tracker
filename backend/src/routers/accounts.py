@@ -2,14 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from src.database import get_db
-from src import schemas
+from src import schemas, models
+from src.auth import get_current_user, verify_household_access
 
 router = APIRouter(prefix="/accounts", tags=["Financial Accounts"])
 
 
 @router.post("/", response_model=schemas.AccountResponse)
-def create_account(account: schemas.AccountCreate, db: Session = Depends(get_db)):
+def create_account(
+    account: schemas.AccountCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Verify that the current user has access to the household
+    verify_household_access(account.household_id, current_user, db)
+    
     raise HTTPException(status_code=501, detail="Creation logic not yet implemented")
+
 
 
 @router.get("/household/{household_id}", response_model=List[schemas.AccountResponse])

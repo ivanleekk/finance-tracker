@@ -3,47 +3,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from src.database import get_db
 from src import schemas, models
-import hashlib
-import os
-import secrets
+from src.auth import hash_password, verify_password, get_current_user, verify_household_access
 import uuid
 
 router = APIRouter(prefix="/users", tags=["Users"])
-
-
-def hash_password(password: str, salt: Optional[bytes] = None) -> tuple[str, str]:
-    """
-    Hashes a password using scrypt.
-    Returns a tuple of (salt_hex, hash_hex) for database storage.
-    """
-    # 1. Generate a secure, 16-byte random salt if one isn't provided
-    if salt is None:
-        salt = os.urandom(16)
-
-    # 2. Perform the scrypt hashing
-    # n: CPU/Memory cost parameter (must be power of 2). 32768 is a strong default.
-    # r: Block size parameter. 8 is standard.
-    # p: Parallelization parameter. 1 is standard.
-    key = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1)
-
-    # 3. Return the salt and the hash converted to hex strings
-    return salt.hex(), key.hex()
-
-
-def verify_password(
-    plain_password: str, stored_salt_hex: str, stored_hash_hex: str
-) -> bool:
-    """
-    Verifies a plain password against the stored salt and hash.
-    """
-    # Convert the stored hex salt back to bytes
-    salt_bytes = bytes.fromhex(stored_salt_hex)
-
-    # Hash the incoming password with the exact same salt
-    _, computed_hash_hex = hash_password(plain_password, salt=salt_bytes)
-
-    # Use secrets.compare_digest to prevent timing attacks
-    return secrets.compare_digest(computed_hash_hex, stored_hash_hex)
 
 
 @router.post(
@@ -81,22 +44,27 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/{user_id}", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK
+    "/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK
 )
-def get_user(user_id: uuid.UUID, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+def get_user(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
 @router.put(
-    "/{user_id}", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK
+    "/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK
 )
 def update_user(
-    user_id: uuid.UUID, user_update: schemas.UserUpdate, db: Session = Depends(get_db)
+    user_update: schemas.UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    existing_user = db.query(models.User).filter(models.User.id == user_id).first()
+    existing_user = db.query(models.User).filter(models.User.id == current_user.id).first()
     if not existing_user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -116,81 +84,172 @@ def update_user(
     return existing_user
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: uuid.UUID, db: Session = Depends(get_db)):
+@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     existing_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not existing_user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if existing_user.id != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not authorized to delete this user")
+    
     db.delete(existing_user)
     db.commit()
     return {"detail": "User deleted successfully"}
 
 
-@router.post("/households", response_model=schemas.HouseholdResponse)
-def create_household(household: schemas.HouseholdCreate, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Household creation logic not yet implemented"
+@router.post("/households", response_model=schemas.HouseholdResponse, status_code=status.HTTP_201_CREATED)
+def create_household(
+    household: schemas.HouseholdCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    new_household = models.Household(
+        id = uuid.uuid7(),
+        name = household.name,
+        base_currency = household.base_currency,
+        country_code = household.country_code,
+        owner_id = current_user.id
     )
-
-
-@router.get("/households/{household_id}", response_model=schemas.HouseholdResponse)
-def get_household(household_id: uuid.UUID, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Fetch household logic not yet implemented"
+    db.add(new_household)
+    db.commit()
+    db.refresh(new_household)
+    add_household_member(
+        schemas.HouseholdMemberCreate(
+            household_id = new_household.id,
+            user_id = current_user.id,
+            role = "owner"
+        ),
+        db=db,
+        current_user=current_user
     )
+    return new_household
 
 
-@router.put("/households/{household_id}", response_model=schemas.HouseholdResponse)
+@router.get("/households/{household_id}", response_model=schemas.HouseholdResponse, status_code=status.HTTP_200_OK)
+def get_household(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # should raise error if not authorised
+    verify_household_access(household_id, current_user, db)
+
+    existing_household = db.query(models.Household).filter(models.Household.id == household_id).first()
+    if not existing_household:
+        raise HTTPException(status_code=404, detail="Household not found")
+    return existing_household
+
+
+@router.put("/households/{household_id}", response_model=schemas.HouseholdResponse, status_code=status.HTTP_200_OK)
 def update_household(
     household_id: uuid.UUID,
     household_update: schemas.HouseholdUpdate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    raise HTTPException(
-        status_code=501, detail="Household update logic not yet implemented"
-    )
+    # should raise error if not authorised
+    verify_household_access(household_id, current_user, db, required_roles=["owner", "admin"])
+
+    existing_household = db.query(models.Household).filter(models.Household.id == household_id).first()
+    if not existing_household:
+        raise HTTPException(status_code=404, detail="Household not found")
+    
+    if household_update.name:
+        existing_household.name = household_update.name
+    if household_update.base_currency:
+        existing_household.base_currency = household_update.base_currency
+    db.commit()
+    db.refresh(existing_household)
+    return existing_household
 
 
-@router.delete("/households/{household_id}")
-def delete_household(household_id: uuid.UUID, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Household deletion logic not yet implemented"
-    )
+@router.delete("/households/{household_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_household(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db, required_roles=["owner"])
+
+    existing_household = db.query(models.Household).filter(models.Household.id == household_id).first()
+    if not existing_household:
+        raise HTTPException(status_code=404, detail="Household not found")
+    db.delete(existing_household)
+    db.commit()
+    return {"detail": "Household deleted successfully"}
 
 
-@router.post("/householdmembers", response_model=schemas.HouseholdMemberResponse)
+@router.post("/householdmembers", response_model=schemas.HouseholdMemberResponse, status_code=status.HTTP_201_CREATED)
 def add_household_member(
-    member: schemas.HouseholdMemberCreate, db: Session = Depends(get_db)
+    member: schemas.HouseholdMemberCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    raise HTTPException(
-        status_code=501, detail="Add household member logic not yet implemented"
+    # should raise error if not authorised
+    verify_household_access(member.household_id, current_user, db, required_roles=["owner, admin"])
+    
+    # check if user already exists
+    existing_member = db.query(models.HouseholdMember).filter(models.HouseholdMember.user_id == member.user_id).first()
+    if existing_member:
+        raise HTTPException(status_code=400, detail="User already exists in household")
+    
+    new_member = models.HouseholdMember(
+        id = uuid.uuid7(),
+        household_id = member.household_id,
+        user_id = member.user_id,
+        role = member.role
     )
+    db.add(new_member)
+    db.commit()
+    db.refresh(new_member)
+    return new_member
 
+@router.get("/householdmember/{household_id}", response_model=list[schemas.HouseholdMemberResponse], status_code=status.HTTP_200_OK)
+def get_all_household_members(household_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    verify_household_access(household_id, current_user, db, required_roles=["owner, admin"])
+    members = db.query(models.HouseholdMember).filter(models.HouseholdMember.household_id == household_id).all()
+    return members
 
 @router.get(
-    "/householdmembers/{member_id}", response_model=schemas.HouseholdMemberResponse
+    "/householdmember/{member_id}", response_model=schemas.HouseholdMemberResponse, status_code=status.HTTP_200_OK
 )
-def get_household_member(member_id: uuid.UUID, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Fetch household member logic not yet implemented"
-    )
+def get_household_member(member_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+
+    existing_member = db.query(models.HouseholdMember).filter(models.HouseholdMember.id == member_id).first()
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Household member not found")
+    
+    verify_household_access(existing_member.household_id, current_user, db, required_roles=["owner, admin"])
+    
+    return existing_member
 
 
 @router.put(
-    "/householdmembers/{member_id}", response_model=schemas.HouseholdMemberResponse
+    "/householdmember/{member_id}", response_model=schemas.HouseholdMemberResponse, status_code=status.HTTP_200_OK
 )
 def update_household_member(
     member_id: uuid.UUID,
     member_update: schemas.HouseholdMemberUpdate,
     db: Session = Depends(get_db),
 ):
-    raise HTTPException(
-        status_code=501, detail="Update household member logic not yet implemented"
-    )
+    existing_member = db.query(models.HouseholdMember).filter(models.HouseholdMember.id == member_id).first()
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Household member not found")
+    existing_member.role = member_update.role
+    db.commit()
+    db.refresh(existing_member)
+    return existing_member
 
 
-@router.delete("/householdmembers/{member_id}")
+@router.delete("/householdmember/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_household_member(member_id: uuid.UUID, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Remove household member logic not yet implemented"
-    )
+    existing_member = db.query(models.HouseholdMember).filter(models.HouseholdMember.id == member_id).first()
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Household member not found")
+    db.delete(existing_member)
+    db.commit()
+    return {"detail": "Household member removed successfully"}

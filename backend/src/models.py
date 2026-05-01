@@ -76,15 +76,16 @@ class Household(Base):
     name = Column(String)
     base_currency = Column(String)
     country_code = Column(String)
+    owner_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     # Relationships
-    members = relationship("HouseholdMember", back_populates="household")
-    accounts = relationship("FinancialAccount", back_populates="household")
-    categories = relationship("Category", back_populates="household")
-    sub_portfolios = relationship("SubPortfolio", back_populates="household")
-    trades = relationship("Trade", back_populates="household")
-    dividends = relationship("Dividend", back_populates="household")
-    portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="household")
+    members = relationship("HouseholdMember", back_populates="household", cascade="all, delete-orphan")
+    accounts = relationship("FinancialAccount", back_populates="household", cascade="all, delete-orphan")
+    categories = relationship("Category", back_populates="household", cascade="all, delete-orphan")
+    sub_portfolios = relationship("SubPortfolio", back_populates="household", cascade="all, delete-orphan")
+    trades = relationship("Trade", back_populates="household", cascade="all, delete-orphan")
+    dividends = relationship("Dividend", back_populates="household", cascade="all, delete-orphan")
+    portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="household", cascade="all, delete-orphan")
 
 
 class HouseholdMember(Base):

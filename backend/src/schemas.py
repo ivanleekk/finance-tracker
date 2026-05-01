@@ -69,7 +69,7 @@ class HouseholdMemberBase(BaseModel):
 
 
 class HouseholdMemberCreate(HouseholdMemberBase):
-    id: uuid.UUID
+    pass
 
 
 class HouseholdMemberUpdate(BaseModel):
