@@ -2,6 +2,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy import text
 
 from alembic import context
 
@@ -15,7 +16,9 @@ load_dotenv()
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+config.set_main_option(
+    "sqlalchemy.url", os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -56,6 +59,7 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
+        context.execute("CREATE SCHEMA IF NOT EXISTS finance_tracker")
         context.run_migrations()
 
 
@@ -73,6 +77,8 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        connection.execute(text("CREATE SCHEMA IF NOT EXISTS finance_tracker"))
+        connection.commit()
         context.configure(connection=connection, 
                             target_metadata=target_metadata,
                             version_table_schema="finance_tracker", 

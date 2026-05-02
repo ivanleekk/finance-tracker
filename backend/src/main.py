@@ -1,6 +1,9 @@
 # src/main.py
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from src.routers import accounts, cashflow, portfolio, users, auth
 
 app = FastAPI(
@@ -9,10 +12,27 @@ app = FastAPI(
     version="1.0.0",
     servers=[
         {
-            "url": "http://localhost:8000", 
+            "url": "http://localhost:5001", 
             "description": "Local Development Server"
         },
     ],
+)
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if origin.strip()
+]
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Connect the modular routers
