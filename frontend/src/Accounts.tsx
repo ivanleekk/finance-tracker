@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./com
 import { Badge } from "./components/ui/Badge"
 import { Button } from "./components/ui/Button"
 import { Input } from "./components/ui/Input"
+import api from "./lib/api"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 
 type AccountHistory = {
@@ -19,38 +20,14 @@ type Account = {
     history: AccountHistory[];
 }
 
-export default function Accounts() {
-    const [accounts, setAccounts] = useState<Account[]>([
-        { 
-            id: "acc-1", name: "Chase Checking", type: "Checking", apy: "0.01%", status: "active",
-            history: [
-                { date: "2026-01-01", balance: 10000.00 },
-                { date: "2026-02-01", balance: 11000.00 },
-                { date: "2026-03-01", balance: 12450.00 }
-            ]
-        },
-        { 
-            id: "acc-2", name: "Amex High Yield Savings", type: "Savings", apy: "4.30%", status: "active",
-            history: [
-                { date: "2026-01-01", balance: 60000.00 },
-                { date: "2026-02-01", balance: 62000.00 },
-                { date: "2026-03-01", balance: 65000.00 }
-            ]
-        },
-        { 
-            id: "acc-3", name: "Wells Fargo Everyday", type: "Checking", apy: "0.01%", status: "warning",
-            history: [
-                { date: "2026-01-01", balance: 1500.00 },
-                { date: "2026-03-01", balance: 1200.00 }
-            ]
-        },
-        { 
-            id: "acc-4", name: "Ally CD", type: "CD", apy: "5.00%", status: "locked",
-            history: [
-                { date: "2026-01-01", balance: 5000.00 }
-            ]
-        }
-    ])
+export async function loader({ }: Account) {
+    const account: any[] = await api.get("/accounts").then(res => res.data);
+    return { account };
+}
+
+export default function Accounts(loaderData: any) {
+
+    const [accounts, setAccounts] = useState<Account[]>(loaderData.account || [])
 
     const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false)
     const [newAccount, setNewAccount] = useState({ name: "", type: "", balance: "", apy: "", date: new Date().toISOString().split('T')[0] })
@@ -71,9 +48,9 @@ export default function Accounts() {
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
-        
+
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
-        
+
         return sortedDates.map(date => {
             let totalBalance = 0;
             accounts.forEach(acc => {
@@ -89,11 +66,11 @@ export default function Accounts() {
     const handleAddAccount = (e: React.FormEvent) => {
         e.preventDefault()
         const id = `acc-${Date.now()}`
-        setAccounts([...accounts, { 
-            id, 
-            name: newAccount.name, 
-            type: newAccount.type, 
-            apy: newAccount.apy, 
+        setAccounts([...accounts, {
+            id,
+            name: newAccount.name,
+            type: newAccount.type,
+            apy: newAccount.apy,
             status: "active",
             history: [
                 { date: newAccount.date, balance: parseFloat(newAccount.balance) || 0 }
@@ -150,35 +127,35 @@ export default function Accounts() {
                             <AreaChart data={aggregatedChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
+                                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                <XAxis 
-                                    dataKey="date" 
+                                <XAxis
+                                    dataKey="date"
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: '#64748b', fontSize: 12 }}
                                     dy={10}
                                 />
-                                <YAxis 
+                                <YAxis
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: '#64748b', fontSize: 12 }}
                                     tickFormatter={(value) => `$${value / 1000}k`}
                                 />
-                                <Tooltip 
+                                <Tooltip
                                     formatter={(value: any) => [formatCurrency(value as number), "Balance"]}
                                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
-                                <Area 
-                                    type="monotone" 
-                                    dataKey="balance" 
-                                    stroke="#0ea5e9" 
+                                <Area
+                                    type="monotone"
+                                    dataKey="balance"
+                                    stroke="#0ea5e9"
                                     strokeWidth={3}
-                                    fillOpacity={1} 
-                                    fill="url(#colorBalance)" 
+                                    fillOpacity={1}
+                                    fill="url(#colorBalance)"
                                 />
                             </AreaChart>
                         </ResponsiveContainer>
@@ -239,50 +216,50 @@ export default function Accounts() {
                             <form onSubmit={handleAddAccount} className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Account Name</label>
-                                    <Input 
-                                        placeholder="e.g. Chase Checking" 
+                                    <Input
+                                        placeholder="e.g. Chase Checking"
                                         value={newAccount.name}
-                                        onChange={(e) => setNewAccount({...newAccount, name: e.target.value})}
+                                        onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
                                         required
                                     />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Account Type</label>
-                                    <Input 
-                                        placeholder="e.g. Checking, Savings" 
+                                    <Input
+                                        placeholder="e.g. Checking, Savings"
                                         value={newAccount.type}
-                                        onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
+                                        onChange={(e) => setNewAccount({ ...newAccount, type: e.target.value })}
                                         required
                                     />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">Initial Balance</label>
-                                        <Input 
-                                            type="number" 
-                                            step="0.01" 
-                                            placeholder="0.00" 
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="0.00"
                                             value={newAccount.balance}
-                                            onChange={(e) => setNewAccount({...newAccount, balance: e.target.value})}
+                                            onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
                                             required
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">As of Date</label>
-                                        <Input 
-                                            type="date" 
+                                        <Input
+                                            type="date"
                                             value={newAccount.date}
-                                            onChange={(e) => setNewAccount({...newAccount, date: e.target.value})}
+                                            onChange={(e) => setNewAccount({ ...newAccount, date: e.target.value })}
                                             required
                                         />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">APY (%)</label>
-                                    <Input 
-                                        placeholder="e.g. 4.5%" 
+                                    <Input
+                                        placeholder="e.g. 4.5%"
                                         value={newAccount.apy}
-                                        onChange={(e) => setNewAccount({...newAccount, apy: e.target.value})}
+                                        onChange={(e) => setNewAccount({ ...newAccount, apy: e.target.value })}
                                     />
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
@@ -307,21 +284,21 @@ export default function Accounts() {
                             <form onSubmit={handleUpdateBalance} className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Date</label>
-                                    <Input 
-                                        type="date" 
+                                    <Input
+                                        type="date"
                                         value={updateBalanceData.date}
-                                        onChange={(e) => setUpdateBalanceData({...updateBalanceData, date: e.target.value})}
+                                        onChange={(e) => setUpdateBalanceData({ ...updateBalanceData, date: e.target.value })}
                                         required
                                     />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Balance</label>
-                                    <Input 
-                                        type="number" 
-                                        step="0.01" 
-                                        placeholder="0.00" 
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
                                         value={updateBalanceData.balance}
-                                        onChange={(e) => setUpdateBalanceData({...updateBalanceData, balance: e.target.value})}
+                                        onChange={(e) => setUpdateBalanceData({ ...updateBalanceData, balance: e.target.value })}
                                         required
                                     />
                                 </div>

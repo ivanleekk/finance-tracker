@@ -12,24 +12,24 @@ export default function Dashboard() {
 
             {/* Top Row: Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <StatCard 
-                    title="Net Worth" 
-                    value="$124,563.00" 
-                    changeValue="$2,400.00" 
-                    changePercent={1.9} 
-                    trend="up" 
+                <StatCard
+                    title="Net Worth"
+                    value="$124,563.00"
+                    changeValue="$2,400.00"
+                    changePercent={1.9}
+                    trend="up"
                 />
-                <StatCard 
-                    title="Daily Return" 
-                    value="+$854.20" 
-                    changePercent={0.7} 
-                    trend="up" 
+                <StatCard
+                    title="Daily Return"
+                    value="+$854.20"
+                    changePercent={0.7}
+                    trend="up"
                 />
-                <StatCard 
-                    title="Cash Balance" 
-                    value="$12,050.00" 
-                    changeValue="$150.00" 
-                    trend="down" 
+                <StatCard
+                    title="Cash Balance"
+                    value="$12,050.00"
+                    changeValue="$150.00"
+                    trend="down"
                 />
             </div>
 
@@ -40,28 +40,28 @@ export default function Dashboard() {
                         <CardTitle>Portfolio Performance</CardTitle>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed border-base-200 bg-base-50 text-base-500">
+                        <div className="flex h-75 items-center justify-center rounded-md border border-dashed border-base-200 bg-base-50 text-base-500">
                             Chart Placeholder
                         </div>
                     </CardContent>
                 </Card>
-                
+
                 <Card className="col-span-3">
                     <CardHeader>
                         <CardTitle>Financial Goals</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4">
-                        <GoalCard 
-                            title="Emergency Fund" 
-                            currentValue={8000} 
-                            targetValue={10000} 
-                            formatValue={(v) => `$${v.toLocaleString()}`} 
+                        <GoalCard
+                            title="Emergency Fund"
+                            currentValue={8000}
+                            targetValue={10000}
+                            formatValue={(v) => `$${v.toLocaleString()}`}
                         />
-                        <GoalCard 
-                            title="New Car Down Payment" 
-                            currentValue={2500} 
-                            targetValue={15000} 
-                            formatValue={(v) => `$${v.toLocaleString()}`} 
+                        <GoalCard
+                            title="New Car Down Payment"
+                            currentValue={2500}
+                            targetValue={15000}
+                            formatValue={(v) => `$${v.toLocaleString()}`}
                         />
                     </CardContent>
                 </Card>

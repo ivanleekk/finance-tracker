@@ -1,26 +1,37 @@
-import { Link } from "react-router"
-import { LayoutDashboard, ArrowRightLeft, PieChart, History, Settings, UserCircle, Wallet, Landmark, Users, Activity } from "lucide-react"
-import SidebarButton from "./sidebarButton"
-import { useEffect, useState } from "react"
-import { fetchHealth } from "../lib/api"
+import { Link } from "react-router";
+import {
+    LayoutDashboard,
+    ArrowRightLeft,
+    PieChart,
+    History,
+    Settings,
+    UserCircle,
+    Wallet,
+    Landmark,
+    Users,
+    LogOut,
+    LogIn // Added LogIn icon
+} from "lucide-react";
+import SidebarButton from "./sidebarButton";
+import { useAuth } from "../lib/AuthContext";
+import api from "../lib/api";
+import { useNavigate } from "react-router";
 
 function Sidebar() {
-    const [isOnline, setIsOnline] = useState<boolean | null>(null);
+    // Pull the authentication state from your context
+    const { isAuthenticated } = useAuth();
+    const navigate = useNavigate();
 
-    useEffect(() => {
-        const checkHealth = async () => {
-            try {
-                await fetchHealth();
-                setIsOnline(true);
-            } catch (error) {
-                setIsOnline(false);
-            }
-        };
-
-        checkHealth();
-        const interval = setInterval(checkHealth, 30000); // Check every 30 seconds
-        return () => clearInterval(interval);
-    }, []);
+    const handleLogout = async () => {
+        try {
+            // 1. Tell the backend to clear the HTTP-only cookie
+            await api.get("/auth/logout");
+        } catch (error) {
+            console.error("Logout API failed", error);
+        } finally {
+            navigate("/login");
+        }
+    };
 
     return (
         <div className="flex h-screen w-64 flex-col border-r border-base-200 bg-white">
@@ -30,7 +41,7 @@ function Sidebar() {
                     FinTracker
                 </Link>
             </div>
-            
+
             <div className="flex flex-1 flex-col justify-between overflow-y-auto px-4 py-6">
                 <div className="flex flex-col gap-1">
                     <SidebarButton text="Dashboard" href="/dashboard" icon={<LayoutDashboard />} />
@@ -40,19 +51,26 @@ function Sidebar() {
                     <SidebarButton text="Portfolio" href="/portfolio" icon={<PieChart />} />
                     <SidebarButton text="History" href="/history" icon={<History />} />
                 </div>
-                
+
                 <div className="flex flex-col gap-1">
-                    <SidebarButton text="Settings" href="/settings" icon={<Settings />} />
-                    <SidebarButton text="Profile" href="/profile" icon={<UserCircle />} />
-                    
-                    <div className="mt-4 flex items-center gap-2 px-3 py-2 text-sm text-base-500">
-                        <Activity className={`h-4 w-4 ${isOnline === true ? 'text-green-500' : isOnline === false ? 'text-red-500' : 'text-gray-400'}`} />
-                        <span>API: {isOnline === true ? 'Online' : isOnline === false ? 'Offline' : 'Checking...'}</span>
-                    </div>
+                    {/* Conditionally render based on auth state */}
+                    {isAuthenticated ? (
+                        <>
+                            <SidebarButton text="Settings" href="/settings" icon={<Settings />} />
+                            <SidebarButton text="Profile" href="/profile" icon={<UserCircle />} />
+                            <SidebarButton
+                                text="Logout"
+                                onClick={handleLogout}
+                                icon={<LogOut />}
+                            />
+                        </>
+                    ) : (
+                        <SidebarButton text="Login" href="/login" icon={<LogIn />} />
+                    )}
                 </div>
             </div>
         </div>
-    )
+    );
 }
 
-export default Sidebar
+export default Sidebar;
