@@ -81,6 +81,11 @@ class HouseholdMemberResponse(HouseholdMemberBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class HouseholdMemberUserResponse(HouseholdMemberResponse):
+    name: str
+    email: str
+
+
 # ----------------------------------------
 # 2. FINANCIAL ACCOUNTS & BALANCES
 # ----------------------------------------

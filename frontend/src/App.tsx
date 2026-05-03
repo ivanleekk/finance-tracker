@@ -5,6 +5,7 @@ import './index.css'
 
 // Components
 import Sidebar from './components/sidebar.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 
 // Pages
 import LandingPage from './LandingPage.tsx'
@@ -15,9 +16,10 @@ import History from './History.tsx';
 import Settings from './Settings.tsx';
 import Profile from './Profile.tsx';
 import Accounts from './Accounts.tsx';
-import Households from './Households.tsx';
+import Households from './pages/Household/Households.tsx';
 import Login from './Login.tsx';
 import Signup from './Signup.tsx';
+import { householdsLoader } from "./pages/Household/households.loader.ts";
 
 // --- 1. Define Loaders ---
 
@@ -61,36 +63,49 @@ function RootLayout() {
 const router = createBrowserRouter([
     {
         element: <RootLayout />, // The Sidebar wraps everything
+        errorElement: <ErrorBoundary />,
         children: [
-            // Public Routes
             {
-                path: "/",
-                element: <LandingPage />,
-                loader: requireGuestLoader
-            },
-            {
-                path: "/login",
-                element: <Login />,
-                loader: requireGuestLoader
-            },
-            {
-                path: "/signup",
-                element: <Signup />,
-                loader: requireGuestLoader
-            },
-
-            // Protected Routes Group
-            {
-                loader: requireAuthLoader, // This single loader protects ALL children below
+                errorElement: <ErrorBoundary />,
                 children: [
-                    { path: "/dashboard", element: <Dashboard /> },
-                    { path: "/accounts", element: <Accounts /> },
-                    { path: "/trade", element: <Trade /> },
-                    { path: "/portfolio", element: <Portfolio /> },
-                    { path: "/history", element: <History /> },
-                    { path: "/households", element: <Households /> },
-                    { path: "/settings", element: <Settings /> },
-                    { path: "/profile", element: <Profile /> },
+                    // Public Routes
+                    {
+                        path: "/",
+                        element: <LandingPage />,
+                        loader: requireGuestLoader
+                    },
+                    {
+                        path: "/login",
+                        element: <Login />,
+                        loader: requireGuestLoader
+                    },
+                    {
+                        path: "/signup",
+                        element: <Signup />,
+                        loader: requireGuestLoader
+                    },
+
+                    // Protected Routes Group
+                    {
+                        loader: requireAuthLoader, // This single loader protects ALL children below
+                        children: [
+                            { path: "/dashboard", element: <Dashboard /> },
+                            { path: "/accounts", element: <Accounts /> },
+                            { path: "/trade", element: <Trade /> },
+                            { path: "/portfolio", element: <Portfolio /> },
+                            { path: "/history", element: <History /> },
+                            { loader: householdsLoader, path: "/households", element: <Households /> },
+                            { path: "/settings", element: <Settings /> },
+                            { path: "/profile", element: <Profile /> },
+                        ]
+                    },
+                    // Catch-all route for 404s
+                    {
+                        path: "*",
+                        loader: () => {
+                            throw new Response("Not Found", { status: 404 });
+                        }
+                    }
                 ]
             }
         ]

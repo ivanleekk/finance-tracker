@@ -5,10 +5,10 @@ import { useState } from "react";
 export default function Signup() {
     const navigate = useNavigate();
     // Optional: Add state to handle backend error messages
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const handleSignup = async (e: any) => {
+    const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
         // 1. Prevent the default browser form submission (which reloads the page)
         e.preventDefault();
         setIsLoading(true);
@@ -40,6 +40,13 @@ export default function Signup() {
         <div className="flex items-center justify-center h-screen">
             <form className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md" onSubmit={handleSignup}>
                 <h2 className="text-2xl font-bold mb-6 text-center">Sign Up for FinTracker</h2>
+
+                {error && (
+                    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+                        {error}
+                    </div>
+                )}
+
                 <div className="mb-4">
                     <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="name">
                         Username
@@ -78,9 +85,10 @@ export default function Signup() {
                 </div>
                 <button
                     type="submit"
-                    className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors"
+                    disabled={isLoading}
+                    className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
                 >
-                    Sign Up
+                    {isLoading ? "Signing up..." : "Sign Up"}
                 </button>
             </form>
         </div>

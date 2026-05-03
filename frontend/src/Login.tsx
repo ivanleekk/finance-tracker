@@ -8,7 +8,7 @@ export default function Login() {
     const [error, setError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const handleLogin = async (e) => {
+    const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
         // 1. Prevent default form reload
         e.preventDefault();
         setIsLoading(true);
@@ -24,7 +24,7 @@ export default function Login() {
 
             // 4. On success, the HTTP-only cookie is now set. Route to dashboard.
             navigate("/dashboard");
-        } catch (err) {
+        } catch (err: any) {
             console.error("Login failed:", err);
             // 5. Handle standard 401 Unauthorized errors
             setError(err.response?.data?.detail || "Invalid username or password.");

@@ -1,12 +1,19 @@
-import { createContext, useState, useEffect, useContext } from "react";
+import { createContext, useState, useEffect, useContext, type ReactNode } from "react";
 import api from '../lib/api';
 
-const AuthContext = createContext({
+interface AuthContextType {
+    isAuthenticated: boolean;
+    isLoading: boolean;
+    setIsAuthenticated: (val: boolean) => void;
+}
+
+const AuthContext = createContext<AuthContextType>({
     isAuthenticated: false,
     isLoading: true,
+    setIsAuthenticated: () => {},
 });
 
-export const AuthProvider = ({ children }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -26,7 +33,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ isAuthenticated, isLoading }}>
+        <AuthContext.Provider value={{ isAuthenticated, isLoading, setIsAuthenticated }}>
             {children}
         </AuthContext.Provider>
     );

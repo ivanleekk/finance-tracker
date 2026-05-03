@@ -19,4 +19,4 @@ EXPOSE 5001
 
 # Apply migrations before serving so restarted containers match the code.
 # CMD ["sh", "-c", ".venv/bin/alembic upgrade head && .venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 5001"]
-CMD ["uv", "run", "fastapi", "dev", "--host", "0.0.0.0", "src/main.py"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run fastapi dev --host 0.0.0.0 src/main.py"]

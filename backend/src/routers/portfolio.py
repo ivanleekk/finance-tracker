@@ -296,7 +296,7 @@ def grant_subportfolio_access(
     if not db_subportfolio:
         raise HTTPException(status_code=404, detail="Sub-portfolio not found")
 
-    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     db_access = models.PortfolioAccess(
         id=access.id if access.id else uuid.uuid7(),
@@ -341,7 +341,7 @@ def update_subportfolio_access(
         raise HTTPException(status_code=404, detail="Portfolio access not found")
 
     db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == db_access.sub_portfolio_id).first()
-    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     if access_update.role:
         db_access.role = access_update.role
@@ -361,7 +361,7 @@ def revoke_subportfolio_access(
         raise HTTPException(status_code=404, detail="Portfolio access not found")
 
     db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == db_access.sub_portfolio_id).first()
-    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_subportfolio.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     db.delete(db_access)
     db.commit()

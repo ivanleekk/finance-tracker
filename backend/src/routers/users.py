@@ -48,6 +48,18 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 
+@router.get("/search", response_model=schemas.UserResponse)
+def search_user_by_email(
+    email: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
 @router.get("/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
 def get_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
@@ -188,7 +200,7 @@ def update_household(
 ):
     # should raise error if not authorised
     verify_household_access(
-        household_id, current_user, db, required_roles=["owner", "admin"]
+        household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
 
     existing_household = (
@@ -197,13 +209,17 @@ def update_household(
     if not existing_household:
         raise HTTPException(status_code=404, detail="Household not found")
 
-    if household_update.name:
+    if household_update.name is not None:
         existing_household.name = household_update.name
-    if household_update.base_currency:
+    if household_update.base_currency is not None:
         existing_household.base_currency = household_update.base_currency
+    if household_update.country_code is not None:
+        existing_household.country_code = household_update.country_code
+
     db.commit()
     db.refresh(existing_household)
     return existing_household
+
 
 
 @router.delete("/households/{household_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -236,13 +252,16 @@ def add_household_member(
 ):
     # should raise error if not authorised
     verify_household_access(
-        member.household_id, current_user, db, required_roles=["owner, admin"]
+        member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
 
-    # check if user already exists
+    # check if user already exists in this specific household
     existing_member = (
         db.query(models.HouseholdMember)
-        .filter(models.HouseholdMember.user_id == member.user_id)
+        .filter(
+            models.HouseholdMember.user_id == member.user_id,
+            models.HouseholdMember.household_id == member.household_id
+        )
         .first()
     )
     if existing_member:
@@ -262,7 +281,7 @@ def add_household_member(
 
 @router.get(
     "/householdmember/{household_id}",
-    response_model=list[schemas.HouseholdMemberResponse],
+    response_model=List[schemas.HouseholdMemberUserResponse],
     status_code=status.HTTP_200_OK,
 )
 def get_all_household_members(
@@ -270,15 +289,27 @@ def get_all_household_members(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    verify_household_access(
-        household_id, current_user, db, required_roles=["owner, admin"]
-    )
+    verify_household_access(household_id, current_user, db)
     members = (
         db.query(models.HouseholdMember)
         .filter(models.HouseholdMember.household_id == household_id)
         .all()
     )
-    return members
+
+    result = []
+    for m in members:
+        user = db.query(models.User).filter(models.User.id == m.user_id).first()
+        result.append(
+            {
+                "id": m.id,
+                "user_id": m.user_id,
+                "household_id": m.household_id,
+                "role": m.role,
+                "name": user.name if user else "Unknown",
+                "email": user.email if user else "Unknown",
+            }
+        )
+    return result
 
 
 @router.get(
@@ -301,7 +332,7 @@ def get_household_member(
         raise HTTPException(status_code=404, detail="Household member not found")
 
     verify_household_access(
-        existing_member.household_id, current_user, db, required_roles=["owner, admin"]
+        existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
 
     return existing_member
@@ -316,6 +347,7 @@ def update_household_member(
     member_id: uuid.UUID,
     member_update: schemas.HouseholdMemberUpdate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     existing_member = (
         db.query(models.HouseholdMember)
@@ -324,6 +356,11 @@ def update_household_member(
     )
     if not existing_member:
         raise HTTPException(status_code=404, detail="Household member not found")
+
+    verify_household_access(
+        existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+
     existing_member.role = member_update.role
     db.commit()
     db.refresh(existing_member)
@@ -331,7 +368,11 @@ def update_household_member(
 
 
 @router.delete("/householdmember/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_household_member(member_id: uuid.UUID, db: Session = Depends(get_db)):
+def remove_household_member(
+    member_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     existing_member = (
         db.query(models.HouseholdMember)
         .filter(models.HouseholdMember.id == member_id)
@@ -339,6 +380,11 @@ def remove_household_member(member_id: uuid.UUID, db: Session = Depends(get_db))
     )
     if not existing_member:
         raise HTTPException(status_code=404, detail="Household member not found")
+
+    verify_household_access(
+        existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+
     db.delete(existing_member)
     db.commit()
     return {"detail": "Household member removed successfully"}

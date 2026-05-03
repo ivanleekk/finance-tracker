@@ -92,7 +92,7 @@ def grant_account_access(
     if not db_account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    verify_household_access(db_account.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_account.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     db_access = models.AccountAccess(
         id=access.id if access.id else uuid.uuid7(),
@@ -136,7 +136,7 @@ def update_account_access(
         raise HTTPException(status_code=404, detail="Account access not found")
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_access.account_id).first()
-    verify_household_access(db_account.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_account.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     if access_update.role:
         db_access.role = access_update.role
@@ -157,7 +157,7 @@ def revoke_account_access(
         raise HTTPException(status_code=404, detail="Account access not found")
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_access.account_id).first()
-    verify_household_access(db_account.household_id, current_user, db, required_roles=["owner", "admin"])
+    verify_household_access(db_account.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor])
 
     db.delete(db_access)
     db.commit()

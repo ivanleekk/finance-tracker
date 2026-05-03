@@ -2,12 +2,68 @@ import { StatCard } from "./components/ui/StatCard"
 import { GoalCard } from "./components/ui/GoalCard"
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/Card"
 import { Badge } from "./components/ui/Badge"
+import { useHousehold } from "./lib/HouseholdContext"
+import { useEffect, useState, useMemo } from "react"
+import api from "./lib/api"
+import type { AccountResponse, BalanceResponse } from "./types/types"
 
 export default function Dashboard() {
+    const { activeHousehold } = useHousehold();
+    const [accounts, setAccounts] = useState<AccountResponse[]>([]);
+    const [balances, setBalances] = useState<Record<string, BalanceResponse[]>>({});
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchDashboardData = async () => {
+            if (!activeHousehold) return;
+            setIsLoading(true);
+            try {
+                const accountsRes = await api.get<AccountResponse[]>(`/accounts/household/${activeHousehold.id}`);
+                setAccounts(accountsRes.data);
+
+                const balanceMap: Record<string, BalanceResponse[]> = {};
+                await Promise.all(accountsRes.data.map(async (acc) => {
+                    const bRes = await api.get<BalanceResponse[]>(`/accounts/balances/account/${acc.id}`);
+                    balanceMap[acc.id] = bRes.data;
+                }));
+                setBalances(balanceMap);
+            } catch (error) {
+                console.error("Dashboard fetch failed", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchDashboardData();
+    }, [activeHousehold?.id]);
+
+    const totalCash = useMemo(() => {
+        let total = 0;
+        Object.values(balances).forEach(history => {
+            if (history.length > 0) {
+                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+                total += Number(sorted[sorted.length - 1].balance);
+            }
+        });
+        return total;
+    }, [balances]);
+
+    const formatCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+    }
+
+    if (!activeHousehold) {
+        return (
+            <div className="flex-1 flex items-center justify-center p-8 text-base-500">
+                Please select or create a household.
+            </div>
+        )
+    }
+
     return (
         <div className="flex-1 space-y-6 p-8">
             <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-base-900">Dashboard</h2>
+                <h2 className="text-3xl font-bold tracking-tight text-base-900">Dashboard for {activeHousehold.name}</h2>
             </div>
 
             {/* Top Row: Stats */}
@@ -27,9 +83,8 @@ export default function Dashboard() {
                 />
                 <StatCard
                     title="Cash Balance"
-                    value="$12,050.00"
-                    changeValue="$150.00"
-                    trend="down"
+                    value={isLoading ? "..." : formatCurrency(totalCash)}
+                    trend="neutral"
                 />
             </div>
 
