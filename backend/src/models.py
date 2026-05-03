@@ -10,7 +10,8 @@ from sqlalchemy import (
     ForeignKey,
     Enum,
     Numeric,
-    UUID
+    UUID,
+    UniqueConstraint
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from src.database import Base
@@ -215,6 +216,15 @@ class ExchangeRate(Base):
     date = Column(Date)
     rate = Column(Float)
 
+class MarketPrice(Base):
+    __tablename__ = "market_prices"
+    __table_args__ = (UniqueConstraint('ticker', 'date', name='uq_market_price_ticker_date'),)
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    ticker = Column(String, index=True)
+    date = Column(Date, index=True)
+    close_price = Column(Numeric)
+    currency = Column(String)
 
 class SubPortfolio(Base):
     __tablename__ = "sub_portfolios"

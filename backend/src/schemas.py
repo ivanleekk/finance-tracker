@@ -304,9 +304,9 @@ class TradeUpdate(BaseModel):
 class TradeResponse(TradeBase):
     id: uuid.UUID
     household_id: uuid.UUID
-    sub_portfolio_id: uuid.UUID
-    asset_id: uuid.UUID
-    account_id: uuid.UUID
+    sub_portfolio_id: Optional[uuid.UUID] = None
+    asset_id: Optional[uuid.UUID] = None
+    account_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
 

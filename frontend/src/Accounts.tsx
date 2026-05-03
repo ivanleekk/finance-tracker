@@ -6,7 +6,8 @@ import { Input } from "./components/ui/Input"
 import api from "./lib/api"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "./lib/HouseholdContext"
-import type { AccountResponse, BalanceResponse, LiquidityStatus, TaxTreatment } from "./types/types"
+import type { AccountResponse, BalanceResponse } from "./types/types"
+import { LiquidityStatus, TaxTreatment } from "./types/types"
 import { Loader2 } from "lucide-react"
 
 type AccountWithHistory = AccountResponse & {

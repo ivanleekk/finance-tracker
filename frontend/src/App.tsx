@@ -11,7 +11,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import LandingPage from './LandingPage.tsx'
 import Dashboard from './Dashboard.tsx';
 import Trade from './Trade.tsx';
-import Portfolio from './Portfolio.tsx';
+import Portfolio from './pages/Portfolio/Portfolio.tsx';
 import History from './History.tsx';
 import Settings from './Settings.tsx';
 import Profile from './Profile.tsx';
@@ -20,6 +20,7 @@ import Households from './pages/Household/Households.tsx';
 import Login from './Login.tsx';
 import Signup from './Signup.tsx';
 import { householdsLoader } from "./pages/Household/households.loader.ts";
+import { portfolioLoader } from "./pages/Portfolio/portfolio.loader.ts";
 
 // --- 1. Define Loaders ---
 
@@ -92,7 +93,7 @@ const router = createBrowserRouter([
                             { path: "/dashboard", element: <Dashboard /> },
                             { path: "/accounts", element: <Accounts /> },
                             { path: "/trade", element: <Trade /> },
-                            { path: "/portfolio", element: <Portfolio /> },
+                            { loader: portfolioLoader, path: "/portfolio", element: <Portfolio /> },
                             { path: "/history", element: <History /> },
                             { loader: householdsLoader, path: "/households", element: <Households /> },
                             { path: "/settings", element: <Settings /> },

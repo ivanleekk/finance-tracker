@@ -4,31 +4,72 @@ import { Input } from "./components/ui/Input"
 import { Button } from "./components/ui/Button"
 import { useHousehold } from "./lib/HouseholdContext"
 import api from "./lib/api"
-import type { AccountResponse } from "./types/types"
+import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "./types/types"
 
 export default function Trade() {
     const { activeHousehold } = useHousehold();
     const [accounts, setAccounts] = useState<AccountResponse[]>([]);
+    const [subportfolios, setSubportfolios] = useState<SubPortfolioResponse[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState("")
+    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState("")
     const [ticker, setTicker] = useState("")
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
 
     useEffect(() => {
-        const fetchAccounts = async () => {
+        const fetchData = async () => {
             if (!activeHousehold) return;
             try {
-                const res = await api.get<AccountResponse[]>(`/accounts/household/${activeHousehold.id}`);
-                setAccounts(res.data);
-                if (res.data.length > 0) {
-                    setSelectedAccountId(res.data[0].id);
+                const [accountsRes, subRes] = await Promise.all([
+                    api.get<AccountResponse[]>(`/accounts/household/${activeHousehold.id}`),
+                    api.get<SubPortfolioResponse[]>(`/portfolio/subportfolios/household/${activeHousehold.id}`)
+                ]);
+                
+                let accData = accountsRes.data;
+                if (accData.length === 0) {
+                     try {
+                         const newAcc = await api.post<AccountResponse>('/accounts/', {
+                             name: "Default Brokerage",
+                             liquidity: "market_liquid",
+                             tax_status: "taxable",
+                             currency: activeHousehold.base_currency || "USD",
+                             household_id: activeHousehold.id
+                         });
+                         accData = [newAcc.data];
+                     } catch (e) {
+                         console.error("Failed to create default account", e);
+                     }
+                }
+                setAccounts(accData);
+                if (accData.length > 0) {
+                    setSelectedAccountId(accData[0].id);
+                }
+                
+                let spData = subRes.data;
+                if (spData.length === 0) {
+                    try {
+                        const newSp = await api.post<SubPortfolioResponse>('/portfolio/subportfolios', {
+                            name: "Main Portfolio",
+                            risk_profile: "Moderate",
+                            household_id: activeHousehold.id
+                        });
+                        spData = [newSp.data];
+                    } catch (e) {
+                        console.error("Failed to create default subportfolio", e);
+                    }
+                }
+                setSubportfolios(spData);
+                if (spData.length > 0) {
+                    setSelectedSubportfolioId(spData[0].id);
                 }
             } catch (error) {
-                console.error("Failed to fetch accounts", error);
+                console.error("Failed to fetch data", error);
             }
         };
-        fetchAccounts();
+        fetchData();
     }, [activeHousehold?.id]);
 
     // Deterministic mock price generator based on string hashing
@@ -69,17 +110,63 @@ export default function Trade() {
         return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
     }
 
-    const handleTrade = (type: "Buy" | "Sell") => {
-        if (!ticker || !quantity || !price || !date || !selectedAccountId) {
-            alert("Please fill all fields before submitting.");
+    const handleTrade = async (type: "Buy" | "Sell") => {
+        if (!activeHousehold) return;
+        setMessage(null);
+        if (!ticker || !quantity || !price || !date || !selectedAccountId || !selectedSubportfolioId) {
+            setMessage({ text: "Please fill all required fields before submitting. You may need to create an account and sub-portfolio first.", type: "error" });
             return;
         }
-        console.log(`Executing ${type} Limit Order: ${quantity} shares of ${ticker.toUpperCase()} at $${price} on ${date} using account ${selectedAccountId}`);
-        // Reset form after submission
-        setTicker("");
-        setQuantity("");
-        setPrice("");
-        // Keep date and account as is for rapid entry of multiple trades
+
+        setIsSubmitting(true);
+        try {
+            // 1. Resolve Asset by Ticker
+            let assetId = "";
+            const assetsRes = await api.get<AssetResponse[]>(`/portfolio/assets?ticker=${ticker.toUpperCase()}`);
+            const existingAsset = assetsRes.data.find(a => a.ticker.toUpperCase() === ticker.toUpperCase());
+            
+            if (existingAsset) {
+                assetId = existingAsset.id;
+            } else {
+                // Create a new asset
+                const newAssetRes = await api.post<AssetResponse>('/portfolio/assets', {
+                    id: crypto.randomUUID(),
+                    ticker: ticker.toUpperCase(),
+                    name: `${ticker.toUpperCase()} Equity`,
+                    type: "Stock",
+                    currency: activeHousehold.base_currency || "USD"
+                });
+                assetId = newAssetRes.data.id;
+            }
+
+            // 2. Submit Trade
+            const tradeDate = new Date(date);
+            
+            await api.post('/portfolio/trades', {
+                type: type.toLowerCase(),
+                date: tradeDate.toISOString(),
+                quantity: parseFloat(quantity),
+                price: parseFloat(price),
+                exchange_rate: 1.0, // Simplification
+                household_id: activeHousehold.id,
+                sub_portfolio_id: selectedSubportfolioId,
+                asset_id: assetId,
+                account_id: selectedAccountId
+            });
+
+            setMessage({ text: `Successfully executed ${type} order for ${ticker.toUpperCase()}!`, type: "success" });
+            
+            // Reset form after submission
+            setTicker("");
+            setQuantity("");
+            setPrice("");
+            // Keep date, subportfolio and account as is for rapid entry of multiple trades
+        } catch (err: any) {
+            console.error("Trade execution failed:", err);
+            setMessage({ text: err.response?.data?.detail || "Failed to execute trade.", type: "error" });
+        } finally {
+            setIsSubmitting(false);
+        }
     }
 
     if (!activeHousehold) {
@@ -99,6 +186,11 @@ export default function Trade() {
                         <CardDescription>Place a historical limit order for {activeHousehold.name}.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {message && (
+                            <div className={`p-3 rounded text-sm ${message.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                                {message.text}
+                            </div>
+                        )}
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-900">Funding Account</label>
                             <select
@@ -111,6 +203,21 @@ export default function Trade() {
                                     <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
                                 ))}
                                 {accounts.length === 0 && <option value="">No accounts available</option>}
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-900">Sub-Portfolio</label>
+                            <select
+                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                value={selectedSubportfolioId}
+                                onChange={(e) => setSelectedSubportfolioId(e.target.value)}
+                                required
+                            >
+                                {subportfolios.map(sp => (
+                                    <option key={sp.id} value={sp.id}>{sp.name}</option>
+                                ))}
+                                {subportfolios.length === 0 && <option value="">No sub-portfolios available</option>}
                             </select>
                         </div>
 
@@ -160,10 +267,20 @@ export default function Trade() {
                         </div>
 
                         <div className="pt-4 flex gap-3">
-                            <Button className="w-full" variant="primary" onClick={() => handleTrade("Buy")}>
+                            <Button 
+                                className="w-full" 
+                                variant="primary" 
+                                onClick={() => handleTrade("Buy")}
+                                disabled={isSubmitting}
+                            >
                                 Buy
                             </Button>
-                            <Button className="w-full" variant="danger" onClick={() => handleTrade("Sell")}>
+                            <Button 
+                                className="w-full" 
+                                variant="danger" 
+                                onClick={() => handleTrade("Sell")}
+                                disabled={isSubmitting}
+                            >
                                 Sell
                             </Button>
                         </div>
