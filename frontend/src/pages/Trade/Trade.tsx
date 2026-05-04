@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./components/ui/Card"
-import { Input } from "./components/ui/Input"
-import { Button } from "./components/ui/Button"
-import { useHousehold } from "./lib/HouseholdContext"
-import api from "./lib/api"
-import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "./types/types"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
+import { Input } from "../../components/ui/Input"
+import { Button } from "../../components/ui/Button"
+import { useHousehold } from "../../lib/HouseholdContext"
+import api from "../../lib/api"
+import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "../../types/types"
+import { tradeFormLoader, createDefaultAccount, createDefaultSubportfolio } from "./trade.loader"
 
 export default function Trade() {
     const { activeHousehold } = useHousehold();
@@ -23,47 +24,34 @@ export default function Trade() {
         const fetchData = async () => {
             if (!activeHousehold) return;
             try {
-                const [accountsRes, subRes] = await Promise.all([
-                    api.get<AccountResponse[]>(`/accounts/household/${activeHousehold.id}`),
-                    api.get<SubPortfolioResponse[]>(`/portfolio/subportfolios/household/${activeHousehold.id}`)
-                ]);
-                
-                let accData = accountsRes.data;
-                if (accData.length === 0) {
-                     try {
-                         const newAcc = await api.post<AccountResponse>('/accounts/', {
-                             name: "Default Brokerage",
-                             liquidity: "market_liquid",
-                             tax_status: "taxable",
-                             currency: activeHousehold.base_currency || "USD",
-                             household_id: activeHousehold.id
-                         });
-                         accData = [newAcc.data];
-                     } catch (e) {
-                         console.error("Failed to create default account", e);
-                     }
-                }
-                setAccounts(accData);
-                if (accData.length > 0) {
-                    setSelectedAccountId(accData[0].id);
-                }
-                
-                let spData = subRes.data;
-                if (spData.length === 0) {
+                const { accounts: accData, subportfolios: spData } = await tradeFormLoader(activeHousehold.id);
+
+                let finalAccounts = accData;
+                if (finalAccounts.length === 0) {
                     try {
-                        const newSp = await api.post<SubPortfolioResponse>('/portfolio/subportfolios', {
-                            name: "Main Portfolio",
-                            risk_profile: "Moderate",
-                            household_id: activeHousehold.id
-                        });
-                        spData = [newSp.data];
+                        const newAcc = await createDefaultAccount(activeHousehold.id, activeHousehold.base_currency || "USD");
+                        finalAccounts = [newAcc];
+                    } catch (e) {
+                        console.error("Failed to create default account", e);
+                    }
+                }
+                setAccounts(finalAccounts);
+                if (finalAccounts.length > 0) {
+                    setSelectedAccountId(finalAccounts[0].id);
+                }
+
+                let finalSubportfolios = spData;
+                if (finalSubportfolios.length === 0) {
+                    try {
+                        const newSp = await createDefaultSubportfolio(activeHousehold.id);
+                        finalSubportfolios = [newSp];
                     } catch (e) {
                         console.error("Failed to create default subportfolio", e);
                     }
                 }
-                setSubportfolios(spData);
-                if (spData.length > 0) {
-                    setSelectedSubportfolioId(spData[0].id);
+                setSubportfolios(finalSubportfolios);
+                if (finalSubportfolios.length > 0) {
+                    setSelectedSubportfolioId(finalSubportfolios[0].id);
                 }
             } catch (error) {
                 console.error("Failed to fetch data", error);
@@ -124,7 +112,7 @@ export default function Trade() {
             let assetId = "";
             const assetsRes = await api.get<AssetResponse[]>(`/portfolio/assets?ticker=${ticker.toUpperCase()}`);
             const existingAsset = assetsRes.data.find(a => a.ticker.toUpperCase() === ticker.toUpperCase());
-            
+
             if (existingAsset) {
                 assetId = existingAsset.id;
             } else {
@@ -141,7 +129,7 @@ export default function Trade() {
 
             // 2. Submit Trade
             const tradeDate = new Date(date);
-            
+
             await api.post('/portfolio/trades', {
                 type: type.toLowerCase(),
                 date: tradeDate.toISOString(),
@@ -155,7 +143,7 @@ export default function Trade() {
             });
 
             setMessage({ text: `Successfully executed ${type} order for ${ticker.toUpperCase()}!`, type: "success" });
-            
+
             // Reset form after submission
             setTicker("");
             setQuantity("");
@@ -267,17 +255,17 @@ export default function Trade() {
                         </div>
 
                         <div className="pt-4 flex gap-3">
-                            <Button 
-                                className="w-full" 
-                                variant="primary" 
+                            <Button
+                                className="w-full"
+                                variant="primary"
                                 onClick={() => handleTrade("Buy")}
                                 disabled={isSubmitting}
                             >
                                 Buy
                             </Button>
-                            <Button 
-                                className="w-full" 
-                                variant="danger" 
+                            <Button
+                                className="w-full"
+                                variant="danger"
                                 onClick={() => handleTrade("Sell")}
                                 disabled={isSubmitting}
                             >

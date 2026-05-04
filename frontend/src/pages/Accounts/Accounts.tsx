@@ -1,18 +1,27 @@
 import { useState, useMemo, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./components/ui/Card"
-import { Badge } from "./components/ui/Badge"
-import { Button } from "./components/ui/Button"
-import { Input } from "./components/ui/Input"
-import api from "./lib/api"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
+import { Badge } from "../../components/ui/Badge"
+import { Button } from "../../components/ui/Button"
+import { Input } from "../../components/ui/Input"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
-import { useHousehold } from "./lib/HouseholdContext"
-import type { AccountResponse, BalanceResponse } from "./types/types"
-import { LiquidityStatus, TaxTreatment } from "./types/types"
+import api from "../../lib/api"
+import { useHousehold } from "../../lib/HouseholdContext"
+import { LiquidityStatus, TaxTreatment } from "../../types/types"
 import { Loader2 } from "lucide-react"
+import { accountsLoader, type AccountWithHistory } from "./accounts.loader"
+import type { AccountResponse, BalanceResponse } from "../../types/types"
 
-type AccountWithHistory = AccountResponse & {
-    history: BalanceResponse[];
-}
+// Add a color palette for the different accounts
+const CHART_COLORS = [
+    "#0ea5e9", // Sky blue
+    "#10b981", // Emerald green
+    "#8b5cf6", // Violet
+    "#f59e0b", // Amber
+    "#ec4899", // Pink
+    "#14b8a6", // Teal
+    "#f43f5e", // Rose
+    "#6366f1", // Indigo
+];
 
 export default function Accounts() {
     const { activeHousehold } = useHousehold();
@@ -36,12 +45,8 @@ export default function Accounts() {
         if (!activeHousehold) return;
         setIsLoading(true);
         try {
-            const accountsRes = await api.get<AccountResponse[]>(`/accounts/household/${activeHousehold.id}`);
-            const accountsWithHistory = await Promise.all(accountsRes.data.map(async (acc) => {
-                const balancesRes = await api.get<BalanceResponse[]>(`/accounts/balances/account/${acc.id}`);
-                return { ...acc, history: balancesRes.data };
-            }));
-            setAccounts(accountsWithHistory);
+            const data = await accountsLoader(activeHousehold.id);
+            setAccounts(data);
         } catch (error) {
             console.error("Failed to fetch accounts", error);
         } finally {
@@ -63,6 +68,7 @@ export default function Accounts() {
         return Number(sorted[sorted.length - 1].balance);
     }
 
+    // UPDATED: Now maps each account's balance to its name per date
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
@@ -70,14 +76,21 @@ export default function Accounts() {
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
 
         return sortedDates.map(date => {
-            let totalBalance = 0;
+            const dataPoint: any = { date };
+
             accounts.forEach(acc => {
-                const pastOrCurrentEntries = acc.history.filter(h => h.date <= date).sort((a, b) => a.date.localeCompare(b.date));
+                const pastOrCurrentEntries = acc.history
+                    .filter(h => h.date <= date)
+                    .sort((a, b) => a.date.localeCompare(b.date));
+
                 if (pastOrCurrentEntries.length > 0) {
-                    totalBalance += Number(pastOrCurrentEntries[pastOrCurrentEntries.length - 1].balance);
+                    dataPoint[acc.name] = Number(pastOrCurrentEntries[pastOrCurrentEntries.length - 1].balance);
+                } else {
+                    dataPoint[acc.name] = 0;
                 }
             });
-            return { date, balance: totalBalance };
+
+            return dataPoint;
         });
     }, [accounts]);
 
@@ -165,7 +178,7 @@ export default function Accounts() {
             <Card>
                 <CardHeader>
                     <CardTitle>Total Cash Balance</CardTitle>
-                    <CardDescription>Your combined liquid assets over time.</CardDescription>
+                    <CardDescription>Your combined liquid assets over time, broken down by account.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="h-[350px] w-full">
@@ -173,10 +186,13 @@ export default function Accounts() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={aggregatedChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <defs>
-                                        <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                                        </linearGradient>
+                                        {/* UPDATED: Map over accounts to generate a gradient for each */}
+                                        {accounts.map((acc, index) => (
+                                            <linearGradient key={`color-${acc.id}`} id={`color-${acc.id}`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={CHART_COLORS[index % CHART_COLORS.length]} stopOpacity={0.4} />
+                                                <stop offset="95%" stopColor={CHART_COLORS[index % CHART_COLORS.length]} stopOpacity={0} />
+                                            </linearGradient>
+                                        ))}
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                                     <XAxis
@@ -193,17 +209,23 @@ export default function Accounts() {
                                         tickFormatter={(value) => `$${value / 1000}k`}
                                     />
                                     <Tooltip
-                                        formatter={(value: any) => [formatCurrency(value as number), "Balance"]}
+                                        // UPDATED: Automatically uses the dataKey (account name) for the label
+                                        formatter={(value: any, name: string) => [formatCurrency(value as number), name]}
                                         contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                     />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="balance"
-                                        stroke="#0ea5e9"
-                                        strokeWidth={3}
-                                        fillOpacity={1}
-                                        fill="url(#colorBalance)"
-                                    />
+                                    {/* UPDATED: Map over accounts to render a stacked area for each */}
+                                    {accounts.map((acc, index) => (
+                                        <Area
+                                            key={acc.id}
+                                            type="monotone"
+                                            dataKey={acc.name}
+                                            stackId="1" // This stacks them on top of each other!
+                                            stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                                            strokeWidth={2}
+                                            fillOpacity={1}
+                                            fill={`url(#color-${acc.id})`}
+                                        />
+                                    ))}
                                 </AreaChart>
                             </ResponsiveContainer>
                         ) : (

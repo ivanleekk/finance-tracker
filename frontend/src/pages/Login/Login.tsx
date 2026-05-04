@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useState } from "react";
-import api from "./lib/api";
-import { Button } from "./components/ui/Button";
+import api from "../../lib/api";
+import { Button } from "../../components/ui/Button";
 
 export default function Login() {
     const navigate = useNavigate();

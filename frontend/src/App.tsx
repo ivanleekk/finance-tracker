@@ -10,17 +10,18 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 // Pages
 import LandingPage from './LandingPage.tsx'
 import Dashboard from './Dashboard.tsx';
-import Trade from './Trade.tsx';
+import Trade from './pages/Trade/Trade.tsx';
 import Portfolio from './pages/Portfolio/Portfolio.tsx';
-import History from './History.tsx';
+import History from './pages/History/History.tsx';
 import Settings from './Settings.tsx';
 import Profile from './Profile.tsx';
-import Accounts from './Accounts.tsx';
+import Accounts from './pages/Accounts/Accounts.tsx';
 import Households from './pages/Household/Households.tsx';
-import Login from './Login.tsx';
-import Signup from './Signup.tsx';
+import Login from './pages/Login/Login.tsx';
+import Signup from './pages/Signup/Signup.tsx';
 import { householdsLoader } from "./pages/Household/households.loader.ts";
 import { portfolioLoader } from "./pages/Portfolio/portfolio.loader.ts";
+import { historyLoader } from "./pages/History/history.loader.ts";
 
 // --- 1. Define Loaders ---
 
@@ -94,8 +95,8 @@ const router = createBrowserRouter([
                             { path: "/accounts", element: <Accounts /> },
                             { path: "/trade", element: <Trade /> },
                             { loader: portfolioLoader, path: "/portfolio", element: <Portfolio /> },
-                            { path: "/history", element: <History /> },
-                            { loader: householdsLoader, path: "/households", element: <Households /> },
+                            { loader: historyLoader, path: "/history", element: <History /> },
+                            { path: "/households", loader: householdsLoader, element: <Households /> },
                             { path: "/settings", element: <Settings /> },
                             { path: "/profile", element: <Profile /> },
                         ]
