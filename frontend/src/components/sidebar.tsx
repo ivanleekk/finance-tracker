@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, Form } from "react-router";
 import {
     LayoutDashboard,
     ArrowRightLeft,
@@ -15,24 +15,12 @@ import {
 import SidebarButton from "./sidebarButton";
 import { useAuth } from "../lib/AuthContext";
 import { HouseholdSelector } from "./HouseholdSelector";
-import api from "../lib/api";
 import { useNavigate } from "react-router";
 
 function Sidebar() {
     // Pull the authentication state from your context
     const { isAuthenticated } = useAuth();
     const navigate = useNavigate();
-
-    const handleLogout = async () => {
-        try {
-            // 1. Tell the backend to clear the HTTP-only cookie
-            await api.get("/auth/logout");
-        } catch (error) {
-            console.error("Logout API failed", error);
-        } finally {
-            navigate("/login");
-        }
-    };
 
     return (
         <div className="flex h-screen w-64 flex-col border-r border-base-200 bg-white">
@@ -60,11 +48,12 @@ function Sidebar() {
                         <>
                             <SidebarButton text="Settings" href="/settings" icon={<Settings />} />
                             <SidebarButton text="Profile" href="/profile" icon={<UserCircle />} />
-                            <SidebarButton
-                                text="Logout"
-                                onClick={handleLogout}
-                                icon={<LogOut />}
-                            />
+                            <Form method="post" action="/logout">
+                                <button type="submit" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-base-600 hover:bg-base-100 hover:text-base-900">
+                                    <LogOut className="h-4 w-4" />
+                                    Logout
+                                </button>
+                            </Form>
                         </>
                     ) : (
                         <SidebarButton text="Login" href="/login" icon={<LogIn />} />

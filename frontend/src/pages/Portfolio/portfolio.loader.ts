@@ -1,4 +1,5 @@
-import api from "../../lib/api";
+import { getSSRContext } from "../../lib/ssr-helpers";
+import type { LoaderFunctionArgs } from "react-router";
 import type { SubPortfolioResponse, TradeResponse, AssetResponse } from "../../types/types";
 
 export type PortfolioLoaderData = {
@@ -7,25 +8,33 @@ export type PortfolioLoaderData = {
     assets: AssetResponse[];
 };
 
-export async function portfolioLoader(): Promise<PortfolioLoaderData> {
-    const activeHouseholdId = localStorage.getItem('activeHouseholdId');
-    if (!activeHouseholdId) {
-        return { subportfolios: [], trades: [], assets: [] };
-    }
+export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<PortfolioLoaderData> {
+    const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
         const [spRes, trRes, asRes] = await Promise.all([
-            api.get<SubPortfolioResponse[]>(`/portfolio/subportfolios/household/${activeHouseholdId}`),
-            api.get<TradeResponse[]>(`/portfolio/trades/household/${activeHouseholdId}`),
-            api.get<AssetResponse[]>(`/portfolio/assets`)
+            ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
+            ssrFetch(`/portfolio/trades/household/${householdId}`),
+            ssrFetch(`/portfolio/assets`)
+        ]);
+
+        if (!spRes.ok || !trRes.ok || !asRes.ok) {
+             throw new Error("One or more requests failed");
+        }
+
+        const [subportfolios, trades, assets] = await Promise.all([
+            spRes.json(),
+            trRes.json(),
+            asRes.json()
         ]);
 
         return {
-            subportfolios: spRes.data,
-            trades: trRes.data,
-            assets: asRes.data
+            subportfolios,
+            trades,
+            assets
         };
     } catch (error) {
+        if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load portfolio data", error);
         return { subportfolios: [], trades: [], assets: [] };
     }

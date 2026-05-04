@@ -1,49 +1,57 @@
-import { useNavigate } from "react-router";
-import api from "../../lib/api";
-import { useState } from "react";
+import { Form, redirect, useActionData, useNavigation, Link } from "react-router";
+import type { ActionFunctionArgs } from "react-router";
+import { Button } from "../../components/ui/Button";
+import { getApiUrl } from "../../lib/api-url";
+
+export async function action({ request }: ActionFunctionArgs) {
+    const formData = await request.formData();
+    const data = Object.fromEntries(formData);
+
+    try {
+        const response = await fetch(getApiUrl("/users"), {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            return { error: errorData.detail || "An error occurred during signup." };
+        }
+
+        // After signup, we might want to log the user in automatically
+        // or just redirect to login page. The current implementation 
+        // in Signup.tsx redirected to dashboard, but that requires 
+        // a session which we don't have yet (unless the backend returns one).
+        
+        // If backend returns a Set-Cookie on signup, we should forward it.
+        const setCookieHeader = response.headers.get("Set-Cookie");
+        
+        return redirect("/dashboard", {
+            headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
+        });
+
+    } catch (err) {
+        console.error("Signup fetch failed:", err);
+        return { error: "Failed to connect to the server." };
+    }
+}
 
 export default function Signup() {
-    const navigate = useNavigate();
-    // Optional: Add state to handle backend error messages
-    const [error, setError] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
-        // 1. Prevent the default browser form submission (which reloads the page)
-        e.preventDefault();
-        setIsLoading(true);
-        setError(null);
-
-        // 2. Extract data directly from the form elements
-        const formData = new FormData(e.currentTarget);
-        const data = Object.fromEntries(formData);
-
-        try {
-            // 3. Send the extracted data payload to your backend
-            // The data object will look like: { name: "...", email: "...", password: "..." }
-            const response = await api.post("/users", data);
-
-            // 4. If successful, navigate to the dashboard
-            console.log("Signup successful:", response.data);
-            navigate("/dashboard");
-
-        } catch (err: any) {
-            // 5. Handle errors (e.g., 400 Bad Request if the email already exists)
-            console.error("Signup failed:", err);
-            setError(err.response?.data?.detail || "An error occurred during signup.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    const actionData = useActionData<typeof action>();
+    const navigation = useNavigation();
+    const isLoading = navigation.state === "submitting";
 
     return (
         <div className="flex items-center justify-center h-screen">
-            <form className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md" onSubmit={handleSignup}>
+            <Form method="post" className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md">
                 <h2 className="text-2xl font-bold mb-6 text-center">Sign Up for FinTracker</h2>
 
-                {error && (
+                {actionData?.error && (
                     <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
-                        {error}
+                        {actionData.error}
                     </div>
                 )}
 
@@ -83,14 +91,24 @@ export default function Signup() {
                         className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
-                <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
-                >
-                    {isLoading ? "Signing up..." : "Sign Up"}
-                </button>
-            </form>
+                
+                <div className="flex flex-col gap-4">
+                    <Button
+                        type="submit"
+                        disabled={isLoading}
+                        className="w-full"
+                    >
+                        {isLoading ? "Signing up..." : "Sign Up"}
+                    </Button>
+                    
+                    <p className="text-center text-sm text-base-500">
+                        Already have an account?{" "}
+                        <Link to="/login" className="text-primary-600 hover:underline">
+                            Log In
+                        </Link>
+                    </p>
+                </div>
+            </Form>
         </div>
     );
 }

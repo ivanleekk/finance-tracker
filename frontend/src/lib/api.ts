@@ -1,7 +1,13 @@
 import axios from 'axios';
 
+// Detect if we are running on the server (SSR) or in the browser
+const isServer = typeof window === 'undefined';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL, 
+  // Use 'backend' service name when on server, 'localhost' when in browser
+  baseURL: isServer 
+    ? (process.env.INTERNAL_API_URL || 'http://backend:5001')
+    : (import.meta.env.VITE_API_URL || 'http://localhost:5001'),
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

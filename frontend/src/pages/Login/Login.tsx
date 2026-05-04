@@ -1,47 +1,66 @@
-import { useNavigate } from "react-router";
-import { useState } from "react";
-import api from "../../lib/api";
+import { Form, Link, redirect, useActionData, useNavigation, useNavigate } from "react-router";
+import type { ActionFunctionArgs } from "react-router";
 import { Button } from "../../components/ui/Button";
+import { getApiUrl } from "../../lib/api-url";
 
+// 1. THIS RUNS SECURELY ON YOUR NODE SERVER
+export async function action({ request }: ActionFunctionArgs) {
+    const formData = await request.formData();
+
+    // FastAPI's OAuth2PasswordRequestForm requires URL-encoded data
+    const urlEncoded = new URLSearchParams();
+    urlEncoded.append("username", formData.get("username") as string);
+    urlEncoded.append("password", formData.get("password") as string);
+
+    try {
+        const response = await fetch(getApiUrl("/auth/token"), {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: urlEncoded,
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            return { error: errorData.detail || "Invalid username or password." };
+        }
+
+        // CRITICAL: Grab the cookie the backend just set
+        const setCookieHeader = response.headers.get("Set-Cookie");
+
+        // Redirect to dashboard and forward the cookie to the browser
+        return redirect("/dashboard", {
+            headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
+        });
+
+    } catch (err) {
+        console.error("Login fetch failed:", err);
+        return { error: "Failed to connect to the server." };
+    }
+}
+
+// 2. THIS IS YOUR UI (RUNS IN BROWSER)
 export default function Login() {
     const navigate = useNavigate();
-    const [error, setError] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
 
-    const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
-        // 1. Prevent default form reload
-        e.preventDefault();
-        setIsLoading(true);
-        setError(null);
+    // Grab errors from the server action (replaces the error useState)
+    const actionData = useActionData<typeof action>();
 
-        // 2. Extract data directly from the form elements
-        const formData = new FormData(e.currentTarget);
-        const data = Object.fromEntries(formData);
-
-        try {
-            // 3. Send the payload to your backend login endpoint
-            await api.post("/auth/token", data, { headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-
-            // 4. On success, the HTTP-only cookie is now set. Route to dashboard.
-            navigate("/dashboard");
-        } catch (err: any) {
-            console.error("Login failed:", err);
-            // 5. Handle standard 401 Unauthorized errors
-            setError(err.response?.data?.detail || "Invalid username or password.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    // Track loading state automatically (replaces the isLoading useState)
+    const navigation = useNavigation();
+    const isLoading = navigation.state === "submitting";
 
     return (
         <div className="flex items-center justify-center h-screen">
-            <form className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md" onSubmit={handleLogin}>
+            {/* Replace standard <form> with React Router's <Form> */}
+            <Form method="post" className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md">
                 <h2 className="text-2xl font-bold mb-6 text-center">Login to FinTracker</h2>
 
                 {/* Error Display */}
-                {error && (
+                {actionData?.error && (
                     <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
-                        {error}
+                        {actionData.error}
                     </div>
                 )}
 
@@ -51,7 +70,7 @@ export default function Login() {
                     </label>
                     <input
                         id="username"
-                        name="username" // Required for FormData
+                        name="username" // Required for FormData extraction
                         type="text"
                         required
                         className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
@@ -63,7 +82,7 @@ export default function Login() {
                     </label>
                     <input
                         id="password"
-                        name="password" // Required for FormData
+                        name="password" // Required for FormData extraction
                         type="password"
                         required
                         className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
@@ -81,7 +100,7 @@ export default function Login() {
                     </Button>
 
                     <Button
-                        type="button" // CRITICAL: prevents this button from submitting the form
+                        type="button"
                         variant="ghost"
                         onClick={() => navigate("/signup")}
                         disabled={isLoading}
@@ -90,7 +109,7 @@ export default function Login() {
                         Sign Up
                     </Button>
                 </div>
-            </form>
+            </Form>
         </div>
     );
 }

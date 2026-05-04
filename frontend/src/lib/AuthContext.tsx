@@ -13,24 +13,23 @@ const AuthContext = createContext<AuthContextType>({
     setIsAuthenticated: () => {},
 });
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+export const AuthProvider = ({ 
+    children, 
+    initialIsAuthenticated = false 
+}: { 
+    children: ReactNode;
+    initialIsAuthenticated?: boolean;
+}) => {
+    const [isAuthenticated, setIsAuthenticated] = useState(initialIsAuthenticated);
+    const [isLoading, setIsLoading] = useState(false); // Can default to false now that SSR provides initial state
 
+    // Keep client state in sync with server state (e.g. after logout action navigation)
     useEffect(() => {
-        const verifyAuth = async () => {
-            try {
-                await api.get("/auth/me", { withCredentials: true });
-                setIsAuthenticated(true);
-            } catch (error) {
-                setIsAuthenticated(false);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        setIsAuthenticated(initialIsAuthenticated);
+    }, [initialIsAuthenticated]);
 
-        verifyAuth();
-    }, []);
+    // We can optionally keep the client-side verifyAuth if needed for token refresh, 
+    // but for SSR, initialIsAuthenticated handles the immediate render correctly.
 
     return (
         <AuthContext.Provider value={{ isAuthenticated, isLoading, setIsAuthenticated }}>

@@ -13,30 +13,59 @@ interface HouseholdContextType {
 const HouseholdContext = createContext<HouseholdContextType>({
     households: [],
     activeHousehold: null,
-    setActiveHousehold: () => {},
-    refreshHouseholds: async () => {},
+    setActiveHousehold: () => { },
+    refreshHouseholds: async () => { },
     isLoading: true,
 });
 
-export const HouseholdProvider = ({ children }: { children: ReactNode }) => {
-    const [households, setHouseholds] = useState<HouseholdResponse[]>([]);
-    const [activeHousehold, setActiveHouseholdState] = useState<HouseholdResponse | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+export const HouseholdProvider = ({
+    children,
+    initialHouseholds
+}: {
+    children: ReactNode;
+    initialHouseholds?: HouseholdResponse[];
+}) => {
+    const [households, setHouseholds] = useState<HouseholdResponse[]>(initialHouseholds || []);
+    
+    // Initialize active household from server-side selection if possible
+    const [activeHousehold, setActiveHouseholdState] = useState<HouseholdResponse | null>(() => {
+        if (initialHouseholds && initialHouseholds.length > 0) {
+            // Try to find the one that matches the cookie (client-side only for this check)
+            if (typeof document !== 'undefined') {
+                const match = document.cookie.match(/activeHouseholdId=([^;]+)/);
+                const cookieId = match ? match[1] : null;
+                const found = initialHouseholds.find(h => h.id === cookieId);
+                return found || initialHouseholds[0];
+            }
+            return initialHouseholds[0];
+        }
+        return null;
+    });
+    
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Sync households when navigating between pages that re-run root loader
+    useEffect(() => {
+        if (initialHouseholds) {
+            setHouseholds(initialHouseholds);
+            if (initialHouseholds.length > 0 && !activeHousehold) {
+                setActiveHouseholdState(initialHouseholds[0]);
+            }
+        }
+    }, [initialHouseholds]);
 
     const refreshHouseholds = async () => {
+        setIsLoading(true);
         try {
             const response = await api.get('/users/households');
             const data = response.data as HouseholdResponse[];
             setHouseholds(data);
-            
+
             if (data.length > 0) {
-                const storedId = localStorage.getItem('activeHouseholdId');
-                const found = data.find(h => h.id === storedId);
-                if (found) {
-                    setActiveHouseholdState(found);
-                } else {
-                    setActiveHouseholdState(data[0]);
-                    localStorage.setItem('activeHouseholdId', data[0].id);
+                // Keep current active if it still exists, otherwise pick first
+                const stillExists = data.find(h => h.id === activeHousehold?.id);
+                if (!stillExists) {
+                    setActiveHousehold(data[0]);
                 }
             } else {
                 setActiveHouseholdState(null);
@@ -50,12 +79,11 @@ export const HouseholdProvider = ({ children }: { children: ReactNode }) => {
 
     const setActiveHousehold = (household: HouseholdResponse) => {
         setActiveHouseholdState(household);
-        localStorage.setItem('activeHouseholdId', household.id);
+        if (typeof document !== 'undefined') {
+            document.cookie = `activeHouseholdId=${household.id}; path=/; max-age=31536000`;
+            localStorage.setItem('activeHouseholdId', household.id);
+        }
     };
-
-    useEffect(() => {
-        refreshHouseholds();
-    }, []);
 
     return (
         <HouseholdContext.Provider value={{ households, activeHousehold, setActiveHousehold, refreshHouseholds, isLoading }}>

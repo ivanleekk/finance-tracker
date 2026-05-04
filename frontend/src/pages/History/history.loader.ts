@@ -1,5 +1,6 @@
-import api from "../../lib/api";
-import type { TradeResponse, TransactionResponse, AssetResponse, CategoryResponse, AccountResponse, SubPortfolioResponse } from "./types/types";
+import { getSSRContext } from "../../lib/ssr-helpers";
+import type { LoaderFunctionArgs } from "react-router";
+import type { TradeResponse, TransactionResponse, AssetResponse, CategoryResponse, AccountResponse, SubPortfolioResponse } from "../../types/types";
 
 export type HistoryLoaderData = {
     trades: TradeResponse[];
@@ -10,31 +11,42 @@ export type HistoryLoaderData = {
     subportfolios: SubPortfolioResponse[];
 };
 
-export async function historyLoader(): Promise<HistoryLoaderData> {
-    const activeHouseholdId = localStorage.getItem('activeHouseholdId');
-    if (!activeHouseholdId) {
-        return { trades: [], transactions: [], assets: [], categories: [], accounts: [], subportfolios: [] };
-    }
+export async function historyLoader({ request }: LoaderFunctionArgs): Promise<HistoryLoaderData> {
+    const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
         const [trRes, txRes, asRes, catRes, accRes, spRes] = await Promise.all([
-            api.get<TradeResponse[]>(`/portfolio/trades/household/${activeHouseholdId}`),
-            api.get<TransactionResponse[]>(`/cashflow/transactions/household/${activeHouseholdId}`),
-            api.get<AssetResponse[]>(`/portfolio/assets`),
-            api.get<CategoryResponse[]>(`/cashflow/categories/household/${activeHouseholdId}`),
-            api.get<AccountResponse[]>(`/accounts/household/${activeHouseholdId}`),
-            api.get<SubPortfolioResponse[]>(`/portfolio/subportfolios/household/${activeHouseholdId}`)
+            ssrFetch(`/portfolio/trades/household/${householdId}`),
+            ssrFetch(`/cashflow/transactions/household/${householdId}`),
+            ssrFetch(`/portfolio/assets`),
+            ssrFetch(`/cashflow/categories/household/${householdId}`),
+            ssrFetch(`/accounts/household/${householdId}`),
+            ssrFetch(`/portfolio/subportfolios/household/${householdId}`)
+        ]);
+
+        if (!trRes.ok || !txRes.ok || !asRes.ok || !catRes.ok || !accRes.ok || !spRes.ok) {
+            throw new Error("One or more requests failed");
+        }
+
+        const [trades, transactions, assets, categories, accounts, subportfolios] = await Promise.all([
+            trRes.json(),
+            txRes.json(),
+            asRes.json(),
+            catRes.json(),
+            accRes.json(),
+            spRes.json()
         ]);
 
         return {
-            trades: trRes.data,
-            transactions: txRes.data,
-            assets: asRes.data,
-            categories: catRes.data,
-            accounts: accRes.data,
-            subportfolios: spRes.data
+            trades,
+            transactions,
+            assets,
+            categories,
+            accounts,
+            subportfolios
         };
     } catch (error) {
+        if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load history data", error);
         return { trades: [], transactions: [], assets: [], categories: [], accounts: [], subportfolios: [] };
     }

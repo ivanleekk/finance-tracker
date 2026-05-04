@@ -37,6 +37,7 @@ services:
             - VITE_API_URL=http://localhost:5001
             - VITE_API_URL_2=http://localhost:5002/api
             - CI=true
+            - INTERNAL_API_URL=http://backend:5001
         volumes:
             - ./frontend:/app
             - /app/node_modules

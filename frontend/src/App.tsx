@@ -9,7 +9,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 
 // Pages
 import LandingPage from './LandingPage.tsx'
-import Dashboard from './Dashboard.tsx';
+import Dashboard from './pages/Dashboard/Dashboard.tsx';
 import Trade from './pages/Trade/Trade.tsx';
 import Portfolio from './pages/Portfolio/Portfolio.tsx';
 import History from './pages/History/History.tsx';

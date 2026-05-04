@@ -1,15 +1,16 @@
-import { useState, useMemo, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
-import { Badge } from "../../components/ui/Badge"
-import { Button } from "../../components/ui/Button"
-import { Input } from "../../components/ui/Input"
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
-import api from "../../lib/api"
-import { useHousehold } from "../../lib/HouseholdContext"
-import { LiquidityStatus, TaxTreatment } from "../../types/types"
-import { Loader2 } from "lucide-react"
-import { accountsLoader, type AccountWithHistory } from "./accounts.loader"
-import type { AccountResponse, BalanceResponse } from "../../types/types"
+import { useState, useMemo, useEffect } from "react";
+import { useLoaderData, useFetcher } from "react-router";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { useHousehold } from "../../lib/HouseholdContext";
+import { LiquidityStatus, TaxTreatment } from "../../types/types";
+import type { AccountWithHistory } from "./accounts.loader";
+import type { BalanceResponse } from "../../types/types";
+
+export { loader, action } from "./accounts.loader";
 
 // Add a color palette for the different accounts
 const CHART_COLORS = [
@@ -25,10 +26,14 @@ const CHART_COLORS = [
 
 export default function Accounts() {
     const { activeHousehold } = useHousehold();
-    const [accounts, setAccounts] = useState<AccountWithHistory[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+    const accounts = (useLoaderData() as AccountWithHistory[]) || [];
 
-    const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false)
+    // We use fetchers for mutations to avoid full page navigations and to easily keep modals open/closed based on state
+    const addAccountFetcher = useFetcher();
+    const updateBalanceFetcher = useFetcher();
+    const deleteAccountFetcher = useFetcher();
+
+    const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
     const [newAccount, setNewAccount] = useState({
         name: "",
         liquidity: LiquidityStatus.Liquid,
@@ -36,30 +41,44 @@ export default function Accounts() {
         balance: "",
         currency: "USD",
         date: new Date().toISOString().split('T')[0]
-    })
+    });
 
-    const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
-    const [updateBalanceData, setUpdateBalanceData] = useState({ accountId: "", date: new Date().toISOString().split('T')[0], balance: "" })
+    const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+    const [updateBalanceData, setUpdateBalanceData] = useState({ accountId: "", date: new Date().toISOString().split('T')[0], balance: "" });
 
-    const fetchAccounts = async () => {
-        if (!activeHousehold) return;
-        setIsLoading(true);
-        try {
-            const data = await accountsLoader(activeHousehold.id);
-            setAccounts(data);
-        } catch (error) {
-            console.error("Failed to fetch accounts", error);
-        } finally {
-            setIsLoading(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [accountToDelete, setAccountToDelete] = useState<{ id: string, name: string } | null>(null);
+
+    // Close modals on successful submission
+    useEffect(() => {
+        if (addAccountFetcher.state === "idle" && addAccountFetcher.data?.success) {
+            setIsAddAccountModalOpen(false);
+            setNewAccount({
+                name: "",
+                liquidity: LiquidityStatus.Liquid,
+                tax_status: TaxTreatment.Taxable,
+                balance: "",
+                currency: "USD",
+                date: new Date().toISOString().split('T')[0]
+            });
         }
-    }
+    }, [addAccountFetcher.state, addAccountFetcher.data]);
 
     useEffect(() => {
-        fetchAccounts();
-    }, [activeHousehold?.id]);
+        if (updateBalanceFetcher.state === "idle" && updateBalanceFetcher.data?.success) {
+            setIsUpdateModalOpen(false);
+        }
+    }, [updateBalanceFetcher.state, updateBalanceFetcher.data]);
+
+    useEffect(() => {
+        if (deleteAccountFetcher.state === "idle" && deleteAccountFetcher.data?.success) {
+            setIsDeleteModalOpen(false);
+            setAccountToDelete(null);
+        }
+    }, [deleteAccountFetcher.state, deleteAccountFetcher.data]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
     }
 
     const getCurrentBalance = (history: BalanceResponse[]) => {
@@ -94,55 +113,6 @@ export default function Accounts() {
         });
     }, [accounts]);
 
-    const handleAddAccount = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!activeHousehold) return;
-
-        try {
-            const accRes = await api.post<AccountResponse>("/accounts/", {
-                household_id: activeHousehold.id,
-                name: newAccount.name,
-                liquidity: newAccount.liquidity,
-                tax_status: newAccount.tax_status,
-                currency: newAccount.currency
-            });
-
-            await api.post("/accounts/balances", {
-                account_id: accRes.data.id,
-                date: newAccount.date,
-                balance: parseFloat(newAccount.balance) || 0
-            });
-
-            setIsAddAccountModalOpen(false)
-            setNewAccount({
-                name: "",
-                liquidity: LiquidityStatus.Liquid,
-                tax_status: TaxTreatment.Taxable,
-                balance: "",
-                currency: "USD",
-                date: new Date().toISOString().split('T')[0]
-            })
-            fetchAccounts();
-        } catch (error) {
-            console.error("Failed to add account", error);
-        }
-    }
-
-    const handleUpdateBalance = async (e: React.FormEvent) => {
-        e.preventDefault()
-        try {
-            await api.post("/accounts/balances", {
-                account_id: updateBalanceData.accountId,
-                date: updateBalanceData.date,
-                balance: parseFloat(updateBalanceData.balance) || 0
-            });
-            setIsUpdateModalOpen(false);
-            fetchAccounts();
-        } catch (error) {
-            console.error("Failed to update balance", error);
-        }
-    }
-
     const openUpdateModal = (accountId: string) => {
         setUpdateBalanceData({ accountId, date: new Date().toISOString().split('T')[0], balance: "" });
         setIsUpdateModalOpen(true);
@@ -152,14 +122,6 @@ export default function Accounts() {
         return (
             <div className="flex-1 flex items-center justify-center p-8 text-base-500">
                 Please select or create a household to view accounts.
-            </div>
-        )
-    }
-
-    if (isLoading && accounts.length === 0) {
-        return (
-            <div className="flex-1 flex items-center justify-center p-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
             </div>
         )
     }
@@ -209,7 +171,6 @@ export default function Accounts() {
                                         tickFormatter={(value) => `$${value / 1000}k`}
                                     />
                                     <Tooltip
-                                        // UPDATED: Automatically uses the dataKey (account name) for the label
                                         formatter={(value: any, name: string) => [formatCurrency(value as number), name]}
                                         contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                     />
@@ -267,8 +228,12 @@ export default function Accounts() {
                                                 Active
                                             </Badge>
                                         </td>
-                                        <td className="px-4 py-4 text-right">
+                                        <td className="px-4 py-4 text-right flex justify-end gap-2">
                                             <Button variant="ghost" size="sm" onClick={() => openUpdateModal(acc.id)}>Update Balance</Button>
+                                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => {
+                                                setAccountToDelete({ id: acc.id, name: acc.name });
+                                                setIsDeleteModalOpen(true);
+                                            }}>Delete</Button>
                                         </td>
                                     </tr>
                                 ))}
@@ -294,10 +259,12 @@ export default function Accounts() {
                             <CardDescription>Enter your bank account details below.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <form onSubmit={handleAddAccount} className="space-y-4">
+                            <addAccountFetcher.Form method="post" className="space-y-4">
+                                <input type="hidden" name="_intent" value="addAccount" />
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Account Name</label>
                                     <Input
+                                        name="name"
                                         placeholder="e.g. Chase Checking"
                                         value={newAccount.name}
                                         onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
@@ -308,6 +275,7 @@ export default function Accounts() {
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">Liquidity</label>
                                         <select
+                                            name="liquidity"
                                             className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                             value={newAccount.liquidity}
                                             onChange={(e) => setNewAccount({ ...newAccount, liquidity: e.target.value as LiquidityStatus })}
@@ -320,6 +288,7 @@ export default function Accounts() {
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">Tax Status</label>
                                         <select
+                                            name="tax_status"
                                             className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                             value={newAccount.tax_status}
                                             onChange={(e) => setNewAccount({ ...newAccount, tax_status: e.target.value as TaxTreatment })}
@@ -334,6 +303,7 @@ export default function Accounts() {
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">Initial Balance</label>
                                         <Input
+                                            name="balance"
                                             type="number"
                                             step="0.01"
                                             placeholder="0.00"
@@ -345,6 +315,7 @@ export default function Accounts() {
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900">As of Date</label>
                                         <Input
+                                            name="date"
                                             type="date"
                                             value={newAccount.date}
                                             onChange={(e) => setNewAccount({ ...newAccount, date: e.target.value })}
@@ -352,11 +323,15 @@ export default function Accounts() {
                                         />
                                     </div>
                                 </div>
+                                {/* Hidden input for currency */}
+                                <input type="hidden" name="currency" value={newAccount.currency} />
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsAddAccountModalOpen(false)}>Cancel</Button>
-                                    <Button variant="primary" type="submit">Add Account</Button>
+                                    <Button variant="primary" type="submit" disabled={addAccountFetcher.state !== "idle"}>
+                                        {addAccountFetcher.state !== "idle" ? "Saving..." : "Add Account"}
+                                    </Button>
                                 </div>
-                            </form>
+                            </addAccountFetcher.Form>
                         </CardContent>
                     </Card>
                 </div>
@@ -371,10 +346,13 @@ export default function Accounts() {
                             <CardDescription>Record a historical or current balance.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <form onSubmit={handleUpdateBalance} className="space-y-4">
+                            <updateBalanceFetcher.Form method="post" className="space-y-4">
+                                <input type="hidden" name="_intent" value="updateBalance" />
+                                <input type="hidden" name="accountId" value={updateBalanceData.accountId} />
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Date</label>
                                     <Input
+                                        name="date"
                                         type="date"
                                         value={updateBalanceData.date}
                                         onChange={(e) => setUpdateBalanceData({ ...updateBalanceData, date: e.target.value })}
@@ -384,6 +362,7 @@ export default function Accounts() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Balance</label>
                                     <Input
+                                        name="balance"
                                         type="number"
                                         step="0.01"
                                         placeholder="0.00"
@@ -394,9 +373,41 @@ export default function Accounts() {
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsUpdateModalOpen(false)}>Cancel</Button>
-                                    <Button variant="primary" type="submit">Save Balance</Button>
+                                    <Button variant="primary" type="submit" disabled={updateBalanceFetcher.state !== "idle"}>
+                                        {updateBalanceFetcher.state !== "idle" ? "Saving..." : "Save Balance"}
+                                    </Button>
                                 </div>
-                            </form>
+                            </updateBalanceFetcher.Form>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Delete Account Confirmation Modal */}
+            {isDeleteModalOpen && accountToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <Card className="w-full max-w-sm bg-white shadow-xl border-red-100">
+                        <CardHeader>
+                            <CardTitle className="text-red-600">Delete Account</CardTitle>
+                            <CardDescription>
+                                Are you sure you want to delete <strong>{accountToDelete.name}</strong>? 
+                                This action cannot be undone and will delete all associated balance history.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <deleteAccountFetcher.Form method="post" className="space-y-4">
+                                <input type="hidden" name="_intent" value="deleteAccount" />
+                                <input type="hidden" name="accountId" value={accountToDelete.id} />
+                                <div className="flex gap-3 justify-end pt-4">
+                                    <Button variant="ghost" type="button" onClick={() => {
+                                        setIsDeleteModalOpen(false);
+                                        setAccountToDelete(null);
+                                    }}>Cancel</Button>
+                                    <Button variant="primary" type="submit" className="bg-red-600 hover:bg-red-700 text-white border-none" disabled={deleteAccountFetcher.state !== "idle"}>
+                                        {deleteAccountFetcher.state !== "idle" ? "Deleting..." : "Delete Account"}
+                                    </Button>
+                                </div>
+                            </deleteAccountFetcher.Form>
                         </CardContent>
                     </Card>
                 </div>

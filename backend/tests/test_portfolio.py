@@ -414,6 +414,31 @@ def test_get_snapshots(client, auth_headers, test_household, test_subportfolio, 
     assert len(response.json()) >= 1
     assert response.json()[0]["quantity"] == 50.0
 
+def test_get_household_portfolio_snapshots(client, auth_headers, test_household, test_subportfolio, test_asset, db_session):
+    snapshot = models.PortfolioSnapshot(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        sub_portfolio_id=test_subportfolio.id,
+        asset_id=test_asset.id,
+        date=date(2023, 10, 2),
+        quantity=75.0,
+        current_price=Decimal("110.0"),
+        exchange_rate_used=1.0,
+        current_value_home_currency=Decimal("8250.0"),
+        average_cost_basis=Decimal("95.0")
+    )
+    db_session.add(snapshot)
+    db_session.commit()
+
+    response = client.get(
+        f"/portfolio/snapshots/household/{test_household.id}",
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) >= 1
+    assert any(s["quantity"] == 75.0 for s in data)
+
 
 # --- DIVIDENDS ---
 

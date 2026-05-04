@@ -412,6 +412,35 @@ def create_portfolio_snapshot(
     )
 
 @router.get(
+    "/snapshots/household/{household_id}",
+    response_model=List[schemas.PortfolioSnapshotResponse],
+)
+def get_household_portfolio_snapshots(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+
+    snapshots = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.household_id == household_id).all()
+
+    return [
+        schemas.PortfolioSnapshotResponse(
+            id=s.id,
+            household_id=s.household_id,
+            sub_portfolio_id=s.sub_portfolio_id,
+            asset_id=s.asset_id,
+            date=s.date,
+            quantity=s.quantity,
+            price=s.current_price,
+            exchange_rate_used=s.exchange_rate_used,
+            current_value_home_currency=s.current_value_home_currency,
+            averge_cost_basis=s.average_cost_basis,
+        ) for s in snapshots
+    ]
+
+
+@router.get(
     "/subportfolios/{subportfolio_id}/snapshot",
     response_model=List[schemas.PortfolioSnapshotResponse],
 )

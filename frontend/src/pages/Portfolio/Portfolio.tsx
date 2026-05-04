@@ -12,6 +12,8 @@ import api from "../../lib/api"
 import type { SubPortfolioResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
 
+export { portfolioLoader as loader } from "./portfolio.loader";
+
 type Holding = {
     assetId: string;
     ticker: string;
@@ -49,7 +51,7 @@ const getDeterministicPrice = (symbol: string) => {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios, trades, assets } = useLoaderData() as PortfolioLoaderData;
+    const { subportfolios = [], trades = [], assets = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
 

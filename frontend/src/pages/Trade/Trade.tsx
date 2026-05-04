@@ -1,64 +1,29 @@
 import { useState, useEffect, useMemo } from "react"
+import { useLoaderData } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
 import { Button } from "../../components/ui/Button"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "../../types/types"
-import { tradeFormLoader, createDefaultAccount, createDefaultSubportfolio } from "./trade.loader"
+import { tradeFormLoader } from "./trade.loader"
+
+export { tradeFormLoader as loader } from "./trade.loader";
 
 export default function Trade() {
     const { activeHousehold } = useHousehold();
-    const [accounts, setAccounts] = useState<AccountResponse[]>([]);
-    const [subportfolios, setSubportfolios] = useState<SubPortfolioResponse[]>([]);
-    const [selectedAccountId, setSelectedAccountId] = useState("")
-    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState("")
+    const loaderData = useLoaderData() as { accounts: AccountResponse[], subportfolios: SubPortfolioResponse[] };
+    
+    const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
+    const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
+    const [selectedAccountId, setSelectedAccountId] = useState(accounts.length > 0 ? accounts[0].id : "")
+    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState(subportfolios.length > 0 ? subportfolios[0].id : "")
     const [ticker, setTicker] = useState("")
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!activeHousehold) return;
-            try {
-                const { accounts: accData, subportfolios: spData } = await tradeFormLoader(activeHousehold.id);
-
-                let finalAccounts = accData;
-                if (finalAccounts.length === 0) {
-                    try {
-                        const newAcc = await createDefaultAccount(activeHousehold.id, activeHousehold.base_currency || "USD");
-                        finalAccounts = [newAcc];
-                    } catch (e) {
-                        console.error("Failed to create default account", e);
-                    }
-                }
-                setAccounts(finalAccounts);
-                if (finalAccounts.length > 0) {
-                    setSelectedAccountId(finalAccounts[0].id);
-                }
-
-                let finalSubportfolios = spData;
-                if (finalSubportfolios.length === 0) {
-                    try {
-                        const newSp = await createDefaultSubportfolio(activeHousehold.id);
-                        finalSubportfolios = [newSp];
-                    } catch (e) {
-                        console.error("Failed to create default subportfolio", e);
-                    }
-                }
-                setSubportfolios(finalSubportfolios);
-                if (finalSubportfolios.length > 0) {
-                    setSelectedSubportfolioId(finalSubportfolios[0].id);
-                }
-            } catch (error) {
-                console.error("Failed to fetch data", error);
-            }
-        };
-        fetchData();
-    }, [activeHousehold?.id]);
 
     // Deterministic mock price generator based on string hashing
     const getDeterministicPrice = (symbol: string, dateString: string) => {
@@ -101,8 +66,17 @@ export default function Trade() {
     const handleTrade = async (type: "Buy" | "Sell") => {
         if (!activeHousehold) return;
         setMessage(null);
+
+        if (accounts.length === 0 || subportfolios.length === 0) {
+            setMessage({ 
+                text: "You need at least one account and one sub-portfolio to execute a trade. Please create them in the Accounts and Portfolio sections first.", 
+                type: "error" 
+            });
+            return;
+        }
+
         if (!ticker || !quantity || !price || !date || !selectedAccountId || !selectedSubportfolioId) {
-            setMessage({ text: "Please fill all required fields before submitting. You may need to create an account and sub-portfolio first.", type: "error" });
+            setMessage({ text: "Please fill all required fields before submitting.", type: "error" });
             return;
         }
 

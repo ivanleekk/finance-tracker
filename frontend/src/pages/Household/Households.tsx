@@ -7,6 +7,8 @@ import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse 
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 
+export { householdsLoader as loader } from "./households.loader";
+
 export default function Households() {
     const { households, activeHousehold, setActiveHousehold, refreshHouseholds } = useHousehold();
     const [members, setMembers] = useState<HouseholdMemberUserResponse[]>([])

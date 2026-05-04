@@ -18,9 +18,10 @@ This document provides a high-level overview and instructions for AI agents work
 - `docker-compose.yml`: Infrastructure orchestration.
 
 ## 4. Cross-Cutting Concerns
-- **Authentication:** JWT-based authentication. Frontend must handle token storage and inclusion in API requests.
-- **API Communication:** Frontend communicates with backend via REST API (default port 5001).
+- **Authentication:** JWT-based authentication via HTTP-only cookies. The React Router v7 SSR frontend must manually extract and forward cookies from the incoming browser request to the backend during server-side `loader` and `action` execution.
+- **API Communication:** Frontend communicates with backend via REST API. Client-side fetches use `http://localhost:5001`, but Server-Side fetches (in loaders/actions) MUST use the internal Docker network `http://backend:5001` (handled by `getApiUrl` utility).
 - **Data Consistency:** Ensure that frontend models/types stay in sync with backend Pydantic schemas (`backend/src/schemas.py`).
+- **Data Fetching Paradigm:** The frontend strictly uses React Router v7 SSR paradigms (Loaders and Actions). Do not use `useEffect` for data fetching or mutations.
 - **Development Workflow:**
   - Backend uses `uv` for dependency management.
   - Frontend uses `pnpm` for dependency management.

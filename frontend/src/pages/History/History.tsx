@@ -7,6 +7,8 @@ import { ArrowUpRight, ArrowDownRight, ArrowRightLeft } from "lucide-react"
 import { useHousehold } from "../../lib/HouseholdContext"
 import type { HistoryLoaderData } from "./history.loader"
 
+export { historyLoader as loader } from "./history.loader";
+
 type UnifiedHistoryItem = {
     id: string;
     type: string; // 'buy', 'sell', 'deposit', 'withdrawal', 'income', 'expense'
@@ -25,7 +27,7 @@ type UnifiedHistoryItem = {
 
 export default function History() {
     const { activeHousehold } = useHousehold()
-    const { trades, transactions, assets, categories, accounts, subportfolios } = useLoaderData() as HistoryLoaderData;
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
 
     const [filterCategory, setFilterCategory] = useState<string>("all")

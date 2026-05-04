@@ -41,12 +41,34 @@ The UI is strictly mapped to the FastAPI backend schemas (`models.py` / `schemas
 - **Concept:** A `SubPortfolio` = A "Goal" (e.g., Downpayment Fund). 
 - **User Model:** Solo-first (one household = one user).
 - **Endpoints to Views:**
-  - `GET /portfolio/snapshots` → Drives the **Dashboard Net Worth Trend (Area Chart)**.
-  - `GET /portfolio/sub-portfolios` → Drives the **Goals Overview** cards (target amount, current balance, target date).
-  - `GET /accounts` → Drives the **Linked Accounts** data table and summary cards.
-  - `GET /transactions` → Drives the **Recent Transactions** lists.
+  - `GET /portfolio/snapshots/household/{id}` → Drives the **Dashboard Net Worth Trend (Area Chart)** and aggregate wealth stats.
+  - `GET /portfolio/sub-portfolios/household/{id}` → Drives the **Goals Overview** cards (target amount, current balance, target date).
+  - `GET /accounts/household/{id}` → Drives the **Linked Accounts** data table and summary cards.
+  - `GET /cashflow/transactions/household/{id}` → Drives the **Recent Transactions** lists.
 
-## 6. Page Layout Specifications (Phase 4)
+## 6. React Router v7 Server-Side Rendering (SSR) Architecture
+The frontend has migrated from Client-Side Rendering (CSR) to React Router v7 SSR. You **MUST** strictly adhere to the following paradigms:
+
+- **Data Fetching (Loaders):** 
+  - NEVER use `useEffect` or `useState` for initial data fetching. 
+  - All data must be fetched server-side in a `loader` function and passed to the component via `useLoaderData()`.
+  - **Efficiency:** Use `Promise.all` in loaders to fetch independent data resources in parallel (e.g., accounts, transactions, and snapshots for the Dashboard).
+  - Provide fallback defaults to `useLoaderData()` (e.g., `const { items = [] } = (useLoaderData() as Data) || {}`) to prevent destructuring crashes.
+- **Mutations (Actions):** 
+  - NEVER use standard `<form onSubmit={...}>` or direct `api.post()` calls in the component. 
+  - Use React Router's `<Form method="post">` (or `useFetcher` for modals/inline updates) and handle the mutation in a server-side `action` function.
+  - If a route has multiple forms, use a hidden input (`<input type="hidden" name="_intent" value="actionName" />`) to switch logic within the action.
+  - **Deletion Pattern:** Use a confirmation modal with a `useFetcher` form to safely handle permanent deletions without full page reloads.
+- **Internal Docker Networking:**
+  - Because `loader` and `action` functions run in the Node.js SSR server inside a Docker container, they cannot use `localhost:5001`.
+  - You MUST use the `getApiUrl(path)` utility from `src/lib/api-url.ts` which dynamically resolves to `http://backend:5001` on the server and `http://localhost:5001` in the browser.
+- **Cookie & Session Management:**
+  - Server-side fetches do not automatically include browser cookies.
+  - In every `loader` and `action`, you MUST manually extract the `Cookie` from the incoming `request.headers` and forward it to the backend fetch.
+  - Use `getActiveHouseholdId(request, headers)` from `src/lib/ssr-helpers.ts` to dynamically retrieve the user's active household ID from cookies during SSR.
+  - If an action modifies auth state (e.g., Login, Logout) and the backend returns a `Set-Cookie` header, you MUST intercept it and forward it back to the browser in your `redirect()` response.
+
+## 7. Page Layout Specifications (Phase 4)
 When constructing pages, follow these approved layouts:
 1. **Dashboard:** Hero section containing Net Worth Stat Card and an **Area Chart** for trend. Left column: Active Goal Cards. Right column: Recent Transactions.
 2. **Goals Overview:** Header with "Add Goal" CTA. 3-column grid of Goal Progress Cards.

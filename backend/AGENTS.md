@@ -32,6 +32,7 @@ This document contains the source of truth for the Finance Tracker backend. Any 
 
 ## 5. API Design Principles
 - **RESTful:** Adhere to REST principles for endpoint design.
+- **Aggregation:** Provide household-level aggregation endpoints (e.g., `GET /portfolio/snapshots/household/{household_id}`) to support efficient dashboard rendering and minimize frontend-to-backend round trips.
 - **Response Format:** Ensure all responses follow a consistent JSON structure.
 - **Documentation:** FastAPI automatically generates Swagger docs at `/docs`. Ensure all endpoints have clear descriptions and type hints.
 
