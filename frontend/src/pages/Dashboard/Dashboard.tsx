@@ -68,31 +68,49 @@ export default function Dashboard() {
 
         const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
+        // Pre-sort balances by account
+        const sortedBalances = Object.values(balances).map(history =>
+            [...history].sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        // Group and sort snapshots by position (sub_portfolio + asset) to properly track value over time
+        const snapshotsByPosition: Record<string, typeof snapshots> = {};
+        snapshots.forEach(s => {
+            const key = `${s.sub_portfolio_id}_${s.asset_id}`;
+            if (!snapshotsByPosition[key]) {
+                snapshotsByPosition[key] = [];
+            }
+            snapshotsByPosition[key].push(s);
+        });
+
+        const sortedSnapshots = Object.values(snapshotsByPosition).map(posSnapshots =>
+            [...posSnapshots].sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        const currentBalanceByAccount = new Array(sortedBalances.length).fill(0);
+        const balancePointers = new Array(sortedBalances.length).fill(0);
+
+        const currentSnapshotByPos = new Array(sortedSnapshots.length).fill(0);
+        const snapshotPointers = new Array(sortedSnapshots.length).fill(0);
+
         return sortedDates.map(date => {
             let cash = 0;
-            Object.values(balances).forEach(history => {
-                const pastOrCurrent = history.filter(h => h.date <= date).sort((a, b) => a.date.localeCompare(b.date));
-                if (pastOrCurrent.length > 0) {
-                    cash += Number(pastOrCurrent[pastOrCurrent.length - 1].balance);
+            sortedBalances.forEach((history, i) => {
+                while (balancePointers[i] < history.length && history[balancePointers[i]].date <= date) {
+                    currentBalanceByAccount[i] = Number(history[balancePointers[i]].balance);
+                    balancePointers[i]++;
                 }
+                cash += currentBalanceByAccount[i];
             });
 
             let portfolio = 0;
-            const snapshotsOnDate = snapshots.filter(s => s.date === date);
-            if (snapshotsOnDate.length > 0) {
-                portfolio = snapshotsOnDate.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
-            } else {
-                // Find latest snapshots before this date
-                const subPortfolioIds = Array.from(new Set(snapshots.map(s => s.sub_portfolio_id)));
-                subPortfolioIds.forEach(spId => {
-                    const pastSnapshots = snapshots
-                        .filter(s => s.sub_portfolio_id === spId && s.date < date)
-                        .sort((a, b) => a.date.localeCompare(b.date));
-                    if (pastSnapshots.length > 0) {
-                        portfolio += Number(pastSnapshots[pastSnapshots.length - 1].current_value_home_currency);
-                    }
-                });
-            }
+            sortedSnapshots.forEach((posSnapshots, i) => {
+                while (snapshotPointers[i] < posSnapshots.length && posSnapshots[snapshotPointers[i]].date <= date) {
+                    currentSnapshotByPos[i] = Number(posSnapshots[snapshotPointers[i]].current_value_home_currency);
+                    snapshotPointers[i]++;
+                }
+                portfolio += currentSnapshotByPos[i];
+            });
 
             return {
                 date,
