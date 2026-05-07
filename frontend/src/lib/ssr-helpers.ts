@@ -43,21 +43,37 @@ export async function getSSRContext(request: Request) {
         return response;
     };
 
-    if (!householdId) {
-        try {
-            const hRes = await fetch(getApiUrl("/users/households"), {
-                headers: { ...Object.fromEntries(headers) }
-            });
-            if (hRes.ok) {
-                const households = await hRes.json();
-                if (households.length > 0) {
-                    householdId = households[0].id;
-                    newCookieHeader = `activeHouseholdId=${householdId}; Path=/; Max-Age=31536000`;
-                }
-            }
-        } catch (e) {
-            console.error("Failed to fetch default household in SSR", e);
+    // Always fetch households to ensure the current ID is valid for this user
+    let households: any[] = [];
+    try {
+        const hRes = await fetch(getApiUrl("/users/households"), {
+            headers: { ...Object.fromEntries(headers) }
+        });
+        if (hRes.ok) {
+            households = await hRes.json();
+        } else if (hRes.status === 401) {
+            // If we are unauthorized here, we definitely need to log in
+            throw redirect("/login");
         }
+    } catch (e) {
+        // If it's a redirect from react-router, re-throw it
+        if (e instanceof Response && (e.status === 302 || e.status === 303 || e.status === 307)) {
+            throw e;
+        }
+        console.error("Failed to fetch households in SSR", e);
+    }
+
+    // Determine the best householdId to use
+    if (households.length > 0) {
+        const isValid = householdId && households.some(h => h.id === householdId);
+        if (!isValid) {
+            // Default to the first household if the cookie is missing or invalid
+            householdId = households[0].id;
+            newCookieHeader = `activeHouseholdId=${householdId}; Path=/; Max-Age=31536000`;
+        }
+    } else {
+        // No households found for user
+        householdId = undefined;
     }
 
     return {

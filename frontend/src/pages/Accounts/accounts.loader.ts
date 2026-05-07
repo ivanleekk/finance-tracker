@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
 import type { AccountResponse, BalanceResponse, CurrencyResponse } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
 
@@ -14,7 +14,9 @@ export type AccountsLoaderData = {
 export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
-    // Server-side fetching using dynamic URL (backend:5001 vs localhost:5001)
+    if (!householdId) {
+        throw redirect("/households");
+    }
     const [accountsRes, currenciesRes] = await Promise.all([
         ssrFetch(`/accounts/household/${householdId}`),
         ssrFetch(`/reference/currencies`)
