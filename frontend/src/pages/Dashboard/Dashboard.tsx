@@ -35,7 +35,10 @@ export default function Dashboard() {
     }, [activeHousehold?.id]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+        return new Intl.NumberFormat('en-US', { 
+            style: 'currency', 
+            currency: activeHousehold?.base_currency || 'USD' 
+        }).format(value)
     }
 
     const currentCash = useMemo(() => {
@@ -43,7 +46,8 @@ export default function Dashboard() {
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
                 const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                total += Number(sorted[sorted.length - 1].balance);
+                const last = sorted[sorted.length - 1];
+                total += Number(last.balance_home_currency ?? last.balance);
             }
         });
         return total;
@@ -74,7 +78,7 @@ export default function Dashboard() {
         Object.values(balances).forEach(history => {
             history.forEach(b => {
                 const existing = dailyData.get(b.date) || { cash: 0, portfolio: 0 };
-                dailyData.set(b.date, { ...existing, cash: existing.cash + Number(b.balance) });
+                dailyData.set(b.date, { ...existing, cash: existing.cash + Number(b.balance_home_currency ?? b.balance) });
             });
         });
 

@@ -128,11 +128,13 @@ class BalanceCreate(BalanceBase):
 class BalanceUpdate(BaseModel):
     date: Optional[date] = None
     balance: Optional[Decimal] = None
+    balance_home_currency: Optional[Decimal] = None
 
 
 class BalanceResponse(BalanceBase):
     id: uuid.UUID
     account_id: uuid.UUID
+    balance_home_currency: Optional[Decimal] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -202,6 +204,8 @@ class CategoryResponse(CategoryBase):
 class TransactionBase(BaseModel):
     date: datetime
     amount: Decimal
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     description: Optional[str] = None
 
 
@@ -213,6 +217,8 @@ class TransactionCreate(TransactionBase):
 class TransactionUpdate(BaseModel):
     date: Optional[datetime] = None
     amount: Optional[Decimal] = None
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -222,6 +228,8 @@ class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     transfer_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -231,6 +239,7 @@ class TransferCreate(BaseModel):
     to_account_id: uuid.UUID
     amount: Decimal
     date: datetime
+    currency: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -289,6 +298,7 @@ class TradeBase(BaseModel):
     date: datetime
     quantity: float
     price: Decimal
+    currency: Optional[str] = None
     exchange_rate: float
 
 
@@ -304,6 +314,7 @@ class TradeUpdate(BaseModel):
     date: Optional[datetime] = None
     quantity: Optional[float] = None
     price: Optional[Decimal] = None
+    currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
@@ -327,6 +338,7 @@ class PortfolioSnapshotBase(BaseModel):
     exchange_rate_used: float
     current_value_home_currency: Decimal
     averge_cost_basis: Decimal
+    average_cost_basis_home_currency: Decimal
 
 
 class PortfolioSnapshotCreate(PortfolioSnapshotBase):
@@ -414,6 +426,7 @@ class TickerPriceResponse(BaseModel):
     ticker: str
     price: float
     date: date
+    currency: str
 
 
 class PerformanceMetrics(BaseModel):

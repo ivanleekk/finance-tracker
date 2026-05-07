@@ -1,21 +1,30 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import type { AccountResponse, BalanceResponse } from "../../types/types";
+import type { AccountResponse, BalanceResponse, CurrencyResponse } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
 
 export type AccountWithHistory = AccountResponse & {
     history: BalanceResponse[];
 };
 
-export async function loader({ request }: LoaderFunctionArgs): Promise<AccountWithHistory[]> {
+export type AccountsLoaderData = {
+    accounts: AccountWithHistory[];
+    currencies: CurrencyResponse[];
+};
+
+export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
     // Server-side fetching using dynamic URL (backend:5001 vs localhost:5001)
-    const accountsRes = await ssrFetch(`/accounts/household/${householdId}`);
+    const [accountsRes, currenciesRes] = await Promise.all([
+        ssrFetch(`/accounts/household/${householdId}`),
+        ssrFetch(`/reference/currencies`)
+    ]);
 
     if (!accountsRes.ok) {
         throw new Error(`Failed to fetch accounts: ${accountsRes.statusText}`);
     }
     const accounts: AccountResponse[] = await accountsRes.json();
+    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
 
     const accountsWithHistory = await Promise.all(
         accounts.map(async (acc) => {
@@ -26,7 +35,10 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountWi
         })
     );
 
-    return accountsWithHistory;
+    return {
+        accounts: accountsWithHistory,
+        currencies
+    };
 }
 
 export async function action({ request }: ActionFunctionArgs) {

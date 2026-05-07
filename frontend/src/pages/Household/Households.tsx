@@ -3,14 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings } from "lucide-react"
-import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse } from "../../types/types"
+import { useLoaderData } from "react-router"
+import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, CurrencyResponse, CountryResponse } from "../../types/types"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-
+import type { HouseholdsLoaderData } from "./households.loader"
 export { householdsLoader as loader } from "./households.loader";
 
 export default function Households() {
     const { households, activeHousehold, setActiveHousehold, refreshHouseholds } = useHousehold();
+    const { currencies = [], countries = [] } = useLoaderData() as HouseholdsLoaderData;
     const [members, setMembers] = useState<HouseholdMemberUserResponse[]>([])
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -346,21 +348,31 @@ export default function Households() {
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900">Base Currency</label>
-                                    <Input
-                                        placeholder="USD, EUR, GBP, etc."
+                                    <select
+                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.base_currency || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value.toUpperCase() })}
+                                        onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value })}
                                         required
-                                    />
+                                    >
+                                        <option value="">Select Currency</option>
+                                        {currencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Country Code</label>
-                                    <Input
-                                        placeholder="US, GB, DE, etc."
+                                    <label className="text-sm font-medium text-base-900">Country</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.country_code || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value.toUpperCase() })}
+                                        onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
                                         required
-                                    />
+                                    >
+                                        <option value="">Select Country</option>
+                                        {countries.map(c => (
+                                            <option key={c.code} value={c.code}>{c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>

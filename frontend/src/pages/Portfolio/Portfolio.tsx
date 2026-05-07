@@ -133,7 +133,10 @@ export default function Portfolio() {
             const unrealized = equity - costBasis;
             const unrealizedPercent = costBasis > 0 ? (unrealized / costBasis) * 100 : 0;
 
-            const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+            const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { 
+                style: 'currency', 
+                currency: activeHousehold?.base_currency || 'USD' 
+            }).format(val);
             const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`;
             const sign = (val: number) => val >= 0 ? '+' : '';
 
@@ -189,8 +192,8 @@ export default function Portfolio() {
                         ticker: asset?.ticker || "UNKNOWN",
                         name: asset?.name || "Unknown Asset",
                         shares: s.quantity,
-                        avgCost: Number(s.averge_cost_basis),
-                        currentPrice: Number(s.price)
+                        avgCost: Number(s.average_cost_basis_home_currency ?? s.averge_cost_basis),
+                        currentPrice: Number(s.price) * (s.exchange_rate_used || 1.0)
                     };
                 });
 

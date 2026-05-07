@@ -12,7 +12,8 @@ from sqlalchemy import (
     Numeric,
     UUID,
     UniqueConstraint,
-    Boolean
+    Boolean,
+    func
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from src.database import Base
@@ -157,6 +158,7 @@ class AccountBalance(Base):
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
     date = Column(Date)
     balance = Column(Numeric)
+    balance_home_currency = Column(Numeric, nullable=True)
     is_manual = Column(Boolean, default=True)
 
     account = relationship("FinancialAccount", back_populates="balances")
@@ -187,6 +189,8 @@ class Transaction(Base):
     amount = Column(Numeric)
     description = Column(String)
     transaction_type = Column(Enum(TransactionType, name="transaction_type", schema="finance_tracker"))
+    currency = Column(String, nullable=True) # If null, assume account currency
+    exchange_rate = Column(Float, nullable=True) # Rate from currency to account currency
     transfer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     account = relationship("FinancialAccount", back_populates="transactions")
@@ -260,6 +264,7 @@ class Trade(Base):
     date = Column(DateTime(timezone=True))
     quantity = Column(Float)
     price = Column(Numeric)
+    currency = Column(String, nullable=True) # If null, assume asset currency
     exchange_rate = Column(Float)
 
     household = relationship("Household", back_populates="trades")
@@ -280,8 +285,10 @@ class PortfolioSnapshot(Base):
     quantity = Column(Float)
     current_price = Column(Numeric)
     exchange_rate_used = Column(Float)
-    current_value_home_currency = Column(Numeric)
-    average_cost_basis = Column(Numeric)
+    current_value_home_currency = Column(Numeric, nullable=True)
+    average_cost_basis = Column(Numeric, nullable=True) # Price in asset currency
+    average_cost_basis_home_currency = Column(Numeric, nullable=True) # Converted price
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     household = relationship("Household", back_populates="portfolio_snapshots")
     sub_portfolio = relationship("SubPortfolio", back_populates="portfolio_snapshots")

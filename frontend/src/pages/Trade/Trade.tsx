@@ -12,7 +12,7 @@ export { tradeFormLoader as loader } from "./trade.loader";
 
 export default function Trade() {
     const { activeHousehold } = useHousehold();
-    const loaderData = useLoaderData() as { accounts: AccountResponse[], subportfolios: SubPortfolioResponse[] };
+    const loaderData = useLoaderData() as { accounts: AccountResponse[], subportfolios: SubPortfolioResponse[], currencies: CurrencyResponse[] };
     
     const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
@@ -22,6 +22,8 @@ export default function Trade() {
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
+    const [currency, setCurrency] = useState(activeHousehold.base_currency || "USD")
+    const [exchangeRate, setExchangeRate] = useState("1.0")
     const [isFetchingPrice, setIsFetchingPrice] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
@@ -34,6 +36,9 @@ export default function Trade() {
                 try {
                     const response = await api.get(`/portfolio/price?ticker=${ticker}&date=${date}`);
                     setPrice(response.data.price.toFixed(2));
+                    if (response.data.currency) {
+                        setCurrency(response.data.currency);
+                    }
                 } catch (err) {
                     console.error("Failed to fetch price:", err);
                     // We don't necessarily clear the price on error, allowing for manual entry
@@ -49,6 +54,32 @@ export default function Trade() {
         }
     }, [ticker, date]);
 
+    // Auto-prefill the exchange rate when currency, account, or date changes
+    useEffect(() => {
+        if (!selectedAccountId || !currency || !date) return;
+        
+        const account = accounts.find(a => a.id === selectedAccountId);
+        if (!account) return;
+        
+        const accountCurrency = account.currency || "USD";
+        
+        if (currency === accountCurrency) {
+            setExchangeRate("1.0");
+            return;
+        }
+
+        const fetchRate = async () => {
+            try {
+                const response = await api.get(`/reference/exchange_rate?base=${currency}&target=${accountCurrency}&date=${date}`);
+                setExchangeRate(response.data.rate.toString());
+            } catch (err) {
+                console.error("Failed to fetch exchange rate:", err);
+            }
+        };
+
+        fetchRate();
+    }, [selectedAccountId, currency, date, accounts]);
+
     const estimatedTotal = useMemo(() => {
         const q = parseFloat(quantity) || 0;
         const p = parseFloat(price) || 0;
@@ -56,7 +87,10 @@ export default function Trade() {
     }, [quantity, price]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+        return new Intl.NumberFormat('en-US', { 
+            style: 'currency', 
+            currency: activeHousehold.base_currency || 'USD' 
+        }).format(value)
     }
 
     const handleTrade = async (type: "Buy" | "Sell") => {
@@ -105,7 +139,8 @@ export default function Trade() {
                 date: tradeDate.toISOString(),
                 quantity: parseFloat(quantity),
                 price: parseFloat(price),
-                exchange_rate: 1.0, // Simplification
+                currency: currency,
+                exchange_rate: parseFloat(exchangeRate),
                 household_id: activeHousehold.id,
                 sub_portfolio_id: selectedSubportfolioId,
                 asset_id: assetId,
@@ -188,6 +223,53 @@ export default function Trade() {
                         />
 
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900">Currency</label>
+                                <select
+                                    className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    value={currency}
+                                    onChange={(e) => setCurrency(e.target.value)}
+                                >
+                                    {loaderData.currencies.map(c => (
+                                        <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <Input
+                                label="Exchange Rate"
+                                type="number"
+                                step="0.0001"
+                                value={exchangeRate}
+                                onChange={(e) => setExchangeRate(e.target.value)}
+                                placeholder="Rate to Account"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input
+                                label="Share Quantity"
+                                type="number"
+                                step="0.0001"
+                                placeholder="0.00"
+                                value={quantity}
+                                onChange={(e) => setQuantity(e.target.value)}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 flex items-center justify-between">
+                                    Price
+                                    {isFetchingPrice && <div className="h-3 w-3 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />}
+                                </label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={price}
+                                    onChange={(e) => setPrice(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
                             <Input
                                 label="Order Type"
                                 value="Limit"
@@ -202,27 +284,6 @@ export default function Trade() {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <Input
-                                label="Quantity"
-                                type="number"
-                                placeholder="0"
-                                min="1"
-                                step="1"
-                                value={quantity}
-                                onChange={(e) => setQuantity(e.target.value)}
-                            />
-                            <Input
-                                label="Limit Price"
-                                type="number"
-                                placeholder="0.00"
-                                min="0.01"
-                                step="0.01"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                                helperText={isFetchingPrice ? "Fetching market price..." : ticker ? "Historical price from yfinance" : ""}
-                            />
-                        </div>
 
                         <div className="pt-4 flex gap-3">
                             <Button

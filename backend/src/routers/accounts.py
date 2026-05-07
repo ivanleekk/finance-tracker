@@ -5,6 +5,7 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
+from src.services.market_data import fetch_and_cache_exchange_rates
 from sqlalchemy import desc
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -190,11 +191,17 @@ def add_account_balance(
     expected_balance = prev_balance_rec.balance if prev_balance_rec else Decimal("0")
     delta = balance.balance - expected_balance
 
+    # Handle Currency Conversion for manual balance
+    home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
+    acc_curr = db_account.currency or "USD"
+    rate = fetch_and_cache_exchange_rates(db, acc_curr, home_curr, balance.date)
+
     db_balance = models.AccountBalance(
         id=uuid.uuid7(),
         account_id=balance.account_id,
         date=balance.date,
         balance=balance.balance,
+        balance_home_currency=float(balance.balance) * rate,
         is_manual=True
     )
     db.add(db_balance)
@@ -278,9 +285,16 @@ def update_account_balance(
     if 'balance' in update_data:
         delta = Decimal(str(update_data['balance'])) - db_balance.balance
         propagate_balance_change(db, db_balance.account_id, db_balance.date, delta)
+        
+        # Update home currency balance
+        home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
+        acc_curr = db_account.currency or "USD"
+        rate = fetch_and_cache_exchange_rates(db, acc_curr, home_curr, db_balance.date)
+        db_balance.balance_home_currency = float(update_data['balance']) * rate
 
     for key, value in update_data.items():
-        setattr(db_balance, key, value)
+        if key != 'balance': # already handled
+            setattr(db_balance, key, value)
 
     db.commit()
     db.refresh(db_balance)

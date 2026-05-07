@@ -7,6 +7,7 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.account_service import sync_transaction_to_balances
+from src.services.market_data import fetch_and_cache_exchange_rates
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
 
@@ -31,19 +32,30 @@ def log_transaction(
 
     verify_household_access(db_account.household_id, current_user, db)
 
+    # 4. Handle Currency Conversion
+    acc_curr = db_account.currency or "USD"
+    trans_curr = transaction.currency or acc_curr
+    
+    rate = transaction.exchange_rate
+    if not rate:
+        rate = fetch_and_cache_exchange_rates(db, trans_curr, acc_curr, transaction.date.date())
+
     db_transaction = models.Transaction(
         id=uuid.uuid7(),
         account_id=transaction.account_id,
         category_id=transaction.category_id,
         date=transaction.date,
         amount=transaction.amount,
+        currency=trans_curr,
+        exchange_rate=rate,
         description=transaction.description,
         transaction_type=db_category.type,  # Infer type from category
     )
     db.add(db_transaction)
     
-    # Sync to account balance
-    amount_delta = transaction.amount if db_category.type == models.TransactionType.income.value else -transaction.amount
+    # 5. Sync to account balance (Convert to account currency)
+    amount_in_acc = float(transaction.amount) * rate
+    amount_delta = amount_in_acc if db_category.type == models.TransactionType.income.value else -amount_in_acc
     sync_transaction_to_balances(db, transaction.account_id, transaction.date.date(), amount_delta)
     
     db.commit()
@@ -85,27 +97,40 @@ def create_transfer(
         db.add(transfer_cat)
         db.flush()
 
+    # 3. Handle Cross-Currency Transfer
+    from_curr = from_account.currency or "USD"
+    to_curr = to_account.currency or "USD"
+    
+    rate = 1.0
+    if from_curr != to_curr:
+        rate = fetch_and_cache_exchange_rates(db, from_curr, to_curr, transfer.date.date())
+
     transfer_id = uuid.uuid7()
     
-    # 3. Create "Withdrawal" transaction
+    # Withdrawal from source account (in source currency)
     withdrawal = models.Transaction(
         id=uuid.uuid7(),
         account_id=transfer.from_account_id,
         category_id=transfer_cat.id,
         date=transfer.date,
         amount=transfer.amount,
+        currency=from_curr,
+        exchange_rate=1.0, # Source account is the reference
         description=transfer.description or f"Transfer to {to_account.name}",
         transaction_type=models.TransactionType.expense,
         transfer_id=transfer_id
     )
     
-    # 4. Create "Deposit" transaction
+    # Deposit to destination account (converted to destination currency)
+    deposit_amount = float(transfer.amount) * rate
     deposit = models.Transaction(
         id=uuid.uuid7(),
         account_id=transfer.to_account_id,
         category_id=transfer_cat.id,
         date=transfer.date,
-        amount=transfer.amount,
+        amount=Decimal(str(deposit_amount)),
+        currency=to_curr,
+        exchange_rate=1.0, 
         description=transfer.description or f"Transfer from {from_account.name}",
         transaction_type=models.TransactionType.income,
         transfer_id=transfer_id
@@ -117,7 +142,7 @@ def create_transfer(
     
     # 5. Sync balances
     sync_transaction_to_balances(db, transfer.from_account_id, transfer.date.date(), -transfer.amount)
-    sync_transaction_to_balances(db, transfer.to_account_id, transfer.date.date(), transfer.amount)
+    sync_transaction_to_balances(db, transfer.to_account_id, transfer.date.date(), Decimal(str(deposit_amount)))
     
     db.commit()
     db.refresh(withdrawal)

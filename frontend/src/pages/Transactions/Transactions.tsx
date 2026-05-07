@@ -31,7 +31,7 @@ type UnifiedHistoryItem = {
 
 export default function Transactions() {
     const { activeHousehold } = useHousehold()
-    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [] } = (useLoaderData() as HistoryLoaderData) || {};
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
 
@@ -49,6 +49,7 @@ export default function Transactions() {
         accountId: "",
         categoryId: "",
         amount: "",
+        currency: activeHousehold?.base_currency || "USD",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
         description: ""
     });
@@ -98,6 +99,7 @@ export default function Transactions() {
                 category_id: formData.categoryId,
                 date: formData.date,
                 amount: parseFloat(formData.amount),
+                currency: formData.currency,
                 description: formData.description
             });
             setIsLogModalOpen(false);
@@ -105,6 +107,7 @@ export default function Transactions() {
                 accountId: "",
                 categoryId: "",
                 amount: "",
+                currency: activeHousehold?.base_currency || "USD",
                 date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
                 description: ""
             });
@@ -346,8 +349,22 @@ export default function Transactions() {
                                 </select>
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-700">Currency</label>
+                                <select
+                                    required
+                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    value={formData.currency}
+                                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                                >
+                                    <option value="">Select Currency</option>
+                                    {currencies.map(curr => (
+                                        <option key={curr.code} value={curr.code}>{curr.code} - {curr.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700">Amount</label>
                                 <Input
@@ -359,6 +376,9 @@ export default function Transactions() {
                                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                                 />
                             </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700">Date</label>
                                 <Input

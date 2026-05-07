@@ -26,6 +26,10 @@ This document provides a high-level overview and instructions for AI agents work
   - Backend uses `uv` for dependency management.
   - Frontend uses `pnpm` for dependency management.
   - Docker is used for local development and orchestration.
+- **Multi-Currency Reporting**: The system standardizes all financial reporting (Dashboard, Portfolio, Net Worth) to the household's `base_currency`. 
+  - Backend models (`AccountBalance`, `PortfolioSnapshot`) store a `home_currency` equivalent calculated at the time of the record.
+  - The `snapshot_engine.py` uses `yfinance` to fetch historical exchange rates for conversion.
+  - Frontend components should prioritize displaying these converted values for aggregate views, while potentially showing native currency values for individual account details.
 
 ## 5. Global Agent Guidelines
 - **Security:** Never commit secrets or hardcode API keys. Use environment variables.

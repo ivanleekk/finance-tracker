@@ -220,3 +220,79 @@ def fetch_and_cache_treasury_rates(db: Session, ticker: str = "^IRX", days: int 
     except Exception as e:
         db.rollback()
         logger.error(f"Error fetching treasury rates: {e}")
+
+def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_date: date):
+    """
+    Fetches exchange rate between base and target currency for a specific date
+    and stores it in the exchange_rates table.
+    Ticker format: {BASE}{TARGET}=X (e.g. EURUSD=X)
+    """
+    base = base.upper()
+    target = target.upper()
+    
+    if base == target:
+        return 1.0
+        
+    ticker = f"{base}{target}=X"
+    
+    # Check if we already have it
+    from src.models import ExchangeRate
+    from sqlalchemy import select
+    
+    existing = db.execute(
+        select(ExchangeRate)
+        .where(ExchangeRate.base_currency == base)
+        .where(ExchangeRate.target_currency == target)
+        .where(ExchangeRate.date == target_date)
+    ).scalar_one_or_none()
+    
+    if existing:
+        return existing.rate
+        
+    # Fetch from yfinance
+    start_date = target_date.strftime('%Y-%m-%d')
+    end_date = (target_date + timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    try:
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        if not data.empty and 'Close' in data:
+            val = data['Close'].dropna().iloc[0]
+            rate = float(val.item() if hasattr(val, 'item') else val)
+            
+            # Upsert
+            new_rate = ExchangeRate(
+                id=uuid.uuid7(),
+                base_currency=base,
+                target_currency=target,
+                date=target_date,
+                rate=rate
+            )
+            db.add(new_rate)
+            db.commit()
+            return rate
+    except Exception as e:
+        logger.error(f"Error fetching exchange rate {ticker}: {e}")
+        
+    # Fallback: Try reverse rate
+    ticker_rev = f"{target}{base}=X"
+    try:
+        data = yf.download(ticker_rev, start=start_date, end=end_date, progress=False)
+        if not data.empty and 'Close' in data:
+            val = data['Close'].dropna().iloc[0]
+            rate_rev = float(val.item() if hasattr(val, 'item') else val)
+            rate = 1.0 / rate_rev
+            
+            new_rate = ExchangeRate(
+                id=uuid.uuid7(),
+                base_currency=base,
+                target_currency=target,
+                date=target_date,
+                rate=rate
+            )
+            db.add(new_rate)
+            db.commit()
+            return rate
+    except:
+        pass
+        
+    return 1.0 # Last resort fallback

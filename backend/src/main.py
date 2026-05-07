@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from src.routers import accounts, cashflow, portfolio, users, auth
+from src.routers import accounts, cashflow, portfolio, users, auth, reference
 from src.database import SessionLocal
 from src.services.snapshot_engine import run_snapshot_range
 from src.models import Household, PortfolioSnapshot
@@ -96,6 +96,7 @@ app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(cashflow.router)
 app.include_router(portfolio.router)
+app.include_router(reference.router)
 
 
 @app.get("/")

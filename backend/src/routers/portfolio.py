@@ -50,7 +50,11 @@ def get_ticker_price(
         price = float(df['Close'].iloc[-1].item())
         actual_date = df.index[-1].date()
         
-        return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date)
+        # Fetch currency - info can be slow, but we'll try it
+        ticker_obj = yf.Ticker(ticker)
+        currency = ticker_obj.info.get('currency', 'USD')
+        
+        return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date, currency=currency)
     except Exception as e:
         print(f"yfinance error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
@@ -126,6 +130,7 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
         category_id=investment_category.id,
         date=db_trade.date,
         amount=amount,
+        currency=db_trade.currency, # Inherit trade currency
         description=description,
         transaction_type=trans_type
     )
@@ -313,6 +318,7 @@ def execute_trade(
         date=trade.date,
         quantity=trade.quantity,
         price=trade.price,
+        currency=trade.currency,
         exchange_rate=trade.exchange_rate,
     )
     db.add(db_trade)
@@ -340,6 +346,7 @@ def execute_trade(
         date=db_trade.date,
         quantity=db_trade.quantity,
         price=db_trade.price,
+        currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
     )
     return response

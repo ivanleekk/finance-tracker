@@ -7,7 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { LiquidityStatus, TaxTreatment } from "../../types/types";
-import type { AccountWithHistory } from "./accounts.loader";
+import type { AccountWithHistory, AccountsLoaderData } from "./accounts.loader";
 import type { BalanceResponse } from "../../types/types";
 
 export { loader, action } from "./accounts.loader";
@@ -26,7 +26,7 @@ const CHART_COLORS = [
 
 export default function Accounts() {
     const { activeHousehold } = useHousehold();
-    const accounts = (useLoaderData() as AccountWithHistory[]) || [];
+    const { accounts = [], currencies = [] } = (useLoaderData() as AccountsLoaderData) || {};
 
     // We use fetchers for mutations to avoid full page navigations and to easily keep modals open/closed based on state
     const addAccountFetcher = useFetcher();
@@ -77,14 +77,21 @@ export default function Accounts() {
         }
     }, [deleteAccountFetcher.state, deleteAccountFetcher.data]);
 
-    const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+    const formatCurrency = (value: number, curr?: string) => {
+        return new Intl.NumberFormat('en-US', { 
+            style: 'currency', 
+            currency: curr || activeHousehold?.base_currency || 'USD' 
+        }).format(value);
     }
 
-    const getCurrentBalance = (history: BalanceResponse[]) => {
-        if (history.length === 0) return 0;
+    const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
+        if (history.length === 0) return { balance: 0, balanceHome: 0 };
         const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-        return Number(sorted[sorted.length - 1].balance);
+        const last = sorted[sorted.length - 1];
+        return { 
+            balance: Number(last.balance), 
+            balanceHome: Number(last.balance_home_currency ?? last.balance) 
+        };
     }
 
     // UPDATED: Now maps each account's balance to its name per date
@@ -98,15 +105,8 @@ export default function Accounts() {
             const dataPoint: any = { date };
 
             accounts.forEach(acc => {
-                const pastOrCurrentEntries = acc.history
-                    .filter(h => h.date <= date)
-                    .sort((a, b) => a.date.localeCompare(b.date));
-
-                if (pastOrCurrentEntries.length > 0) {
-                    dataPoint[acc.name] = Number(pastOrCurrentEntries[pastOrCurrentEntries.length - 1].balance);
-                } else {
-                    dataPoint[acc.name] = 0;
-                }
+                const lastBalRec = acc.history.filter(h => h.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
+                dataPoint[acc.name] = lastBalRec ? Number(lastBalRec.balance_home_currency ?? lastBalRec.balance) : 0;
             });
 
             return dataPoint;
@@ -221,7 +221,16 @@ export default function Accounts() {
                                     <tr key={acc.id} className="border-b border-base-100 hover:bg-base-50/50 transition-colors">
                                         <td className="px-4 py-4 font-medium text-base-900">{acc.name}</td>
                                         <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>
-                                        <td className="px-4 py-4 text-right font-medium text-base-900">{formatCurrency(getCurrentBalance(acc.history))}</td>
+                                        <td className="px-4 py-4 text-right">
+                                            <div className="font-medium text-base-900">
+                                                {formatCurrency(getCurrentBalanceDetails(acc.history).balanceHome)}
+                                            </div>
+                                            {acc.currency !== activeHousehold?.base_currency && (
+                                                <div className="text-xs text-base-500">
+                                                    {formatCurrency(getCurrentBalanceDetails(acc.history).balance, acc.currency)}
+                                                </div>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-4 text-right capitalize">{acc.liquidity.replace('_', ' ')}</td>
                                         <td className="px-4 py-4">
                                             <Badge variant="success">
@@ -323,8 +332,19 @@ export default function Accounts() {
                                         />
                                     </div>
                                 </div>
-                                {/* Hidden input for currency */}
-                                <input type="hidden" name="currency" value={newAccount.currency} />
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900">Currency</label>
+                                    <select
+                                        name="currency"
+                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        value={newAccount.currency}
+                                        onChange={(e) => setNewAccount({ ...newAccount, currency: e.target.value })}
+                                    >
+                                        {currencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsAddAccountModalOpen(false)}>Cancel</Button>
                                     <Button variant="primary" type="submit" disabled={addAccountFetcher.state !== "idle"}>

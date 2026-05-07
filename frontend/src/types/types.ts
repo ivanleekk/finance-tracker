@@ -206,3 +206,15 @@ export type PortfolioMetricsResponse = {
   overall_metrics: PerformanceMetrics;
   sub_portfolio_metrics: SubPortfolioMetricsResponse[];
 };
+// --- 5. REFERENCE DATA ---
+
+export type CurrencyResponse = {
+  code: string;
+  name: string;
+  symbol: string;
+};
+
+export type CountryResponse = {
+  code: string;
+  name: string;
+};
