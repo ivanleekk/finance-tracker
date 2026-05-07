@@ -1,45 +1,45 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse } from "../../types/types";
+import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse, PortfolioMetricsResponse } from "../../types/types";
 
 export type PortfolioLoaderData = {
     subportfolios: SubPortfolioResponse[];
     trades: TradeResponse[];
     assets: AssetResponse[];
     snapshots: PortfolioSnapshotResponse[];
+    metrics: PortfolioMetricsResponse | null;
 };
 
 export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<PortfolioLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
-        const [spRes, trRes, asRes, snRes] = await Promise.all([
+        const [spRes, trRes, asRes, snRes, meRes] = await Promise.all([
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/portfolio/trades/household/${householdId}`),
             ssrFetch(`/portfolio/assets`),
-            ssrFetch(`/portfolio/snapshots/household/${householdId}`)
+            ssrFetch(`/portfolio/snapshots/household/${householdId}`),
+            ssrFetch(`/portfolio/household/${householdId}/metrics`)
         ]);
 
-        if (!spRes.ok || !trRes.ok || !asRes.ok || !snRes.ok) {
-             throw new Error("One or more requests failed");
-        }
-
-        const [subportfolios, trades, assets, snapshots] = await Promise.all([
-            spRes.json(),
-            trRes.json(),
-            asRes.json(),
-            snRes.json()
+        const [subportfolios, trades, assets, snapshots, metrics] = await Promise.all([
+            spRes.ok ? spRes.json() : [],
+            trRes.ok ? trRes.json() : [],
+            asRes.ok ? asRes.json() : [],
+            snRes.ok ? snRes.json() : [],
+            meRes.ok ? meRes.json() : null
         ]);
 
         return {
             subportfolios,
             trades,
             assets,
-            snapshots
+            snapshots,
+            metrics
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load portfolio data", error);
-        return { subportfolios: [], trades: [], assets: [], snapshots: [] };
+        return { subportfolios: [], trades: [], assets: [], snapshots: [], metrics: null };
     }
 }

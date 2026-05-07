@@ -404,3 +404,27 @@ class TickerPriceResponse(BaseModel):
     ticker: str
     price: float
     date: date
+
+
+class PerformanceMetrics(BaseModel):
+    simple_return: float
+    time_weighted_return: float
+    money_weighted_return: float
+    volatility: float
+    sharpe_ratio: float
+    sortino_ratio: float
+    treynor_ratio: float
+    alpha: Optional[float] = None
+    beta: Optional[float] = None
+
+
+class SubPortfolioMetricsResponse(BaseModel):
+    sub_portfolio_id: uuid.UUID
+    name: str
+    metrics: PerformanceMetrics
+
+
+class PortfolioMetricsResponse(BaseModel):
+    household_id: uuid.UUID
+    overall_metrics: PerformanceMetrics
+    sub_portfolio_metrics: List[SubPortfolioMetricsResponse]

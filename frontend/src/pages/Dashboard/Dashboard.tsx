@@ -3,8 +3,9 @@ import { GoalCard } from "../../components/ui/GoalCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLoaderData, useRevalidator } from "react-router"
+import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
 
@@ -17,9 +18,11 @@ export default function Dashboard() {
         balances = {},
         subPortfolios = [],
         transactions = [],
-        snapshots = []
+        snapshots = [],
+        metrics = null
     } = (useLoaderData() as DashboardLoaderData) || {};
     const revalidator = useRevalidator();
+    const [timeframe, setTimeframe] = useState("Monthly");
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -80,11 +83,7 @@ export default function Dashboard() {
 
         const sortedDates = Array.from(dailyData.keys()).sort((a, b) => a.localeCompare(b));
 
-        // Fill gaps by carrying forward previous values
-        let lastCash = 0;
-        let lastPortfolio = 0;
-
-        return sortedDates.map(date => {
+        const rawData = sortedDates.map(date => {
             const data = dailyData.get(date)!;
             return {
                 date, // ISO string for unique key
@@ -93,7 +92,29 @@ export default function Dashboard() {
                 portfolio: data.portfolio
             };
         });
-    }, [balances, snapshots]);
+
+        if (timeframe === "Daily") return rawData;
+
+        const binned = new Map<string, any>();
+        rawData.forEach(item => {
+            const d = new Date(item.date);
+            let key = "";
+            if (timeframe === "Weekly") {
+                const startOfWeek = new Date(d);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+                startOfWeek.setDate(diff);
+                key = startOfWeek.toISOString().split('T')[0];
+            } else if (timeframe === "Monthly") {
+                key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+            } else if (timeframe === "Yearly") {
+                key = `${d.getFullYear()}-01-01`;
+            }
+            binned.set(key, item);
+        });
+
+        return Array.from(binned.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }, [balances, snapshots, timeframe]);
 
     if (!activeHousehold) {
         return (
@@ -113,7 +134,7 @@ export default function Dashboard() {
             </div>
 
             {/* Top Row: Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <StatCard
                     title="Net Worth"
                     value={formatCurrency(netWorth)}
@@ -125,8 +146,23 @@ export default function Dashboard() {
                     trend="neutral"
                 />
                 <StatCard
-                    title="Cash Balance"
-                    value={formatCurrency(currentCash)}
+                    title="Overall Return"
+                    value={`${((metrics?.overall_metrics.simple_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics.simple_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="TWR (Ann.)"
+                    value={`${((metrics?.overall_metrics.time_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics.time_weighted_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="IRR / MWR"
+                    value={`${((metrics?.overall_metrics.money_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics.money_weighted_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="Sharpe Ratio"
+                    value={metrics?.overall_metrics.sharpe_ratio.toFixed(2) || "0.00"}
                     trend="neutral"
                 />
             </div>
@@ -134,14 +170,32 @@ export default function Dashboard() {
             {/* Middle Row: Charts & Goals */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
-                    <CardHeader>
-                        <CardTitle>Net Worth Trend</CardTitle>
-                        <CardDescription>Your total wealth growth over time.</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                        <div>
+                            <CardTitle>Net Worth Trend</CardTitle>
+                            <CardDescription>Your total wealth growth over time.</CardDescription>
+                        </div>
+                        <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                            {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
+                                <button
+                                    key={tf}
+                                    onClick={() => setTimeframe(tf)}
+                                    className={cn(
+                                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                        timeframe === tf
+                                            ? "bg-white text-base-900 shadow-sm"
+                                            : "text-base-500 hover:text-base-700"
+                                    )}
+                                >
+                                    {tf}
+                                </button>
+                            ))}
+                        </div>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        <div className="h-[300px] w-full">
+                        <div className="h-[300px] w-full relative min-h-0">
                             {chartData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <defs>
                                             <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
@@ -155,7 +209,12 @@ export default function Dashboard() {
                                             axisLine={false}
                                             tickLine={false}
                                             tick={{ fill: '#94a3b8', fontSize: 12 }}
-                                            tickFormatter={(val) => new Date(val).toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                                            tickFormatter={(val) => {
+                                                const d = new Date(val);
+                                                if (timeframe === "Yearly") return d.getUTCFullYear().toString();
+                                                if (timeframe === "Monthly") return d.toLocaleDateString('default', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+                                                return d.toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                                            }}
                                             dy={10}
                                         />
                                         <YAxis

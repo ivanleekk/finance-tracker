@@ -8,6 +8,9 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.snapshot_engine import run_snapshot_range
+from src.services.performance import calculate_performance_metrics
+from src.services.market_data import fetch_and_cache_treasury_rates
+from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
 
@@ -756,8 +759,63 @@ def delete_exchange_rate(
 
 
 # Note: This is where we will eventually put the Polars math endpoints!
-@router.get("/household/{household_id}/metrics")
-def get_portfolio_metrics(household_id: int, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Sharpe/Sortino calculation not implemented"
+@router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
+def get_portfolio_metrics(
+    household_id: uuid.UUID, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+    
+    # Ensure fresh risk-free rate data (^IRX)
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            # Don't block metrics calculation if yfinance fails
+            print(f"Failed to fetch treasury rates: {e}")
+    
+    # 1. Calculate overall metrics
+    overall = calculate_performance_metrics(db, household_id)
+    
+    # 2. Calculate metrics for each sub-portfolio
+    sub_portfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
+    sub_metrics = []
+    
+    for sp in sub_portfolios:
+        metrics = calculate_performance_metrics(db, household_id, sub_portfolio_id=sp.id)
+        sub_metrics.append(schemas.SubPortfolioMetricsResponse(
+            sub_portfolio_id=sp.id,
+            name=sp.name,
+            metrics=metrics
+        ))
+        
+    return schemas.PortfolioMetricsResponse(
+        household_id=household_id,
+        overall_metrics=overall,
+        sub_portfolio_metrics=sub_metrics
     )
+
+@router.get("/subportfolios/{subportfolio_id}/metrics", response_model=schemas.PerformanceMetrics)
+def get_subportfolio_metrics(
+    subportfolio_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_subportfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+
+    verify_household_access(db_subportfolio.household_id, current_user, db)
+    
+    # Ensure fresh risk-free rate data (^IRX)
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            print(f"Failed to fetch treasury rates: {e}")
+
+    metrics = calculate_performance_metrics(db, db_subportfolio.household_id, sub_portfolio_id=subportfolio_id)
+    return metrics

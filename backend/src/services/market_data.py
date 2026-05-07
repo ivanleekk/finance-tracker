@@ -163,3 +163,60 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
         db.rollback()
         logger.error(f"Database error during market price range upsert: {e}")
         raise
+
+def fetch_and_cache_treasury_rates(db: Session, ticker: str = "^IRX", days: int = 365):
+    """
+    Fetches historical treasury yields (e.g. ^IRX for 13-week T-bills) 
+    and stores them in market_prices. Yields are stored as decimals (e.g. 0.05 for 5%).
+    """
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+    
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    logger.info(f"Fetching treasury data for {ticker} from {start_str}")
+    
+    try:
+        data = yf.download(ticker, start=start_str, end=end_str, progress=False)
+        if data.empty:
+            return
+        
+        records = []
+        # yfinance might return a Series or DataFrame depending on columns
+        closes = data['Close']
+        if len(closes.shape) > 1:
+            closes = closes.iloc[:, 0]
+            
+        closes = closes.dropna()
+        for dt, price in closes.items():
+            # Treasury yields in yfinance are often in percentage (e.g. 5.3)
+            # Handle potential non-scalar prices
+            try:
+                val = price.item() if hasattr(price, 'item') else price
+                yield_val = float(val) / 100.0
+            except:
+                # If it's an array/series of size 1, this should work
+                yield_val = float(price) / 100.0
+            records.append({
+                "id": uuid.uuid7(),
+                "ticker": ticker,
+                "date": dt.date(),
+                "close_price": yield_val,
+                "currency": "PERCENT"
+            })
+            
+        if not records:
+            return
+            
+        stmt = insert(MarketPrice).values(records)
+        upsert_stmt = stmt.on_conflict_do_update(
+            constraint="uq_market_price_ticker_date",
+            set_={"close_price": stmt.excluded.close_price}
+        )
+        db.execute(upsert_stmt)
+        db.commit()
+        logger.info(f"Successfully cached {len(records)} treasury rates.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error fetching treasury rates: {e}")

@@ -182,3 +182,27 @@ export type ExchangeRateResponse = {
   target_currency: string;
   rate: number;
 };
+
+export type PerformanceMetrics = {
+  simple_return: number;
+  time_weighted_return: number;
+  money_weighted_return: number;
+  volatility: number;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  treynor_ratio: number;
+  alpha?: number;
+  beta?: number;
+};
+
+export type SubPortfolioMetricsResponse = {
+  sub_portfolio_id: string;
+  name: string;
+  metrics: PerformanceMetrics;
+};
+
+export type PortfolioMetricsResponse = {
+  household_id: string;
+  overall_metrics: PerformanceMetrics;
+  sub_portfolio_metrics: SubPortfolioMetricsResponse[];
+};

@@ -32,6 +32,8 @@ type PortfolioData = {
         sharpe: string;
         sortino: string;
         drawdown: string;
+        twr: string;
+        irr: string;
     };
     history: any[];
     holdings: Holding[];
@@ -41,11 +43,12 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], snapshots = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
 
     const [activeTab, setActiveTab] = useState("Overall")
+    const [timeframe, setTimeframe] = useState("Monthly")
     const [isCreating, setIsCreating] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState("")
     const [newPortfolioRisk, setNewPortfolioRisk] = useState("Moderate")
@@ -92,7 +95,33 @@ export default function Portfolio() {
     const portfoliosData = useMemo(() => {
         const dataMap: Record<string, PortfolioData> = {};
 
-        const computeStats = (hlds: Holding[], realizedPnL: number, history: any[], equity: number): PortfolioData => {
+        const binHistory = (history: any[]) => {
+            if (timeframe === "Daily") return history;
+
+            const binned = new Map<string, number>();
+            history.forEach(item => {
+                const d = new Date(item.date);
+                let key = "";
+                if (timeframe === "Weekly") {
+                    const startOfWeek = new Date(d);
+                    const day = d.getDay();
+                    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+                    startOfWeek.setDate(diff);
+                    key = startOfWeek.toISOString().split('T')[0];
+                } else if (timeframe === "Monthly") {
+                    key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+                } else if (timeframe === "Yearly") {
+                    key = `${d.getFullYear()}-01-01`;
+                }
+                binned.set(key, item.equity);
+            });
+
+            return Array.from(binned.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([date, equity]) => ({ date, equity }));
+        };
+
+        const computeStats = (hlds: Holding[], realizedPnL: number, history: any[], equity: number, m?: any): PortfolioData => {
             let costBasis = 0;
             for (const h of hlds) {
                 costBasis += h.shares * h.avgCost;
@@ -101,6 +130,7 @@ export default function Portfolio() {
             const unrealizedPercent = costBasis > 0 ? (unrealized / costBasis) * 100 : 0;
 
             const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+            const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`;
             const sign = (val: number) => val >= 0 ? '+' : '';
 
             if (history.length === 0) {
@@ -111,11 +141,13 @@ export default function Portfolio() {
                 stats: {
                     equity: formatCurrency(equity),
                     unrealized: `${sign(unrealized)}${formatCurrency(Math.abs(unrealized))}`,
-                    unrealizedPercent: unrealizedPercent,
+                    unrealizedPercent: m?.simple_return * 100 || unrealizedPercent,
                     realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
-                    sharpe: "N/A",
-                    sortino: "N/A",
-                    drawdown: "N/A"
+                    sharpe: m?.sharpe_ratio?.toFixed(2) || "N/A",
+                    sortino: m?.sortino_ratio?.toFixed(2) || "N/A",
+                    drawdown: m?.volatility ? formatPercent(m.volatility) : "N/A",
+                    twr: m?.time_weighted_return ? formatPercent(m.time_weighted_return) : "N/A",
+                    irr: m?.money_weighted_return ? formatPercent(m.money_weighted_return) : "N/A"
                 },
                 history,
                 holdings: hlds
@@ -124,26 +156,24 @@ export default function Portfolio() {
 
         const calculateFromSnapshots = (snaps: typeof snapshots) => {
             if (snaps.length === 0) return { holdings: [], realizedPnL: 0, history: [], currentEquity: 0 };
-            
-            // 1. History (Aggregated by Date)
+
             const dailyEquity = new Map<string, number>();
             snaps.forEach(s => {
                 const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
                 dailyEquity.set(dateKey, (dailyEquity.get(dateKey) || 0) + Number(s.current_value_home_currency));
             });
-            
+
             const history = Array.from(dailyEquity.entries())
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([date, equity]) => ({
-                    date, // Keep ISO string as the unique key
+                    date,
                     equity
                 }));
 
-            // 2. Current Holdings (from the most recent snapshot date)
             const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
             const latestDate = sortedDates[sortedDates.length - 1];
             const latestSnaps = snaps.filter(s => s.date === latestDate);
-            
+
             const assetMap = new Map(assets.map(a => [a.id, a]));
             const holdings: Holding[] = latestSnaps
                 .filter(s => s.quantity > 0.001)
@@ -158,25 +188,38 @@ export default function Portfolio() {
                         currentPrice: Number(s.price)
                     };
                 });
-            
+
             const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
-            
-            return { holdings, realizedPnL: 0, history, currentEquity };
+
+            return { holdings, realizedPnL: 0, history: binHistory(history), currentEquity };
         };
 
         // Overall
         const overallResult = calculateFromSnapshots(snapshots);
-        dataMap["Overall"] = computeStats(overallResult.holdings, overallResult.realizedPnL, overallResult.history, overallResult.currentEquity);
+        dataMap["Overall"] = computeStats(
+            overallResult.holdings,
+            overallResult.realizedPnL,
+            overallResult.history,
+            overallResult.currentEquity,
+            metrics?.overall_metrics
+        );
 
         // Subportfolios
         for (const sp of subportfolios) {
             const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
             const spResult = calculateFromSnapshots(spSnaps);
-            dataMap[sp.name] = computeStats(spResult.holdings, spResult.realizedPnL, spResult.history, spResult.currentEquity);
+            const spMetric = metrics?.sub_portfolio_metrics.find(m => m.sub_portfolio_id === sp.id);
+            dataMap[sp.name] = computeStats(
+                spResult.holdings,
+                spResult.realizedPnL,
+                spResult.history,
+                spResult.currentEquity,
+                spMetric?.metrics
+            );
         }
 
         return dataMap;
-    }, [snapshots, assets, subportfolios]);
+    }, [snapshots, assets, subportfolios, timeframe, metrics]);
 
     if (!activeHousehold) {
         return (
@@ -280,24 +323,42 @@ export default function Portfolio() {
             )}
 
             {/* Top Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                 <StatCard title="Total Equity" value={currentData.stats.equity} />
-                <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
-                <StatCard title="Realized P&L" value={currentData.stats.realized} trend={currentData.stats.realized.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent.toFixed(2)} />
+                <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
                 <StatCard title="Sortino Ratio" value={currentData.stats.sortino} trend="neutral" />
-                <StatCard title="Max Drawdown" value={currentData.stats.drawdown} trend="down" />
             </div>
 
             {/* Equity Curve Chart */}
             <Card>
-                <CardHeader>
-                    <CardTitle>{activeTab} Growth</CardTitle>
-                    <CardDescription>Historical equity curve based on latest evaluation.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <div>
+                        <CardTitle>{activeTab} Growth</CardTitle>
+                        <CardDescription>Historical equity curve based on latest evaluation.</CardDescription>
+                    </div>
+                    <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                        {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
+                            <button
+                                key={tf}
+                                onClick={() => setTimeframe(tf)}
+                                className={cn(
+                                    "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                    timeframe === tf
+                                        ? "bg-white text-base-900 shadow-sm"
+                                        : "text-base-500 hover:text-base-700"
+                                )}
+                            >
+                                {tf}
+                            </button>
+                        ))}
+                    </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="h-[350px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[350px] w-full relative min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minHeight={350}>
                             <AreaChart data={currentData.history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
@@ -311,7 +372,12 @@ export default function Portfolio() {
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: '#64748b', fontSize: 12 }}
-                                    tickFormatter={(val) => new Date(val).toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                                    tickFormatter={(val) => {
+                                        const d = new Date(val);
+                                        if (timeframe === "Yearly") return d.getUTCFullYear().toString();
+                                        if (timeframe === "Monthly") return d.toLocaleDateString('default', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+                                        return d.toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                                    }}
                                     dy={10}
                                 />
                                 <YAxis
