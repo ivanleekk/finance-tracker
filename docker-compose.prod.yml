@@ -1,0 +1,22 @@
+services:
+    backend:
+        build:
+            context: ./backend
+            target: production
+        ports:
+            - "5001:5001"
+        environment:
+            - DEBUG=false
+
+    frontend:
+        build:
+            context: ./frontend
+            target: production
+        ports:
+            - "3000:3000"
+        environment:
+            - NODE_ENV=production
+      
+    db:
+        # No database port exposure in production for security
+        ports: []
