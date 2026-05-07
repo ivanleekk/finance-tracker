@@ -1,13 +1,54 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
+from datetime import datetime, date
 
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
+from src.services.snapshot_engine import run_snapshot_range
+import yfinance as yf
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/portfolio", tags=["Investments & Trades"])
+
+
+@router.get("/price", response_model=schemas.TickerPriceResponse)
+def get_ticker_price(
+    ticker: str,
+    date: str,
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Fetch the historical closing price of a ticker using yfinance.
+    If the exact date is not available (e.g., weekend), it returns the most recent prior closing price.
+    """
+    try:
+        start_dt = datetime.strptime(date, "%Y-%m-%d")
+        # We look back up to 7 days to handle weekends/holidays
+        lookback_start = start_dt - timedelta(days=7)
+        end_dt = start_dt + timedelta(days=1)
+        
+        df = yf.download(
+            ticker, 
+            start=lookback_start.strftime("%Y-%m-%d"), 
+            end=end_dt.strftime("%Y-%m-%d"), 
+            progress=False
+        )
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No price data found for ticker: {ticker}")
+            
+        # The dataframe index is the date. We want the closing price closest to the target date.
+        # Since we downloaded up to target_date + 1, the last row is the closest available.
+        price = float(df['Close'].iloc[-1].item())
+        actual_date = df.index[-1].date()
+        
+        return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date)
+    except Exception as e:
+        print(f"yfinance error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
 
 # --- ASSETS ---
 
@@ -167,6 +208,7 @@ def delete_subportfolio(
 @router.post("/trades", response_model=schemas.TradeResponse, status_code=status.HTTP_201_CREATED)
 def execute_trade(
     trade: schemas.TradeCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -187,6 +229,15 @@ def execute_trade(
     db.add(db_trade)
     db.commit()
     db.refresh(db_trade)
+
+    # Trigger background snapshot update from the trade date until today
+    background_tasks.add_task(
+        run_snapshot_range, 
+        db, 
+        trade.household_id, 
+        trade.date.date(), 
+        date.today()
+    )
     # We must construct trade base manually because db column is trade_type while schema uses type
     response = schemas.TradeResponse(
         id=db_trade.id,
@@ -232,6 +283,7 @@ def get_household_trades(
 def update_trade(
     trade_id: uuid.UUID,
     trade_update: schemas.TradeUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -240,6 +292,11 @@ def update_trade(
         raise HTTPException(status_code=404, detail="Trade not found")
 
     verify_household_access(db_trade.household_id, current_user, db)
+
+    # Record the earliest date affected by this update
+    original_date = db_trade.date.date()
+    new_date = trade_update.date.date() if trade_update.date else original_date
+    recalc_start_date = min(original_date, new_date)
 
     update_data = trade_update.model_dump(exclude_unset=True)
     if 'type' in update_data:
@@ -250,6 +307,15 @@ def update_trade(
 
     db.commit()
     db.refresh(db_trade)
+
+    background_tasks.add_task(
+        run_snapshot_range, 
+        db, 
+        db_trade.household_id, 
+        recalc_start_date, 
+        date.today()
+    )
+
     return schemas.TradeResponse(
         id=db_trade.id,
         household_id=db_trade.household_id,
@@ -266,6 +332,7 @@ def update_trade(
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_trade(
     trade_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -275,8 +342,19 @@ def delete_trade(
 
     verify_household_access(db_trade.household_id, current_user, db)
 
+    household_id = db_trade.household_id
+    trade_date = db_trade.date.date()
+
     db.delete(db_trade)
     db.commit()
+
+    background_tasks.add_task(
+        run_snapshot_range, 
+        db, 
+        household_id, 
+        trade_date, 
+        date.today()
+    )
     return
 
 # --- PORTFOLIO ACCESS ---

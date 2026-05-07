@@ -398,3 +398,9 @@ class ExchangeRateUpdate(BaseModel):
 class ExchangeRateResponse(ExchangeRateBase):
     id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
+
+
+class TickerPriceResponse(BaseModel):
+    ticker: str
+    price: float
+    date: date

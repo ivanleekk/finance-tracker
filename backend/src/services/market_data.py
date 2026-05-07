@@ -93,3 +93,73 @@ def fetch_and_cache_market_prices(db: Session, tickers: List[str], target_date: 
         db.rollback()
         logger.error(f"Database error during market price upsert: {e}")
         raise
+
+def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_date: date, end_date: date):
+    """
+    Fetches historical closing prices for a list of tickers over a date range
+    and upserts them into the market_prices table.
+    """
+    if not tickers:
+        return
+
+    # Convert to standard format
+    tickers = list(set([t.upper() for t in tickers]))
+
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')
+
+    logger.info(f"Fetching market data for {len(tickers)} tickers from {start_str} to {end_str}")
+    
+    try:
+        data = yf.download(tickers, start=start_str, end=end_str, group_by='ticker', progress=False)
+    except Exception as e:
+        logger.error(f"Error fetching range data from yfinance: {e}")
+        raise
+
+    if data.empty:
+        logger.warning(f"No market data returned for range {start_str} to {end_str}")
+        return
+
+    records_to_upsert = []
+
+    for ticker in tickers:
+        # yfinance structure depends on number of tickers
+        if len(tickers) == 1:
+            ticker_data = data
+        else:
+            if ticker not in data: continue
+            ticker_data = data[ticker]
+            
+        if 'Close' in ticker_data:
+            # Get all non-NaN closing prices
+            closes = ticker_data['Close'].dropna()
+            for dt, price in closes.items():
+                records_to_upsert.append({
+                    "id": uuid.uuid7(),
+                    "ticker": ticker,
+                    "date": dt.date(),
+                    "close_price": float(price.item() if hasattr(price, 'item') else price),
+                    "currency": "USD"
+                })
+
+    if not records_to_upsert:
+        return
+
+    # Prepare PostgreSQL UPSERT
+    stmt = insert(MarketPrice).values(records_to_upsert)
+    upsert_stmt = stmt.on_conflict_do_update(
+        constraint="uq_market_price_ticker_date",
+        set_={
+            "close_price": stmt.excluded.close_price,
+            "currency": stmt.excluded.currency
+        }
+    )
+
+    try:
+        db.execute(upsert_stmt)
+        db.commit()
+        logger.info(f"Successfully upserted {len(records_to_upsert)} market prices for range.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database error during market price range upsert: {e}")
+        raise

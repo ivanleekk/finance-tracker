@@ -22,31 +22,27 @@ export default function Trade() {
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
+    const [isFetchingPrice, setIsFetchingPrice] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
 
-    // Deterministic mock price generator based on string hashing
-    const getDeterministicPrice = (symbol: string, dateString: string) => {
-        if (!symbol) return 0;
-        const seedStr = symbol.toUpperCase() + dateString;
-        let hash = 0;
-        for (let i = 0; i < seedStr.length; i++) {
-            hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        // Generate a pseudo-random price between $10 and $510
-        const pseudoRandom = Math.abs(Math.sin(hash));
-        const generatedPrice = 10 + (pseudoRandom * 500);
-        return generatedPrice;
-    }
-
-    // Auto-prefill the price when ticker or date changes
+    // Auto-prefill the price when ticker or date changes using real yfinance data from backend
     useEffect(() => {
-        if (ticker.trim() !== "" && date) {
-            // Simulate an API call delay
-            const timer = setTimeout(() => {
-                const fetchedPrice = getDeterministicPrice(ticker, date);
-                setPrice(fetchedPrice.toFixed(2));
-            }, 300);
+        if (ticker.trim().length >= 1 && date) {
+            const fetchPrice = async () => {
+                setIsFetchingPrice(true);
+                try {
+                    const response = await api.get(`/portfolio/price?ticker=${ticker}&date=${date}`);
+                    setPrice(response.data.price.toFixed(2));
+                } catch (err) {
+                    console.error("Failed to fetch price:", err);
+                    // We don't necessarily clear the price on error, allowing for manual entry
+                } finally {
+                    setIsFetchingPrice(false);
+                }
+            };
+
+            const timer = setTimeout(fetchPrice, 600); // Debounce to avoid excessive API calls
             return () => clearTimeout(timer);
         } else {
             setPrice("");
@@ -224,7 +220,7 @@ export default function Trade() {
                                 step="0.01"
                                 value={price}
                                 onChange={(e) => setPrice(e.target.value)}
-                                helperText={ticker ? "Auto-filled historical price" : ""}
+                                helperText={isFetchingPrice ? "Fetching market price..." : ticker ? "Historical price from yfinance" : ""}
                             />
                         </div>
 

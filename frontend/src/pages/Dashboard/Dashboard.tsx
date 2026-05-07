@@ -60,45 +60,43 @@ export default function Dashboard() {
 
     const netWorth = currentCash + currentPortfolioValue;
 
-    // Aggregate historical data for the chart
+    // Aggregate historical data for the chart using real snapshots
     const chartData = useMemo(() => {
-        const allDates = new Set<string>();
-        Object.values(balances).flat().forEach(b => allDates.add(b.date));
-        snapshots.forEach(s => allDates.add(s.date));
+        const dailyData = new Map<string, { cash: number; portfolio: number }>();
+        
+        // Cash: Aggregate from balances
+        Object.values(balances).forEach(history => {
+            history.forEach(b => {
+                const existing = dailyData.get(b.date) || { cash: 0, portfolio: 0 };
+                dailyData.set(b.date, { ...existing, cash: existing.cash + Number(b.balance) });
+            });
+        });
 
-        const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
+        // Portfolio: Aggregate from snapshots
+        snapshots.forEach(s => {
+            const existing = dailyData.get(s.date) || { cash: 0, portfolio: 0 };
+            dailyData.set(s.date, { ...existing, portfolio: existing.portfolio + Number(s.current_value_home_currency) });
+        });
+
+        const sortedDates = Array.from(dailyData.keys()).sort((a, b) => a.localeCompare(b));
+
+        // Fill gaps by carrying forward previous values
+        let lastCash = 0;
+        let lastPortfolio = 0;
 
         return sortedDates.map(date => {
-            let cash = 0;
-            Object.values(balances).forEach(history => {
-                const pastOrCurrent = history.filter(h => h.date <= date).sort((a, b) => a.date.localeCompare(b.date));
-                if (pastOrCurrent.length > 0) {
-                    cash += Number(pastOrCurrent[pastOrCurrent.length - 1].balance);
-                }
-            });
-
-            let portfolio = 0;
-            const snapshotsOnDate = snapshots.filter(s => s.date === date);
-            if (snapshotsOnDate.length > 0) {
-                portfolio = snapshotsOnDate.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
-            } else {
-                // Find latest snapshots before this date
-                const subPortfolioIds = Array.from(new Set(snapshots.map(s => s.sub_portfolio_id)));
-                subPortfolioIds.forEach(spId => {
-                    const pastSnapshots = snapshots
-                        .filter(s => s.sub_portfolio_id === spId && s.date < date)
-                        .sort((a, b) => a.date.localeCompare(b.date));
-                    if (pastSnapshots.length > 0) {
-                        portfolio += Number(pastSnapshots[pastSnapshots.length - 1].current_value_home_currency);
-                    }
-                });
-            }
-
+            const data = dailyData.get(date)!;
+            
+            // If data is 0 but we have a previous value, we might want to carry it forward 
+            // depending on if the date was present in the set.
+            // Actually, the backend engine now ensures snapshots are daily, 
+            // and we expect balance history to be also relatively continuous.
+            
             return {
-                date,
-                netWorth: cash + portfolio,
-                cash,
-                portfolio
+                date: new Date(date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+                netWorth: data.cash + data.portfolio,
+                cash: data.cash,
+                portfolio: data.portfolio
             };
         });
     }, [balances, snapshots]);

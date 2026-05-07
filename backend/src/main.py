@@ -11,14 +11,36 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.routers import accounts, cashflow, portfolio, users, auth
 from src.database import SessionLocal
-from src.services.snapshot_engine import run_daily_snapshot
+from src.services.snapshot_engine import run_snapshot_range
+from src.models import Household, PortfolioSnapshot
+from sqlalchemy import func, select
+from datetime import datetime, timezone, date
 
 def scheduled_snapshot_job():
     db = SessionLocal()
     try:
-        # We process the snapshot for the current UTC date at 11:50 PM
-        target_date = datetime.now(timezone.utc).date()
-        run_daily_snapshot(db, target_date)
+        # Find all households and their last snapshot date
+        households = db.execute(select(Household.id)).scalars().all()
+        today = date.today()
+        
+        for hh_id in households:
+            # Find the last snapshot date for this household
+            last_snapshot_date = db.execute(
+                select(func.max(PortfolioSnapshot.date))
+                .where(PortfolioSnapshot.household_id == hh_id)
+            ).scalar()
+            
+            if not last_snapshot_date:
+                # If no snapshots, check for the earliest trade
+                from src.models import Trade
+                last_snapshot_date = db.execute(
+                    select(func.min(func.date(Trade.date)))
+                    .where(Trade.household_id == hh_id)
+                ).scalar()
+                
+            if last_snapshot_date:
+                # Catch up from last_snapshot_date to today
+                run_snapshot_range(db, hh_id, last_snapshot_date, today)
     finally:
         db.close()
 

@@ -37,21 +37,11 @@ type PortfolioData = {
     holdings: Holding[];
 };
 
-// Deterministic mock price generator based on string hashing
-const getDeterministicPrice = (symbol: string) => {
-    if (!symbol) return 0;
-    const seedStr = symbol.toUpperCase() + new Date().toISOString().split('T')[0];
-    let hash = 0;
-    for (let i = 0; i < seedStr.length; i++) {
-        hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const pseudoRandom = Math.abs(Math.sin(hash));
-    return 10 + (pseudoRandom * 500);
-}
+
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], snapshots = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
 
@@ -132,90 +122,60 @@ export default function Portfolio() {
             };
         };
 
-        const calculateHoldings = (trds: typeof trades) => {
-            const assetMap = new Map(assets.map(a => [a.id, a]));
-            const holdingsMap = new Map<string, { shares: number, totalCost: number, realizedPnL: number }>();
-            const lastPriceMap = new Map<string, number>();
-            const sortedTrades = [...trds].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-            const historyMap = new Map<string, number>();
-            let totalRealized = 0;
-
-            for (const trade of sortedTrades) {
-                const current = holdingsMap.get(trade.asset_id) || { shares: 0, totalCost: 0, realizedPnL: 0 };
-                const q = Number(trade.quantity);
-                const p = Number(trade.price);
-
-                lastPriceMap.set(trade.asset_id, p);
-
-                if (trade.type === "buy") {
-                    current.shares += q;
-                    current.totalCost += (q * p);
-                } else if (trade.type === "sell") {
-                    const avgCost = current.shares > 0 ? current.totalCost / current.shares : 0;
-                    current.shares -= q;
-                    current.totalCost -= (q * avgCost);
-                    const pnl = (q * (p - avgCost));
-                    current.realizedPnL += pnl;
-                    totalRealized += pnl;
-                }
-                holdingsMap.set(trade.asset_id, current);
-
-                let historicalEquity = totalRealized;
-                holdingsMap.forEach((d, aId) => {
-                    const lastP = lastPriceMap.get(aId) || 0;
-                    historicalEquity += d.shares * lastP;
-                });
-
-                const dateStr = new Date(trade.date).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
-                historyMap.set(dateStr, historicalEquity);
-            }
-
-            const history = Array.from(historyMap.entries()).map(([date, equity]) => ({ date, equity }));
-
-            const finalHoldings: Holding[] = [];
-            let currentEquity = totalRealized;
-
-            holdingsMap.forEach((d, assetId) => {
-                if (d.shares > 0.001) {
-                    const asset = assetMap.get(assetId);
-                    const ticker = asset?.ticker || "UNKNOWN";
-                    const currentPrice = getDeterministicPrice(ticker);
-                    finalHoldings.push({
-                        assetId,
-                        ticker,
-                        name: asset?.name || "Unknown Asset",
-                        shares: d.shares,
-                        avgCost: d.totalCost / d.shares,
-                        currentPrice: currentPrice
-                    });
-                    currentEquity += d.shares * currentPrice;
-                }
+        const calculateFromSnapshots = (snaps: typeof snapshots) => {
+            if (snaps.length === 0) return { holdings: [], realizedPnL: 0, history: [], currentEquity: 0 };
+            
+            // 1. History (Aggregated by Date)
+            const dailyEquity = new Map<string, number>();
+            snaps.forEach(s => {
+                dailyEquity.set(s.date, (dailyEquity.get(s.date) || 0) + Number(s.current_value_home_currency));
             });
+            
+            const history = Array.from(dailyEquity.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([date, equity]) => ({
+                    date: new Date(date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+                    equity
+                }));
 
-            if (finalHoldings.length > 0 || totalRealized > 0) {
-                 const todayStr = new Date().toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
-                 if (!historyMap.has(todayStr)) {
-                     history.push({ date: 'Today', equity: currentEquity });
-                 }
-            }
-
-            return { holdings: finalHoldings, realizedPnL: totalRealized, history, currentEquity };
+            // 2. Current Holdings (from the most recent snapshot date)
+            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
+            const latestDate = sortedDates[sortedDates.length - 1];
+            const latestSnaps = snaps.filter(s => s.date === latestDate);
+            
+            const assetMap = new Map(assets.map(a => [a.id, a]));
+            const holdings: Holding[] = latestSnaps
+                .filter(s => s.quantity > 0.001)
+                .map(s => {
+                    const asset = assetMap.get(s.asset_id);
+                    return {
+                        assetId: s.asset_id,
+                        ticker: asset?.ticker || "UNKNOWN",
+                        name: asset?.name || "Unknown Asset",
+                        shares: s.quantity,
+                        avgCost: Number(s.averge_cost_basis),
+                        currentPrice: Number(s.price)
+                    };
+                });
+            
+            const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            
+            return { holdings, realizedPnL: 0, history, currentEquity };
         };
 
         // Overall
-        const overallResult = calculateHoldings(trades);
+        const overallResult = calculateFromSnapshots(snapshots);
         dataMap["Overall"] = computeStats(overallResult.holdings, overallResult.realizedPnL, overallResult.history, overallResult.currentEquity);
 
         // Subportfolios
         for (const sp of subportfolios) {
-            const spTrades = trades.filter(t => t.sub_portfolio_id === sp.id);
-            const spResult = calculateHoldings(spTrades);
+            const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
+            const spResult = calculateFromSnapshots(spSnaps);
             dataMap[sp.name] = computeStats(spResult.holdings, spResult.realizedPnL, spResult.history, spResult.currentEquity);
         }
 
         return dataMap;
-    }, [trades, assets, subportfolios]);
+    }, [snapshots, assets, subportfolios]);
 
     if (!activeHousehold) {
         return (
