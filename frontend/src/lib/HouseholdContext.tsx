@@ -27,20 +27,28 @@ export const HouseholdProvider = ({
 }) => {
     const [households, setHouseholds] = useState<HouseholdResponse[]>(initialHouseholds || []);
     
-    // Initialize active household from server-side selection if possible
+    // Initialize active household consistently between server and client to avoid hydration mismatch
     const [activeHousehold, setActiveHouseholdState] = useState<HouseholdResponse | null>(() => {
         if (initialHouseholds && initialHouseholds.length > 0) {
-            // Try to find the one that matches the cookie (client-side only for this check)
-            if (typeof document !== 'undefined') {
-                const match = document.cookie.match(/activeHouseholdId=([^;]+)/);
-                const cookieId = match ? match[1] : null;
-                const found = initialHouseholds.find(h => h.id === cookieId);
-                return found || initialHouseholds[0];
-            }
             return initialHouseholds[0];
         }
         return null;
     });
+
+    // Check for cookie/localStorage selection ONLY on the client after mount
+    useEffect(() => {
+        if (initialHouseholds && initialHouseholds.length > 0) {
+            const match = document.cookie.match(/activeHouseholdId=([^;]+)/);
+            const cookieId = match ? match[1] : localStorage.getItem('activeHouseholdId');
+            
+            if (cookieId) {
+                const found = initialHouseholds.find(h => h.id === cookieId);
+                if (found) {
+                    setActiveHouseholdState(found);
+                }
+            }
+        }
+    }, [initialHouseholds]);
     
     const [isLoading, setIsLoading] = useState(false);
 

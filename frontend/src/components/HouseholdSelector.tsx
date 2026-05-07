@@ -2,11 +2,13 @@ import { useHousehold } from "../lib/HouseholdContext";
 import { Users, ChevronDown } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "../lib/utils";
+import { useRevalidator } from "react-router";
 
 export function HouseholdSelector() {
     const { households, activeHousehold, setActiveHousehold, isLoading } = useHousehold();
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const revalidator = useRevalidator();
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -14,8 +16,19 @@ export function HouseholdSelector() {
                 setIsOpen(false);
             }
         }
+
+        function handleEscape(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                setIsOpen(false);
+            }
+        }
+
         document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        document.addEventListener("keydown", handleEscape);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("keydown", handleEscape);
+        };
     }, []);
 
     if (isLoading) {
@@ -57,6 +70,7 @@ export function HouseholdSelector() {
                             onClick={() => {
                                 setActiveHousehold(household);
                                 setIsOpen(false);
+                                revalidator.revalidate();
                             }}
                             className={cn(
                                 "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-base-50",

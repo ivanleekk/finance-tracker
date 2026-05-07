@@ -70,7 +70,7 @@ export function Layout({
                 <AuthProvider initialIsAuthenticated={isAuthenticated}>
                     <HouseholdProvider initialHouseholds={households}>
                         <div className="flex h-dvh overflow-hidden bg-base-50">
-                            {isAuthenticated && <Sidebar />}
+                            <Sidebar />
                             <main className="flex-1 overflow-y-auto">
                                 {children}
                             </main>
