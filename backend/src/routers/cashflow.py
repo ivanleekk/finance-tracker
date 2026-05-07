@@ -6,6 +6,7 @@ import uuid
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
+from src.services.account_service import sync_transaction_to_balances
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
 
@@ -40,6 +41,11 @@ def log_transaction(
         transaction_type=db_category.type,  # Infer type from category
     )
     db.add(db_transaction)
+    
+    # Sync to account balance
+    amount_delta = transaction.amount if db_category.type == models.TransactionType.income.value else -transaction.amount
+    sync_transaction_to_balances(db, transaction.account_id, transaction.date.date(), amount_delta)
+    
     db.commit()
     db.refresh(db_transaction)
     return db_transaction
@@ -81,6 +87,11 @@ def update_transaction(
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_transaction.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
 
+    # Capture old impact for sync before any modifications
+    old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+    old_impact = db_transaction.amount * old_multiplier
+    old_date = db_transaction.date.date()
+
     if transaction_update.account_id:
         new_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transaction_update.account_id).first()
         if not new_account:
@@ -100,6 +111,17 @@ def update_transaction(
     for key, value in update_data.items():
         setattr(db_transaction, key, value)
 
+    # Calculate new impact
+    new_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+    new_impact = db_transaction.amount * new_multiplier
+    new_date = db_transaction.date.date()
+
+    if old_date == new_date:
+        sync_transaction_to_balances(db, db_transaction.account_id, new_date, new_impact - old_impact)
+    else:
+        sync_transaction_to_balances(db, db_transaction.account_id, old_date, -old_impact)
+        sync_transaction_to_balances(db, db_transaction.account_id, new_date, new_impact)
+
     db.commit()
     db.refresh(db_transaction)
     return db_transaction
@@ -116,6 +138,10 @@ def delete_transaction(
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_transaction.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
+
+    # Reverse impact
+    multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+    sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
 
     db.delete(db_transaction)
     db.commit()

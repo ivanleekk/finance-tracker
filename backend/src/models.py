@@ -11,7 +11,8 @@ from sqlalchemy import (
     Enum,
     Numeric,
     UUID,
-    UniqueConstraint
+    UniqueConstraint,
+    Boolean
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from src.database import Base
@@ -156,6 +157,7 @@ class AccountBalance(Base):
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
     date = Column(Date)
     balance = Column(Numeric)
+    is_manual = Column(Boolean, default=True)
 
     account = relationship("FinancialAccount", back_populates="balances")
 
@@ -252,6 +254,7 @@ class Trade(Base):
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True)
     trade_type = Column(Enum(TradeType, name="trade_type", schema="finance_tracker"))
     date = Column(DateTime(timezone=True))
     quantity = Column(Float)
@@ -262,6 +265,7 @@ class Trade(Base):
     sub_portfolio = relationship("SubPortfolio", back_populates="trades")
     asset = relationship("Asset", back_populates="trades")
     account = relationship("FinancialAccount", back_populates="trades")
+    transaction = relationship("Transaction")
 
 
 class PortfolioSnapshot(Base):

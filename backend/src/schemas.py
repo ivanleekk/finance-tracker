@@ -118,6 +118,7 @@ class AccountResponse(AccountBase):
 class BalanceBase(BaseModel):
     date: date
     balance: Decimal
+    is_manual: bool = True
 
 
 class BalanceCreate(BalanceBase):

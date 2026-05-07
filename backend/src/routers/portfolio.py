@@ -8,11 +8,13 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.snapshot_engine import run_snapshot_range
+from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 router = APIRouter(prefix="/portfolio", tags=["Investments & Trades"])
 
@@ -52,6 +54,90 @@ def get_ticker_price(
     except Exception as e:
         print(f"yfinance error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
+
+def sync_trade_transaction(db: Session, db_trade: models.Trade):
+    """
+    Creates or updates a Transaction corresponding to a Trade.
+    """
+    # 1. Find or create the "Investment" category for this household
+    investment_category = db.query(models.Category).filter(
+        models.Category.household_id == db_trade.household_id,
+        models.Category.name == "Investment"
+    ).first()
+
+    if not investment_category:
+        investment_category = models.Category(
+            id=uuid.uuid7(),
+            household_id=db_trade.household_id,
+            name="Investment",
+            type=models.TransactionType.expense.value
+        )
+        db.add(investment_category)
+        db.flush()
+
+    # 2. Calculate amount
+    amount = Decimal(str(db_trade.quantity)) * db_trade.price * Decimal(str(db_trade.exchange_rate))
+    
+    # 3. Determine transaction type
+    # A buy trade is an expense (cash out), a sell trade is income (cash in)
+    if db_trade.trade_type == models.TradeType.buy or db_trade.trade_type == "buy":
+        trans_type = models.TransactionType.expense
+    else:
+        trans_type = models.TransactionType.income
+
+    # 4. Get asset ticker for description
+    asset = db.query(models.Asset).filter(models.Asset.id == db_trade.asset_id).first()
+    ticker = asset.ticker if asset else "Unknown"
+    trade_type_str = db_trade.trade_type.value if hasattr(db_trade.trade_type, "value") else str(db_trade.trade_type)
+    description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
+
+    if db_trade.transaction_id:
+        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
+        if db_transaction:
+            # Capture old impact for balance sync
+            old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+            old_impact = db_transaction.amount * old_multiplier
+            old_date = db_transaction.date.date()
+
+            # Update transaction fields
+            db_transaction.account_id = db_trade.account_id
+            db_transaction.category_id = investment_category.id
+            db_transaction.date = db_trade.date
+            db_transaction.amount = amount
+            db_transaction.description = description
+            db_transaction.transaction_type = trans_type
+
+            # New impact for balance sync
+            new_multiplier = 1 if trans_type == models.TransactionType.income else -1
+            new_impact = amount * new_multiplier
+            new_date = db_trade.date.date()
+
+            if old_date == new_date:
+                sync_transaction_to_balances(db, db_trade.account_id, new_date, new_impact - old_impact)
+            else:
+                sync_transaction_to_balances(db, db_trade.account_id, old_date, -old_impact)
+                sync_transaction_to_balances(db, db_trade.account_id, new_date, new_impact)
+
+            return db_transaction
+
+    db_transaction = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=db_trade.account_id,
+        category_id=investment_category.id,
+        date=db_trade.date,
+        amount=amount,
+        description=description,
+        transaction_type=trans_type
+    )
+    db.add(db_transaction)
+    db.flush()
+    db_trade.transaction_id = db_transaction.id
+
+    # Sync to account balance for new transaction
+    new_multiplier = 1 if trans_type == models.TransactionType.income else -1
+    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount * new_multiplier)
+
+    return db_transaction
 
 # --- ASSETS ---
 
@@ -230,6 +316,8 @@ def execute_trade(
         exchange_rate=trade.exchange_rate,
     )
     db.add(db_trade)
+    db.flush() # Ensure trade is available for sync
+    sync_trade_transaction(db, db_trade)
     db.commit()
     db.refresh(db_trade)
 
@@ -308,6 +396,7 @@ def update_trade(
     for key, value in update_data.items():
         setattr(db_trade, key, value)
 
+    sync_trade_transaction(db, db_trade)
     db.commit()
     db.refresh(db_trade)
 
@@ -347,6 +436,14 @@ def delete_trade(
 
     household_id = db_trade.household_id
     trade_date = db_trade.date.date()
+
+    # Also delete the associated transaction and reverse its impact
+    if db_trade.transaction_id:
+        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
+        if db_transaction:
+            multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+            sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+            db.delete(db_transaction)
 
     db.delete(db_trade)
     db.commit()

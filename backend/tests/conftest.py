@@ -3,8 +3,20 @@ import time
 from pathlib import Path
 
 import pytest
+import sys
+
+# Prevent the local 'alembic' directory from shadowing the alembic library
+cwd = os.getcwd()
+if cwd in sys.path:
+    sys.path.remove(cwd)
+elif "" in sys.path:
+    sys.path.remove("")
+
 from alembic import command
 from alembic.config import Config
+
+# Restore path for other imports
+sys.path.insert(0, cwd)
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError

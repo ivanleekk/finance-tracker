@@ -4,6 +4,9 @@ from typing import List
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
+from src.services.account_service import propagate_balance_change
+from sqlalchemy import desc
+from decimal import Decimal
 import uuid
 
 router = APIRouter(prefix="/accounts", tags=["Financial Accounts"])
@@ -176,13 +179,28 @@ def add_account_balance(
 
     verify_household_access(db_account.household_id, current_user, db)
 
+    # Calculate delta for propagation if there's already a balance chain
+    # What would the balance have been on this date?
+    prev_balance_rec = db.query(models.AccountBalance).filter(
+        models.AccountBalance.account_id == balance.account_id,
+        models.AccountBalance.date < balance.date
+    ).order_by(desc(models.AccountBalance.date)).first()
+    
+    expected_balance = prev_balance_rec.balance if prev_balance_rec else Decimal("0")
+    delta = balance.balance - expected_balance
+
     db_balance = models.AccountBalance(
         id=uuid.uuid7(),
         account_id=balance.account_id,
         date=balance.date,
         balance=balance.balance,
+        is_manual=True
     )
     db.add(db_balance)
+    
+    # Propagate the "correction" forward
+    propagate_balance_change(db, balance.account_id, balance.date, delta)
+    
     db.commit()
     db.refresh(db_balance)
     return db_balance
@@ -221,6 +239,11 @@ def update_account_balance(
     verify_household_access(db_account.household_id, current_user, db)
 
     update_data = balance_update.model_dump(exclude_unset=True)
+    
+    if 'balance' in update_data:
+        delta = Decimal(str(update_data['balance'])) - db_balance.balance
+        propagate_balance_change(db, db_balance.account_id, db_balance.date, delta)
+
     for key, value in update_data.items():
         setattr(db_balance, key, value)
 
