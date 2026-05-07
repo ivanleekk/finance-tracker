@@ -47,3 +47,25 @@ def get_exchange_rate(base: str, target: str, date: str, db: Session = Depends(g
     target_date = datetime.strptime(date, "%Y-%m-%d").date()
     rate = fetch_and_cache_exchange_rates(db, base, target, target_date)
     return {"rate": rate}
+
+@router.get("/timezones", response_model=List[Dict[str, str]])
+def get_timezones():
+    """
+    Returns a list of all common timezones with their GMT offsets using pytz.
+    """
+    import pytz
+    from datetime import datetime
+    
+    timezones = []
+    now = datetime.now()
+    for tz_name in pytz.common_timezones:
+        tz = pytz.timezone(tz_name)
+        offset = tz.utcoffset(now)
+        offset_hours = int(offset.total_seconds() / 3600)
+        offset_minutes = int((offset.total_seconds() % 3600) / 60)
+        offset_str = f"GMT{'+' if offset_hours >= 0 else ''}{offset_hours:02d}:{abs(offset_minutes):02d}"
+        timezones.append({
+            "name": tz_name,
+            "label": f"{tz_name} ({offset_str})"
+        })
+    return sorted(timezones, key=lambda x: x['name'])

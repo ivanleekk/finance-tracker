@@ -14,5 +14,6 @@ export default [
     route("/portfolio", "pages/Portfolio/Portfolio.tsx"),
     route("/transactions", "pages/Transactions/Transactions.tsx"),
     route("/households", "pages/Household/Households.tsx"),
+    route("/profile", "pages/Profile/Profile.tsx"),
     route("*?", "catchall.tsx"),
 ] satisfies RouteConfig;

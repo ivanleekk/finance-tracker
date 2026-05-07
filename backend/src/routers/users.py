@@ -92,6 +92,13 @@ def update_user(
         existing_user.preferred_timezone = user_update.preferred_timezone
     if user_update.name is not None:
         existing_user.name = user_update.name
+    
+    if user_update.email is not None:
+        # Check if the new email is already taken by another user
+        duplicate_user = db.query(models.User).filter(models.User.email == user_update.email, models.User.id != current_user.id).first()
+        if duplicate_user:
+            raise HTTPException(status_code=400, detail="Email already registered by another user")
+        existing_user.email = user_update.email
 
     db.commit()
     db.refresh(existing_user)

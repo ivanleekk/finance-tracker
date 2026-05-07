@@ -46,7 +46,6 @@ function Sidebar() {
                     {/* Conditionally render based on auth state */}
                     {isAuthenticated ? (
                         <>
-                            <SidebarButton text="Settings" href="/settings" icon={<Settings />} />
                             <SidebarButton text="Profile" href="/profile" icon={<UserCircle />} />
                             <Form method="post" action="/logout">
                                 <button type="submit" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-base-600 hover:bg-base-100 hover:text-base-900">

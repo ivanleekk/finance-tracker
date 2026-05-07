@@ -34,6 +34,7 @@ class UserUpdate(BaseModel):
     preferred_timezone: Optional[str] = None
     name: Optional[str] = None
     password: Optional[str] = None
+    email: Optional[EmailStr] = None
 
 
 class UserResponse(UserBase):
