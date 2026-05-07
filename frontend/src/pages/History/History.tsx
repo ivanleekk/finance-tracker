@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react"
-import { useLoaderData, useNavigation } from "react-router"
+import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2 } from "lucide-react"
 import { useHousehold } from "../../lib/HouseholdContext"
+import api from "../../lib/api"
 import type { HistoryLoaderData } from "./history.loader"
 
 export { historyLoader as loader } from "./history.loader";
@@ -29,10 +30,13 @@ export default function History() {
     const { activeHousehold } = useHousehold()
     const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
+    const revalidator = useRevalidator()
 
     const [filterCategory, setFilterCategory] = useState<string>("all")
     const [filterAccount, setFilterAccount] = useState<string>("all")
     const [filterSubportfolio, setFilterSubportfolio] = useState<string>("all")
+
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
     if (!activeHousehold) {
         return (
@@ -41,6 +45,25 @@ export default function History() {
             </div>
         )
     }
+
+    const handleDelete = async (item: UnifiedHistoryItem) => {
+        if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
+        
+        setIsDeleting(item.id);
+        try {
+            const endpoint = item.categoryType === 'trade' 
+                ? `/portfolio/trades/${item.id.replace('trade-', '')}` 
+                : `/cashflow/transactions/${item.id.replace('tx-', '')}`;
+            
+            await api.delete(endpoint);
+            revalidator.revalidate();
+        } catch (error) {
+            console.error("Failed to delete item", error);
+            alert("Failed to delete item. Please try again.");
+        } finally {
+            setIsDeleting(null);
+        }
+    };
 
     const isLoading = navigation.state === "loading";
 
@@ -241,9 +264,20 @@ export default function History() {
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <span className={`font-semibold ${getAmountColor(item.type)}`}>
-                                        {formatAmount(item.type, item.amount)}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`font-semibold ${getAmountColor(item.type)}`}>
+                                            {formatAmount(item.type, item.amount)}
+                                        </span>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                            onClick={() => handleDelete(item)}
+                                            disabled={isDeleting === item.id}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                     <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
                                         {item.status}
                                     </Badge>
