@@ -39,7 +39,7 @@ function Sidebar() {
                     <SidebarButton text="Households" href="/households" icon={<Users />} />
                     <SidebarButton text="Trade" href="/trade" icon={<ArrowRightLeft />} />
                     <SidebarButton text="Portfolio" href="/portfolio" icon={<PieChart />} />
-                    <SidebarButton text="History" href="/history" icon={<History />} />
+                    <SidebarButton text="Transactions" href="/transactions" icon={<History />} />
                 </div>
 
                 <div className="flex flex-col gap-1">

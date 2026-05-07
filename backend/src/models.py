@@ -187,6 +187,7 @@ class Transaction(Base):
     amount = Column(Numeric)
     description = Column(String)
     transaction_type = Column(Enum(TransactionType, name="transaction_type", schema="finance_tracker"))
+    transfer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     account = relationship("FinancialAccount", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")

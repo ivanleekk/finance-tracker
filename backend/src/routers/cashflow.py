@@ -50,6 +50,82 @@ def log_transaction(
     db.refresh(db_transaction)
     return db_transaction
 
+@router.post("/transfers", response_model=List[schemas.TransactionResponse], status_code=status.HTTP_201_CREATED)
+def create_transfer(
+    transfer: schemas.TransferCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1. Verify access to both accounts
+    from_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transfer.from_account_id).first()
+    to_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transfer.to_account_id).first()
+    
+    if not from_account or not to_account:
+        raise HTTPException(status_code=404, detail="One or both accounts not found")
+    
+    verify_household_access(from_account.household_id, current_user, db)
+    verify_household_access(to_account.household_id, current_user, db)
+    
+    if from_account.household_id != to_account.household_id:
+        raise HTTPException(status_code=400, detail="Transfer must be within the same household")
+
+    # 2. Find/Create "Transfer" category
+    transfer_cat = db.query(models.Category).filter(
+        models.Category.household_id == from_account.household_id,
+        models.Category.name == "Transfer"
+    ).first()
+    
+    if not transfer_cat:
+        transfer_cat = models.Category(
+            id=uuid.uuid7(),
+            household_id=from_account.household_id,
+            name="Transfer",
+            type="expense" # Base type for the category table, but we override in transaction
+        )
+        db.add(transfer_cat)
+        db.flush()
+
+    transfer_id = uuid.uuid7()
+    
+    # 3. Create "Withdrawal" transaction
+    withdrawal = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=transfer.from_account_id,
+        category_id=transfer_cat.id,
+        date=transfer.date,
+        amount=transfer.amount,
+        description=transfer.description or f"Transfer to {to_account.name}",
+        transaction_type=models.TransactionType.expense,
+        transfer_id=transfer_id
+    )
+    
+    # 4. Create "Deposit" transaction
+    deposit = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=transfer.to_account_id,
+        category_id=transfer_cat.id,
+        date=transfer.date,
+        amount=transfer.amount,
+        description=transfer.description or f"Transfer from {from_account.name}",
+        transaction_type=models.TransactionType.income,
+        transfer_id=transfer_id
+    )
+    
+    db.add(withdrawal)
+    db.add(deposit)
+    db.flush()
+    
+    # 5. Sync balances
+    sync_transaction_to_balances(db, transfer.from_account_id, transfer.date.date(), -transfer.amount)
+    sync_transaction_to_balances(db, transfer.to_account_id, transfer.date.date(), transfer.amount)
+    
+    db.commit()
+    db.refresh(withdrawal)
+    db.refresh(deposit)
+    
+    return [withdrawal, deposit]
+
+
 @router.get(
     "/transactions/household/{household_id}",
     response_model=List[schemas.TransactionResponse],
@@ -142,8 +218,21 @@ def delete_transaction(
     # Reverse impact
     multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
     sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
-
+    
+    transfer_id = db_transaction.transfer_id
     db.delete(db_transaction)
+
+    # If transfer, delete counterpart
+    if transfer_id:
+        counterpart = db.query(models.Transaction).filter(
+            models.Transaction.transfer_id == transfer_id,
+            models.Transaction.id != transaction_id
+        ).first()
+        if counterpart:
+            counterpart_multiplier = 1 if counterpart.transaction_type == models.TransactionType.income else -1
+            sync_transaction_to_balances(db, counterpart.account_id, counterpart.date.date(), -(counterpart.amount * counterpart_multiplier))
+            db.delete(counterpart)
+
     db.commit()
     return
 

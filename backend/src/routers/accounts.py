@@ -4,9 +4,10 @@ from typing import List
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
-from src.services.account_service import propagate_balance_change
+from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from sqlalchemy import desc
 from decimal import Decimal
+from datetime import datetime, timezone
 import uuid
 
 router = APIRouter(prefix="/accounts", tags=["Financial Accounts"])
@@ -197,8 +198,42 @@ def add_account_balance(
         is_manual=True
     )
     db.add(db_balance)
+    db.flush()
+
+    # If there's a difference, create a reconciliation transaction
+    if delta != 0:
+        # Find or create "Adjustment" category
+        adjustment_cat = db.query(models.Category).filter(
+            models.Category.household_id == db_account.household_id,
+            models.Category.name == "Balance Adjustment"
+        ).first()
+        
+        if not adjustment_cat:
+            adjustment_cat = models.Category(
+                id=uuid.uuid7(),
+                household_id=db_account.household_id,
+                name="Balance Adjustment",
+                type=models.TransactionType.income.value if delta > 0 else models.TransactionType.expense.value
+            )
+            db.add(adjustment_cat)
+            db.flush()
+        
+        # Create transaction
+        # Convert date to datetime for the Transaction model
+        trans_datetime = datetime.combine(balance.date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        adj_transaction = models.Transaction(
+            id=uuid.uuid7(),
+            account_id=balance.account_id,
+            category_id=adjustment_cat.id,
+            date=trans_datetime,
+            amount=abs(delta),
+            description=f"Automated reconciliation for {balance.date}",
+            transaction_type=models.TransactionType.income if delta > 0 else models.TransactionType.expense
+        )
+        db.add(adj_transaction)
     
-    # Propagate the "correction" forward
+    # Propagate the "correction" forward through automated records
     propagate_balance_change(db, balance.account_id, balance.date, delta)
     
     db.commit()

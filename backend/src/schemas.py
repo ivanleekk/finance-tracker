@@ -222,7 +222,16 @@ class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    transfer_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransferCreate(BaseModel):
+    from_account_id: uuid.UUID
+    to_account_id: uuid.UUID
+    amount: Decimal
+    date: datetime
+    description: Optional[str] = None
 
 
 # ----------------------------------------

@@ -11,7 +11,7 @@ export type HistoryLoaderData = {
     subportfolios: SubPortfolioResponse[];
 };
 
-export async function historyLoader({ request }: LoaderFunctionArgs): Promise<HistoryLoaderData> {
+export async function transactionsLoader({ request }: LoaderFunctionArgs): Promise<HistoryLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {

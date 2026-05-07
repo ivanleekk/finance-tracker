@@ -133,7 +133,7 @@ export default function Accounts() {
                     <h2 className="text-3xl font-bold tracking-tight text-base-900">Bank Accounts</h2>
                     <p className="text-base-500 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
                 </div>
-                <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Link New Account</Button>
+                <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
             </div>
 
             {/* Chart Section */}
@@ -390,7 +390,7 @@ export default function Accounts() {
                         <CardHeader>
                             <CardTitle className="text-red-600">Delete Account</CardTitle>
                             <CardDescription>
-                                Are you sure you want to delete <strong>{accountToDelete.name}</strong>? 
+                                Are you sure you want to delete <strong>{accountToDelete.name}</strong>?
                                 This action cannot be undone and will delete all associated balance history.
                             </CardDescription>
                         </CardHeader>

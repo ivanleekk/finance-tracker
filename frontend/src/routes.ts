@@ -12,7 +12,7 @@ export default [
     route("/accounts", "pages/Accounts/Accounts.tsx"),
     route("/trade", "pages/Trade/Trade.tsx"),
     route("/portfolio", "pages/Portfolio/Portfolio.tsx"),
-    route("/history", "pages/History/History.tsx"),
+    route("/transactions", "pages/Transactions/Transactions.tsx"),
     route("/households", "pages/Household/Households.tsx"),
     route("*?", "catchall.tsx"),
 ] satisfies RouteConfig;

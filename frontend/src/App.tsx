@@ -12,7 +12,7 @@ import LandingPage from './LandingPage.tsx'
 import Dashboard from './pages/Dashboard/Dashboard.tsx';
 import Trade from './pages/Trade/Trade.tsx';
 import Portfolio from './pages/Portfolio/Portfolio.tsx';
-import History from './pages/History/History.tsx';
+import Transactions from './pages/Transactions/Transactions.tsx';
 import Settings from './Settings.tsx';
 import Profile from './Profile.tsx';
 import Accounts from './pages/Accounts/Accounts.tsx';
@@ -21,7 +21,7 @@ import Login from './pages/Login/Login.tsx';
 import Signup from './pages/Signup/Signup.tsx';
 import { householdsLoader } from "./pages/Household/households.loader.ts";
 import { portfolioLoader } from "./pages/Portfolio/portfolio.loader.ts";
-import { historyLoader } from "./pages/History/history.loader.ts";
+import { transactionsLoader } from "./pages/Transactions/transactions.loader.ts";
 
 // --- 1. Define Loaders ---
 
@@ -95,7 +95,7 @@ const router = createBrowserRouter([
                             { path: "/accounts", element: <Accounts /> },
                             { path: "/trade", element: <Trade /> },
                             { loader: portfolioLoader, path: "/portfolio", element: <Portfolio /> },
-                            { loader: historyLoader, path: "/history", element: <History /> },
+                            { loader: transactionsLoader, path: "/transactions", element: <Transactions /> },
                             { path: "/households", loader: householdsLoader, element: <Households /> },
                             { path: "/settings", element: <Settings /> },
                             { path: "/profile", element: <Profile /> },
