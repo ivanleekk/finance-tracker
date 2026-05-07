@@ -13,13 +13,23 @@ export type PortfolioLoaderData = {
 export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<PortfolioLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
+    const url = new URL(request.url);
+    const startDate = url.searchParams.get("start_date");
+    const endDate = url.searchParams.get("end_date");
+
+    const metricsUrl = `/portfolio/household/${householdId}/metrics` + 
+        (startDate || endDate ? `?${new URLSearchParams({ 
+            ...(startDate && { start_date: startDate }), 
+            ...(endDate && { end_date: endDate }) 
+        })}` : "");
+
     try {
         const [spRes, trRes, asRes, snRes, meRes] = await Promise.all([
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/portfolio/trades/household/${householdId}`),
             ssrFetch(`/portfolio/assets`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
-            ssrFetch(`/portfolio/household/${householdId}/metrics`)
+            ssrFetch(metricsUrl)
         ]);
 
         const [subportfolios, trades, assets, snapshots, metrics] = await Promise.all([

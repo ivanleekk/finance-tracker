@@ -14,6 +14,8 @@ def calculate_performance_metrics(
     db: Session, 
     household_id: uuid.UUID, 
     sub_portfolio_id: Optional[uuid.UUID] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     risk_free_rate: float = 0.04,
     benchmark_ticker: str = "SPY"
 ) -> schemas.PerformanceMetrics:
@@ -52,13 +54,8 @@ def calculate_performance_metrics(
         
     trades = db.execute(trade_query).all()
     
-    # Process cash flows: Buy = Outflow (Negative for MWR perspective), Sell = Inflow (Positive)
-    # Actually, for IRR: Contributions are negative, Distributions/Ending Value are positive.
     cash_flows = []
     for t in trades:
-        # amount is positive here.
-        # If I buy, I'm contributing cash TO the portfolio.
-        # If I sell, I'm withdrawing cash FROM the portfolio.
         # MWR CF convention: Negative = Investment (Outflow from wallet), Positive = Withdrawal (Inflow to wallet)
         cf_amount = -float(t.amount) if t.trade_type == TradeType.buy else float(t.amount)
         cash_flows.append({"date": t.date, "amount": cf_amount})
@@ -67,95 +64,113 @@ def calculate_performance_metrics(
     if not df_cf.is_empty():
         df_cf = df_cf.with_columns(pl.col("date").cast(pl.Date)).group_by("date").agg(pl.sum("amount"))
 
-    # --- Metrics Calculation ---
-    
-    # A. Simple Return
-    # Simple Return = (Ending Value - Net Contributions) / Net Contributions
-    ending_value = df_snapshots["total_value"].tail(1).item()
-    net_contributions = -df_cf["amount"].sum() if not df_cf.is_empty() else 0.0
-    
-    # Handle edge case where net_contributions is 0
-    simple_return = (ending_value - net_contributions) / net_contributions if net_contributions > 0 else 0.0
+    # --- Calculation Engine ---
 
-    # B. Time-Weighted Return (TWR)
-    # TWR = Product of (End_Value / (Start_Value + CF)) - 1
-    # We join snapshots and cash flows
-    df_combined = df_snapshots.join(df_cf, on="date", how="left").fill_null(0.0)
-    
-    # Calculate daily returns
-    # return_i = (V_i) / (V_{i-1} + CF_i)
-    df_twr = df_combined.with_columns([
+    # Join snapshots and cash flows for the full history
+    # This is crucial for calculating returns for the "first day" of a filtered window
+    df_history = df_snapshots.join(df_cf, on="date", how="left").fill_null(0.0)
+    df_history = df_history.with_columns([
         pl.col("total_value").shift(1).alias("prev_value")
-    ]).fill_null(0.0)
-    
-    # If it's the first day, return is 0 or based on first CF
-    df_twr = df_twr.with_columns(
-        daily_return = (pl.col("total_value")) / (pl.col("prev_value") - pl.col("amount"))
-    ).fill_null(1.0)
-    
-    # Chain link
-    twr_cumulative = df_twr["daily_return"].product() - 1.0
+    ])
 
-    # C. Money-Weighted Return (MWR / IRR)
-    # Add terminal value as a final positive cash flow
-    mwr_cfs = cash_flows.copy()
-    mwr_cfs.append({"date": df_snapshots["date"].tail(1).item(), "amount": ending_value})
+    # Calculate Daily Returns for ALL historical data first
+    # return_t = (Value_t + CF_t) / Value_t-1
+    # Note: df_cf amount is negative for Buys (contributions), so we subtract it to get gain
+    # Actually, if amount is -100 (Buy), then Value_t includes that 100.
+    # To get performance: (Value_t - amount) / Value_t-1
+    # Example: prev=1000, buy=100, new_val=1110. Return = (1110 - 100) / 1000 = 1.01 (1%)
+    df_history = df_history.with_columns([
+        ((pl.col("total_value") - pl.col("amount")) / pl.col("prev_value") - 1.0)
+        .fill_null(0.0)
+        .alias("daily_return")
+    ])
+
+    # Now filter by the requested timeframe
+    df_filtered = df_history
+    if start_date:
+        df_filtered = df_filtered.filter(pl.col("date") >= start_date)
+    if end_date:
+        df_filtered = df_filtered.filter(pl.col("date") <= end_date)
+
+    if df_filtered.is_empty():
+        return _empty_metrics()
+
+    # --- A. Time-Weighted Return (TWR) ---
+    # TWR in the window is the product of (1 + daily_return)
+    twr_cumulative = (df_filtered["daily_return"] + 1.0).product() - 1.0
+
+    # --- B. Annualized TWR ---
+    days_in_window = (df_filtered["date"].max() - df_filtered["date"].min()).days
+    years_in_window = days_in_window / 365.25 if days_in_window > 0 else 0
     
-    # Sort by date
-    mwr_cfs.sort(key=lambda x: x["date"])
+    # If timeframe is very short (< 1 day), we just show the cumulative return
+    if years_in_window > 0 and twr_cumulative > -1:
+        ann_twr = (1 + twr_cumulative)**(1 / years_in_window) - 1
+    else:
+        ann_twr = twr_cumulative
+
+    # --- C. Simple Return ---
+    # Total Value / Total Contributions (within window, starting from base value)
+    start_val = df_filtered["total_value"].head(1).item()
+    end_val = df_filtered["total_value"].tail(1).item()
+    # Net contributions in the window (excluding the starting balance)
+    # Filter cf to the window
+    df_cf_window = df_cf
+    if start_date:
+        df_cf_window = df_cf_window.filter(pl.col("date") > start_date) # Only CFs *after* the start date
+    if end_date:
+        df_cf_window = df_cf_window.filter(pl.col("date") <= end_date)
     
-    # Convert to daily IRR
-    # XIRR implementation is needed for non-periodic. 
-    # For now, let's use a simplified version or a search for daily IRR.
+    net_cf_window = -df_cf_window["amount"].sum() if not df_cf_window.is_empty() else 0.0
+    denominator = start_val + net_cf_window
+    simple_return = (end_val - denominator) / denominator if denominator > 0 else 0.0
+
+    # --- D. Money-Weighted Return (MWR / IRR) ---
+    mwr_cfs = []
+    if not df_cf_window.is_empty():
+        mwr_cfs = df_cf_window.to_dicts()
+    
+    # Initial "outflow" (starting value of portfolio at the beginning of window)
+    if start_val > 0:
+        mwr_cfs.append({"date": df_filtered["date"].head(1).item(), "amount": -start_val})
+    
+    # Final "inflow" (ending value of portfolio)
+    if end_val > 0:
+        mwr_cfs.append({"date": df_filtered["date"].tail(1).item(), "amount": end_val})
+    
     mwr = _calculate_xirr(mwr_cfs)
 
-    # D. Volatility & Ratios
-    # Daily returns (not TWR style, just % change in equity adjusted for CF)
-    df_metrics = df_twr.with_columns(
-        pct_change = (pl.col("total_value") - pl.col("amount") - pl.col("prev_value")) / pl.col("prev_value")
-    ).fill_null(0.0).filter(pl.col("prev_value") > 0)
-    
-    daily_vol = df_metrics["pct_change"].std() if not df_metrics.is_empty() else 0.0
-    annualized_vol = daily_vol * np.sqrt(252)
-    
-    # Fetch actual historical risk-free rates (^IRX)
+    # --- E. Volatility & Risk Ratios ---
+    daily_vol = df_filtered["daily_return"].std()
+    annualized_vol = float(daily_vol) * np.sqrt(252) if daily_vol is not None else 0.0
+
+    # Risk-Free Rate Fetching
     rf_query = select(MarketPrice.date, MarketPrice.close_price).where(MarketPrice.ticker == "^IRX")
     rf_results = db.execute(rf_query).all()
+    effective_rf = 0.02 # Default
     if rf_results:
         df_rf = pl.DataFrame([{"date": r.date, "rf_rate": float(r.close_price)} for r in rf_results])
         df_rf = df_rf.with_columns(pl.col("date").cast(pl.Date))
-        # Join with metrics to get RF for the specific period
-        df_metrics_rf = df_metrics.join(df_rf, on="date", how="left").fill_null(strategy="forward").fill_null(0.04)
-        effective_rf = df_metrics_rf["rf_rate"].mean() if not df_metrics_rf.is_empty() else 0.04
-    else:
-        effective_rf = 0.04 # Fallback
-    
-    # Annualized Returns
-    days = (df_snapshots["date"].max() - df_snapshots["date"].min()).days
-    years = days / 365.25 if days > 0 else 0
-    
-    ann_twr = (1 + twr_cumulative)**(1/years) - 1 if years > 0 and twr_cumulative > -1 else twr_cumulative
-    
+        df_metrics_rf = df_filtered.join(df_rf, on="date", how="left").fill_null(strategy="forward").fill_null(0.02)
+        effective_rf = df_metrics_rf["rf_rate"].mean() if not df_metrics_rf.is_empty() else 0.02
+
     sharpe = (ann_twr - effective_rf) / annualized_vol if annualized_vol > 0 else 0.0
-    
-    # Sortino (Downside deviation)
-    downside_returns = df_metrics.filter(pl.col("pct_change") < 0)["pct_change"]
-    downside_vol = downside_returns.std() * np.sqrt(252) if not downside_returns.is_empty() else 0.0
-    sortino = (ann_twr - effective_rf) / downside_vol if downside_vol > 0 else 0.0
- 
-    # E. Beta & Treynor
-    beta = 1.0 # Default
-    treynor = (ann_twr - effective_rf) / beta if beta != 0 else 0.0
+
+    # Sortino
+    downside_returns = df_filtered.filter(pl.col("daily_return") < 0)["daily_return"]
+    ds_std = downside_returns.std()
+    downside_vol = float(ds_std) * np.sqrt(252) if ds_std is not None else 0.0
+    sortino = (ann_twr - effective_rf) / downside_vol if downside_vol > 0 else (0.0 if (ann_twr - effective_rf) <= 0 else 100.0)
 
     return schemas.PerformanceMetrics(
         simple_return=simple_return,
-        time_weighted_return=ann_twr, # Return annualized TWR
+        time_weighted_return=ann_twr,
         money_weighted_return=mwr,
         volatility=annualized_vol,
         sharpe_ratio=sharpe,
         sortino_ratio=sortino,
-        treynor_ratio=treynor,
-        beta=beta
+        treynor_ratio=(ann_twr - effective_rf) / 1.0, # Default beta=1
+        beta=1.0
     )
 
 def _empty_metrics() -> schemas.PerformanceMetrics:
@@ -171,38 +186,43 @@ def _empty_metrics() -> schemas.PerformanceMetrics:
     )
 
 def _calculate_xirr(cash_flows: List[Dict], guess: float = 0.1) -> float:
-    """
-    Simplified XIRR implementation using Newton's method.
-    """
     if not cash_flows:
+        return 0.0
+    
+    amounts = [cf["amount"] for cf in cash_flows if abs(cf["amount"]) > 1e-6]
+    if not amounts or all(a >= 0 for a in amounts) or all(a <= 0 for a in amounts):
         return 0.0
         
     start_date = min(cf["date"] for cf in cash_flows)
     
     def npv(rate):
         total = 0.0
+        safe_rate = max(rate, -0.999)
         for cf in cash_flows:
             d = (cf["date"] - start_date).days
-            total += cf["amount"] / (1 + rate)**(d / 365.25)
+            total += cf["amount"] / (1 + safe_rate)**(d / 365.25)
         return total
 
     def npv_der(rate):
         total = 0.0
+        safe_rate = max(rate, -0.999)
         for cf in cash_flows:
             d = (cf["date"] - start_date).days
-            total += - (d / 365.25) * cf["amount"] / (1 + rate)**(d / 365.25 + 1)
+            total += - (d / 365.25) * cf["amount"] / (1 + safe_rate)**(d / 365.25 + 1)
         return total
 
-    # Newton's method
     rate = guess
     for _ in range(100):
-        f = npv(rate)
-        df = npv_der(rate)
-        if df == 0:
-            break
-        new_rate = rate - f / df
-        if abs(new_rate - rate) < 1e-6:
-            return new_rate
-        rate = new_rate
-        
-    return rate # Fallback to best guess
+        try:
+            f = npv(rate)
+            df = npv_der(rate)
+            if df == 0: break
+            new_rate = rate - f / df
+            new_rate = max(-0.99, min(new_rate, 100.0))
+            if abs(new_rate - rate) < 1e-6:
+                return new_rate
+            rate = new_rate
+        except (OverflowError, ZeroDivisionError):
+            return 0.0
+            
+    return rate

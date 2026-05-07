@@ -164,7 +164,7 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
         logger.error(f"Database error during market price range upsert: {e}")
         raise
 
-def fetch_and_cache_treasury_rates(db: Session, ticker: str = "^IRX", days: int = 365):
+def fetch_and_cache_treasury_rates(db: Session, ticker: str = "^IRX", days: int = 7300):
     """
     Fetches historical treasury yields (e.g. ^IRX for 13-week T-bills) 
     and stores them in market_prices. Yields are stored as decimals (e.g. 0.05 for 5%).

@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
 import { useEffect, useMemo, useState } from "react"
-import { useLoaderData, useRevalidator } from "react-router"
+import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
 import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
+import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 
 export { dashboardLoader as loader } from "./dashboard.loader";
 
@@ -22,7 +23,9 @@ export default function Dashboard() {
         metrics = null
     } = (useLoaderData() as DashboardLoaderData) || {};
     const revalidator = useRevalidator();
+    const [searchParams] = useSearchParams();
     const [timeframe, setTimeframe] = useState("Monthly");
+    const startDate = searchParams.get("start_date");
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -81,7 +84,9 @@ export default function Dashboard() {
             dailyData.set(s.date, { ...existing, portfolio: existing.portfolio + Number(s.current_value_home_currency) });
         });
 
-        const sortedDates = Array.from(dailyData.keys()).sort((a, b) => a.localeCompare(b));
+        const sortedDates = Array.from(dailyData.keys())
+            .filter(date => !startDate || date >= startDate)
+            .sort((a, b) => a.localeCompare(b));
 
         const rawData = sortedDates.map(date => {
             const data = dailyData.get(date)!;
@@ -131,6 +136,7 @@ export default function Dashboard() {
                     <h2 className="text-3xl font-bold tracking-tight text-base-900">Dashboard</h2>
                     <p className="text-base-500 mt-1">Overview of your household financial health.</p>
                 </div>
+                <TimeframeSelector />
             </div>
 
             {/* Top Row: Stats */}
@@ -162,7 +168,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                     title="Sharpe Ratio"
-                    value={metrics?.overall_metrics.sharpe_ratio.toFixed(2) || "0.00"}
+                    value={metrics?.overall_metrics.sharpe_ratio !== undefined && metrics?.overall_metrics.sharpe_ratio !== null ? metrics.overall_metrics.sharpe_ratio.toFixed(2) : "0.00"}
                     trend="neutral"
                 />
             </div>

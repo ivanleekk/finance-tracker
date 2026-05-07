@@ -859,6 +859,8 @@ def delete_exchange_rate(
 @router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
 def get_portfolio_metrics(
     household_id: uuid.UUID, 
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -874,14 +876,14 @@ def get_portfolio_metrics(
             print(f"Failed to fetch treasury rates: {e}")
     
     # 1. Calculate overall metrics
-    overall = calculate_performance_metrics(db, household_id)
+    overall = calculate_performance_metrics(db, household_id, start_date=start_date, end_date=end_date)
     
     # 2. Calculate metrics for each sub-portfolio
     sub_portfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
     sub_metrics = []
     
     for sp in sub_portfolios:
-        metrics = calculate_performance_metrics(db, household_id, sub_portfolio_id=sp.id)
+        metrics = calculate_performance_metrics(db, household_id, sub_portfolio_id=sp.id, start_date=start_date, end_date=end_date)
         sub_metrics.append(schemas.SubPortfolioMetricsResponse(
             sub_portfolio_id=sp.id,
             name=sp.name,
@@ -897,6 +899,8 @@ def get_portfolio_metrics(
 @router.get("/subportfolios/{subportfolio_id}/metrics", response_model=schemas.PerformanceMetrics)
 def get_subportfolio_metrics(
     subportfolio_id: uuid.UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -914,5 +918,11 @@ def get_subportfolio_metrics(
         except Exception as e:
             print(f"Failed to fetch treasury rates: {e}")
 
-    metrics = calculate_performance_metrics(db, db_subportfolio.household_id, sub_portfolio_id=subportfolio_id)
+    metrics = calculate_performance_metrics(
+        db, 
+        db_subportfolio.household_id, 
+        sub_portfolio_id=subportfolio_id,
+        start_date=start_date,
+        end_date=end_date
+    )
     return metrics

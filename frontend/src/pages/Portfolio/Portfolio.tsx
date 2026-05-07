@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useLoaderData, useRevalidator, useNavigation } from "react-router"
+import { useLoaderData, useRevalidator, useNavigation, useSearchParams } from "react-router"
 import { StatCard } from "../../components/ui/StatCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -11,6 +11,7 @@ import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import type { SubPortfolioResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
+import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 
 export { portfolioLoader as loader } from "./portfolio.loader";
 
@@ -46,6 +47,8 @@ export default function Portfolio() {
     const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
+    const [searchParams] = useSearchParams()
+    const startDate = searchParams.get("start_date")
 
     const [activeTab, setActiveTab] = useState("Overall")
     const [timeframe, setTimeframe] = useState("Monthly")
@@ -117,6 +120,7 @@ export default function Portfolio() {
             });
 
             return Array.from(binned.entries())
+                .filter(([date]) => !startDate || date >= startDate)
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([date, equity]) => ({ date, equity }));
         };
@@ -143,11 +147,11 @@ export default function Portfolio() {
                     unrealized: `${sign(unrealized)}${formatCurrency(Math.abs(unrealized))}`,
                     unrealizedPercent: m?.simple_return * 100 || unrealizedPercent,
                     realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
-                    sharpe: m?.sharpe_ratio?.toFixed(2) || "N/A",
-                    sortino: m?.sortino_ratio?.toFixed(2) || "N/A",
-                    drawdown: m?.volatility ? formatPercent(m.volatility) : "N/A",
-                    twr: m?.time_weighted_return ? formatPercent(m.time_weighted_return) : "N/A",
-                    irr: m?.money_weighted_return ? formatPercent(m.money_weighted_return) : "N/A"
+                    sharpe: m?.sharpe_ratio !== undefined && m?.sharpe_ratio !== null ? m.sharpe_ratio.toFixed(2) : "N/A",
+                    sortino: m?.sortino_ratio !== undefined && m?.sortino_ratio !== null ? m.sortino_ratio.toFixed(2) : "N/A",
+                    drawdown: m?.volatility !== undefined && m?.volatility !== null ? formatPercent(m.volatility) : "N/A",
+                    twr: m?.time_weighted_return !== undefined && m?.time_weighted_return !== null ? formatPercent(m.time_weighted_return) : "N/A",
+                    irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A"
                 },
                 history,
                 holdings: hlds
@@ -168,7 +172,8 @@ export default function Portfolio() {
                 .map(([date, equity]) => ({
                     date,
                     equity
-                }));
+                }))
+                .filter(item => !startDate || item.date >= startDate);
 
             const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
             const latestDate = sortedDates[sortedDates.length - 1];
@@ -248,9 +253,12 @@ export default function Portfolio() {
                     <h2 className="text-3xl font-bold tracking-tight text-base-900">Portfolio</h2>
                     <p className="text-base-500 mt-1">Track your performance and risk metrics.</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
-                    <Button variant="primary">Download Report</Button>
+                <div className="flex items-center gap-4">
+                    <TimeframeSelector />
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
+                        <Button variant="primary">Download Report</Button>
+                    </div>
                 </div>
             </div>
 

@@ -21,13 +21,23 @@ export type DashboardLoaderData = {
 export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<DashboardLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
+    const url = new URL(request.url);
+    const startDate = url.searchParams.get("start_date");
+    const endDate = url.searchParams.get("end_date");
+
+    const metricsUrl = `/portfolio/household/${householdId}/metrics` + 
+        (startDate || endDate ? `?${new URLSearchParams({ 
+            ...(startDate && { start_date: startDate }), 
+            ...(endDate && { end_date: endDate }) 
+        })}` : "");
+
     try {
         const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
-            ssrFetch(`/portfolio/household/${householdId}/metrics`)
+            ssrFetch(metricsUrl)
         ]);
 
         const [accounts, subPortfolios, transactions, snapshots, metrics] = await Promise.all([
