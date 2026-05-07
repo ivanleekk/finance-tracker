@@ -1,0 +1,3 @@
+## 2024-05-07 - O(N^2) Performance Bottleneck in Chart Date Traversal
+**Learning:** Developers frequently place `.filter().sort()` methods inside of `.map()` or `.forEach()` loop iterations when constructing chronological charting data that requires looking up "most recent historical entry". In data-heavy systems, this turns an $O(N)$ calculation into an $O(N^2 \log N)$ operation that will actively block the browser's main thread and severely degrade frontend performance.
+**Action:** Always verify loops over dates to see if they call `.filter()` or `.sort()` on arrays inside the loop. Instead, hoist `.sort()` outside the loop and implement a running index/pointer that ticks forward alongside the date array to keep track of the most recent value in $O(N)$ time.

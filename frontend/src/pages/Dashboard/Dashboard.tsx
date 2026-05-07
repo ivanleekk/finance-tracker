@@ -68,12 +68,28 @@ export default function Dashboard() {
 
         const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
+        // Pre-sort historical data O(N log N)
+        const sortedBalances = Object.values(balances).map(history =>
+            [...history].sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        const subPortfolioIds = Array.from(new Set(snapshots.map(s => s.sub_portfolio_id)));
+        const sortedSnapshotsBySp = subPortfolioIds.map(spId =>
+            snapshots.filter(s => s.sub_portfolio_id === spId).sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        // Keep running pointers/indices to avoid O(N^2) inner loops
+        const balanceIndices = new Array(sortedBalances.length).fill(0);
+        const snapshotIndices = new Array(sortedSnapshotsBySp.length).fill(0);
+
         return sortedDates.map(date => {
             let cash = 0;
-            Object.values(balances).forEach(history => {
-                const pastOrCurrent = history.filter(h => h.date <= date).sort((a, b) => a.date.localeCompare(b.date));
-                if (pastOrCurrent.length > 0) {
-                    cash += Number(pastOrCurrent[pastOrCurrent.length - 1].balance);
+            sortedBalances.forEach((history, i) => {
+                while (balanceIndices[i] < history.length - 1 && history[balanceIndices[i] + 1].date <= date) {
+                    balanceIndices[i]++;
+                }
+                if (history.length > 0 && history[balanceIndices[i]].date <= date) {
+                    cash += Number(history[balanceIndices[i]].balance);
                 }
             });
 
@@ -82,14 +98,12 @@ export default function Dashboard() {
             if (snapshotsOnDate.length > 0) {
                 portfolio = snapshotsOnDate.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
             } else {
-                // Find latest snapshots before this date
-                const subPortfolioIds = Array.from(new Set(snapshots.map(s => s.sub_portfolio_id)));
-                subPortfolioIds.forEach(spId => {
-                    const pastSnapshots = snapshots
-                        .filter(s => s.sub_portfolio_id === spId && s.date < date)
-                        .sort((a, b) => a.date.localeCompare(b.date));
-                    if (pastSnapshots.length > 0) {
-                        portfolio += Number(pastSnapshots[pastSnapshots.length - 1].current_value_home_currency);
+                sortedSnapshotsBySp.forEach((spHistory, i) => {
+                    while (snapshotIndices[i] < spHistory.length - 1 && spHistory[snapshotIndices[i] + 1].date <= date) {
+                        snapshotIndices[i]++;
+                    }
+                    if (spHistory.length > 0 && spHistory[snapshotIndices[i]].date <= date) {
+                        portfolio += Number(spHistory[snapshotIndices[i]].current_value_home_currency);
                     }
                 });
             }

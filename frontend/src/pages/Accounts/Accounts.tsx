@@ -94,16 +94,26 @@ export default function Accounts() {
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
 
+        // Pre-sort each account's history once
+        const sortedHistories = accounts.map(acc =>
+            [...acc.history].sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        // Keep running pointers for each account
+        const indices = new Array(accounts.length).fill(0);
+
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
-            accounts.forEach(acc => {
-                const pastOrCurrentEntries = acc.history
-                    .filter(h => h.date <= date)
-                    .sort((a, b) => a.date.localeCompare(b.date));
+            accounts.forEach((acc, i) => {
+                const history = sortedHistories[i];
 
-                if (pastOrCurrentEntries.length > 0) {
-                    dataPoint[acc.name] = Number(pastOrCurrentEntries[pastOrCurrentEntries.length - 1].balance);
+                while (indices[i] < history.length - 1 && history[indices[i] + 1].date <= date) {
+                    indices[i]++;
+                }
+
+                if (history.length > 0 && history[indices[i]].date <= date) {
+                    dataPoint[acc.name] = Number(history[indices[i]].balance);
                 } else {
                     dataPoint[acc.name] = 0;
                 }
