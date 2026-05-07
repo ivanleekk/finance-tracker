@@ -128,13 +128,14 @@ export default function Portfolio() {
             // 1. History (Aggregated by Date)
             const dailyEquity = new Map<string, number>();
             snaps.forEach(s => {
-                dailyEquity.set(s.date, (dailyEquity.get(s.date) || 0) + Number(s.current_value_home_currency));
+                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
+                dailyEquity.set(dateKey, (dailyEquity.get(dateKey) || 0) + Number(s.current_value_home_currency));
             });
             
             const history = Array.from(dailyEquity.entries())
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([date, equity]) => ({
-                    date: new Date(date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+                    date, // Keep ISO string as the unique key
                     equity
                 }));
 
@@ -310,6 +311,7 @@ export default function Portfolio() {
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: '#64748b', fontSize: 12 }}
+                                    tickFormatter={(val) => new Date(val).toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
                                     dy={10}
                                 />
                                 <YAxis
@@ -319,7 +321,8 @@ export default function Portfolio() {
                                     tickFormatter={(value) => `$${value / 1000}k`}
                                 />
                                 <Tooltip
-                                    formatter={(value: any) => [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value as number), "Equity"]}
+                                    labelFormatter={(label) => new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                    formatter={(value: any) => [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value as number), "Total Equity"]}
                                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
                                 <Area

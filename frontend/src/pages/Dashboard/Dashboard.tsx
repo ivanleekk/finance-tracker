@@ -86,14 +86,8 @@ export default function Dashboard() {
 
         return sortedDates.map(date => {
             const data = dailyData.get(date)!;
-            
-            // If data is 0 but we have a previous value, we might want to carry it forward 
-            // depending on if the date was present in the set.
-            // Actually, the backend engine now ensures snapshots are daily, 
-            // and we expect balance history to be also relatively continuous.
-            
             return {
-                date: new Date(date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+                date, // ISO string for unique key
                 netWorth: data.cash + data.portfolio,
                 cash: data.cash,
                 portfolio: data.portfolio
@@ -161,6 +155,7 @@ export default function Dashboard() {
                                             axisLine={false}
                                             tickLine={false}
                                             tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                            tickFormatter={(val) => new Date(val).toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
                                             dy={10}
                                         />
                                         <YAxis
@@ -170,6 +165,7 @@ export default function Dashboard() {
                                             tickFormatter={(value) => `$${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
                                         />
                                         <Tooltip
+                                            labelFormatter={(label) => new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
                                             formatter={(value: any) => [formatCurrency(value as number), 'Net Worth']}
                                             contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                         />
