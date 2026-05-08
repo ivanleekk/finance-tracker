@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@microsoft/clarity':
+        specifier: ^1.0.2
+        version: 1.0.2
       '@react-router/node':
         specifier: ^7.15.0
         version: 7.15.0(react-router@7.15.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(typescript@6.0.3)
@@ -476,6 +479,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@microsoft/clarity@1.0.2':
+    resolution: {integrity: sha512-9EZYROFpJxEGmQpHvUFqvD3ZJ7QQSqnibYSWmS+1xusoZfG1QQ1/Al9yVBBc11DWMbJrs1pe1hLT273it/skJg==}
 
   '@mjackson/node-fetch-server@0.2.0':
     resolution: {integrity: sha512-EMlH1e30yzmTpGLQjlFmaDAjyOeZhng1/XCd7DExR8PNAnG/G1tyruZxEoUe11ClnwGhGrtsdnyyUx1frSzjng==}
@@ -2654,6 +2660,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@microsoft/clarity@1.0.2': {}
 
   '@mjackson/node-fetch-server@0.2.0': {}
 
