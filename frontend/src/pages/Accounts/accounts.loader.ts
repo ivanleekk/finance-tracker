@@ -121,5 +121,15 @@ export async function action({ request }: ActionFunctionArgs) {
         return { success: true };
     }
 
+    if (intent === "deleteBalance") {
+        const balanceId = formData.get("balanceId") as string;
+        const res = await ssrFetch(`/accounts/balances/${balanceId}`, {
+            method: "DELETE",
+        });
+
+        if (!res.ok) return { error: "Failed to delete balance" };
+        return { success: true };
+    }
+
     return { error: "Invalid intent" };
 }

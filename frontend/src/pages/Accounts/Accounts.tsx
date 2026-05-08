@@ -32,6 +32,7 @@ export default function Accounts() {
     const addAccountFetcher = useFetcher();
     const updateBalanceFetcher = useFetcher();
     const deleteAccountFetcher = useFetcher();
+    const deleteBalanceFetcher = useFetcher();
 
     const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
     const [newAccount, setNewAccount] = useState({
@@ -48,6 +49,9 @@ export default function Accounts() {
 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [accountToDelete, setAccountToDelete] = useState<{ id: string, name: string } | null>(null);
+
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
 
     // Close modals on successful submission
     useEffect(() => {
@@ -112,6 +116,11 @@ export default function Accounts() {
             return dataPoint;
         });
     }, [accounts]);
+
+    const historyAccount = useMemo(() => {
+        if (!historyAccountId) return null;
+        return accounts.find(a => a.id === historyAccountId) || null;
+    }, [accounts, historyAccountId]);
 
     const openUpdateModal = (accountId: string) => {
         setUpdateBalanceData({ accountId, date: new Date().toISOString().split('T')[0], balance: "" });
@@ -269,6 +278,10 @@ export default function Accounts() {
                                             </Badge>
                                         </td>
                                         <td className="px-4 py-4 text-right flex justify-end gap-2">
+                                            <Button variant="ghost" size="sm" onClick={() => {
+                                                setHistoryAccountId(acc.id);
+                                                setIsHistoryModalOpen(true);
+                                            }}>History</Button>
                                             <Button variant="ghost" size="sm" onClick={() => openUpdateModal(acc.id)}>Update Balance</Button>
                                             <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => {
                                                 setAccountToDelete({ id: acc.id, name: acc.name });
@@ -394,7 +407,9 @@ export default function Accounts() {
                     <Card className="w-full max-w-sm bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800">
                         <CardHeader>
                             <CardTitle>Update Balance</CardTitle>
-                            <CardDescription>Record a historical or current balance.</CardDescription>
+                            <CardDescription>
+                                Record a balance checkpoint for <strong>{accounts.find(a => a.id === updateBalanceData.accountId)?.name}</strong>.
+                            </CardDescription>
                         </CardHeader>
                         <CardContent>
                             <updateBalanceFetcher.Form method="post" className="space-y-4">
@@ -459,6 +474,74 @@ export default function Accounts() {
                                     </Button>
                                 </div>
                             </deleteAccountFetcher.Form>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Balance History Modal */}
+            {isHistoryModalOpen && historyAccount && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+                    <Card className="w-full max-w-2xl bg-white dark:bg-base-900 shadow-2xl border-base-200 dark:border-base-800 flex flex-col max-h-[80vh]">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 border-b border-base-100 dark:border-base-800">
+                            <div>
+                                <CardTitle>Balance History: {historyAccount.name}</CardTitle>
+                                <CardDescription>Manual balance checkpoints for this account.</CardDescription>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => setIsHistoryModalOpen(false)}>✕</Button>
+                        </CardHeader>
+                        <CardContent className="overflow-y-auto pt-4">
+                            <div className="space-y-4">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="text-base-500 uppercase text-[10px] font-bold tracking-wider">
+                                        <tr>
+                                            <th className="px-2 py-2">Date</th>
+                                            <th className="px-2 py-2 text-right">Balance</th>
+                                            <th className="px-2 py-2 text-center">Type</th>
+                                            <th className="px-2 py-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-base-100 dark:divide-base-800">
+                                        {historyAccount.history
+                                            .filter(h => h.is_manual)
+                                            .sort((a, b) => b.date.localeCompare(a.date))
+                                            .map((h) => (
+                                            <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+                                                <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
+                                                    {new Date(h.date).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                </td>
+                                                <td className="px-2 py-3 text-right font-mono text-base-700 dark:text-base-300">
+                                                    {formatCurrency(Number(h.balance), historyAccount.currency)}
+                                                </td>
+                                                <td className="px-2 py-3 text-center">
+                                                    <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-5">Manual</Badge>
+                                                </td>
+                                                 <td className="px-2 py-3 text-right">
+                                                    <deleteBalanceFetcher.Form method="post" className="inline">
+                                                        <input type="hidden" name="_intent" value="deleteBalance" />
+                                                        <input type="hidden" name="balanceId" value={h.id} />
+                                                        <Button 
+                                                            variant="ghost" 
+                                                            size="sm" 
+                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 py-0 h-8"
+                                                            disabled={deleteBalanceFetcher.state !== "idle"}
+                                                        >
+                                                            Delete
+                                                        </Button>
+                                                    </deleteBalanceFetcher.Form>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {historyAccount.history.filter(h => h.is_manual).length === 0 && (
+                                            <tr>
+                                                <td colSpan={4} className="px-2 py-8 text-center text-base-500">
+                                                    No manual balance entries found.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
