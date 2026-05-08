@@ -1,8 +1,5 @@
-node_modules
-/.idea
-/.cache
-/build
 .env*
-devServiceAccountKey.json
-prodServiceAccountKey.json
-.vercel
+__pycache__/
+.idea/
+.react-router/
+.DS_Store

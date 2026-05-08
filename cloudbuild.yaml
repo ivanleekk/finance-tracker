@@ -1,0 +1,102 @@
+steps:
+    # 1. Build Backend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "build-backend"
+      args:
+          [
+              "build",
+              "-t",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
+              "--target",
+              "production",
+              "./backend",
+          ]
+      env: ["DOCKER_BUILDKIT=1"]
+
+    # 2. Push Backend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "push-backend"
+      args:
+          [
+              "push",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
+          ]
+
+    # 3. Deploy Backend
+    - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      id: "deploy-backend"
+      args: [
+              "gcloud",
+              "run",
+              "deploy",
+              "backend",
+              "--image",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
+              "--region",
+              "$_REGION",
+              "--platform",
+              "managed",
+              "--allow-unauthenticated",
+              "--set-secrets",
+              "DATABASE_URL=FINANCE_TRACKER_DB_URL:latest",
+              # Add your env vars right here!
+              "--set-env-vars",
+              "API_URL=$_API_URL,CORS_ORIGINS=https://finance.ivanleekaikiat.com",
+          ]
+    # 4. Build Frontend (Using the static custom domain)
+    - name: "gcr.io/cloud-builders/docker"
+      id: "build-frontend"
+      args:
+          [
+              "build",
+              "--build-arg",
+              "VITE_API_URL=$_API_URL",
+              "-t",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG",
+              "--target",
+              "production",
+              "./frontend",
+          ]
+      env: ["DOCKER_BUILDKIT=1"]
+
+    # 5. Push Frontend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "push-frontend"
+      args:
+          [
+              "push",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG",
+          ]
+
+    # 6. Deploy Frontend
+    - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      id: "deploy-frontend"
+      args:
+          [
+              "gcloud",
+              "run",
+              "deploy",
+              "frontend",
+              "--image",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG",
+              "--region",
+              "$_REGION",
+              "--platform",
+              "managed",
+              "--allow-unauthenticated",
+              "--set-env-vars",
+              "VITE_API_URL=$_API_URL,INTERNAL_API_URL=$_API_URL",
+          ]
+
+substitutions:
+    _REGION: asia-southeast1
+    _TAG: latest
+    # Update this to your new custom domain
+    _API_URL: https://financeapi.ivanleekaikiat.com
+
+options:
+    logging: CLOUD_LOGGING_ONLY
+
+images:
+    - "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG"
+    - "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG"
