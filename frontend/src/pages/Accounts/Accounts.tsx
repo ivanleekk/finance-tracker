@@ -94,19 +94,37 @@ export default function Accounts() {
         };
     }
 
-    // UPDATED: Now maps each account's balance to its name per date
+    // ⚡ Bolt Optimization: Replaced O(N^2) filter/sort inside map with O(N) hash map and running balance
+    // This reduces main thread blocking on large historical datasets, ensuring smooth chart rendering
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
-        accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
+        const balancesByDate: Record<string, Record<string, number>> = {};
 
+        // 1. Single pass to collect all dates and map balances by date
+        accounts.forEach(acc => {
+            acc.history.forEach(h => {
+                allDatesSet.add(h.date);
+                if (!balancesByDate[h.date]) balancesByDate[h.date] = {};
+                balancesByDate[h.date][acc.name] = Number(h.balance_home_currency ?? h.balance);
+            });
+        });
+
+        // 2. Sort dates once
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+
+        // 3. Single pass to build chart data with running balances
+        const runningBalances: Record<string, number> = {};
+        accounts.forEach(acc => runningBalances[acc.name] = 0);
 
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
             accounts.forEach(acc => {
-                const lastBalRec = acc.history.filter(h => h.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
-                dataPoint[acc.name] = lastBalRec ? Number(lastBalRec.balance_home_currency ?? lastBalRec.balance) : 0;
+                // Update running balance if a new record exists for this date
+                if (balancesByDate[date] && balancesByDate[date][acc.name] !== undefined) {
+                    runningBalances[acc.name] = balancesByDate[date][acc.name];
+                }
+                dataPoint[acc.name] = runningBalances[acc.name];
             });
 
             return dataPoint;

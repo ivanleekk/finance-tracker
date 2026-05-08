@@ -1,0 +1,3 @@
+## 2024-05-08 - Avoid nested array operations (filter/sort) inside map for time-series aggregation
+**Learning:** Found a severe main-thread bottleneck where chart data aggregation was calculating running balances using `.filter()` and `.sort()` on the entire history array inside a `.map()` loop over all dates. This resulted in an $O(N^2 \log N)$ operation that would freeze the UI on large historical datasets.
+**Action:** Always use a single-pass O(N) approach for time-series aggregation: first create a hash map of values by date, sort the unique dates once, and then iterate through the sorted dates maintaining a running balance in a simple dictionary.
