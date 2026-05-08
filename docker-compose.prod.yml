@@ -5,8 +5,11 @@ services:
             target: production
         ports:
             - "5001:5001"
+        env_file:
+            - ./backend/.env.production
         environment:
             - DEBUG=false
+
 
     frontend:
         build:
@@ -16,7 +19,3 @@ services:
             - "3000:3000"
         environment:
             - NODE_ENV=production
-      
-    db:
-        # No database port exposure in production for security
-        ports: []

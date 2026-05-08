@@ -26,4 +26,4 @@ COPY . /app
 RUN uv sync --frozen --no-dev
 EXPOSE 5001
 # In production, we use uvicorn directly for better performance and stability
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port 5001"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-5001}"]

@@ -1,0 +1,89 @@
+steps:
+    # 1. Build Backend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "build-backend"
+      args:
+          [
+              "build",
+              "-t",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
+              "--target",
+              "production",
+              "./backend",
+          ]
+      env: ["DOCKER_BUILDKIT=1"]
+
+    # 2. Push Backend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "push-backend"
+      args:
+          [
+              "push",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
+          ]
+
+    # 3. Deploy Backend and capture its URL
+    - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      id: "deploy-backend"
+      entrypoint: "bash"
+      args:
+          - "-c"
+          - |
+              gcloud run deploy backend \
+                --image $_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG \
+                --region $_REGION \
+                --platform managed \
+                --allow-unauthenticated \
+                --set-secrets "DATABASE_URL=FINANCE_TRACKER_DB_URL:latest" \
+                --format='value(status.url)' > backend_url.txt
+              echo "Backend deployed at: $(cat backend_url.txt)"
+
+    # 4. Build Frontend (using the captured URL for the static bundle)
+    - name: "gcr.io/cloud-builders/docker"
+      id: "build-frontend"
+      entrypoint: "bash"
+      args:
+          - "-c"
+          - |
+              export BACKEND_URL=$(cat backend_url.txt)
+              docker build \
+                --build-arg VITE_API_URL=$$BACKEND_URL \
+                -t $_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG \
+                --target production \
+                ./frontend
+      env: ["DOCKER_BUILDKIT=1"]
+
+    # 5. Push Frontend
+    - name: "gcr.io/cloud-builders/docker"
+      id: "push-frontend"
+      args:
+          [
+              "push",
+              "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG",
+          ]
+
+    # 6. Deploy Frontend
+    - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      id: "deploy-frontend"
+      entrypoint: "bash"
+      args:
+          - "-c"
+          - |
+              export BACKEND_URL=$(cat backend_url.txt)
+              gcloud run deploy frontend \
+                --image $_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG \
+                --region $_REGION \
+                --platform managed \
+                --allow-unauthenticated \
+                --set-env-vars "VITE_API_URL=$$BACKEND_URL,INTERNAL_API_URL=$$BACKEND_URL"
+
+substitutions:
+    _REGION: asia-southeast1
+    _TAG: latest
+
+options:
+    logging: CLOUD_LOGGING_ONLY
+
+images:
+    - "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG"
+    - "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG"
