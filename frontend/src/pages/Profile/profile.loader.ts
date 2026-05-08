@@ -8,7 +8,7 @@ export async function profileLoader({ request }: { request: Request }) {
     try {
         // Fetch all required data in parallel using the SSR-safe fetcher
         const [userRes, householdsRes, currenciesRes, timezonesRes] = await Promise.all([
-            ssrFetch("/users/"),
+            ssrFetch("/users"),
             ssrFetch("/users/households"),
             ssrFetch("/reference/currencies"),
             ssrFetch("/reference/timezones")

@@ -60,15 +60,19 @@ async def lifespan(app: FastAPI):
     # Shutdown: cleanly stop the scheduler
     scheduler.shutdown()
 
+# 1. Grab the current API URL from the environment (default to localhost for dev)
+api_url = os.getenv("API_URL", "http://localhost:5001")
+
 app = FastAPI(
     title="Finance Tracker API",
     description="Multi-tenant wealth, banking, and portfolio tracking.",
     version="1.0.0",
     lifespan=lifespan,
+    # 2. Pass the dynamic variable here
     servers=[
         {
-            "url": "http://localhost:5001", 
-            "description": "Local Development Server"
+            "url": api_url, 
+            "description": "Finance Tracker API Server"
         },
     ],
 )

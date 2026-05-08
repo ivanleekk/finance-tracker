@@ -28,17 +28,17 @@ export async function getSSRContext(request: Request) {
     let newCookieHeader: string | null = null;
 
     const ssrFetch = async (path: string, init?: RequestInit) => {
-        const headersObj: Record<string, string> = {};
-        headers.forEach((value, key) => {
-            headersObj[key] = value;
-        });
+        const mergedHeaders = new Headers(headers);
+        if (init?.headers) {
+            const extraHeaders = new Headers(init.headers);
+            extraHeaders.forEach((value, key) => {
+                mergedHeaders.set(key, value);
+            });
+        }
 
         const response = await fetch(getApiUrl(path), {
             ...init,
-            headers: {
-                ...headersObj,
-                ...init?.headers,
-            },
+            headers: mergedHeaders,
         });
 
         if (response.status === 401) {

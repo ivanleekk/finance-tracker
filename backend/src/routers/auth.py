@@ -43,6 +43,8 @@ def login_for_access_token(
         value=access_token,
         httponly=True,  # Prevents JavaScript from accessing the cookie
         samesite="lax",  # Protects against CSRF attacks
+        secure=True,    # Ensures cookie is only sent over HTTPS
+        domain=".ivanleekaikiat.com", # Cross-subdomain access
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -51,7 +53,13 @@ def login_for_access_token(
 
 @router.get("/logout", status_code=status.HTTP_200_OK)
 def logout(response: Response):
-    response.delete_cookie("access_token")
+    response.delete_cookie(
+        "access_token",
+        domain=".ivanleekaikiat.com",
+        httponly=True,
+        samesite="lax",
+        secure=True
+    )
     return {"message": "Logout successful"}
 
 

@@ -14,7 +14,7 @@ import uuid
 router = APIRouter(prefix="/accounts", tags=["Financial Accounts"])
 
 
-@router.post("/", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
 def create_account(
     account: schemas.AccountCreate, 
     db: Session = Depends(get_db),

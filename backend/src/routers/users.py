@@ -15,7 +15,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.post(
-    "/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED
+    "", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED
 )
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
@@ -60,7 +60,7 @@ def search_user_by_email(
     return user
 
 
-@router.get("/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
+@router.get("", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
 def get_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
 ):
@@ -70,7 +70,7 @@ def get_user(
     return user
 
 
-@router.put("/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
+@router.put("", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
 def update_user(
     user_update: schemas.UserUpdate,
     db: Session = Depends(get_db),
@@ -114,7 +114,7 @@ def update_user(
     return existing_user
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
 ):

@@ -57,7 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const balance = formData.get("balance") as string;
         const date = formData.get("date") as string;
 
-        const accRes = await ssrFetch("/accounts/", {
+        const accRes = await ssrFetch("/accounts", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

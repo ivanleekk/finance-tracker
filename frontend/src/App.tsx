@@ -1,6 +1,8 @@
 // App.tsx
 import { createBrowserRouter, RouterProvider, Outlet, redirect } from "react-router";
-import api from "./lib/api"; // Adjust this path if your axios instance is located elsewhere
+import api from "./lib/api"; 
+import { getSSRContext } from "./lib/ssr-helpers";
+import type { LoaderFunctionArgs } from "react-router";
 import './index.css'
 
 // Components
@@ -26,9 +28,10 @@ import { transactionsLoader } from "./pages/Transactions/transactions.loader.ts"
 // --- 1. Define Loaders ---
 
 // Protects private routes by checking the backend cookie
-const requireAuthLoader = async () => {
+const requireAuthLoader = async ({ request }: LoaderFunctionArgs) => {
+    const { ssrFetch } = await getSSRContext(request);
     try {
-        await api.get("/auth/me");
+        await ssrFetch("/auth/me");
         return null; // Cookie is valid, proceed
     } catch {
         return redirect("/login"); // Invalid/missing cookie, force redirect
@@ -36,9 +39,10 @@ const requireAuthLoader = async () => {
 };
 
 // Prevents logged-in users from accessing the login/signup pages
-const requireGuestLoader = async () => {
+const requireGuestLoader = async ({ request }: LoaderFunctionArgs) => {
+    const { ssrFetch } = await getSSRContext(request);
     try {
-        await api.get("/auth/me");
+        await ssrFetch("/auth/me");
         return redirect("/dashboard"); // Already logged in, send to dashboard
     } catch {
         return null; // Not logged in, allow access to login page
