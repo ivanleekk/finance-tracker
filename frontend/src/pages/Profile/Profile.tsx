@@ -48,7 +48,7 @@ export default function Profile() {
         setIsSavingUser(true);
         setMessage(null);
         try {
-            await api.put('/users/', {
+            await api.put('/users', {
                 name: userName,
                 preferred_timezone: userTimezone,
                 theme_mode: themeMode,
@@ -84,7 +84,7 @@ export default function Profile() {
                 return;
             }
 
-            await api.put('/users/', payload);
+            await api.put('/users', payload);
             setMessage({ text: "Security settings updated successfully!", type: "success" });
             setNewPassword("");
             setConfirmPassword("");

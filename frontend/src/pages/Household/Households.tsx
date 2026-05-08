@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings } from "lucide-react"
-import { useLoaderData } from "react-router"
+import { useLoaderData, useSearchParams } from "react-router"
 import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, CurrencyResponse, CountryResponse } from "../../types/types"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
@@ -22,6 +22,8 @@ export default function Households() {
     const [editForm, setEditForm] = useState<Partial<HouseholdResponse>>({})
     const [isLoadingMembers, setIsLoadingMembers] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [searchParams] = useSearchParams()
+    const isSetupMode = searchParams.get("setup") === "true"
 
     const [pendingRoleUpdate, setPendingRoleUpdate] = useState<{ memberId: string, newRole: HouseholdRoleType } | null>(null)
 
@@ -153,6 +155,31 @@ export default function Households() {
                     </Button>
                 </div>
             </div>
+
+            {isSetupMode && households.length === 0 && (
+                <Card className="bg-primary-50 border-primary-200 border-2 shadow-lg animate-in fade-in slide-in-from-top-4 duration-500">
+                    <CardContent className="pt-6 pb-6 flex flex-col md:flex-row items-center gap-6">
+                        <div className="p-4 bg-primary-100 rounded-2xl text-primary-600">
+                            <Home className="w-12 h-12" />
+                        </div>
+                        <div className="flex-1 text-center md:text-left">
+                            <h3 className="text-2xl font-bold text-primary-900 mb-2">Welcome to Finance Tracker!</h3>
+                            <p className="text-primary-700 max-w-2xl">
+                                To get started, you'll need to create your first household. A household is where you manage your accounts, transactions, and portfolios together with your family or for yourself.
+                            </p>
+                        </div>
+                        <Button 
+                            variant="primary" 
+                            size="lg" 
+                            className="whitespace-nowrap shadow-md hover:shadow-lg transition-all"
+                            onClick={() => setIsCreateModalOpen(true)}
+                        >
+                            <Plus className="w-5 h-5 mr-2" />
+                            Create My First Household
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
             <div className="grid gap-6 lg:grid-cols-3">
                 {/* Household Selector */}

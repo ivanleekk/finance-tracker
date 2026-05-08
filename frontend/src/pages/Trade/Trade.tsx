@@ -5,14 +5,14 @@ import { Input } from "../../components/ui/Input"
 import { Button } from "../../components/ui/Button"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "../../types/types"
-import { tradeFormLoader } from "./trade.loader"
+import type { AccountResponse, SubPortfolioResponse, AssetResponse, CurrencyResponse } from "../../types/types"
+import { tradeFormLoader, type TradeLoaderData } from "./trade.loader"
 
 export { tradeFormLoader as loader } from "./trade.loader";
 
 export default function Trade() {
     const { activeHousehold } = useHousehold();
-    const loaderData = useLoaderData() as { accounts: AccountResponse[], subportfolios: SubPortfolioResponse[], currencies: CurrencyResponse[] };
+    const loaderData = (useLoaderData() as TradeLoaderData) || { accounts: [], subportfolios: [], currencies: [] };
     
     const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
@@ -22,7 +22,7 @@ export default function Trade() {
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
-    const [currency, setCurrency] = useState(activeHousehold.base_currency || "USD")
+    const [currency, setCurrency] = useState(activeHousehold?.base_currency || "USD")
     const [exchangeRate, setExchangeRate] = useState("1.0")
     const [isFetchingPrice, setIsFetchingPrice] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -89,7 +89,7 @@ export default function Trade() {
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat('en-US', { 
             style: 'currency', 
-            currency: activeHousehold.base_currency || 'USD' 
+            currency: activeHousehold?.base_currency || 'USD' 
         }).format(value)
     }
 
@@ -126,7 +126,7 @@ export default function Trade() {
                     ticker: ticker.toUpperCase(),
                     name: `${ticker.toUpperCase()} Equity`,
                     type: "Stock",
-                    currency: activeHousehold.base_currency || "USD"
+                    currency: activeHousehold?.base_currency || "USD"
                 });
                 assetId = newAssetRes.data.id;
             }

@@ -149,7 +149,7 @@ export default function Portfolio() {
                 stats: {
                     equity: formatCurrency(equity),
                     unrealized: `${sign(unrealized)}${formatCurrency(Math.abs(unrealized))}`,
-                    unrealizedPercent: m?.simple_return * 100 || unrealizedPercent,
+                    unrealizedPercent: (m?.simple_return ?? 0) * 100 || unrealizedPercent,
                     realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
                     sharpe: m?.sharpe_ratio !== undefined && m?.sharpe_ratio !== null ? m.sharpe_ratio.toFixed(2) : "N/A",
                     sortino: m?.sortino_ratio !== undefined && m?.sortino_ratio !== null ? m.sortino_ratio.toFixed(2) : "N/A",

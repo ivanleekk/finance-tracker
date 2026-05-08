@@ -6,6 +6,7 @@ import {
     ScrollRestoration,
     useLoaderData,
     data,
+    redirect,
 } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { AuthProvider } from "./lib/AuthContext";
@@ -36,11 +37,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
                 households = await hRes.json();
             }
         }
-        
+        if (isAuthenticated && households.length === 0) {
+            const url = new URL(request.url);
+            if (url.pathname !== "/households" && url.pathname !== "/logout" && url.pathname !== "/login" && url.pathname !== "/signup") {
+                return redirect("/households?setup=true");
+            }
+        }
+
         return data({ isAuthenticated, user, households }, {
             headers: combineHeaders()
         });
-    } catch {
+    } catch (e) {
+        if (e instanceof Response) throw e;
         return data({ isAuthenticated: false, user: null, households: [] }, {
             headers: combineHeaders()
         });

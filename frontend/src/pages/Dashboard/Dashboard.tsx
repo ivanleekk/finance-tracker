@@ -157,22 +157,22 @@ export default function Dashboard() {
                 />
                 <StatCard
                     title="Overall Return"
-                    value={`${((metrics?.overall_metrics.simple_return || 0) * 100).toFixed(2)}%`}
-                    trend={(metrics?.overall_metrics.simple_return || 0) >= 0 ? "up" : "down"}
+                    value={`${((metrics?.overall_metrics?.simple_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.simple_return || 0) >= 0 ? "up" : "down"}
                 />
                 <StatCard
                     title="TWR (Ann.)"
-                    value={`${((metrics?.overall_metrics.time_weighted_return || 0) * 100).toFixed(2)}%`}
-                    trend={(metrics?.overall_metrics.time_weighted_return || 0) >= 0 ? "up" : "down"}
+                    value={`${((metrics?.overall_metrics?.time_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.time_weighted_return || 0) >= 0 ? "up" : "down"}
                 />
                 <StatCard
                     title="IRR / MWR"
-                    value={`${((metrics?.overall_metrics.money_weighted_return || 0) * 100).toFixed(2)}%`}
-                    trend={(metrics?.overall_metrics.money_weighted_return || 0) >= 0 ? "up" : "down"}
+                    value={`${((metrics?.overall_metrics?.money_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.money_weighted_return || 0) >= 0 ? "up" : "down"}
                 />
                 <StatCard
                     title="Sharpe Ratio"
-                    value={metrics?.overall_metrics.sharpe_ratio !== undefined && metrics?.overall_metrics.sharpe_ratio !== null ? metrics.overall_metrics.sharpe_ratio.toFixed(2) : "0.00"}
+                    value={metrics?.overall_metrics?.sharpe_ratio !== undefined && metrics?.overall_metrics?.sharpe_ratio !== null ? metrics.overall_metrics.sharpe_ratio.toFixed(2) : "0.00"}
                     trend="neutral"
                 />
             </div>
