@@ -18,7 +18,11 @@ export default function Households() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [inviteEmail, setInviteEmail] = useState("")
-    const [newHouseholdName, setNewHouseholdName] = useState("")
+    const [createForm, setCreateForm] = useState({
+        name: "",
+        base_currency: "USD",
+        country_code: "US"
+    })
     const [editForm, setEditForm] = useState<Partial<HouseholdResponse>>({})
     const [isLoadingMembers, setIsLoadingMembers] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -111,15 +115,15 @@ export default function Households() {
 
     const handleCreateHousehold = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newHouseholdName) return;
+        if (!createForm.name) return;
 
         try {
-            await api.post('/users/households', {
-                name: newHouseholdName,
-                base_currency: "USD", // Default
-                country_code: "US"    // Default
+            await api.post('/users/households', createForm);
+            setCreateForm({
+                name: "",
+                base_currency: "USD",
+                country_code: "US"
             });
-            setNewHouseholdName("");
             setIsCreateModalOpen(false);
             refreshHouseholds();
         } catch (err) {
@@ -339,10 +343,38 @@ export default function Households() {
                                     <label className="text-sm font-medium text-base-900">Household Name</label>
                                     <Input
                                         placeholder="e.g. My Family"
-                                        value={newHouseholdName}
-                                        onChange={(e) => setNewHouseholdName(e.target.value)}
+                                        value={createForm.name}
+                                        onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                                         required
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900">Base Currency</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        value={createForm.base_currency}
+                                        onChange={(e) => setCreateForm({ ...createForm, base_currency: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">Select Currency</option>
+                                        {currencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900">Country</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        value={createForm.country_code}
+                                        onChange={(e) => setCreateForm({ ...createForm, country_code: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">Select Country</option>
+                                        {countries.map(c => (
+                                            <option key={c.code} value={c.code}>{c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
