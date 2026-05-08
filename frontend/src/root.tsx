@@ -67,7 +67,7 @@ export function Layout({
     const households = loaderData?.households;
 
     return (
-        <html lang="en">
+        <html lang="en" className="dark" style={{ colorScheme: "dark" }}>
             <head>
                 <meta charSet="UTF-8" />
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -80,9 +80,9 @@ export function Layout({
                 <AuthProvider initialIsAuthenticated={isAuthenticated} initialUser={user}>
                     <ThemeProvider>
                         <HouseholdProvider initialHouseholds={households}>
-                            <div className="flex h-dvh overflow-hidden bg-base-50 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300">
+                            <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300">
                                 <Sidebar />
-                                <main className="flex-1 overflow-y-auto bg-white dark:bg-base-900 transition-colors duration-300">
+                                <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300">
                                     {children}
                                 </main>
                             </div>

@@ -32,7 +32,7 @@ export function StatCard({
           <div className="mt-1 flex items-center text-xs">
             {trend === "up" && <TrendingUp className="mr-1 h-3 w-3 text-green-600" />}
             {trend === "down" && <TrendingDown className="mr-1 h-3 w-3 text-red-600" />}
-            {trend === "neutral" && <Minus className="mr-1 h-3 w-3 text-base-500" />}
+            {trend === "neutral" && <Minus className="mr-1 h-3 w-3 text-base-500 dark:text-base-400" />}
             
             <span
               className={

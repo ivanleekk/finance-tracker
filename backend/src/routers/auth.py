@@ -2,6 +2,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import os
 
 from src.database import get_db
 from src import models, schemas
@@ -38,13 +39,15 @@ def login_for_access_token(
     )
 
     # Set the cookie in the response
+    cookie_domain = os.getenv("AUTH_COOKIE_DOMAIN", None)
+    
     response.set_cookie(
         key="access_token",
         value=access_token,
-        httponly=True,  # Prevents JavaScript from accessing the cookie
-        samesite="lax",  # Protects against CSRF attacks
-        secure=True,    # Ensures cookie is only sent over HTTPS
-        domain=".ivanleekaikiat.com", # Cross-subdomain access
+        httponly=True,
+        samesite="lax",
+        secure=os.getenv("NODE_ENV") == "production", # Only secure in production
+        domain=cookie_domain,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -53,12 +56,13 @@ def login_for_access_token(
 
 @router.get("/logout", status_code=status.HTTP_200_OK)
 def logout(response: Response):
+    cookie_domain = os.getenv("AUTH_COOKIE_DOMAIN", None)
     response.delete_cookie(
         "access_token",
-        domain=".ivanleekaikiat.com",
+        domain=cookie_domain,
         httponly=True,
         samesite="lax",
-        secure=True
+        secure=os.getenv("NODE_ENV") == "production"
     )
     return {"message": "Logout successful"}
 

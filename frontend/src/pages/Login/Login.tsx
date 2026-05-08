@@ -22,8 +22,14 @@ export async function action({ request }: ActionFunctionArgs) {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            return { error: errorData.detail || "Invalid username or password." };
+            // Check if the response is JSON before parsing
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                const errorData = await response.json();
+                return { error: errorData.detail || "Invalid username or password." };
+            }
+            // Fallback for non-JSON errors (like 500 Internal Server Error)
+            return { error: `Server error (${response.status}). Please check backend logs.` };
         }
 
         // CRITICAL: Grab the cookie the backend just set
@@ -54,18 +60,18 @@ export default function Login() {
     return (
         <div className="flex items-center justify-center h-screen">
             {/* Replace standard <form> with React Router's <Form> */}
-            <Form method="post" className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold mb-6 text-center">Login to FinTracker</h2>
+            <Form method="post" className="w-full max-w-sm bg-white dark:bg-base-900 p-8 rounded-lg shadow-md border border-base-200 dark:border-base-800">
+                <h2 className="text-2xl font-bold mb-6 text-center text-base-900 dark:text-base-50">Login to FinTracker</h2>
 
                 {/* Error Display */}
                 {actionData?.error && (
-                    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+                    <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded text-sm">
                         {actionData.error}
                     </div>
                 )}
 
                 <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="username">
+                    <label className="block text-base-700 dark:text-base-300 text-sm font-bold mb-2" htmlFor="username">
                         Username
                     </label>
                     <input
@@ -73,11 +79,11 @@ export default function Login() {
                         name="username" // Required for FormData extraction
                         type="text"
                         required
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
                 <div className="mb-6">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+                    <label className="block text-base-700 dark:text-base-300 text-sm font-bold mb-2" htmlFor="password">
                         Password
                     </label>
                     <input
@@ -85,7 +91,7 @@ export default function Login() {
                         name="password" // Required for FormData extraction
                         type="password"
                         required
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
 

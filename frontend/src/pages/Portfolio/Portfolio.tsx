@@ -50,9 +50,9 @@ export default function Portfolio() {
     const [searchParams] = useSearchParams()
     const startDate = searchParams.get("start_date")
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { 
-        style: 'currency', 
-        currency: activeHousehold?.base_currency || 'USD' 
+    const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: activeHousehold?.base_currency || 'USD'
     }).format(val);
 
     const [activeTab, setActiveTab] = useState("Overall")
@@ -247,7 +247,7 @@ export default function Portfolio() {
     return (
         <div className="flex-1 space-y-6 p-8 relative">
             {isLoading && (
-                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 px-3 py-1 rounded-full border border-base-200">
+                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
@@ -278,8 +278,8 @@ export default function Portfolio() {
                         className={cn(
                             "px-4 py-2 text-sm font-medium transition-colors border-b-2 rounded-t-md",
                             activeTab === tab && !isCreating
-                                ? "border-primary-500 text-primary-600 bg-primary-50/50"
-                                : "border-transparent text-base-500 hover:text-base-900 hover:bg-base-50"
+                                ? "border-primary-500 text-primary-600 dark:text-primary-400 bg-primary-50/50 dark:bg-primary-900/20"
+                                : "border-transparent text-base-500 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100 hover:bg-base-50 dark:hover:bg-base-800"
                         )}
                     >
                         {tab}
@@ -289,7 +289,7 @@ export default function Portfolio() {
                     onClick={() => setIsCreating(!isCreating)}
                     className={cn(
                         "px-3 py-1 text-sm font-medium transition-colors border rounded-md ml-2",
-                        isCreating ? "border-secondary-500 text-secondary-600 bg-secondary-50" : "border-base-200 text-base-600 hover:bg-base-50"
+                        isCreating ? "border-secondary-500 text-secondary-600 dark:text-secondary-400 bg-secondary-50 dark:bg-secondary-900/20" : "border-base-200 dark:border-base-800 text-base-600 dark:text-base-400 hover:bg-base-50 dark:hover:bg-base-800"
                     )}
                 >
                     + New
@@ -308,9 +308,9 @@ export default function Portfolio() {
                             />
                         </div>
                         <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium text-base-900">Risk Profile</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
                                 value={newPortfolioRisk}
                                 onChange={e => setNewPortfolioRisk(e.target.value)}
                             >
@@ -351,7 +351,7 @@ export default function Portfolio() {
                         <CardTitle>{activeTab} Growth</CardTitle>
                         <CardDescription>Historical equity curve based on latest evaluation.</CardDescription>
                     </div>
-                    <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                    <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
                         {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                             <button
                                 key={tf}
@@ -359,8 +359,8 @@ export default function Portfolio() {
                                 className={cn(
                                     "px-3 py-1 text-xs font-medium rounded-md transition-all",
                                     timeframe === tf
-                                        ? "bg-white text-base-900 shadow-sm"
-                                        : "text-base-500 hover:text-base-700"
+                                        ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                        : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
                                 )}
                             >
                                 {tf}
@@ -378,7 +378,7 @@ export default function Portfolio() {
                                         <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                 <XAxis
                                     dataKey="date"
                                     axisLine={false}
@@ -395,7 +395,7 @@ export default function Portfolio() {
                                 <YAxis
                                     axisLine={false}
                                     tickLine={false}
-                                    tick={{ fill: '#64748b', fontSize: 12 }}
+                                    tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                     tickFormatter={(value) => `$${value / 1000}k`}
                                 />
                                 <Tooltip
@@ -409,7 +409,7 @@ export default function Portfolio() {
                                                     <div className="space-y-1.5">
                                                         {payload.map((entry: any, index: number) => (
                                                             <div key={index} className="flex items-center justify-between gap-4">
-                                                                <span 
+                                                                <span
                                                                     className="text-sm font-semibold"
                                                                     style={{ color: entry.stroke }}
                                                                 >
@@ -448,8 +448,8 @@ export default function Portfolio() {
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600">
-                            <thead className="border-b border-base-200 bg-base-50/50 text-base-900">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                            <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
                                     <th className="px-4 py-3 font-semibold">Asset</th>
                                     <th className="px-4 py-3 font-semibold">Shares</th>
@@ -475,15 +475,15 @@ export default function Portfolio() {
                                     const isPositive = totalReturn >= 0
 
                                     return (
-                                        <tr key={h.ticker} className="border-b border-base-100 hover:bg-base-50/50 transition-colors">
+                                        <tr key={h.ticker} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
                                             <td className="px-4 py-3">
-                                                <div className="font-medium text-base-900">{h.ticker}</div>
-                                                <div className="text-xs text-base-500">{h.name}</div>
+                                                <div className="font-medium text-base-900 dark:text-base-50">{h.ticker}</div>
+                                                <div className="text-xs text-base-500 dark:text-base-400">{h.name}</div>
                                             </td>
                                             <td className="px-4 py-3">{h.shares}</td>
                                             <td className="px-4 py-3">${h.avgCost.toFixed(2)}</td>
                                             <td className="px-4 py-3">${h.currentPrice.toFixed(2)}</td>
-                                            <td className="px-4 py-3 font-medium text-base-900">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 font-medium text-base-900 dark:text-base-50">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             <td className="px-4 py-3">
                                                 <Badge variant={isPositive ? "success" : "error"}>
                                                     {isPositive ? "+" : ""}{totalReturn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({returnPercent.toFixed(2)}%)

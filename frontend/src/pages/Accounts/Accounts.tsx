@@ -78,9 +78,9 @@ export default function Accounts() {
     }, [deleteAccountFetcher.state, deleteAccountFetcher.data]);
 
     const formatCurrency = (value: number, curr?: string) => {
-        return new Intl.NumberFormat('en-US', { 
-            style: 'currency', 
-            currency: curr || activeHousehold?.base_currency || 'USD' 
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: curr || activeHousehold?.base_currency || 'USD'
         }).format(value);
     }
 
@@ -88,9 +88,9 @@ export default function Accounts() {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
         const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
         const last = sorted[sorted.length - 1];
-        return { 
-            balance: Number(last.balance), 
-            balanceHome: Number(last.balance_home_currency ?? last.balance) 
+        return {
+            balance: Number(last.balance),
+            balanceHome: Number(last.balance_home_currency ?? last.balance)
         };
     }
 
@@ -131,7 +131,7 @@ export default function Accounts() {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Bank Accounts</h2>
-                    <p className="text-base-500 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
+                    <p className="text-base-500 dark:text-base-400 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
                 </div>
                 <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
             </div>
@@ -156,18 +156,18 @@ export default function Accounts() {
                                             </linearGradient>
                                         ))}
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                     <XAxis
                                         dataKey="date"
                                         axisLine={false}
                                         tickLine={false}
-                                        tick={{ fill: '#64748b', fontSize: 12 }}
+                                        tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                         dy={10}
                                     />
                                     <YAxis
                                         axisLine={false}
                                         tickLine={false}
-                                        tick={{ fill: '#64748b', fontSize: 12 }}
+                                        tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                         tickFormatter={(value) => `$${value / 1000}k`}
                                     />
                                     <Tooltip
@@ -181,7 +181,7 @@ export default function Accounts() {
                                                         <div className="space-y-1.5">
                                                             {payload.map((entry: any, index: number) => (
                                                                 <div key={index} className="flex items-center justify-between gap-4">
-                                                                    <span 
+                                                                    <span
                                                                         className="text-sm font-semibold"
                                                                         style={{ color: entry.stroke }}
                                                                     >
@@ -193,10 +193,10 @@ export default function Accounts() {
                                                                 </div>
                                                             ))}
                                                             <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
-                                                                    <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
-                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
-                                                                        {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
-                                                                    </span>
+                                                                <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
+                                                                <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                    {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -236,8 +236,8 @@ export default function Accounts() {
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600">
-                            <thead className="border-b border-base-200 bg-base-50/50 text-base-900">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                            <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
                                     <th className="px-4 py-3 font-semibold">Account Name</th>
                                     <th className="px-4 py-3 font-semibold">Type</th>
@@ -249,15 +249,15 @@ export default function Accounts() {
                             </thead>
                             <tbody>
                                 {accounts.map((acc) => (
-                                    <tr key={acc.id} className="border-b border-base-100 hover:bg-base-50/50 transition-colors">
-                                        <td className="px-4 py-4 font-medium text-base-900">{acc.name}</td>
+                                    <tr key={acc.id} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
+                                        <td className="px-4 py-4 font-medium text-base-900 dark:text-base-50">{acc.name}</td>
                                         <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>
                                         <td className="px-4 py-4 text-right">
-                                            <div className="font-medium text-base-900">
+                                            <div className="font-medium text-base-900 dark:text-base-50">
                                                 {formatCurrency(getCurrentBalanceDetails(acc.history).balanceHome)}
                                             </div>
                                             {acc.currency !== activeHousehold?.base_currency && (
-                                                <div className="text-xs text-base-500">
+                                                <div className="text-xs text-base-500 dark:text-base-400">
                                                     {formatCurrency(getCurrentBalanceDetails(acc.history).balance, acc.currency)}
                                                 </div>
                                             )}
@@ -293,7 +293,7 @@ export default function Accounts() {
             {/* Add Account Modal */}
             {isAddAccountModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                    <Card className="w-full max-w-md bg-white shadow-xl">
+                    <Card className="w-full max-w-md bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800">
                         <CardHeader>
                             <CardTitle>Add Manual Account</CardTitle>
                             <CardDescription>Enter your bank account details below.</CardDescription>
@@ -302,7 +302,7 @@ export default function Accounts() {
                             <addAccountFetcher.Form method="post" className="space-y-4">
                                 <input type="hidden" name="_intent" value="addAccount" />
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Account Name</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Account Name</label>
                                     <Input
                                         name="name"
                                         placeholder="e.g. Chase Checking"
@@ -313,10 +313,10 @@ export default function Accounts() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium text-base-900">Liquidity</label>
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Liquidity</label>
                                         <select
                                             name="liquidity"
-                                            className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                             value={newAccount.liquidity}
                                             onChange={(e) => setNewAccount({ ...newAccount, liquidity: e.target.value as LiquidityStatus })}
                                         >
@@ -329,7 +329,7 @@ export default function Accounts() {
                                         <label className="text-sm font-medium text-base-900">Tax Status</label>
                                         <select
                                             name="tax_status"
-                                            className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                             value={newAccount.tax_status}
                                             onChange={(e) => setNewAccount({ ...newAccount, tax_status: e.target.value as TaxTreatment })}
                                         >
@@ -367,7 +367,7 @@ export default function Accounts() {
                                     <label className="text-sm font-medium text-base-900">Currency</label>
                                     <select
                                         name="currency"
-                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={newAccount.currency}
                                         onChange={(e) => setNewAccount({ ...newAccount, currency: e.target.value })}
                                     >
@@ -391,7 +391,7 @@ export default function Accounts() {
             {/* Update Balance Modal */}
             {isUpdateModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                    <Card className="w-full max-w-sm bg-white shadow-xl">
+                    <Card className="w-full max-w-sm bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800">
                         <CardHeader>
                             <CardTitle>Update Balance</CardTitle>
                             <CardDescription>Record a historical or current balance.</CardDescription>
@@ -437,11 +437,11 @@ export default function Accounts() {
             {/* Delete Account Confirmation Modal */}
             {isDeleteModalOpen && accountToDelete && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                    <Card className="w-full max-w-sm bg-white shadow-xl border-red-100">
+                    <Card className="w-full max-w-sm bg-white dark:bg-base-900 shadow-xl border-red-100 dark:border-red-900/30">
                         <CardHeader>
-                            <CardTitle className="text-red-600">Delete Account</CardTitle>
+                            <CardTitle className="text-red-600 dark:text-red-400">Delete Account</CardTitle>
                             <CardDescription>
-                                Are you sure you want to delete <strong>{accountToDelete.name}</strong>?
+                                Are you sure you want to delete <strong className="text-base-900 dark:text-base-50">{accountToDelete.name}</strong>?
                                 This action cannot be undone and will delete all associated balance history.
                             </CardDescription>
                         </CardHeader>

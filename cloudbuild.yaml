@@ -25,7 +25,8 @@ steps:
     # 3. Deploy Backend
     - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
       id: "deploy-backend"
-      args: [
+      args:
+          [
               "gcloud",
               "run",
               "deploy",
@@ -39,9 +40,8 @@ steps:
               "--allow-unauthenticated",
               "--set-secrets",
               "DATABASE_URL=$_DB_SECRET:latest",
-              # Add your env vars right here!
               "--set-env-vars",
-              "API_URL=$_API_URL,CORS_ORIGINS=$_ENV_CORS_ORIGIN",
+              "API_URL=$_API_URL,CORS_ORIGINS=$_ENV_CORS_ORIGIN,AUTH_COOKIE_DOMAIN=.ivanleekaikiat.com,NODE_ENV=production",
           ]
     # 4. Build Frontend (Using the static custom domain)
     - name: "gcr.io/cloud-builders/docker"

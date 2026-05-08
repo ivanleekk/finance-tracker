@@ -253,7 +253,7 @@ export default function Transactions() {
     return (
         <div className="flex-1 space-y-6 p-8 relative">
             {isLoading && (
-                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 px-3 py-1 rounded-full border border-base-200">
+                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
@@ -272,8 +272,8 @@ export default function Transactions() {
             {/* Log Transaction Modal */}
             <Dialog isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)}>
                 <DialogHeader>
-                    <DialogTitle>{activeTab === 'transaction' ? 'Log Daily Transaction' : 'Internal Transfer'}</DialogTitle>
-                    <p className="text-sm text-base-500">
+                    <DialogTitle className="text-base-900 dark:text-base-50">{activeTab === 'transaction' ? 'Log Daily Transaction' : 'Internal Transfer'}</DialogTitle>
+                    <p className="text-sm text-base-500 dark:text-base-400">
                         {activeTab === 'transaction' 
                             ? 'Record food, retail, or income items manually.' 
                             : 'Move money between your accounts seamlessly.'}
@@ -281,17 +281,17 @@ export default function Transactions() {
                 </DialogHeader>
 
                 {/* Tab Switcher */}
-                <div className="flex p-1 bg-base-100 rounded-lg mb-6">
+                <div className="flex p-1 bg-base-100 dark:bg-base-900 rounded-lg mb-6">
                     <button
                         type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transaction' ? 'bg-white shadow-sm text-primary-600' : 'text-base-500 hover:text-base-700'}`}
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transaction' ? 'bg-white dark:bg-base-700 shadow-sm text-primary-600 dark:text-primary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
                         onClick={() => setActiveTab('transaction')}
                     >
                         Income/Expense
                     </button>
                     <button
                         type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white shadow-sm text-secondary-600' : 'text-base-500 hover:text-base-700'}`}
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white dark:bg-base-700 shadow-sm text-secondary-600 dark:text-secondary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
                         onClick={() => setActiveTab('transfer')}
                     >
                         Transfer
@@ -302,10 +302,10 @@ export default function Transactions() {
                     <form onSubmit={handleLogTransaction} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Account</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Account</label>
                                 <select
                                     required
-                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={formData.accountId}
                                     onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
                                 >
@@ -338,7 +338,7 @@ export default function Transactions() {
                                 </div>
                                 <select
                                     required
-                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={formData.categoryId}
                                     onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
                                 >
@@ -355,7 +355,7 @@ export default function Transactions() {
                                 <label className="text-sm font-medium text-base-700">Currency</label>
                                 <select
                                     required
-                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={formData.currency}
                                     onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
                                 >
@@ -415,7 +415,7 @@ export default function Transactions() {
                                 <label className="text-sm font-medium text-base-700">From Account</label>
                                 <select
                                     required
-                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={transferData.fromAccountId}
                                     onChange={(e) => setTransferData({ ...transferData, fromAccountId: e.target.value })}
                                 >
@@ -429,7 +429,7 @@ export default function Transactions() {
                                 <label className="text-sm font-medium text-base-700">To Account</label>
                                 <select
                                     required
-                                    className="w-full rounded-lg border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={transferData.toAccountId}
                                     onChange={(e) => setTransferData({ ...transferData, toAccountId: e.target.value })}
                                 >
@@ -486,12 +486,12 @@ export default function Transactions() {
             </Dialog>
 
             {/* Filters */}
-            <Card className="bg-base-50/50">
+            <Card className="bg-base-50/50 dark:bg-base-900/50">
                 <CardContent className="pt-6 flex flex-wrap gap-4">
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-base-500">Activity Type</label>
+                        <label className="text-xs font-medium text-base-500 dark:text-base-400">Activity Type</label>
                         <select
-                            className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             value={filterCategory}
                             onChange={(e) => setFilterCategory(e.target.value)}
                         >
@@ -504,7 +504,7 @@ export default function Transactions() {
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-base-500">Account</label>
                         <select
-                            className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             value={filterAccount}
                             onChange={(e) => setFilterAccount(e.target.value)}
                         >
@@ -518,7 +518,7 @@ export default function Transactions() {
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-base-500">Sub-Portfolio</label>
                         <select
-                            className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             value={filterSubportfolio}
                             onChange={(e) => setFilterSubportfolio(e.target.value)}
                             disabled={filterCategory === "transaction"}
@@ -545,21 +545,21 @@ export default function Transactions() {
                             </div>
                         )}
                         {filteredHistory.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between border-b border-base-100 pb-4 last:border-0 last:pb-0">
+                            <div key={item.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                 <div className="flex items-center gap-4">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 shrink-0">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0">
                                         {getIcon(item.type)}
                                     </div>
                                     <div className="space-y-1">
-                                        <p className="font-medium text-base-900 capitalize">
+                                        <p className="font-medium text-base-900 dark:text-base-50 capitalize">
                                             {item.type.startsWith('transfer') ? 'Transfer' : item.type} {item.assetOrCategory !== "UNKNOWN" ? item.assetOrCategory : ""}
                                         </p>
                                         {item.description && (
-                                            <p className="text-xs text-base-400 leading-tight">
+                                            <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
                                                 {item.description}
                                             </p>
                                         )}
-                                        <div className="flex flex-wrap items-center gap-2 text-sm text-base-500">
+                                        <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">
                                             <span>{formatDate(item.date)}</span>
                                             {item.shares && (
                                                 <>

@@ -138,7 +138,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
-                    <p className="text-base-500 mt-1">Overview of your household financial health.</p>
+                    <p className="text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
                 </div>
                 <TimeframeSelector />
             </div>
@@ -185,7 +185,7 @@ export default function Dashboard() {
                             <CardTitle>Net Worth Trend</CardTitle>
                             <CardDescription>Your total wealth growth over time.</CardDescription>
                         </div>
-                        <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
                             {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                                 <button
                                     key={tf}
@@ -193,8 +193,8 @@ export default function Dashboard() {
                                     className={cn(
                                         "px-3 py-1 text-xs font-medium rounded-md transition-all",
                                         timeframe === tf
-                                            ? "bg-white text-base-900 shadow-sm"
-                                            : "text-base-500 hover:text-base-700"
+                                            ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
                                     )}
                                 >
                                     {tf}
@@ -217,7 +217,7 @@ export default function Dashboard() {
                                                 <stop offset="95%" stopColor="var(--color-secondary-500)" stopOpacity={0} />
                                             </linearGradient>
                                         </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-100)" />
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                         <XAxis
                                             dataKey="date"
                                             axisLine={false}
@@ -339,13 +339,13 @@ export default function Dashboard() {
                     <div className="space-y-4">
                         {transactions.length > 0 ? (
                             transactions.slice(0, 5).sort((a, b) => b.date.localeCompare(a.date)).map((tx) => (
-                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 pb-4 last:border-0 last:pb-0">
+                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                     <div>
-                                        <p className="font-medium text-base-900">{tx.description || 'Transaction'}</p>
-                                        <p className="text-sm text-base-500">{new Date(tx.date).toLocaleDateString()}</p>
+                                        <p className="font-medium text-base-900 dark:text-base-50">{tx.description || 'Transaction'}</p>
+                                        <p className="text-sm text-base-500 dark:text-base-400">{new Date(tx.date).toLocaleDateString()}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600' : 'text-base-900'}`}>
+                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600 dark:text-green-400' : 'text-base-900 dark:text-base-50'}`}>
                                             {formatCurrency(Number(tx.amount))}
                                         </span>
                                         <Badge variant="success">

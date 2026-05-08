@@ -1,4 +1,14 @@
 @import "tailwindcss";
+
+@layer base {
+  .dark {
+    color-scheme: dark;
+  }
+  .light {
+    color-scheme: light;
+  }
+}
+
 @source inline("color-red-{50,{100..900..100},950}");
 @source inline("color-indigo-{50,{100..900..100},950}");
 @source inline("color-violet-{50,{100..900..100},950}");
@@ -22,6 +32,8 @@
 @source inline("color-mauve-{50,{100..900..100},950}");
 
 @theme {
+    --dark-mode: selector(.dark);
+
     --color-primary-50: var(--primary-50);
     --color-primary-100: var(--primary-100);
     --color-primary-200: var(--primary-200);
@@ -126,7 +138,7 @@ body {
     background-color: var(--color-base-50);
     color: var(--color-base-900);
     overscroll-behavior: none;
-    transition: background-color 0.3s, color 0.3s;
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .dark body {
@@ -139,6 +151,7 @@ main {
     overflow-y: auto;
     flex-grow: 1;
     height: 100%;
+    transition: background-color 0.3s ease;
 }
 
 .dark main {

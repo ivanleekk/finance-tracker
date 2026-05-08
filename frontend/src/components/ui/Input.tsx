@@ -41,9 +41,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         />
         {helperText && (
           <p
-            className={cn("text-sm text-base-500", {
-              "text-red-500": error && !disabled,
-              "text-base-400": disabled,
+            className={cn("text-sm text-base-500 dark:text-base-400", {
+              "text-red-500 dark:text-red-400": error && !disabled,
+              "text-base-400 dark:text-base-600": disabled,
             })}
           >
             {helperText}

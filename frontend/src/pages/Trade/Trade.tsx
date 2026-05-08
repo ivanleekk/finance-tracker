@@ -13,7 +13,7 @@ export { tradeFormLoader as loader } from "./trade.loader";
 export default function Trade() {
     const { activeHousehold } = useHousehold();
     const loaderData = (useLoaderData() as TradeLoaderData) || { accounts: [], subportfolios: [], currencies: [] };
-    
+
     const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
     const [selectedAccountId, setSelectedAccountId] = useState(accounts.length > 0 ? accounts[0].id : "")
@@ -57,12 +57,12 @@ export default function Trade() {
     // Auto-prefill the exchange rate when currency, account, or date changes
     useEffect(() => {
         if (!selectedAccountId || !currency || !date) return;
-        
+
         const account = accounts.find(a => a.id === selectedAccountId);
         if (!account) return;
-        
+
         const accountCurrency = account.currency || "USD";
-        
+
         if (currency === accountCurrency) {
             setExchangeRate("1.0");
             return;
@@ -87,9 +87,9 @@ export default function Trade() {
     }, [quantity, price]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { 
-            style: 'currency', 
-            currency: activeHousehold?.base_currency || 'USD' 
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD'
         }).format(value)
     }
 
@@ -98,9 +98,9 @@ export default function Trade() {
         setMessage(null);
 
         if (accounts.length === 0 || subportfolios.length === 0) {
-            setMessage({ 
-                text: "You need at least one account and one sub-portfolio to execute a trade. Please create them in the Accounts and Portfolio sections first.", 
-                type: "error" 
+            setMessage({
+                text: "You need at least one account and one sub-portfolio to execute a trade. Please create them in the Accounts and Portfolio sections first.",
+                type: "error"
             });
             return;
         }
@@ -180,14 +180,14 @@ export default function Trade() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {message && (
-                            <div className={`p-3 rounded text-sm ${message.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                            <div className={`p-3 rounded text-sm ${message.type === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'}`}>
                                 {message.text}
                             </div>
                         )}
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-900">Funding Account</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Funding Account</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                 value={selectedAccountId}
                                 onChange={(e) => setSelectedAccountId(e.target.value)}
                                 required
@@ -200,9 +200,9 @@ export default function Trade() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-900">Sub-Portfolio</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Sub-Portfolio</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                 value={selectedSubportfolioId}
                                 onChange={(e) => setSelectedSubportfolioId(e.target.value)}
                                 required
@@ -224,9 +224,9 @@ export default function Trade() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-900">Currency</label>
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
                                 <select
-                                    className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                     value={currency}
                                     onChange={(e) => setCurrency(e.target.value)}
                                 >
@@ -255,7 +255,7 @@ export default function Trade() {
                                 onChange={(e) => setQuantity(e.target.value)}
                             />
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-900 flex items-center justify-between">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50 flex items-center justify-between">
                                     Price
                                     {isFetchingPrice && <div className="h-3 w-3 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />}
                                 </label>
@@ -305,8 +305,8 @@ export default function Trade() {
                         </div>
 
                         <div className="pt-4 text-center">
-                            <p className="text-sm text-base-500">
-                                Estimated Total: <span className="font-semibold text-base-900">{formatCurrency(estimatedTotal)}</span>
+                            <p className="text-sm text-base-500 dark:text-base-400">
+                                Estimated Total: <span className="font-semibold text-base-900 dark:text-base-50">{formatCurrency(estimatedTotal)}</span>
                             </p>
                         </div>
                     </CardContent>
