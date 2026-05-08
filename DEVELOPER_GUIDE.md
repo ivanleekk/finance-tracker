@@ -75,6 +75,41 @@ gcloud builds submit --config cloudbuild.yaml \
   --substitutions=_REGION=us-central1,_TAG=v1.0.0
 ```
 
-### CI/CD Integration
-The `cloudbuild.yaml` is designed to be triggered by GitHub/GitLab actions or via direct console triggers on push to the `main` branch.
+### CI/CD & Environments
+
+We use a single `cloudbuild.yaml` to manage multiple environments (e.g., `prod` and `dev`). This is achieved using **Cloud Build Substitutions**.
+
+#### 1. Deployment Environments
+-   **Production**: Service names: `backend`, `frontend`.
+-   **Development**: Service names: `backend-dev`, `frontend-dev`.
+
+#### 2. Setting up Triggers
+To automate this, set up two triggers in the [Google Cloud Build Console](https://console.cloud.google.com/cloud-build/triggers):
+
+**Trigger A: Production (Main Branch)**
+-   **Event**: Push to branch
+-   **Branch**: `^main$`
+-   **Configuration**: `cloudbuild.yaml`
+-   **Substitutions**: (Default values in `cloudbuild.yaml` are set for production).
+
+**Trigger B: Development (Dev Branch)**
+-   **Event**: Push to branch
+-   **Branch**: `^dev$`
+-   **Configuration**: `cloudbuild.yaml`
+-   **Substitutions**:
+    -   `_SERVICE_SUFFIX`: `-dev`
+    -   `_TAG`: `dev`
+    -   `_API_URL`: `https://dev-api.yourdomain.com` (Your dev URL)
+    -   `_ENV_CORS_ORIGIN`: `https://dev.yourdomain.com` (Your dev frontend URL)
+    -   `_DB_SECRET`: `FINANCE_TRACKER_DB_URL_DEV` (Your dev database secret)
+
+> [!TIP]
+> **Dev Database Setup**: Create a second secret in Google Secret Manager (e.g., `FINANCE_TRACKER_DB_URL_DEV`) containing the connection string for your dev database before setting up the trigger.
+
+#### 3. Manual Dev Deployment
+You can manually deploy the dev environment from your local machine:
+```bash
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_SERVICE_SUFFIX=-dev,_TAG=dev,_API_URL=https://dev-api.yourdomain.com,_ENV_CORS_ORIGIN=https://dev.yourdomain.com,_DB_SECRET=FINANCE_TRACKER_DB_URL_DEV
+```
 
