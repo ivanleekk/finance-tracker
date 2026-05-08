@@ -29,7 +29,7 @@ steps:
               "gcloud",
               "run",
               "deploy",
-              "backend",
+              "backend$_SERVICE_SUFFIX",
               "--image",
               "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/backend:$_TAG",
               "--region",
@@ -38,10 +38,10 @@ steps:
               "managed",
               "--allow-unauthenticated",
               "--set-secrets",
-              "DATABASE_URL=FINANCE_TRACKER_DB_URL:latest",
+              "DATABASE_URL=$_DB_SECRET:latest",
               # Add your env vars right here!
               "--set-env-vars",
-              "API_URL=$_API_URL,CORS_ORIGINS=https://finance.ivanleekaikiat.com",
+              "API_URL=$_API_URL,CORS_ORIGINS=$_ENV_CORS_ORIGIN",
           ]
     # 4. Build Frontend (Using the static custom domain)
     - name: "gcr.io/cloud-builders/docker"
@@ -76,7 +76,7 @@ steps:
               "gcloud",
               "run",
               "deploy",
-              "frontend",
+              "frontend$_SERVICE_SUFFIX",
               "--image",
               "$_REGION-docker.pkg.dev/$PROJECT_ID/finance-tracker/frontend:$_TAG",
               "--region",
@@ -91,8 +91,10 @@ steps:
 substitutions:
     _REGION: asia-southeast1
     _TAG: latest
-    # Update this to your new custom domain
     _API_URL: https://financeapi.ivanleekaikiat.com
+    _SERVICE_SUFFIX: "" # Empty for production
+    _ENV_CORS_ORIGIN: https://finance.ivanleekaikiat.com
+    _DB_SECRET: FINANCE_TRACKER_DB_URL
 
 options:
     logging: CLOUD_LOGGING_ONLY
