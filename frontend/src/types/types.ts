@@ -49,6 +49,10 @@ export type UserResponse = {
   email: string;
   preferred_timezone: string;
   name: string;
+  theme_mode: "light" | "dark" | "system";
+  primary_color: string;
+  secondary_color: string;
+  base_color: string;
 };
 
 export type HouseholdResponse = {
@@ -161,7 +165,8 @@ export type PortfolioSnapshotResponse = {
   price: number;
   exchange_rate_used: number;
   current_value_home_currency: number;
-  averge_cost_basis: number;
+  average_cost_basis: number;
+  average_cost_basis_home_currency: number;
 };
 
 export type DividendResponse = {

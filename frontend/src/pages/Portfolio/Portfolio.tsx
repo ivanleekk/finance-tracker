@@ -50,6 +50,11 @@ export default function Portfolio() {
     const [searchParams] = useSearchParams()
     const startDate = searchParams.get("start_date")
 
+    const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { 
+        style: 'currency', 
+        currency: activeHousehold?.base_currency || 'USD' 
+    }).format(val);
+
     const [activeTab, setActiveTab] = useState("Overall")
     const [timeframe, setTimeframe] = useState("Monthly")
     const [isCreating, setIsCreating] = useState(false)
@@ -133,10 +138,6 @@ export default function Portfolio() {
             const unrealized = equity - costBasis;
             const unrealizedPercent = costBasis > 0 ? (unrealized / costBasis) * 100 : 0;
 
-            const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { 
-                style: 'currency', 
-                currency: activeHousehold?.base_currency || 'USD' 
-            }).format(val);
             const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`;
             const sign = (val: number) => val >= 0 ? '+' : '';
 
@@ -192,7 +193,7 @@ export default function Portfolio() {
                         ticker: asset?.ticker || "UNKNOWN",
                         name: asset?.name || "Unknown Asset",
                         shares: s.quantity,
-                        avgCost: Number(s.average_cost_basis_home_currency ?? s.averge_cost_basis),
+                        avgCost: Number(s.average_cost_basis_home_currency ?? s.average_cost_basis),
                         currentPrice: Number(s.price) * (s.exchange_rate_used || 1.0)
                     };
                 });
@@ -253,7 +254,7 @@ export default function Portfolio() {
             )}
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900">Portfolio</h2>
+                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Portfolio</h2>
                     <p className="text-base-500 mt-1">Track your performance and risk metrics.</p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -288,7 +289,7 @@ export default function Portfolio() {
                     onClick={() => setIsCreating(!isCreating)}
                     className={cn(
                         "px-3 py-1 text-sm font-medium transition-colors border rounded-md ml-2",
-                        isCreating ? "border-primary-500 text-primary-600 bg-primary-50" : "border-base-200 text-base-600 hover:bg-base-50"
+                        isCreating ? "border-secondary-500 text-secondary-600 bg-secondary-50" : "border-base-200 text-base-600 hover:bg-base-50"
                     )}
                 >
                     + New
@@ -336,7 +337,7 @@ export default function Portfolio() {
             {/* Top Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                 <StatCard title="Total Equity" value={currentData.stats.equity} />
-                <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent.toFixed(2)} />
+                <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
@@ -398,14 +399,38 @@ export default function Portfolio() {
                                     tickFormatter={(value) => `$${value / 1000}k`}
                                 />
                                 <Tooltip
-                                    labelFormatter={(label) => new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
-                                    formatter={(value: any) => [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value as number), "Total Equity"]}
-                                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    content={({ active, payload, label }) => {
+                                        if (active && payload && payload.length) {
+                                            return (
+                                                <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl backdrop-blur-md bg-opacity-95">
+                                                    <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                        {new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                    </p>
+                                                    <div className="space-y-1.5">
+                                                        {payload.map((entry: any, index: number) => (
+                                                            <div key={index} className="flex items-center justify-between gap-4">
+                                                                <span 
+                                                                    className="text-sm font-semibold"
+                                                                    style={{ color: entry.stroke }}
+                                                                >
+                                                                    {activeTab} Equity
+                                                                </span>
+                                                                <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                    {formatCurrency(entry.value)}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
                                 />
                                 <Area
                                     type="monotone"
                                     dataKey="equity"
-                                    stroke="#10b981"
+                                    stroke="var(--color-primary-500)"
                                     strokeWidth={3}
                                     fillOpacity={1}
                                     fill="url(#colorEquity)"

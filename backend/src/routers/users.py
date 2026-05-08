@@ -93,6 +93,15 @@ def update_user(
     if user_update.name is not None:
         existing_user.name = user_update.name
     
+    if user_update.theme_mode is not None:
+        existing_user.theme_mode = user_update.theme_mode
+    if user_update.primary_color is not None:
+        existing_user.primary_color = user_update.primary_color
+    if user_update.secondary_color is not None:
+        existing_user.secondary_color = user_update.secondary_color
+    if user_update.base_color is not None:
+        existing_user.base_color = user_update.base_color
+
     if user_update.email is not None:
         # Check if the new email is already taken by another user
         duplicate_user = db.query(models.User).filter(models.User.email == user_update.email, models.User.id != current_user.id).first()

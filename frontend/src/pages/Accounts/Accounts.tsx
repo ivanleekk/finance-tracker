@@ -130,7 +130,7 @@ export default function Accounts() {
         <div className="flex-1 space-y-6 p-8 relative">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900">Bank Accounts</h2>
+                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Bank Accounts</h2>
                     <p className="text-base-500 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
                 </div>
                 <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
@@ -171,8 +171,39 @@ export default function Accounts() {
                                         tickFormatter={(value) => `$${value / 1000}k`}
                                     />
                                     <Tooltip
-                                        formatter={(value: any, name: string) => [formatCurrency(value as number), name]}
-                                        contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                return (
+                                                    <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl backdrop-blur-md bg-opacity-95">
+                                                        <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                            {new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                        </p>
+                                                        <div className="space-y-1.5">
+                                                            {payload.map((entry: any, index: number) => (
+                                                                <div key={index} className="flex items-center justify-between gap-4">
+                                                                    <span 
+                                                                        className="text-sm font-semibold"
+                                                                        style={{ color: entry.stroke }}
+                                                                    >
+                                                                        {entry.name}
+                                                                    </span>
+                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                        {formatCurrency(entry.value)}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                            <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
+                                                                    <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
+                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                        {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                    </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
                                     />
                                     {/* UPDATED: Map over accounts to render a stacked area for each */}
                                     {accounts.map((acc, index) => (

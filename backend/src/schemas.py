@@ -13,6 +13,7 @@ from src.models import (
     TransactionType,
     HouseholdRoleType,
     TradeType,
+    ThemeMode,
 )
 
 # ----------------------------------------
@@ -24,6 +25,10 @@ class UserBase(BaseModel):
     email: EmailStr
     preferred_timezone: str = "UTC"
     name: str
+    theme_mode: ThemeMode = ThemeMode.system
+    primary_color: str = "sky"
+    secondary_color: str = "fuchsia"
+    base_color: str = "mauve"
 
 
 class UserCreate(UserBase):
@@ -35,6 +40,10 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     password: Optional[str] = None
     email: Optional[EmailStr] = None
+    theme_mode: Optional[ThemeMode] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    base_color: Optional[str] = None
 
 
 class UserResponse(UserBase):
@@ -338,7 +347,7 @@ class PortfolioSnapshotBase(BaseModel):
     price: Decimal
     exchange_rate_used: float
     current_value_home_currency: Decimal
-    averge_cost_basis: Decimal
+    average_cost_basis: Decimal
     average_cost_basis_home_currency: Decimal
 
 
@@ -354,7 +363,7 @@ class PortfolioSnapshotUpdate(BaseModel):
     price: Optional[Decimal] = None
     exchange_rate_used: Optional[float] = None
     current_value_home_currency: Optional[Decimal] = None
-    averge_cost_basis: Optional[Decimal] = None
+    average_cost_basis: Optional[Decimal] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None

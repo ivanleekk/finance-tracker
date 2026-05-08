@@ -137,7 +137,7 @@ export default function Dashboard() {
         <div className="flex-1 space-y-6 p-8">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900">Dashboard</h2>
+                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
                     <p className="text-base-500 mt-1">Overview of your household financial health.</p>
                 </div>
                 <TimeframeSelector />
@@ -208,17 +208,21 @@ export default function Dashboard() {
                                 <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <defs>
-                                            <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                                            <linearGradient id="colorPortfolio" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.2} />
+                                                <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0} />
+                                            </linearGradient>
+                                            <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--color-secondary-500)" stopOpacity={0.2} />
+                                                <stop offset="95%" stopColor="var(--color-secondary-500)" stopOpacity={0} />
                                             </linearGradient>
                                         </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-100)" />
                                         <XAxis
                                             dataKey="date"
                                             axisLine={false}
                                             tickLine={false}
-                                            tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                             tickFormatter={(val) => {
                                                 const d = new Date(val);
                                                 if (timeframe === "Yearly") return d.getUTCFullYear().toString();
@@ -230,21 +234,61 @@ export default function Dashboard() {
                                         <YAxis
                                             axisLine={false}
                                             tickLine={false}
-                                            tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                             tickFormatter={(value) => `$${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
                                         />
                                         <Tooltip
-                                            labelFormatter={(label) => new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
-                                            formatter={(value: any) => [formatCurrency(value as number), 'Net Worth']}
-                                            contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                            content={({ active, payload, label }) => {
+                                                if (active && payload && payload.length) {
+                                                    return (
+                                                        <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl backdrop-blur-md bg-opacity-95">
+                                                            <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                                {new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                            </p>
+                                                            <div className="space-y-1.5">
+                                                                {payload.map((entry: any, index: number) => (
+                                                                    <div key={index} className="flex items-center justify-between gap-4">
+                                                                        <span 
+                                                                            className="text-sm font-semibold"
+                                                                            style={{ color: entry.stroke }}
+                                                                        >
+                                                                            {entry.name === 'portfolio' ? 'Portfolio' : entry.name === 'cash' ? 'Cash' : entry.name}
+                                                                        </span>
+                                                                        <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                            {formatCurrency(entry.value)}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                                <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
+                                                                    <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
+                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                        {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            }}
                                         />
                                         <Area
                                             type="monotone"
-                                            dataKey="netWorth"
-                                            stroke="#0ea5e9"
+                                            dataKey="portfolio"
+                                            stackId="1"
+                                            stroke="var(--color-primary-500)"
                                             strokeWidth={2}
                                             fillOpacity={1}
-                                            fill="url(#colorNetWorth)"
+                                            fill="url(#colorPortfolio)"
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="cash"
+                                            stackId="1"
+                                            stroke="var(--color-secondary-500)"
+                                            strokeWidth={2}
+                                            fillOpacity={1}
+                                            fill="url(#colorCash)"
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>

@@ -28,10 +28,15 @@ export async function getSSRContext(request: Request) {
     let newCookieHeader: string | null = null;
 
     const ssrFetch = async (path: string, init?: RequestInit) => {
+        const headersObj: Record<string, string> = {};
+        headers.forEach((value, key) => {
+            headersObj[key] = value;
+        });
+
         const response = await fetch(getApiUrl(path), {
             ...init,
             headers: {
-                ...Object.fromEntries(headers),
+                ...headersObj,
                 ...init?.headers,
             },
         });
@@ -43,23 +48,21 @@ export async function getSSRContext(request: Request) {
         return response;
     };
 
-    // Always fetch households to ensure the current ID is valid for this user
+    // Optional household verification - only if we have a cookie or if it's explicitly requested
     let households: any[] = [];
     try {
+        // We only attempt to fetch households if there's a chance the user is logged in
+        // or if we need to resolve a householdId.
         const hRes = await fetch(getApiUrl("/users/households"), {
             headers: { ...Object.fromEntries(headers) }
         });
+        
         if (hRes.ok) {
             households = await hRes.json();
-        } else if (hRes.status === 401) {
-            // If we are unauthorized here, we definitely need to log in
-            throw redirect("/login");
         }
+        // We DO NOT throw a redirect here because getSSRContext is often used in the root loader
+        // which must be able to fail gracefully for public pages (like /login) to avoid redirect loops.
     } catch (e) {
-        // If it's a redirect from react-router, re-throw it
-        if (e instanceof Response && (e.status === 302 || e.status === 303 || e.status === 307)) {
-            throw e;
-        }
         console.error("Failed to fetch households in SSR", e);
     }
 

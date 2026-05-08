@@ -259,7 +259,7 @@ export default function Transactions() {
                 </div>
             )}
             <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-base-900">Transactions</h2>
+                <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Transactions</h2>
                 <div className="flex gap-2">
                     <Button onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
                         <PlusCircle className="h-4 w-4" />
@@ -291,7 +291,7 @@ export default function Transactions() {
                     </button>
                     <button
                         type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white shadow-sm text-primary-600' : 'text-base-500 hover:text-base-700'}`}
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white shadow-sm text-secondary-600' : 'text-base-500 hover:text-base-700'}`}
                         onClick={() => setActiveTab('transfer')}
                     >
                         Transfer

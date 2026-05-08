@@ -53,6 +53,12 @@ class TradeType(enum.Enum):
     sell = "sell"
 
 
+class ThemeMode(enum.Enum):
+    light = "light"
+    dark = "dark"
+    system = "system"
+
+
 # --- 1. ACCESS & TENANCY ---
 
 
@@ -65,6 +71,10 @@ class User(Base):
     salted_hashed_password: Mapped[str] = mapped_column(String)
     name: Mapped[str] = mapped_column(String)
     salt: Mapped[str] = mapped_column(String)
+    theme_mode: Mapped[ThemeMode] = mapped_column(Enum(ThemeMode, native_enum=False), default=ThemeMode.system)
+    primary_color: Mapped[str] = mapped_column(String, default="sky")
+    secondary_color: Mapped[str] = mapped_column(String, default="fuchsia")
+    base_color: Mapped[str] = mapped_column(String, default="mauve")
 
     # Relationships
     household_memberships = relationship("HouseholdMember", back_populates="user")
