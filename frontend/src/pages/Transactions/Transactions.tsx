@@ -73,13 +73,13 @@ export default function Transactions() {
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
-        
+
         setIsDeleting(item.id);
         try {
-            const endpoint = item.categoryType === 'trade' 
-                ? `/portfolio/trades/${item.id.replace('trade-', '')}` 
+            const endpoint = item.categoryType === 'trade'
+                ? `/portfolio/trades/${item.id.replace('trade-', '')}`
                 : `/cashflow/transactions/${item.id.replace('tx-', '')}`;
-            
+
             await api.delete(endpoint);
             revalidator.revalidate();
         } catch (error) {
@@ -186,7 +186,7 @@ export default function Transactions() {
         const txItems: UnifiedHistoryItem[] = transactions.map(tx => {
             const categoryName = categoryMap.get(tx.category_id) || "Uncategorized";
             const accountName = accountMap.get(tx.account_id) || "Unknown Account";
-            
+
             let typeStr = tx.amount < 0 ? "withdrawal" : "deposit";
             if (tx.transfer_id) {
                 typeStr = tx.amount < 0 ? "transfer_out" : "transfer_in";
@@ -274,8 +274,8 @@ export default function Transactions() {
                 <DialogHeader>
                     <DialogTitle className="text-base-900 dark:text-base-50">{activeTab === 'transaction' ? 'Log Daily Transaction' : 'Internal Transfer'}</DialogTitle>
                     <p className="text-sm text-base-500 dark:text-base-400">
-                        {activeTab === 'transaction' 
-                            ? 'Record food, retail, or income items manually.' 
+                        {activeTab === 'transaction'
+                            ? 'Record food, retail, or income items manually.'
                             : 'Move money between your accounts seamlessly.'}
                     </p>
                 </DialogHeader>
@@ -318,7 +318,7 @@ export default function Transactions() {
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <label className="text-sm font-medium text-base-700">Category</label>
-                                    <button 
+                                    <button
                                         type="button"
                                         onClick={() => {
                                             const name = prompt("Enter category name (e.g. Food, Salary):");
@@ -377,7 +377,7 @@ export default function Transactions() {
                                 />
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700">Date</label>
@@ -440,7 +440,7 @@ export default function Transactions() {
                                 </select>
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700">Amount</label>
@@ -582,9 +582,9 @@ export default function Transactions() {
                                         <span className={`font-semibold ${getAmountColor(item.type)}`}>
                                             {formatAmount(item.type, item.amount)}
                                         </span>
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
                                             className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
                                             onClick={() => handleDelete(item)}
                                             disabled={isDeleting === item.id}

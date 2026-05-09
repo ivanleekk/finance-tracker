@@ -506,32 +506,32 @@ export default function Accounts() {
                                             .filter(h => h.is_manual)
                                             .sort((a, b) => b.date.localeCompare(a.date))
                                             .map((h) => (
-                                            <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
-                                                <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
-                                                    {new Date(h.date).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
-                                                </td>
-                                                <td className="px-2 py-3 text-right font-mono text-base-700 dark:text-base-300">
-                                                    {formatCurrency(Number(h.balance), historyAccount.currency)}
-                                                </td>
-                                                <td className="px-2 py-3 text-center">
-                                                    <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-5">Manual</Badge>
-                                                </td>
-                                                 <td className="px-2 py-3 text-right">
-                                                    <deleteBalanceFetcher.Form method="post" className="inline">
-                                                        <input type="hidden" name="_intent" value="deleteBalance" />
-                                                        <input type="hidden" name="balanceId" value={h.id} />
-                                                        <Button 
-                                                            variant="ghost" 
-                                                            size="sm" 
-                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 py-0 h-8"
-                                                            disabled={deleteBalanceFetcher.state !== "idle"}
-                                                        >
-                                                            Delete
-                                                        </Button>
-                                                    </deleteBalanceFetcher.Form>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+                                                    <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
+                                                        {new Date(h.date).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                    </td>
+                                                    <td className="px-2 py-3 text-right font-mono text-base-700 dark:text-base-300">
+                                                        {formatCurrency(Number(h.balance), historyAccount.currency)}
+                                                    </td>
+                                                    <td className="px-2 py-3 text-center">
+                                                        <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-5">Manual</Badge>
+                                                    </td>
+                                                    <td className="px-2 py-3 text-right">
+                                                        <deleteBalanceFetcher.Form method="post" className="inline">
+                                                            <input type="hidden" name="_intent" value="deleteBalance" />
+                                                            <input type="hidden" name="balanceId" value={h.id} />
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="text-red-600 hover:text-red-700 hover:bg-red-50 py-0 h-8"
+                                                                disabled={deleteBalanceFetcher.state !== "idle"}
+                                                            >
+                                                                Delete
+                                                            </Button>
+                                                        </deleteBalanceFetcher.Form>
+                                                    </td>
+                                                </tr>
+                                            ))}
                                         {historyAccount.history.filter(h => h.is_manual).length === 0 && (
                                             <tr>
                                                 <td colSpan={4} className="px-2 py-8 text-center text-base-500">

@@ -12,7 +12,7 @@ The system standardizes all financial reporting (Dashboard, Portfolio, Net Worth
 ### Authentication & SSR
 The project uses **React Router v7 SSR** with JWT-based authentication via HTTP-only cookies.
 -   **SSR Loaders**: Must manually extract and forward cookies from the incoming browser request to the backend.
--   **Networking**: Client-side fetches use `http://localhost:5001`, but Server-Side fetches (in loaders/actions) MUST use the internal Docker network `http://backend:5001`. Use the `getApiUrl` utility in `ssr-helpers.ts`.
+-   **Networking**: Client-side fetches use `http://localhost:8000`, but Server-Side fetches (in loaders/actions) MUST use the internal Docker network `http://backend:8000`. Use the `getApiUrl` utility in `ssr-helpers.ts`.
 
 ## 💻 Local Development Setup
 

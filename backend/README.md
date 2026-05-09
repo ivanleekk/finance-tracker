@@ -53,5 +53,5 @@ uv run pytest
 ## 📝 API Documentation
 
 Once the server is running, visit:
--   Swagger UI: `http://localhost:5001/docs`
--   ReDoc: `http://localhost:5001/redoc`
+-   Swagger UI: `http://localhost:8000/docs`
+-   ReDoc: `http://localhost:8000/redoc`

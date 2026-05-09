@@ -1,38 +1,42 @@
 services:
-    # backend:
-    #     build:
-    #         context: ./backend
-    #         target: ${DOCKER_TARGET:-development}
-    #     ports:
-    #         - "5001:5001"
-    #     environment:
-    #         - PORT=5001
-    #         - HOST=0.0.0.0
-    #         - DATABASE_URL=postgresql://fin:fin@db:5432/fin
-    #         - POSTGRES_HOST=db
-    #         - POSTGRES_PORT=5432
-    #         - POSTGRES_DB=fin
-    #         - POSTGRES_USER=fin
-    #         - POSTGRES_PASSWORD=fin
-    #     env_file:
-    #         - .env
-    #     depends_on:
-    #         db:
-    #             condition: service_healthy
-    #     restart: unless-stopped
+    backend:
+        build:
+            context: ./backend
+            target: ${DOCKER_TARGET:-development}
+        ports:
+            - "8000:8000"
+        environment:
+            - PORT=8000
+            - HOST=0.0.0.0
+            - DATABASE_URL=postgresql://fin:fin@db:5432/fin
+            - POSTGRES_HOST=db
+            - POSTGRES_PORT=5432
+            - POSTGRES_DB=fin
+            - POSTGRES_USER=fin
+            - POSTGRES_PASSWORD=fin
+            - API_URL=http://localhost:8000
+            - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+            - AUTH_COOKIE_DOMAIN=localhost
+            - SCHEDULER_SECRET=local-dev-secret
+        env_file:
+            - .env
+        depends_on:
+            db:
+                condition: service_healthy
+        restart: unless-stopped
 
-    # frontend:
-    #     build:
-    #         context: ./frontend
-    #         target: ${DOCKER_TARGET:-development}
-    #     ports:
-    #         - "5173:5173"
-    #     environment:
-    #         - VITE_API_URL=http://localhost:5001
-    #         - INTERNAL_API_URL=http://backend:5001
-    #     restart: unless-stopped
-    #     extra_hosts:
-    #         - "host.docker.internal:host-gateway"
+    frontend:
+        build:
+            context: ./frontend
+            target: ${DOCKER_TARGET:-development}
+        ports:
+            - "5173:5173"
+        environment:
+            - VITE_API_URL=http://localhost:8000
+            - INTERNAL_API_URL=http://backend:8000
+        restart: unless-stopped
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
       
     db:
       image: postgres:18-alpine

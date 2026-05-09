@@ -29,10 +29,10 @@ export async function action({ request }: ActionFunctionArgs) {
         // or just redirect to login page. The current implementation 
         // in Signup.tsx redirected to dashboard, but that requires 
         // a session which we don't have yet (unless the backend returns one).
-        
+
         // If backend returns a Set-Cookie on signup, we should forward it.
         const setCookieHeader = response.headers.get("Set-Cookie");
-        
+
         return redirect("/dashboard", {
             headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
         });
@@ -95,7 +95,7 @@ export default function Signup() {
                         className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
-                
+
                 <div className="flex flex-col gap-4">
                     <Button
                         type="submit"
@@ -104,7 +104,7 @@ export default function Signup() {
                     >
                         {isLoading ? "Signing up..." : "Sign Up"}
                     </Button>
-                    
+
                     <p className="text-center text-sm text-base-500 dark:text-base-400">
                         Already have an account?{" "}
                         <Link to="/login" className="text-primary-600 dark:text-primary-400 hover:underline">

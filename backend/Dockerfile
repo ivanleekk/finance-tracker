@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.14-alpine as base
+FROM ghcr.io/astral-sh/uv:python3.14-alpine AS base
 
 WORKDIR /app
 
@@ -11,19 +11,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------------------------------------------------------
 # Development Stage
 # ---------------------------------------------------------
-FROM base as development
+FROM base AS development
 COPY . /app
 RUN uv pip install -e .
-EXPOSE 5001
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run fastapi dev --host 0.0.0.0 --port 5001 src/main.py"]
+EXPOSE 8000
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run fastapi dev --host 0.0.0.0 --port 8000 src/main.py"]
 
 # ---------------------------------------------------------
 # Production Stage
 # ---------------------------------------------------------
-FROM base as production
+FROM base AS production
 COPY . /app
 # Sync again with project installed, still no-dev
 RUN uv sync --frozen --no-dev
-EXPOSE 5001
+EXPOSE 8000
 # In production, we use uvicorn directly for better performance and stability
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-5001}"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

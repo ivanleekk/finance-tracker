@@ -35,9 +35,9 @@ export default function Dashboard() {
     }, [activeHousehold?.id]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { 
-            style: 'currency', 
-            currency: activeHousehold?.base_currency || 'USD' 
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD'
         }).format(value)
     }
 
@@ -73,7 +73,7 @@ export default function Dashboard() {
     // Aggregate historical data for the chart using real snapshots
     const chartData = useMemo(() => {
         const dailyData = new Map<string, { cash: number; portfolio: number }>();
-        
+
         // Cash: Aggregate from balances
         Object.values(balances).forEach(history => {
             history.forEach(b => {
@@ -248,7 +248,7 @@ export default function Dashboard() {
                                                             <div className="space-y-1.5">
                                                                 {payload.map((entry: any, index: number) => (
                                                                     <div key={index} className="flex items-center justify-between gap-4">
-                                                                        <span 
+                                                                        <span
                                                                             className="text-sm font-semibold"
                                                                             style={{ color: entry.stroke }}
                                                                         >

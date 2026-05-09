@@ -60,6 +60,7 @@ export default function Portfolio() {
     const [isCreating, setIsCreating] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState("")
     const [newPortfolioRisk, setNewPortfolioRisk] = useState("Moderate")
+    const [isSyncing, setIsSyncing] = useState(false)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -97,6 +98,23 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to delete sub-portfolio. It might have associated trades.");
+        }
+    };
+
+    const handleSyncPortfolio = async () => {
+        if (!activeHousehold) return;
+        setIsSyncing(true);
+        try {
+            await api.post(`/portfolio/household/${activeHousehold.id}/sync`);
+            // Wait a bit for the background task to start/process
+            setTimeout(() => {
+                revalidator.revalidate();
+                setIsSyncing(false);
+            }, 1500);
+        } catch (e) {
+            console.error(e);
+            alert("Failed to sync portfolio snapshots");
+            setIsSyncing(false);
         }
     };
 
@@ -260,6 +278,19 @@ export default function Portfolio() {
                 <div className="flex items-center gap-4">
                     <TimeframeSelector />
                     <div className="flex gap-2">
+                        <Button 
+                            variant="secondary" 
+                            onClick={handleSyncPortfolio} 
+                            disabled={isSyncing}
+                            className="flex items-center gap-2"
+                        >
+                            {isSyncing ? (
+                                <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                            )}
+                            Sync
+                        </Button>
                         <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
                         <Button variant="primary">Download Report</Button>
                     </div>

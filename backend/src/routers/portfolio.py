@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from typing import List, Optional
 import uuid
 from datetime import datetime, date
@@ -14,7 +15,10 @@ from src.services.market_data import fetch_and_cache_treasury_rates
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
+import logging
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["Investments & Trades"])
 
@@ -327,14 +331,8 @@ def execute_trade(
     db.commit()
     db.refresh(db_trade)
 
-    # Trigger background snapshot update from the trade date until today
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        trade.household_id, 
-        trade.date.date(), 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, trade.household_id, trade.date.date(), date.today())
     # We must construct trade base manually because db column is trade_type while schema uses type
     response = schemas.TradeResponse(
         id=db_trade.id,
@@ -407,13 +405,8 @@ def update_trade(
     db.commit()
     db.refresh(db_trade)
 
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        db_trade.household_id, 
-        recalc_start_date, 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, db_trade.household_id, recalc_start_date, date.today())
 
     return schemas.TradeResponse(
         id=db_trade.id,
@@ -455,13 +448,8 @@ def delete_trade(
     db.delete(db_trade)
     db.commit()
 
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        household_id, 
-        trade_date, 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, household_id, trade_date, date.today())
     return
 
 # --- PORTFOLIO ACCESS ---
@@ -620,7 +608,8 @@ def get_household_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -653,7 +642,8 @@ def get_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -716,6 +706,38 @@ def delete_portfolio_snapshot(
     db.delete(db_snapshot)
     db.commit()
     return
+
+@router.post("/household/{household_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+def sync_portfolio_snapshots(
+    household_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Manually trigger a portfolio snapshot sync for the specified household.
+    This will catch up snapshots from the last recorded date until today.
+    """
+    verify_household_access(household_id, current_user, db)
+    
+    # Always sync from the earliest trade date to ensure full historical accuracy
+    # when manually triggered.
+    sync_start_date = db.execute(
+        select(func.min(func.date(models.Trade.date)))
+        .where(models.Trade.household_id == household_id)
+    ).scalar()
+    
+    print(f"DEBUG: Sync Triggered. Earliest Trade Date in DB: {sync_start_date}")
+        
+    if sync_start_date:
+        print(f"DEBUG: Initiating full sync from {sync_start_date} to {date.today()}")
+        # Sync snapshots synchronously for serverless reliability
+        run_snapshot_range(db, household_id, sync_start_date, date.today())
+        
+        return {"status": "success", "message": f"Full sync completed from {sync_start_date}", "from": sync_start_date, "to": date.today()}
+    else:
+        print(f"DEBUG: Sync aborted: No trades found for household {household_id}")
+        return {"status": "no_data", "message": "No trades found to generate snapshots."}
 
 # --- DIVIDENDS ---
 

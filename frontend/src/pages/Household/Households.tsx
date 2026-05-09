@@ -172,9 +172,9 @@ export default function Households() {
                                 To get started, you'll need to create your first household. A household is where you manage your accounts, transactions, and portfolios together with your family or for yourself.
                             </p>
                         </div>
-                        <Button 
-                            variant="primary" 
-                            size="lg" 
+                        <Button
+                            variant="primary"
+                            size="lg"
                             className="whitespace-nowrap shadow-md hover:shadow-lg transition-all"
                             onClick={() => setIsCreateModalOpen(true)}
                         >
@@ -309,7 +309,7 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleInvite} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Email Address</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Email Address</label>
                                     <Input
                                         type="email"
                                         placeholder="user@example.com"
@@ -340,7 +340,7 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleCreateHousehold} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Household Name</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Household Name</label>
                                     <Input
                                         placeholder="e.g. My Family"
                                         value={createForm.name}
@@ -349,9 +349,9 @@ export default function Households() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Base Currency</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={createForm.base_currency}
                                         onChange={(e) => setCreateForm({ ...createForm, base_currency: e.target.value })}
                                         required
@@ -397,7 +397,7 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleUpdateHousehold} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Household Name</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Household Name</label>
                                     <Input
                                         placeholder="e.g. My Family"
                                         value={editForm.name || ""}
@@ -406,9 +406,9 @@ export default function Households() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Base Currency</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.base_currency || ""}
                                         onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value })}
                                         required
@@ -420,9 +420,9 @@ export default function Households() {
                                     </select>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Country</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.country_code || ""}
                                         onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
                                         required

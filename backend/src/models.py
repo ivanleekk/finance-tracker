@@ -226,6 +226,7 @@ class Asset(Base):
 
 class ExchangeRate(Base):
     __tablename__ = "exchange_rates"
+    __table_args__ = (UniqueConstraint('base_currency', 'target_currency', 'date', name='uq_exchange_rate_base_target_date'),)
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     base_currency = Column(String)
@@ -286,6 +287,9 @@ class Trade(Base):
 
 class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        UniqueConstraint('sub_portfolio_id', 'asset_id', 'date', name='uq_portfolio_snapshot_sub_portfolio_asset_date'),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))

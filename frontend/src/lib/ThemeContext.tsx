@@ -34,7 +34,7 @@ export const THEME_PALETTES = {
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const auth = useAuth();
     const user = auth?.user;
-    
+
     const [themeMode] = useState<ThemeMode>("dark");
     const [primaryColor, setPrimaryColor] = useState(user?.primary_color || "sky");
     const [secondaryColor, setSecondaryColor] = useState(user?.secondary_color || "fuchsia");
@@ -80,7 +80,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             primaryColor,
             secondaryColor,
             baseColor,
-            setThemeMode: () => {}, // No-op
+            setThemeMode: () => { }, // No-op
             setPrimaryColor,
             setSecondaryColor,
             setBaseColor

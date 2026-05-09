@@ -33,7 +33,7 @@ export function TimeframeSelector() {
         } else {
             newParams.delete("start_date");
         }
-        
+
         setSearchParams(newParams);
     };
 
