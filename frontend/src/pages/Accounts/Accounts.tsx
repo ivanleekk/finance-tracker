@@ -95,18 +95,36 @@ export default function Accounts() {
     }
 
     // UPDATED: Now maps each account's balance to its name per date
+    // ⚡ Bolt: Replaced O(N^2 log N) filter().sort() inside map() with O(N) single-pass approach
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
-        accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
+
+        // Map account IDs/names to their history for quick lookup
+        const historyMap: Record<string, Record<string, number>> = {};
+
+        accounts.forEach(acc => {
+            historyMap[acc.name] = {};
+            acc.history.forEach(h => {
+                allDatesSet.add(h.date);
+                historyMap[acc.name][h.date] = Number(h.balance_home_currency ?? h.balance);
+            });
+        });
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+
+        // Track running balances
+        const currentBalances: Record<string, number> = {};
+        accounts.forEach(acc => currentBalances[acc.name] = 0);
 
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
             accounts.forEach(acc => {
-                const lastBalRec = acc.history.filter(h => h.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
-                dataPoint[acc.name] = lastBalRec ? Number(lastBalRec.balance_home_currency ?? lastBalRec.balance) : 0;
+                // Update running balance if there's a record for this date
+                if (historyMap[acc.name][date] !== undefined) {
+                    currentBalances[acc.name] = historyMap[acc.name][date];
+                }
+                dataPoint[acc.name] = currentBalances[acc.name];
             });
 
             return dataPoint;
