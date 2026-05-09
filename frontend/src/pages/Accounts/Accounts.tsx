@@ -53,6 +53,8 @@ export default function Accounts() {
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
 
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
     // Close modals on successful submission
     useEffect(() => {
         if (addAccountFetcher.state === "idle" && addAccountFetcher.data?.success) {
@@ -121,6 +123,46 @@ export default function Accounts() {
         if (!historyAccountId) return null;
         return accounts.find(a => a.id === historyAccountId) || null;
     }, [accounts, historyAccountId]);
+
+    const sortedAccounts = useMemo(() => {
+        let sortable = [...accounts];
+        if (sortConfig !== null) {
+            sortable.sort((a, b) => {
+                let aValue: any;
+                let bValue: any;
+
+                const getBal = (acc: AccountWithHistory) => getCurrentBalanceDetails(acc.history).balanceHome;
+
+                switch (sortConfig.key) {
+                    case 'name': aValue = a.name; bValue = b.name; break;
+                    case 'type': aValue = a.tax_status; bValue = b.tax_status; break;
+                    case 'balance': aValue = getBal(a); bValue = getBal(b); break;
+                    case 'liquidity': aValue = a.liquidity; bValue = b.liquidity; break;
+                    default: aValue = 0; bValue = 0;
+                }
+
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return sortable;
+    }, [accounts, sortConfig]);
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIcon = (key: string) => {
+        if (!sortConfig || sortConfig.key !== key) return <svg className="w-3 h-3 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>;
+        return sortConfig.direction === 'asc' 
+            ? <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg>
+            : <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>;
+    };
 
     const openUpdateModal = (accountId: string) => {
         setUpdateBalanceData({ accountId, date: new Date().toISOString().split('T')[0], balance: "" });
@@ -248,16 +290,24 @@ export default function Accounts() {
                         <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
                             <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
-                                    <th className="px-4 py-3 font-semibold">Account Name</th>
-                                    <th className="px-4 py-3 font-semibold">Type</th>
-                                    <th className="px-4 py-3 font-semibold text-right">Current Balance</th>
-                                    <th className="px-4 py-3 font-semibold text-right">Liquidity</th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('name')}>
+                                        <div className="flex items-center gap-2">Account Name {getSortIcon('name')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('type')}>
+                                        <div className="flex items-center gap-2">Type {getSortIcon('type')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('balance')}>
+                                        <div className="flex items-center justify-end gap-2">Current Balance {getSortIcon('balance')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('liquidity')}>
+                                        <div className="flex items-center justify-end gap-2">Liquidity {getSortIcon('liquidity')}</div>
+                                    </th>
                                     <th className="px-4 py-3 font-semibold">Status</th>
                                     <th className="px-4 py-3 font-semibold"></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {accounts.map((acc) => (
+                                {sortedAccounts.map((acc) => (
                                     <tr key={acc.id} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
                                         <td className="px-4 py-4 font-medium text-base-900 dark:text-base-50">{acc.name}</td>
                                         <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>

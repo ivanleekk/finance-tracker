@@ -66,6 +66,7 @@ export default function Portfolio() {
     const [editName, setEditName] = useState("")
     const [editRisk, setEditRisk] = useState("Moderate")
     const [editTarget, setEditTarget] = useState("")
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -284,7 +285,53 @@ export default function Portfolio() {
     const isLoading = navigation.state === "loading" || revalidator.state === "loading";
 
     // Default to Overall if tab is deleted
-    const currentData = portfoliosData[activeTab] || portfoliosData["Overall"];
+    const rawData = portfoliosData[activeTab] || portfoliosData["Overall"];
+    
+    const sortedHoldings = useMemo(() => {
+        if (!rawData.holdings) return [];
+        let sortable = [...rawData.holdings];
+        if (sortConfig !== null) {
+            sortable.sort((a, b) => {
+                let aValue: any;
+                let bValue: any;
+
+                switch (sortConfig.key) {
+                    case 'asset': aValue = a.ticker; bValue = b.ticker; break;
+                    case 'shares': aValue = a.shares; bValue = b.shares; break;
+                    case 'avgCost': aValue = a.avgCost; bValue = b.avgCost; break;
+                    case 'price': aValue = a.currentPrice; bValue = b.currentPrice; break;
+                    case 'value': aValue = a.shares * a.currentPrice; bValue = b.shares * b.currentPrice; break;
+                    case 'return': 
+                        aValue = (a.shares * a.currentPrice) - (a.shares * a.avgCost);
+                        bValue = (b.shares * b.currentPrice) - (b.shares * b.avgCost);
+                        break;
+                    default: aValue = 0; bValue = 0;
+                }
+
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return sortable;
+    }, [rawData.holdings, sortConfig]);
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIcon = (key: string) => {
+        if (!sortConfig || sortConfig.key !== key) return <svg className="w-3 h-3 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>;
+        return sortConfig.direction === 'asc' 
+            ? <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg>
+            : <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>;
+    };
+
+    const currentData = { ...rawData, holdings: sortedHoldings };
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
 
     return (
@@ -566,12 +613,24 @@ export default function Portfolio() {
                         <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
                             <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
-                                    <th className="px-4 py-3 font-semibold">Asset</th>
-                                    <th className="px-4 py-3 font-semibold">Shares</th>
-                                    <th className="px-4 py-3 font-semibold">Avg Cost</th>
-                                    <th className="px-4 py-3 font-semibold">Current Price</th>
-                                    <th className="px-4 py-3 font-semibold">Market Value</th>
-                                    <th className="px-4 py-3 font-semibold">Total Return</th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('asset')}>
+                                        <div className="flex items-center gap-2">Asset {getSortIcon('asset')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('shares')}>
+                                        <div className="flex items-center justify-end gap-2">Shares {getSortIcon('shares')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('avgCost')}>
+                                        <div className="flex items-center justify-end gap-2">Avg Cost {getSortIcon('avgCost')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('price')}>
+                                        <div className="flex items-center justify-end gap-2">Price {getSortIcon('price')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('value')}>
+                                        <div className="flex items-center justify-end gap-2">Value {getSortIcon('value')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('return')}>
+                                        <div className="flex items-center justify-end gap-2">Return {getSortIcon('return')}</div>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -595,11 +654,11 @@ export default function Portfolio() {
                                                 <div className="font-medium text-base-900 dark:text-base-50">{h.ticker}</div>
                                                 <div className="text-xs text-base-500 dark:text-base-400">{h.name}</div>
                                             </td>
-                                            <td className="px-4 py-3">{h.shares}</td>
-                                            <td className="px-4 py-3">${h.avgCost.toFixed(2)}</td>
-                                            <td className="px-4 py-3">${h.currentPrice.toFixed(2)}</td>
-                                            <td className="px-4 py-3 font-medium text-base-900 dark:text-base-50">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3 text-right">{h.shares}</td>
+                                            <td className="px-4 py-3 text-right">${h.avgCost.toFixed(2)}</td>
+                                            <td className="px-4 py-3 text-right">${h.currentPrice.toFixed(2)}</td>
+                                            <td className="px-4 py-3 text-right font-medium text-base-900 dark:text-base-50">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 text-right">
                                                 <Badge variant={isPositive ? "success" : "error"}>
                                                     {isPositive ? "+" : ""}{totalReturn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({returnPercent.toFixed(2)}%)
                                                 </Badge>
