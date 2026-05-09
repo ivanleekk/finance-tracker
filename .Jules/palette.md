@@ -1,0 +1,3 @@
+## 2026-05-09 - Improve form accessibility in Input component
+**Learning:** For users navigating forms using screen readers, it's vital to programmatically associate helper texts/error messages with input elements and distinctly broadcast valid/invalid states. Without explicit ARIA mappings, valuable contextual information and validation state fail to reach assistive technologies.
+**Action:** When building or modifying form inputs in the frontend, always dynamically map helper/error text using `aria-describedby` on the input element linking to an assigned `id` on the text element, and ensure error states trigger the `aria-invalid` property.
