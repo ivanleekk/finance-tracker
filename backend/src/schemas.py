@@ -285,6 +285,7 @@ class SubPortfolioBase(BaseModel):
     name: str
     risk_profile: str
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioCreate(SubPortfolioBase):
@@ -295,6 +296,7 @@ class SubPortfolioUpdate(BaseModel):
     name: Optional[str] = None
     risk_profile: Optional[str] = None
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioResponse(SubPortfolioBase):

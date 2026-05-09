@@ -252,6 +252,7 @@ class SubPortfolio(Base):
     name = Column(String)
     risk_profile = Column(String)
     target_date = Column(Date, nullable=True)
+    target_amount = Column(Numeric, nullable=True)
 
     household = relationship("Household", back_populates="sub_portfolios")
     access_controls = relationship("PortfolioAccess", back_populates="sub_portfolio")

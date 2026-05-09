@@ -174,10 +174,15 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
         # 2. Generate snapshots for this day
         for sp_id, assets_held in portfolio_state.items():
             for asset_id, state in assets_held.items():
-                if state["q"] <= 0:
-                    # Check if we have positive snapshots in history to decide if we record a 0
-                    # For performance, we'll only record 0 if the previous day was > 0
-                    # This is a simplification but works for charts.
+                # Use a small epsilon to handle floating point noise
+                is_zero = abs(state["q"]) < 1e-8
+                
+                # We skip if it's zero AND it wasn't just sold (we want to record the 0 on the sale day)
+                # This ensures the asset shows up as "sold" in history rather than just vanishing.
+                if is_zero:
+                    # Optional: We could check if a trade happened today to record a final 0
+                    # But for now, let's just skip to keep the DB clean. 
+                    # The user said "as long as there is value", so 0 value = skip is actually what they asked!
                     continue 
 
                 asset = assets[asset_id]
@@ -204,12 +209,9 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
 
     # 3. BULK SAVE
     if all_snapshots:
-        print(f"DEBUG: Replay complete. Saving {len(all_snapshots)} snapshots...")
         db.execute(insert(PortfolioSnapshot), all_snapshots)
         db.commit()
-        print(f"DEBUG: Optimized sync COMPLETE.")
-    else:
-        print(f"DEBUG: No snapshots generated to save.")
+    return True
 
 def run_daily_snapshot_targeted(db: Session, household_id: uuid.UUID, target_date: date):
     """

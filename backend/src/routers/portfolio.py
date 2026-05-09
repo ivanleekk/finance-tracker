@@ -228,6 +228,7 @@ def create_subportfolio(
         name=subportfolio.name,
         risk_profile=subportfolio.risk_profile,
         target_date=subportfolio.target_date,
+        target_amount=subportfolio.target_amount,
     )
     db.add(db_subportfolio)
     db.commit()
@@ -247,43 +248,38 @@ def get_household_subportfolios(
     subportfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
     return subportfolios
 
-@router.get(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.get("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def get_subportfolio(
     subportfolio_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    verify_household_access(sp.household_id, current_user, db)
+    return sp
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-    return db_subportfolio
-
-@router.put(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.patch("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def update_subportfolio(
     subportfolio_id: uuid.UUID,
-    subportfolio_update: schemas.SubPortfolioUpdate,
+    update: schemas.SubPortfolioUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    
+    verify_household_access(db_sp.household_id, current_user, db)
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-
-    update_data = subportfolio_update.model_dump(exclude_unset=True)
+    update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(db_subportfolio, key, value)
+        setattr(db_sp, key, value)
 
     db.commit()
-    db.refresh(db_subportfolio)
-    return db_subportfolio
+    db.refresh(db_sp)
+    return db_sp
 
 @router.delete("/subportfolios/{subportfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_subportfolio(

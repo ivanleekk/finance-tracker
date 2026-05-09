@@ -60,7 +60,12 @@ export default function Portfolio() {
     const [isCreating, setIsCreating] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState("")
     const [newPortfolioRisk, setNewPortfolioRisk] = useState("Moderate")
+    const [newPortfolioTarget, setNewPortfolioTarget] = useState("")
     const [isSyncing, setIsSyncing] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+    const [editName, setEditName] = useState("")
+    const [editRisk, setEditRisk] = useState("Moderate")
+    const [editTarget, setEditTarget] = useState("")
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -75,15 +80,35 @@ export default function Portfolio() {
             const res = await api.post<SubPortfolioResponse>('/portfolio/subportfolios', {
                 name: newPortfolioName,
                 risk_profile: newPortfolioRisk,
+                target_amount: newPortfolioTarget ? parseFloat(newPortfolioTarget) : null,
                 household_id: activeHousehold.id
             });
             setIsCreating(false);
             setNewPortfolioName("");
+            setNewPortfolioTarget("");
             setActiveTab(res.data.name);
             revalidator.revalidate(); // Re-fetch to get new portfolio in the loader data
         } catch (e) {
             console.error(e);
             alert("Failed to create sub-portfolio");
+        }
+    };
+
+    const handleUpdateSubPortfolio = async () => {
+        const sp = subportfolios.find(s => s.name === activeTab);
+        if (!sp || !editName.trim()) return;
+        try {
+            await api.patch(`/portfolio/subportfolios/${sp.id}`, {
+                name: editName,
+                risk_profile: editRisk,
+                target_amount: editTarget ? parseFloat(editTarget) : null
+            });
+            setIsEditing(false);
+            setActiveTab(editName);
+            revalidator.revalidate();
+        } catch (e) {
+            console.error(e);
+            alert("Failed to update sub-portfolio");
         }
     };
 
@@ -350,6 +375,15 @@ export default function Portfolio() {
                                 <option value="Aggressive">Aggressive</option>
                             </select>
                         </div>
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Target Amount"
+                                type="number"
+                                value={newPortfolioTarget}
+                                onChange={e => setNewPortfolioTarget(e.target.value)}
+                                placeholder="e.g. 100000"
+                            />
+                        </div>
                         <Button variant="primary" className="h-[42px]" onClick={handleCreateSubPortfolio}>Create</Button>
                         <Button variant="ghost" className="h-[42px]" onClick={() => setIsCreating(false)}>Cancel</Button>
                     </CardContent>
@@ -358,11 +392,54 @@ export default function Portfolio() {
 
             {/* Portfolio Actions */}
             {activeTab !== "Overall" && !isCreating && activeSubportfolioObj && (
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                    <Button variant="secondary" onClick={() => {
+                        setIsEditing(!isEditing);
+                        setEditName(activeSubportfolioObj.name);
+                        setEditRisk(activeSubportfolioObj.risk_profile);
+                        setEditTarget(activeSubportfolioObj.target_amount?.toString() || "");
+                    }}>
+                        {isEditing ? "Cancel Edit" : "Edit Details"}
+                    </Button>
                     <Button variant="danger" onClick={() => handleDeleteSubPortfolio(activeSubportfolioObj.id)}>
                         Delete {activeTab}
                     </Button>
                 </div>
+            )}
+
+            {isEditing && activeSubportfolioObj && (
+                <Card className="bg-primary-50/30 border-primary-200 border-dashed">
+                    <CardContent className="pt-6 flex items-end gap-4">
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Name"
+                                value={editName}
+                                onChange={e => setEditName(e.target.value)}
+                            />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
+                            <select
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                value={editRisk}
+                                onChange={e => setEditRisk(e.target.value)}
+                            >
+                                <option value="Conservative">Conservative</option>
+                                <option value="Moderate">Moderate</option>
+                                <option value="Aggressive">Aggressive</option>
+                            </select>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Target Amount"
+                                type="number"
+                                value={editTarget}
+                                onChange={e => setEditTarget(e.target.value)}
+                            />
+                        </div>
+                        <Button variant="primary" className="h-[42px]" onClick={handleUpdateSubPortfolio}>Save Changes</Button>
+                    </CardContent>
+                </Card>
             )}
 
             {/* Top Stats */}
@@ -371,8 +448,15 @@ export default function Portfolio() {
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
+                {activeSubportfolioObj?.target_amount && (
+                    <StatCard 
+                        title="Goal Progress" 
+                        value={`${((parseFloat(currentData.stats.equity.replace(/[^0-9.-]+/g,"")) / activeSubportfolioObj.target_amount) * 100).toFixed(1)}%`} 
+                        trend="neutral"
+                        description={`Target: ${formatCurrency(activeSubportfolioObj.target_amount)}`}
+                    />
+                )}
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
-                <StatCard title="Sortino Ratio" value={currentData.stats.sortino} trend="neutral" />
             </div>
 
             {/* Equity Curve Chart */}

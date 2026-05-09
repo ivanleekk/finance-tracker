@@ -140,6 +140,7 @@ export type SubPortfolioResponse = {
   name: string;
   risk_profile: string;
   target_date: string | null;
+  target_amount: number | null;
 };
 
 export type TradeResponse = {

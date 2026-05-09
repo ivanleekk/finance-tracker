@@ -110,7 +110,6 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
         raise
 
     if data.empty:
-        print(f"DEBUG: yfinance returned an EMPTY dataframe for {tickers} between {start_str} and {end_str}")
         return
 
     records_to_upsert = []
@@ -129,7 +128,6 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
             closes = ticker_data['Close'].dropna()
             for dt, price in closes.items():
                 close_val = float(price.item() if hasattr(price, 'item') else price)
-                print(f"DEBUG: Preparing to save {ticker} on {dt.date()}: {close_val}")
                 records_to_upsert.append({
                     "id": uuid.uuid7(),
                     "ticker": ticker,

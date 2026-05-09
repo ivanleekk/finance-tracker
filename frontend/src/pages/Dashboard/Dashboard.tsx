@@ -308,15 +308,20 @@ export default function Dashboard() {
                     <CardContent className="flex flex-col gap-4">
                         {subPortfolios.length > 0 ? (
                             subPortfolios.slice(0, 3).map(sp => {
-                                const current = snapshots
-                                    .filter(s => s.sub_portfolio_id === sp.id)
+                                const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
+                                const latestDate = spSnaps.length > 0 
+                                    ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
+                                    : null;
+                                
+                                const current = spSnaps
+                                    .filter(s => s.date === latestDate)
                                     .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
                                 return (
                                     <GoalCard
                                         key={sp.id}
                                         title={sp.name}
                                         currentValue={current}
-                                        targetValue={10000} // TODO: Add target_value to SubPortfolio model
+                                        targetValue={sp.target_amount || 10000}
                                         formatValue={(v) => `$${v.toLocaleString()}`}
                                     />
                                 );
