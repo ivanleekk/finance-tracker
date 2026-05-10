@@ -1,0 +1,3 @@
+## 2026-05-10 - [Form Input Accessibility Enhancement]
+**Learning:** Helper texts and error messages need to be explicitly associated with their input fields using `aria-describedby` so screen readers can properly announce them. The error state also needs to be broadcasted dynamically using `aria-invalid`. This is critical for users relying on screen readers to understand form validation and instructions.
+**Action:** Always ensure that when building or modifying form components (like `Input.tsx`), an ID is generated for the helper text, linked to the input via `aria-describedby`, and the `aria-invalid` attribute is properly managed according to the error state.
