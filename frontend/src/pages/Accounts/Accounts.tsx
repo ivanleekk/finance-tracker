@@ -94,19 +94,40 @@ export default function Accounts() {
         };
     }
 
-    // UPDATED: Now maps each account's balance to its name per date
+    // ⚡ Bolt: Optimized time-series aggregation
+    // Replaced nested .filter().sort() inside .map() with a single-pass O(N) running balance approach.
+    // This eliminates an O(N² log N) operation, avoiding main-thread blocking on large datasets.
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
 
-        return sortedDates.map(date => {
-            const dataPoint: any = { date };
+        // Sort history once per account
+        const sortedHistories = accounts.map(acc => ({
+            name: acc.name,
+            history: [...acc.history].sort((a, b) => a.date.localeCompare(b.date))
+        }));
 
-            accounts.forEach(acc => {
-                const lastBalRec = acc.history.filter(h => h.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
-                dataPoint[acc.name] = lastBalRec ? Number(lastBalRec.balance_home_currency ?? lastBalRec.balance) : 0;
+        const currentIndices = new Array(accounts.length).fill(0);
+        const currentBalances = new Array(accounts.length).fill(0);
+
+        return sortedDates.map(date => {
+            const dataPoint: Record<string, number | string> = { date };
+
+            sortedHistories.forEach((accInfo, accIndex) => {
+                const history = accInfo.history;
+                let idx = currentIndices[accIndex];
+
+                // Advance the index while history date is <= current date
+                while (idx < history.length && history[idx].date <= date) {
+                    const h = history[idx];
+                    currentBalances[accIndex] = Number(h.balance_home_currency ?? h.balance);
+                    idx++;
+                }
+
+                currentIndices[accIndex] = idx;
+                dataPoint[accInfo.name] = currentBalances[accIndex];
             });
 
             return dataPoint;
