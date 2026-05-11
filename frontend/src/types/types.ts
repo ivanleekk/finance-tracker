@@ -127,7 +127,12 @@ export type TransactionResponse = {
   category_id: string;
   date: string;
   amount: number;
+  amount_home_currency?: number;
+  currency?: string | null;
+  exchange_rate?: number | null;
   description: string | null;
+  transaction_type: TransactionType;
+  transfer_id?: string | null;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---
@@ -159,7 +164,9 @@ export type TradeResponse = {
   date: string;
   quantity: number;
   price: number;
+  currency?: string | null;
   exchange_rate: number;
+  transaction_id?: string | null;
   description?: string | null;
 };
 

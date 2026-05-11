@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from decimal import Decimal
+from typing import List
 from datetime import date
 import uuid
 from src import models
@@ -11,6 +12,9 @@ def propagate_balance_change(db: Session, account_id: uuid.UUID, start_date: dat
     Propagates a balance change forward until hitting a manual checkpoint.
     Includes home currency conversion.
     """
+    if not isinstance(amount_delta, Decimal):
+        amount_delta = Decimal(str(amount_delta))
+
     if amount_delta == 0:
         return
 
@@ -48,6 +52,9 @@ def sync_transaction_to_balances(db: Session, account_id: uuid.UUID, trans_date:
     Synchronizes a transaction's effect to the account_balances table.
     Includes home currency conversion.
     """
+    if not isinstance(amount_delta, Decimal):
+        amount_delta = Decimal(str(amount_delta))
+
     # Get account and household currencies for conversion
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == account_id).first()
     if not db_account:

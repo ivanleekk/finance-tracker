@@ -20,8 +20,11 @@ type Holding = {
     ticker: string;
     name: string;
     shares: number;
-    avgCost: number;
-    currentPrice: number;
+    avgCost: number; // Home currency
+    currentPrice: number; // Home currency
+    currency: string; // Ticker's base currency
+    avgCostNative: number;
+    currentPriceNative: number;
 };
 
 type PortfolioData = {
@@ -50,9 +53,18 @@ export default function Portfolio() {
     const [searchParams] = useSearchParams()
     const startDate = searchParams.get("start_date")
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', {
+    const formatCurrency = (val: number, code?: string) => new Intl.NumberFormat('en-US', {
         style: 'currency',
-        currency: activeHousehold?.base_currency || 'USD'
+        currency: code || activeHousehold?.base_currency || 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(val);
+
+    const formatCompactCurrency = (val: number) => new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: activeHousehold?.base_currency || 'USD',
+        notation: 'compact',
+        maximumFractionDigits: 1
     }).format(val);
 
     const [activeTab, setActiveTab] = useState("Overall")
@@ -238,24 +250,39 @@ export default function Portfolio() {
                 .forEach(s => {
                     const asset = assetMap.get(s.asset_id);
                     const ticker = asset?.ticker || "UNKNOWN";
-                    const currentPrice = Number(s.price) * (s.exchange_rate_used || 1.0);
-                    const costBasis = Number(s.average_cost_basis_home_currency ?? s.average_cost_basis);
+                    const currency = asset?.currency || "USD";
+                    
+                    const currentPriceHome = Number(s.price) * (s.exchange_rate_used || 1.0);
+                    const costBasisHome = Number(s.average_cost_basis_home_currency ?? (Number(s.average_cost_basis) * (s.exchange_rate_used || 1.0)));
+                    const currentPriceNative = Number(s.price);
+                    const costBasisNative = Number(s.average_cost_basis);
 
                     if (holdingMap.has(ticker)) {
                         const existing = holdingMap.get(ticker)!;
                         const totalShares = existing.shares + s.quantity;
-                        const totalCost = (existing.shares * existing.avgCost) + (s.quantity * costBasis);
-                        existing.avgCost = totalShares > 0 ? totalCost / totalShares : 0;
+                        
+                        // Weighted average for home currency
+                        const totalCostHome = (existing.shares * existing.avgCost) + (s.quantity * costBasisHome);
+                        existing.avgCost = totalShares > 0 ? totalCostHome / totalShares : 0;
+                        
+                        // Weighted average for native currency
+                        const totalCostNative = (existing.shares * existing.avgCostNative) + (s.quantity * costBasisNative);
+                        existing.avgCostNative = totalShares > 0 ? totalCostNative / totalShares : 0;
+                        
                         existing.shares = totalShares;
-                        existing.currentPrice = currentPrice; // Use latest seen price
+                        existing.currentPrice = currentPriceHome;
+                        existing.currentPriceNative = currentPriceNative;
                     } else {
                         holdingMap.set(ticker, {
                             assetId: s.asset_id,
                             ticker: ticker,
                             name: asset?.name || "Unknown Asset",
                             shares: s.quantity,
-                            avgCost: costBasis,
-                            currentPrice: currentPrice
+                            avgCost: costBasisHome,
+                            currentPrice: currentPriceHome,
+                            currency: currency,
+                            avgCostNative: costBasisNative,
+                            currentPriceNative: currentPriceNative
                         });
                     }
                 });
@@ -581,7 +608,7 @@ export default function Portfolio() {
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
-                                    tickFormatter={(value) => `$${value / 1000}k`}
+                                    tickFormatter={(value) => formatCompactCurrency(value)}
                                 />
                                 <Tooltip
                                     content={({ active, payload, label }) => {
@@ -666,25 +693,48 @@ export default function Portfolio() {
                                     </tr>
                                 )}
                                 {currentData.holdings.map((h) => {
-                                    const marketValue = h.shares * h.currentPrice
-                                    const costBasis = h.shares * h.avgCost
-                                    const totalReturn = marketValue - costBasis
-                                    const returnPercent = (totalReturn / costBasis) * 100
-                                    const isPositive = totalReturn >= 0
+                                    const marketValueHome = h.shares * h.currentPrice;
+                                    const marketValueNative = h.shares * h.currentPriceNative;
+                                    const costBasisHome = h.shares * h.avgCost;
+                                    const totalReturnHome = marketValueHome - costBasisHome;
+                                    const returnPercent = costBasisHome > 0 ? (totalReturnHome / costBasisHome) * 100 : 0;
+                                    const isPositive = totalReturnHome >= 0;
 
                                     return (
                                         <tr key={h.ticker} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
                                             <td className="px-4 py-3">
-                                                <div className="font-medium text-base-900 dark:text-base-50">{h.ticker}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="font-medium text-base-900 dark:text-base-50">{h.ticker}</div>
+                                                    <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-base-100 dark:bg-base-800 text-base-500 border-none uppercase">
+                                                        {h.currency}
+                                                    </Badge>
+                                                </div>
                                                 <div className="text-xs text-base-500 dark:text-base-400">{h.name}</div>
                                             </td>
-                                            <td className="px-4 py-3 text-right">{h.shares}</td>
-                                            <td className="px-4 py-3 text-right">${h.avgCost.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right">${h.currentPrice.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right font-medium text-base-900 dark:text-base-50">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 text-right">{h.shares.toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="text-sm font-medium text-base-900 dark:text-base-50">{formatCurrency(h.currentPriceNative, h.currency)}</div>
+                                                <div className="text-[10px] text-base-400 dark:text-base-500">
+                                                    ≈ {formatCurrency(h.currentPrice)}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="text-sm text-base-600 dark:text-base-300">{formatCurrency(h.avgCostNative, h.currency)}</div>
+                                                <div className="text-[10px] text-base-400 dark:text-base-500">
+                                                    ≈ {formatCurrency(h.avgCost)}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-medium">
+                                                <div className="text-base-900 dark:text-base-50">{formatCurrency(marketValueHome)}</div>
+                                                {h.currency !== activeHousehold.base_currency && (
+                                                    <div className="text-[10px] text-base-400 dark:text-base-500 font-normal">
+                                                        {formatCurrency(marketValueNative, h.currency)}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="px-4 py-3 text-right">
                                                 <Badge variant={isPositive ? "success" : "error"}>
-                                                    {isPositive ? "+" : ""}{totalReturn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({returnPercent.toFixed(2)}%)
+                                                    {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
                                                 </Badge>
                                             </td>
                                             <td className="px-4 py-3 text-right">

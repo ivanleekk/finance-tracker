@@ -37,7 +37,18 @@ export default function Dashboard() {
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat('en-US', {
             style: 'currency',
-            currency: activeHousehold?.base_currency || 'USD'
+            currency: activeHousehold?.base_currency || 'USD',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(value)
+    }
+
+    const formatCompactCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD',
+            notation: 'compact',
+            maximumFractionDigits: 1
         }).format(value)
     }
 
@@ -70,42 +81,50 @@ export default function Dashboard() {
 
     const netWorth = currentCash + currentPortfolioValue;
 
-    // Aggregate historical data for the chart using real snapshots
+    // Aggregate historical data for the chart using real snapshots and carrying forward cash
     const chartData = useMemo(() => {
-        const dailyData = new Map<string, { cash: number; portfolio: number }>();
-
-        // Cash: Aggregate from balances
+        const allDatesSet = new Set<string>();
+        snapshots.forEach(s => allDatesSet.add(s.date));
         Object.values(balances).forEach(history => {
-            history.forEach(b => {
-                const existing = dailyData.get(b.date) || { cash: 0, portfolio: 0 };
-                dailyData.set(b.date, { ...existing, cash: existing.cash + Number(b.balance_home_currency ?? b.balance) });
-            });
+            history.forEach(b => allDatesSet.add(b.date));
         });
 
-        // Portfolio: Aggregate from snapshots
-        snapshots.forEach(s => {
-            const existing = dailyData.get(s.date) || { cash: 0, portfolio: 0 };
-            dailyData.set(s.date, { ...existing, portfolio: existing.portfolio + Number(s.current_value_home_currency) });
-        });
-
-        const sortedDates = Array.from(dailyData.keys())
-            .filter(date => !startDate || date >= startDate)
-            .sort((a, b) => a.localeCompare(b));
-
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        
+        // Track the latest balance for each account to "carry forward"
+        const accountLatestBalances = new Map<string, number>();
+        
         const rawData = sortedDates.map(date => {
-            const data = dailyData.get(date)!;
+            // Update latest balances for any account that has a record on THIS date
+            Object.entries(balances).forEach(([accId, history]) => {
+                const balOnDate = history.find(b => b.date === date);
+                if (balOnDate) {
+                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
+                }
+            });
+
+            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
+            
+            // Get portfolio snapshots for this date
+            const currentTotalPortfolio = snapshots
+                .filter(s => s.date === date)
+                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+
             return {
-                date, // ISO string for unique key
-                netWorth: data.cash + data.portfolio,
-                cash: data.cash,
-                portfolio: data.portfolio
+                date,
+                netWorth: currentTotalCash + currentTotalPortfolio,
+                cash: currentTotalCash,
+                portfolio: currentTotalPortfolio
             };
         });
 
-        if (timeframe === "Daily") return rawData;
+        // Filter by start date if applicable
+        const filteredData = rawData.filter(item => !startDate || item.date >= startDate);
+
+        if (timeframe === "Daily") return filteredData;
 
         const binned = new Map<string, any>();
-        rawData.forEach(item => {
+        filteredData.forEach(item => {
             const d = new Date(item.date);
             let key = "";
             if (timeframe === "Weekly") {
@@ -123,7 +142,7 @@ export default function Dashboard() {
         });
 
         return Array.from(binned.values()).sort((a, b) => a.date.localeCompare(b.date));
-    }, [balances, snapshots, timeframe]);
+    }, [balances, snapshots, timeframe, startDate]);
 
     if (!activeHousehold) {
         return (
@@ -147,12 +166,12 @@ export default function Dashboard() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <StatCard
                     title="Net Worth"
-                    value={formatCurrency(netWorth)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(netWorth)}
                     trend="neutral"
                 />
                 <StatCard
                     title="Portfolio Value"
-                    value={formatCurrency(currentPortfolioValue)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(currentPortfolioValue)}
                     trend="neutral"
                 />
                 <StatCard
@@ -235,7 +254,7 @@ export default function Dashboard() {
                                             axisLine={false}
                                             tickLine={false}
                                             tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
-                                            tickFormatter={(value) => `$${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                                            tickFormatter={(value) => formatCompactCurrency(value)}
                                         />
                                         <Tooltip
                                             content={({ active, payload, label }) => {
@@ -255,14 +274,14 @@ export default function Dashboard() {
                                                                             {entry.name === 'portfolio' ? 'Portfolio' : entry.name === 'cash' ? 'Cash' : entry.name}
                                                                         </span>
                                                                         <span className="text-sm font-bold text-base-900 dark:text-base-50">
-                                                                            {formatCurrency(entry.value)}
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(entry.value)}
                                                                         </span>
                                                                     </div>
                                                                 ))}
                                                                 <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
                                                                     <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
                                                                     <span className="text-sm font-bold text-base-900 dark:text-base-50">
-                                                                        {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
                                                                     </span>
                                                                 </div>
                                                             </div>
@@ -322,7 +341,7 @@ export default function Dashboard() {
                                         title={sp.name}
                                         currentValue={current}
                                         targetValue={sp.target_amount || 10000}
-                                        formatValue={(v) => `$${v.toLocaleString()}`}
+                                        formatValue={(v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v)}
                                     />
                                 );
                             })
@@ -351,7 +370,7 @@ export default function Dashboard() {
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600 dark:text-green-400' : 'text-base-900 dark:text-base-50'}`}>
-                                            {formatCurrency(Number(tx.amount))}
+                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(Number(tx.amount))}
                                         </span>
                                         <Badge variant="success">
                                             Completed

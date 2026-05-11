@@ -205,6 +205,7 @@ class Transaction(Base):
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
     date = Column(DateTime(timezone=True))
     amount = Column(Numeric)
+    amount_home_currency = Column(Numeric, nullable=True) # Converted amount in household base currency
     description = Column(String)
     transaction_type = Column(Enum(TransactionType, name="transaction_type", schema="finance_tracker"))
     currency = Column(String, nullable=True) # If null, assume account currency

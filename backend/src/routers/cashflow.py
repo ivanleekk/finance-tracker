@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from decimal import Decimal
 import uuid
 
 from src.database import get_db
@@ -40,12 +41,17 @@ def log_transaction(
     if not rate:
         rate = fetch_and_cache_exchange_rates(db, trans_curr, acc_curr, transaction.date.date())
 
+    home_curr = db_account.household.base_currency or "USD"
+    rate_to_home = fetch_and_cache_exchange_rates(db, trans_curr, home_curr, transaction.date.date())
+    amount_home_currency = transaction.amount * Decimal(str(rate_to_home))
+
     db_transaction = models.Transaction(
         id=uuid.uuid7(),
         account_id=transaction.account_id,
         category_id=transaction.category_id,
         date=transaction.date,
         amount=transaction.amount,
+        amount_home_currency=amount_home_currency,
         currency=trans_curr,
         exchange_rate=rate,
         description=transaction.description,
@@ -54,7 +60,7 @@ def log_transaction(
     db.add(db_transaction)
     
     # 5. Sync to account balance (Convert to account currency)
-    amount_in_acc = float(transaction.amount) * rate
+    amount_in_acc = transaction.amount * Decimal(str(rate))
     amount_delta = amount_in_acc if db_category.type == models.TransactionType.income.value else -amount_in_acc
     sync_transaction_to_balances(db, transaction.account_id, transaction.date.date(), amount_delta)
     
@@ -100,10 +106,14 @@ def create_transfer(
     # 3. Handle Cross-Currency Transfer
     from_curr = from_account.currency or "USD"
     to_curr = to_account.currency or "USD"
+    home_curr = from_account.household.base_currency or "USD"
     
     rate = 1.0
     if from_curr != to_curr:
         rate = fetch_and_cache_exchange_rates(db, from_curr, to_curr, transfer.date.date())
+
+    rate_from_to_home = fetch_and_cache_exchange_rates(db, from_curr, home_curr, transfer.date.date())
+    rate_to_to_home = fetch_and_cache_exchange_rates(db, to_curr, home_curr, transfer.date.date())
 
     transfer_id = uuid.uuid7()
     
@@ -114,6 +124,7 @@ def create_transfer(
         category_id=transfer_cat.id,
         date=transfer.date,
         amount=transfer.amount,
+        amount_home_currency=transfer.amount * Decimal(str(rate_from_to_home)),
         currency=from_curr,
         exchange_rate=1.0, # Source account is the reference
         description=transfer.description or f"Transfer to {to_account.name}",
@@ -129,6 +140,7 @@ def create_transfer(
         category_id=transfer_cat.id,
         date=transfer.date,
         amount=Decimal(str(deposit_amount)),
+        amount_home_currency=Decimal(str(deposit_amount)) * Decimal(str(rate_to_to_home)),
         currency=to_curr,
         exchange_rate=1.0, 
         description=transfer.description or f"Transfer from {from_account.name}",
@@ -189,8 +201,10 @@ def update_transaction(
     verify_household_access(db_account.household_id, current_user, db)
 
     # Capture old impact for sync before any modifications
+    # Capture old impact for sync before any modifications
     old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-    old_impact = db_transaction.amount * old_multiplier
+    old_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+    old_impact = (db_transaction.amount * Decimal(str(old_exchange_rate))) * old_multiplier
     old_date = db_transaction.date.date()
 
     if transaction_update.account_id:
@@ -212,9 +226,22 @@ def update_transaction(
     for key, value in update_data.items():
         setattr(db_transaction, key, value)
 
+    # Recalculate amount_home_currency if needed
+    if any(k in update_data for k in ('amount', 'currency', 'date', 'account_id')):
+        target_account = db_account
+        if transaction_update.account_id:
+            target_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transaction_update.account_id).first()
+        
+        home_curr = target_account.household.base_currency or "USD"
+        trans_curr = db_transaction.currency or target_account.currency or "USD"
+        rate_to_home = fetch_and_cache_exchange_rates(db, trans_curr, home_curr, db_transaction.date.date())
+        db_transaction.amount_home_currency = db_transaction.amount * Decimal(str(rate_to_home))
+
+    # Calculate new impact
     # Calculate new impact
     new_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-    new_impact = db_transaction.amount * new_multiplier
+    new_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+    new_impact = (db_transaction.amount * Decimal(str(new_exchange_rate))) * new_multiplier
     new_date = db_transaction.date.date()
 
     if old_date == new_date:
@@ -241,8 +268,10 @@ def delete_transaction(
     verify_household_access(db_account.household_id, current_user, db)
 
     # Reverse impact
+    # Reverse impact
     multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-    sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+    exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+    sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * Decimal(str(exchange_rate)) * multiplier))
     
     transfer_id = db_transaction.transfer_id
     db.delete(db_transaction)
@@ -255,7 +284,8 @@ def delete_transaction(
         ).first()
         if counterpart:
             counterpart_multiplier = 1 if counterpart.transaction_type == models.TransactionType.income else -1
-            sync_transaction_to_balances(db, counterpart.account_id, counterpart.date.date(), -(counterpart.amount * counterpart_multiplier))
+            counterpart_exchange = counterpart.exchange_rate if counterpart.exchange_rate else 1.0
+            sync_transaction_to_balances(db, counterpart.account_id, counterpart.date.date(), -(counterpart.amount * Decimal(str(counterpart_exchange)) * counterpart_multiplier))
             db.delete(counterpart)
 
     db.commit()

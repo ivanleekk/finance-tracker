@@ -17,7 +17,10 @@ type UnifiedHistoryItem = {
     type: string; // 'buy', 'sell', 'deposit', 'withdrawal', 'income', 'expense'
     categoryType: 'trade' | 'transaction';
     assetOrCategory: string;
-    amount: number;
+    amountNative: number;
+    currencyNative: string;
+    amountAccount: number;
+    currencyAccount: string;
     shares: number | null;
     date: Date;
     status: string;
@@ -160,16 +163,22 @@ export default function Transactions() {
         // 1. Process Trades
         const tradeItems: UnifiedHistoryItem[] = trades.map(t => {
             const ticker = assetMap.get(t.asset_id) || "UNKNOWN";
-            const accountName = accountMap.get(t.account_id) || "Unknown Account";
+            const account = accounts.find(a => a.id === t.account_id);
+            const accountName = account?.name || "Unknown Account";
             const spName = t.sub_portfolio_id ? (subportfolioMap.get(t.sub_portfolio_id) || "Unknown Sub-Portfolio") : null;
-            const totalValue = Number(t.quantity) * Number(t.price);
+            
+            const nativeAmount = Number(t.quantity) * Number(t.price);
+            const accountAmount = nativeAmount * Number(t.exchange_rate);
 
             return {
                 id: `trade-${t.id}`,
                 type: t.type, // 'buy' or 'sell'
                 categoryType: 'trade',
                 assetOrCategory: ticker,
-                amount: totalValue,
+                amountNative: nativeAmount,
+                currencyNative: t.currency || "USD",
+                amountAccount: accountAmount,
+                currencyAccount: account?.currency || "USD",
                 shares: Number(t.quantity),
                 date: new Date(t.date),
                 status: "completed",
@@ -182,33 +191,45 @@ export default function Transactions() {
             };
         });
 
-        // 2. Process Transactions
-        const txItems: UnifiedHistoryItem[] = transactions.map(tx => {
-            const categoryName = categoryMap.get(tx.category_id) || "Uncategorized";
-            const accountName = accountMap.get(tx.account_id) || "Unknown Account";
+        // 2. Process Transactions (Filtering out those linked to trades)
+        const tradeTransactionIds = new Set(trades.map(t => t.transaction_id).filter(Boolean));
 
-            let typeStr = tx.amount < 0 ? "withdrawal" : "deposit";
-            if (tx.transfer_id) {
-                typeStr = tx.amount < 0 ? "transfer_out" : "transfer_in";
-            }
+        const txItems: UnifiedHistoryItem[] = transactions
+            .filter(tx => !tradeTransactionIds.has(tx.id))
+            .map(tx => {
+                const categoryName = categoryMap.get(tx.category_id) || "Uncategorized";
+                const account = accounts.find(a => a.id === tx.account_id);
+                const accountName = account?.name || "Unknown Account";
 
-            return {
-                id: `tx-${tx.id}`,
-                type: typeStr,
-                categoryType: 'transaction',
-                assetOrCategory: categoryName,
-                amount: Math.abs(Number(tx.amount)),
-                shares: null,
-                date: new Date(tx.date),
-                status: "completed",
-                accountId: tx.account_id,
-                accountName: accountName,
-                subportfolioId: null,
-                subportfolioName: null,
-                householdName: activeHousehold.name,
-                description: tx.description || null
-            };
-        });
+                const isExpense = tx.transaction_type === 'expense';
+                let typeStr = isExpense ? "withdrawal" : "deposit";
+                if (tx.transfer_id) {
+                    typeStr = isExpense ? "transfer_out" : "transfer_in";
+                }
+
+                const nativeAmount = Math.abs(Number(tx.amount));
+                const accountAmount = nativeAmount * (Number(tx.exchange_rate) || 1);
+
+                return {
+                    id: `tx-${tx.id}`,
+                    type: typeStr,
+                    categoryType: 'transaction',
+                    assetOrCategory: categoryName,
+                    amountNative: nativeAmount,
+                    currencyNative: tx.currency || account?.currency || "USD",
+                    amountAccount: accountAmount,
+                    currencyAccount: account?.currency || "USD",
+                    shares: null,
+                    date: new Date(tx.date),
+                    status: "completed",
+                    accountId: tx.account_id,
+                    accountName: accountName,
+                    subportfolioId: null,
+                    subportfolioName: null,
+                    householdName: activeHousehold.name,
+                    description: tx.description || null
+                };
+            });
 
         // 3. Unify and Sort
         return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -238,9 +259,11 @@ export default function Transactions() {
         return 'text-base-900'
     }
 
-    const formatAmount = (type: string, amount: number) => {
+    const formatAmount = (type: string, amount: number, currencyCode: string) => {
         const prefix = (type === 'deposit' || type === 'income' || type === 'sell' || type === 'transfer_in') ? '+' : '-'
-        return `${prefix}$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        const currency = currencies.find(c => c.code === currencyCode);
+        const symbol = currency?.symbol || currencyCode;
+        return `${prefix}${symbol}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     }
 
     const formatDate = (date: Date) => {
@@ -577,10 +600,10 @@ export default function Transactions() {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                <div className="flex flex-col items-end gap-0.5 shrink-0">
                                     <div className="flex items-center gap-2">
                                         <span className={`font-semibold ${getAmountColor(item.type)}`}>
-                                            {formatAmount(item.type, item.amount)}
+                                            {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
                                         </span>
                                         <Button
                                             variant="ghost"
@@ -592,6 +615,11 @@ export default function Transactions() {
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
+                                    {item.currencyNative !== item.currencyAccount && (
+                                        <span className="text-xs font-medium text-base-500 dark:text-base-400">
+                                            {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
+                                        </span>
+                                    )}
                                     <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
                                         {item.status}
                                     </Badge>

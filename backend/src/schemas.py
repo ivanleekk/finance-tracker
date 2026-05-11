@@ -218,6 +218,7 @@ class CategoryResponse(CategoryBase):
 class TransactionBase(BaseModel):
     date: datetime
     amount: Decimal
+    amount_home_currency: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     description: Optional[str] = None
@@ -231,6 +232,7 @@ class TransactionCreate(TransactionBase):
 class TransactionUpdate(BaseModel):
     date: Optional[datetime] = None
     amount: Optional[Decimal] = None
+    amount_home_currency: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     description: Optional[str] = None
@@ -244,6 +246,7 @@ class TransactionResponse(TransactionBase):
     category_id: uuid.UUID
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    transaction_type: TransactionType
     transfer_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -346,6 +349,8 @@ class TradeResponse(TradeBase):
     sub_portfolio_id: Optional[uuid.UUID] = None
     asset_id: Optional[uuid.UUID] = None
     account_id: Optional[uuid.UUID] = None
+    transaction_id: Optional[uuid.UUID] = None
+    currency: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -11,7 +11,7 @@ from src.auth import get_current_user, verify_household_access
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
-from src.services.market_data import fetch_and_cache_treasury_rates
+from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -84,7 +84,9 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
         db.flush()
 
     # 2. Calculate amount
-    amount = Decimal(str(db_trade.quantity)) * db_trade.price * Decimal(str(db_trade.exchange_rate))
+    # Store amount in the original trade currency
+    amount = Decimal(str(db_trade.quantity)) * db_trade.price
+    amount_in_acc = amount * Decimal(str(db_trade.exchange_rate))
     
     # 3. Determine transaction type
     # A buy trade is an expense (cash out), a sell trade is income (cash in)
@@ -104,7 +106,8 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
         if db_transaction:
             # Capture old impact for balance sync
             old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-            old_impact = db_transaction.amount * old_multiplier
+            old_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+            old_impact = (db_transaction.amount * Decimal(str(old_exchange_rate))) * old_multiplier
             old_date = db_transaction.date.date()
 
             # Update transaction fields
@@ -114,10 +117,18 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
             db_transaction.amount = amount
             db_transaction.description = description
             db_transaction.transaction_type = trans_type
+            db_transaction.currency = db_trade.currency
+            db_transaction.exchange_rate = db_trade.exchange_rate
+
+            # Calculate amount_home_currency
+            db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+            home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+            rate_to_home = fetch_and_cache_exchange_rates(db, db_transaction.currency, home_curr, db_trade.date.date())
+            db_transaction.amount_home_currency = amount * Decimal(str(rate_to_home))
 
             # New impact for balance sync
             new_multiplier = 1 if trans_type == models.TransactionType.income else -1
-            new_impact = amount * new_multiplier
+            new_impact = amount_in_acc * new_multiplier
             new_date = db_trade.date.date()
 
             if old_date == new_date:
@@ -128,13 +139,20 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
 
             return db_transaction
 
+    db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+    home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+    rate_to_home = fetch_and_cache_exchange_rates(db, db_trade.currency, home_curr, db_trade.date.date())
+    amount_home_currency = amount * Decimal(str(rate_to_home))
+
     db_transaction = models.Transaction(
         id=uuid.uuid7(),
         account_id=db_trade.account_id,
         category_id=investment_category.id,
         date=db_trade.date,
         amount=amount,
+        amount_home_currency=amount_home_currency,
         currency=db_trade.currency, # Inherit trade currency
+        exchange_rate=db_trade.exchange_rate,
         description=description,
         transaction_type=trans_type
     )
@@ -144,7 +162,7 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
 
     # Sync to account balance for new transaction
     new_multiplier = 1 if trans_type == models.TransactionType.income else -1
-    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount * new_multiplier)
+    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount_in_acc * new_multiplier)
 
     return db_transaction
 
@@ -342,6 +360,7 @@ def execute_trade(
         price=db_trade.price,
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
     return response
 
@@ -367,7 +386,9 @@ def get_household_trades(
             date=t.date,
             quantity=t.quantity,
             price=t.price,
+            currency=t.currency,
             exchange_rate=t.exchange_rate,
+            transaction_id=t.transaction_id,
         ) for t in trades
     ]
 
@@ -414,7 +435,9 @@ def update_trade(
         date=db_trade.date,
         quantity=db_trade.quantity,
         price=db_trade.price,
+        currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
 
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
