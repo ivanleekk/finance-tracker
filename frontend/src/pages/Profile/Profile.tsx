@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button"
 import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-import { User, Shield, Globe, Bell, CreditCard, ChevronRight, Check, Lock, Mail, Palette, Sun, Moon, Laptop } from "lucide-react"
+import { User, Shield, Globe, Bell, CreditCard, ChevronRight, Check, Lock, Mail, Palette } from "lucide-react"
 import { cn } from "../../lib/utils"
 import { useTheme, THEME_PALETTES } from "../../lib/ThemeContext"
 import type { UserResponse, HouseholdResponse, CurrencyResponse } from "../../types/types"
@@ -24,7 +24,7 @@ export default function Profile() {
     const revalidator = useRevalidator();
     const {
         themeMode, primaryColor, secondaryColor, baseColor,
-        setThemeMode, setPrimaryColor, setSecondaryColor, setBaseColor
+        setPrimaryColor, setSecondaryColor, setBaseColor
     } = useTheme();
 
     const [activeSection, setActiveSection] = useState<"General" | "Security" | "Appearance">("General");

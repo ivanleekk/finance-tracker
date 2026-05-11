@@ -90,15 +90,23 @@ class Household(Base):
     base_currency = Column(String)
     country_code = Column(String)
     owner_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    default_funding_account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"), nullable=True)
+    default_sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"), nullable=True)
+
 
     # Relationships
     members = relationship("HouseholdMember", back_populates="household", cascade="all, delete-orphan")
-    accounts = relationship("FinancialAccount", back_populates="household", cascade="all, delete-orphan")
+    accounts = relationship("FinancialAccount", back_populates="household", cascade="all, delete-orphan", foreign_keys="[FinancialAccount.household_id]")
     categories = relationship("Category", back_populates="household", cascade="all, delete-orphan")
-    sub_portfolios = relationship("SubPortfolio", back_populates="household", cascade="all, delete-orphan")
+    sub_portfolios = relationship("SubPortfolio", back_populates="household", cascade="all, delete-orphan", foreign_keys="[SubPortfolio.household_id]")
     trades = relationship("Trade", back_populates="household", cascade="all, delete-orphan")
     dividends = relationship("Dividend", back_populates="household", cascade="all, delete-orphan")
     portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="household", cascade="all, delete-orphan")
+    
+    # Defaults
+    default_funding_account = relationship("FinancialAccount", foreign_keys=[default_funding_account_id])
+    default_sub_portfolio = relationship("SubPortfolio", foreign_keys=[default_sub_portfolio_id])
+
 
 
 class HouseholdMember(Base):
@@ -153,7 +161,7 @@ class FinancialAccount(Base):
     tax_status = Column(Enum(TaxTreatment, name="tax_treatment", schema="finance_tracker"))
     currency = Column(String)
 
-    household = relationship("Household", back_populates="accounts")
+    household = relationship("Household", back_populates="accounts", foreign_keys=[household_id])
     access_controls = relationship("AccountAccess", back_populates="account")
     balances = relationship("AccountBalance", back_populates="account")
     transactions = relationship("Transaction", back_populates="account")
@@ -254,7 +262,7 @@ class SubPortfolio(Base):
     target_date = Column(Date, nullable=True)
     target_amount = Column(Numeric, nullable=True)
 
-    household = relationship("Household", back_populates="sub_portfolios")
+    household = relationship("Household", back_populates="sub_portfolios", foreign_keys=[household_id])
     access_controls = relationship("PortfolioAccess", back_populates="sub_portfolio")
     trades = relationship("Trade", back_populates="sub_portfolio")
     portfolio_snapshots = relationship(
@@ -278,6 +286,8 @@ class Trade(Base):
     price = Column(Numeric)
     currency = Column(String, nullable=True) # If null, assume asset currency
     exchange_rate = Column(Float)
+    description = Column(String, nullable=True)
+
 
     household = relationship("Household", back_populates="trades")
     sub_portfolio = relationship("SubPortfolio", back_populates="trades")

@@ -8,6 +8,7 @@ export interface StatCardProps {
     changeValue?: string
     changePercent?: number
     trend?: "up" | "down" | "neutral"
+    description?: string
     className?: string
 }
 
@@ -17,8 +18,10 @@ export function StatCard({
     changeValue,
     changePercent,
     trend = "neutral",
+    description,
     className,
 }: StatCardProps) {
+
     return (
         <Card className={className}>
             <CardHeader className="pb-2">
@@ -51,7 +54,13 @@ export function StatCard({
                         </span>
                     </div>
                 )}
+                {description && (
+                    <p className="mt-2 text-xs text-base-500 dark:text-base-400 leading-relaxed italic">
+                        {description}
+                    </p>
+                )}
             </CardContent>
+
         </Card>
     )
 }

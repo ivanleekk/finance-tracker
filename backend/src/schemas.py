@@ -55,6 +55,8 @@ class HouseholdBase(BaseModel):
     name: str
     base_currency: str
     country_code: str
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdCreate(HouseholdBase):
@@ -65,6 +67,8 @@ class HouseholdUpdate(BaseModel):
     name: Optional[str] = None
     base_currency: Optional[str] = None
     country_code: Optional[str] = None
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdResponse(HouseholdBase):
@@ -312,6 +316,7 @@ class TradeBase(BaseModel):
     price: Decimal
     currency: Optional[str] = None
     exchange_rate: float
+    description: Optional[str] = None
 
 
 class TradeCreate(TradeBase):
@@ -328,6 +333,7 @@ class TradeUpdate(BaseModel):
     price: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    description: Optional[str] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
