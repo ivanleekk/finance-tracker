@@ -149,7 +149,7 @@ export default function Trade() {
                     ticker: ticker.toUpperCase(),
                     name: `${ticker.toUpperCase()} Equity`,
                     type: "Stock",
-                    currency: activeHousehold?.base_currency || "USD"
+                    currency: currency // Use the detected currency instead of household default
                 });
                 assetId = newAssetRes.data.id;
             }

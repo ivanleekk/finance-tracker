@@ -26,8 +26,9 @@ export async function getSSRContext(request: Request) {
     const cookies = parseCookies(cookie);
     let householdId = cookies['activeHouseholdId'];
     let newCookieHeader: string | null = null;
+    let refreshSetCookieHeaders: string[] = [];
 
-    const ssrFetch = async (path: string, init?: RequestInit) => {
+    const ssrFetch = async (path: string, init?: RequestInit): Promise<Response> => {
         const mergedHeaders = new Headers(headers);
         if (init?.headers) {
             const extraHeaders = new Headers(init.headers);
@@ -41,28 +42,77 @@ export async function getSSRContext(request: Request) {
             headers: mergedHeaders,
         });
 
-        if (response.status === 401) {
-            throw redirect("/login");
+        // Handle 401 by attempting to refresh
+        if (
+            response.status === 401 && 
+            !path.includes('/auth/refresh') && 
+            !path.includes('/auth/token')
+        ) {
+            console.log(`[SSR] 401 detected for ${path}, attempting refresh...`);
+            
+            const refreshRes = await fetch(getApiUrl("/auth/refresh"), {
+                method: "POST",
+                headers: mergedHeaders,
+            });
+
+            if (refreshRes.ok) {
+                console.log(`[SSR] Refresh successful, retrying ${path}`);
+                
+                // Collect the new Set-Cookie headers to send back to the browser
+                const newCookies = refreshRes.headers.getSetCookie();
+                refreshSetCookieHeaders.push(...newCookies);
+
+                // Create a new cookie string for the retry
+                // We extract the key=value part from each Set-Cookie header
+                const newCookieValues = newCookies.map(c => c.split(';')[0]);
+                
+                // Update our local context headers for subsequent calls
+                const currentCookie = headers.get("Cookie") || "";
+                const currentCookieParts = currentCookie.split(';').map(p => p.trim()).filter(Boolean);
+                
+                // Merge: replace existing keys with new ones
+                const cookieMap = new Map();
+                currentCookieParts.forEach(p => {
+                    const [k, v] = p.split('=');
+                    cookieMap.set(k, v);
+                });
+                newCookieValues.forEach(p => {
+                    const [k, v] = p.split('=');
+                    cookieMap.set(k, v);
+                });
+                
+                const updatedCookieString = Array.from(cookieMap.entries())
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join('; ');
+                
+                headers.set("Cookie", updatedCookieString);
+
+                // Retry the original request with updated headers
+                const retryHeaders = new Headers(mergedHeaders);
+                retryHeaders.set("Cookie", updatedCookieString);
+
+                return fetch(getApiUrl(path), {
+                    ...init,
+                    headers: retryHeaders,
+                });
+            } else {
+                console.warn(`[SSR] Refresh failed for ${path}, redirecting to login`);
+                throw redirect("/login");
+            }
         }
 
         return response;
     };
 
-    // Optional household verification - only if we have a cookie or if it's explicitly requested
+    // Optional household verification
     let households: any[] = [];
     try {
-        // We only attempt to fetch households if there's a chance the user is logged in
-        // or if we need to resolve a householdId.
-        const hRes = await fetch(getApiUrl("/users/households"), {
-            headers: { ...Object.fromEntries(headers) }
-        });
-        
+        const hRes = await ssrFetch("/users/households");
         if (hRes.ok) {
             households = await hRes.json();
         }
-        // We DO NOT throw a redirect here because getSSRContext is often used in the root loader
-        // which must be able to fail gracefully for public pages (like /login) to avoid redirect loops.
     } catch (e) {
+        if (e instanceof Response && e.status === 302) throw e; // Pass through redirects
         console.error("Failed to fetch households in SSR", e);
     }
 
@@ -70,12 +120,10 @@ export async function getSSRContext(request: Request) {
     if (households.length > 0) {
         const isValid = householdId && households.some(h => h.id === householdId);
         if (!isValid) {
-            // Default to the first household if the cookie is missing or invalid
             householdId = households[0].id;
             newCookieHeader = `activeHouseholdId=${householdId}; Path=/; Max-Age=31536000`;
         }
     } else {
-        // No households found for user
         householdId = undefined;
     }
 
@@ -83,12 +131,15 @@ export async function getSSRContext(request: Request) {
         headers,
         householdId,
         ssrFetch,
-        // Helper to combine headers for the response
         combineHeaders: (existingHeaders?: HeadersInit) => {
             const combined = new Headers(existingHeaders);
             if (newCookieHeader) {
                 combined.append("Set-Cookie", newCookieHeader);
             }
+            // Add all collected refresh cookies
+            refreshSetCookieHeaders.forEach(sc => {
+                combined.append("Set-Cookie", sc);
+            });
             return combined;
         }
     };

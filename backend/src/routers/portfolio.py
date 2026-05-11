@@ -174,17 +174,70 @@ def create_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    # Try to enrich with yfinance data if name is default or currency is missing
+    ticker_name = asset.name
+    ticker_currency = asset.currency
+
+    if "Equity" in asset.name or not asset.currency:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if info:
+                if "Equity" in asset.name:
+                    ticker_name = info.get('shortName') or info.get('longName') or asset.name
+                ticker_currency = info.get('currency') or asset.currency or "USD"
+        except Exception as e:
+            logger.warning(f"Failed to enrich asset {asset.ticker} from yfinance: {e}")
+
     db_asset = models.Asset(
         id=asset.id if asset.id else uuid.uuid7(),
-        ticker=asset.ticker,
-        name=asset.name,
+        ticker=asset.ticker.upper(),
+        name=ticker_name,
         type=asset.type,
-        currency=asset.currency,
+        currency=ticker_currency.upper() if ticker_currency else "USD",
     )
     db.add(db_asset)
     db.commit()
     db.refresh(db_asset)
     return db_asset
+
+@router.post("/assets/fix", status_code=status.HTTP_200_OK)
+def fix_all_asset_currencies(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    One-time maintenance endpoint to fix asset currencies and names using yfinance.
+    """
+    assets = db.query(models.Asset).all()
+    updated_count = 0
+    for asset in assets:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if not info:
+                continue
+            
+            new_curr = info.get('currency')
+            new_name = info.get('shortName') or info.get('longName')
+            
+            changed = False
+            if new_curr and new_curr.upper() != asset.currency.upper():
+                asset.currency = new_curr.upper()
+                changed = True
+            
+            if new_name and ("Equity" in asset.name or not asset.name):
+                asset.name = new_name
+                changed = True
+            
+            if changed:
+                updated_count += 1
+        except Exception as e:
+            logger.error(f"Error fixing asset {asset.ticker}: {e}")
+            continue
+    
+    db.commit()
+    return {"status": "success", "updated_assets": updated_count}
 
 @router.get("/assets", response_model=List[schemas.AssetResponse])
 def search_assets(

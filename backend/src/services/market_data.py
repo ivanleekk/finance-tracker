@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, desc
 
-from src.models import MarketPrice, ExchangeRate
+from src.models import MarketPrice, ExchangeRate, Asset
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,10 @@ def fetch_and_cache_market_prices(db: Session, tickers: List[str], target_date: 
         # Helper to process a ticker's data
         def process_ticker(ticker_name, ticker_df):
             if 'Close' in ticker_df and not ticker_df['Close'].dropna().empty:
+                # Try to get the currency from the Asset table
+                asset = db.query(Asset).filter(Asset.ticker == ticker_name).first()
+                asset_currency = asset.currency if asset else "USD"
+                
                 closes = ticker_df['Close'].dropna()
                 for dt, price in closes.items():
                     close_val = float(price.item() if hasattr(price, 'item') else price)
@@ -55,7 +59,7 @@ def fetch_and_cache_market_prices(db: Session, tickers: List[str], target_date: 
                         "ticker": ticker_name,
                         "date": dt.date(),
                         "close_price": close_val,
-                        "currency": "USD"
+                        "currency": asset_currency
                     })
 
         if len(tickers) == 1:
@@ -114,6 +118,9 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
 
     records_to_upsert = []
 
+    # Prefetch asset currencies
+    asset_currencies = {a.ticker: a.currency for a in db.execute(select(Asset.ticker, Asset.currency)).all()}
+
     for ticker in tickers:
         # yfinance with group_by='ticker' returns a MultiIndex if multiple tickers 
         # or sometimes even for one. We'll handle both.
@@ -133,7 +140,7 @@ def fetch_and_cache_market_prices_range(db: Session, tickers: List[str], start_d
                     "ticker": ticker,
                     "date": dt.date(),
                     "close_price": close_val,
-                    "currency": "USD"
+                    "currency": asset_currencies.get(ticker, "USD")
                 })
 
     if not records_to_upsert:
