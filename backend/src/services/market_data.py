@@ -252,11 +252,19 @@ def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_d
     end_str = (year_end + timedelta(days=1)).strftime('%Y-%m-%d')
     
     logger.info(f"Cache miss for {ticker} on {target_date}. Fetching entire year {target_date.year}...")
+    print(f"DEBUG: Cache miss for {ticker} on {target_date}. Fetching from yfinance...")
     
     try:
         data = yf.download(ticker, start=start_str, end=end_str, progress=False)
         if not data.empty and 'Close' in data:
-            closes = data['Close'].dropna()
+            # Handle MultiIndex columns (Attribute, Ticker) or (Ticker, Attribute)
+            closes_raw = data['Close']
+            if isinstance(closes_raw, pd.DataFrame):
+                # If MultiIndex, it might have one column for the ticker
+                closes = closes_raw.iloc[:, 0].dropna()
+            else:
+                closes = closes_raw.dropna()
+
             records = []
             for dt, price in closes.items():
                 rate_val = float(price.item() if hasattr(price, 'item') else price)
@@ -342,9 +350,11 @@ def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_d
                 if nearest:
                     return nearest
     except Exception as e:
+        print(f"DEBUG: Error fetching yearly reverse exchange rate {ticker_rev}: {e}")
         logger.error(f"Error fetching yearly reverse exchange rate {ticker_rev}: {e}")
         db.rollback()
         
+    print(f"DEBUG: Exchange rate fallback for {base}->{target} on {target_date} is 1.0")
     return 1.0 # Last resort fallback
 
 def fetch_and_cache_exchange_rates_range(db: Session, base: str, target: str, start_date: date, end_date: date):
@@ -396,14 +406,15 @@ def fetch_and_cache_exchange_rates_range(db: Session, base: str, target: str, st
         try:
             data = yf.download(ticker, start=year_start, end=year_end + timedelta(days=1), progress=False)
             if not data.empty and 'Close' in data:
-                # Handle potential MultiIndex columns
-                if isinstance(data.columns, pd.MultiIndex):
-                    ticker_data = data[ticker]
+                # Handle MultiIndex columns (Attribute, Ticker) or (Ticker, Attribute)
+                closes_raw = data['Close']
+                if isinstance(closes_raw, pd.DataFrame):
+                    # If MultiIndex, it might have one column for the ticker
+                    closes = closes_raw.iloc[:, 0].dropna()
                 else:
-                    ticker_data = data
-                
-                if 'Close' in ticker_data:
-                    closes = ticker_data['Close'].dropna()
+                    closes = closes_raw.dropna()
+
+                if not closes.empty:
                     records = []
                     for dt, rate in closes.items():
                         r_val = float(rate.item() if hasattr(rate, 'item') else rate)
@@ -415,7 +426,7 @@ def fetch_and_cache_exchange_rates_range(db: Session, base: str, target: str, st
                             "rate": r_val
                         })
                         lookup[(dt.date(), base, target)] = r_val
-                    
+                        
                     if records:
                         stmt = insert(ExchangeRate).values(records)
                         upsert_stmt = stmt.on_conflict_do_update(

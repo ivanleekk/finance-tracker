@@ -92,6 +92,12 @@ export default function Accounts() {
         }
     }, [deleteAccountFetcher.state, deleteAccountFetcher.data]);
 
+    useEffect(() => {
+        if (deleteBalanceFetcher.state === "idle" && deleteBalanceFetcher.data?.error) {
+            alert(deleteBalanceFetcher.data.error);
+        }
+    }, [deleteBalanceFetcher.state, deleteBalanceFetcher.data]);
+
     const formatCurrency = (value: number, curr?: string) => {
         return new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -205,7 +211,7 @@ export default function Accounts() {
                 <CardContent>
                     <div className="h-[350px] w-full">
                         {aggregatedChartData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minHeight={350}>
                                 <AreaChart data={aggregatedChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <defs>
                                         {/* UPDATED: Map over accounts to generate a gradient for each */}
@@ -318,7 +324,12 @@ export default function Accounts() {
                             <tbody>
                                 {sortedAccounts.map((acc) => (
                                     <tr key={acc.id} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
-                                        <td className="px-4 py-4 font-medium text-base-900 dark:text-base-50">{acc.name}</td>
+                                        <td className="px-4 py-4 font-medium text-base-900 dark:text-base-50">
+                                            <div className="flex items-center gap-2">
+                                                {acc.name}
+                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{acc.currency}</Badge>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>
                                         <td className="px-4 py-4 text-right">
                                             <div className="font-medium text-base-900 dark:text-base-50">
@@ -493,7 +504,9 @@ export default function Accounts() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium text-base-900">Balance</label>
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-100">
+                                            Balance ({accounts.find(a => a.id === updateBalanceData.accountId)?.currency})
+                                        </label>
                                         <Input
                                             name="balance"
                                             type="number"
@@ -587,7 +600,7 @@ export default function Accounts() {
                                                         <td className="px-2 py-3 text-center">
                                                             <Badge variant="neutral" className="text-[10px] uppercase font-bold py-0 h-5">Manual</Badge>
                                                         </td>
-                                                        <td className="px-2 py-3 text-right">
+                                                        <td className="px-2 py-3 text-right relative z-10">
                                                             <deleteBalanceFetcher.Form method="post" className="inline">
                                                                 <input type="hidden" name="_intent" value="deleteBalance" />
                                                                 <input type="hidden" name="balanceId" value={h.id} />
