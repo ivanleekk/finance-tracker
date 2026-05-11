@@ -60,7 +60,10 @@ export type HouseholdResponse = {
   name: string;
   base_currency: string;
   country_code: string;
+  default_funding_account_id?: string;
+  default_sub_portfolio_id?: string;
 };
+
 
 export type HouseholdMemberResponse = {
   id: string;
@@ -90,7 +93,10 @@ export type BalanceResponse = {
   account_id: string;
   date: string;
   balance: number;
+  balance_home_currency?: number;
+  is_manual: boolean;
 };
+
 
 export type AccountAccessResponse = {
   id: string;
@@ -154,7 +160,9 @@ export type TradeResponse = {
   quantity: number;
   price: number;
   exchange_rate: number;
+  description?: string | null;
 };
+
 
 export type PortfolioSnapshotResponse = {
   id: string;

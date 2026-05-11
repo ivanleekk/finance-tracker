@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useLoaderData } from "react-router"
+import { useLoaderData, useSearchParams } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
 import { Button } from "../../components/ui/Button"
@@ -11,22 +11,45 @@ import { tradeFormLoader, type TradeLoaderData } from "./trade.loader"
 export { tradeFormLoader as loader } from "./trade.loader";
 
 export default function Trade() {
-    const { activeHousehold } = useHousehold();
+    const { activeHousehold, refreshHouseholds } = useHousehold();
     const loaderData = (useLoaderData() as TradeLoaderData) || { accounts: [], subportfolios: [], currencies: [] };
 
     const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
-    const [selectedAccountId, setSelectedAccountId] = useState(accounts.length > 0 ? accounts[0].id : "")
-    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState(subportfolios.length > 0 ? subportfolios[0].id : "")
-    const [ticker, setTicker] = useState("")
+    const [searchParams] = useSearchParams();
+    const [isSaveDefault, setIsSaveDefault] = useState(false);
+    const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+
+    const [selectedAccountId, setSelectedAccountId] = useState(() => {
+        const paramId = searchParams.get("account_id");
+        if (paramId && accounts.some(a => a.id === paramId)) return paramId;
+        if (activeHousehold?.default_funding_account_id && accounts.some(a => a.id === activeHousehold.default_funding_account_id)) {
+            return activeHousehold.default_funding_account_id;
+        }
+        return accounts.length > 0 ? accounts[0].id : "";
+    });
+
+    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState(() => {
+        const paramId = searchParams.get("sub_portfolio_id");
+        if (paramId && subportfolios.some(sp => sp.id === paramId)) return paramId;
+        if (activeHousehold?.default_sub_portfolio_id && subportfolios.some(sp => sp.id === activeHousehold.default_sub_portfolio_id)) {
+            return activeHousehold.default_sub_portfolio_id;
+        }
+        return subportfolios.length > 0 ? subportfolios[0].id : "";
+    });
+
+    const [ticker, setTicker] = useState(searchParams.get("ticker")?.toUpperCase() || "")
+
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
     const [currency, setCurrency] = useState(activeHousehold?.base_currency || "USD")
     const [exchangeRate, setExchangeRate] = useState("1.0")
+    const [description, setDescription] = useState("")
     const [isFetchingPrice, setIsFetchingPrice] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+
+
 
     // Auto-prefill the price when ticker or date changes using real yfinance data from backend
     useEffect(() => {
@@ -144,8 +167,20 @@ export default function Trade() {
                 household_id: activeHousehold.id,
                 sub_portfolio_id: selectedSubportfolioId,
                 asset_id: assetId,
-                account_id: selectedAccountId
+                account_id: selectedAccountId,
+                description: description || null
             });
+
+
+            // 3. Update Household Defaults if requested
+            if (isSaveDefault && activeHousehold) {
+                await api.put(`/users/households/${activeHousehold.id}`, {
+                    default_funding_account_id: selectedAccountId,
+                    default_sub_portfolio_id: selectedSubportfolioId
+                });
+                await refreshHouseholds();
+            }
+
 
             setMessage({ text: `Successfully executed ${type} order for ${ticker.toUpperCase()}!`, type: "success" });
 
@@ -153,6 +188,8 @@ export default function Trade() {
             setTicker("");
             setQuantity("");
             setPrice("");
+            setDescription("");
+
             // Keep date, subportfolio and account as is for rapid entry of multiple trades
         } catch (err: any) {
             console.error("Trade execution failed:", err);
@@ -284,8 +321,30 @@ export default function Trade() {
                             />
                         </div>
 
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Description (Optional)</label>
+                            <Input
+                                placeholder="e.g. Portfolio rebalancing"
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="flex items-center space-x-2 py-2">
+                            <input
+                                type="checkbox"
+                                id="saveDefault"
+                                className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500"
+                                checked={isSaveDefault}
+                                onChange={(e) => setIsSaveDefault(e.target.checked)}
+                            />
+                            <label htmlFor="saveDefault" className="text-sm text-base-600 dark:text-base-400">
+                                Save these selections as default for this household
+                            </label>
+                        </div>
 
                         <div className="pt-4 flex gap-3">
+
                             <Button
                                 className="w-full"
                                 variant="primary"

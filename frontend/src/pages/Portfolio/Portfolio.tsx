@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useLoaderData, useRevalidator, useNavigation, useSearchParams } from "react-router"
+import { useLoaderData, useRevalidator, useNavigation, useSearchParams, Link } from "react-router"
 import { StatCard } from "../../components/ui/StatCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -225,22 +225,42 @@ export default function Portfolio() {
 
             const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
             const latestDate = sortedDates[sortedDates.length - 1];
-            const latestSnaps = snaps.filter(s => s.date === latestDate);
+            const latestSnaps = snaps.filter(s => {
+                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
+                return dateKey === latestDate;
+            });
 
             const assetMap = new Map(assets.map(a => [a.id, a]));
-            const holdings: Holding[] = latestSnaps
+            const holdingMap = new Map<string, Holding>();
+
+            latestSnaps
                 .filter(s => s.quantity > 0.001)
-                .map(s => {
+                .forEach(s => {
                     const asset = assetMap.get(s.asset_id);
-                    return {
-                        assetId: s.asset_id,
-                        ticker: asset?.ticker || "UNKNOWN",
-                        name: asset?.name || "Unknown Asset",
-                        shares: s.quantity,
-                        avgCost: Number(s.average_cost_basis_home_currency ?? s.average_cost_basis),
-                        currentPrice: Number(s.price) * (s.exchange_rate_used || 1.0)
-                    };
+                    const ticker = asset?.ticker || "UNKNOWN";
+                    const currentPrice = Number(s.price) * (s.exchange_rate_used || 1.0);
+                    const costBasis = Number(s.average_cost_basis_home_currency ?? s.average_cost_basis);
+
+                    if (holdingMap.has(ticker)) {
+                        const existing = holdingMap.get(ticker)!;
+                        const totalShares = existing.shares + s.quantity;
+                        const totalCost = (existing.shares * existing.avgCost) + (s.quantity * costBasis);
+                        existing.avgCost = totalShares > 0 ? totalCost / totalShares : 0;
+                        existing.shares = totalShares;
+                        existing.currentPrice = currentPrice; // Use latest seen price
+                    } else {
+                        holdingMap.set(ticker, {
+                            assetId: s.asset_id,
+                            ticker: ticker,
+                            name: asset?.name || "Unknown Asset",
+                            shares: s.quantity,
+                            avgCost: costBasis,
+                            currentPrice: currentPrice
+                        });
+                    }
                 });
+
+            const holdings: Holding[] = Array.from(holdingMap.values());
 
             const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
 
@@ -289,7 +309,7 @@ export default function Portfolio() {
     
     const sortedHoldings = useMemo(() => {
         if (!rawData.holdings) return [];
-        let sortable = [...rawData.holdings];
+        const sortable = [...rawData.holdings];
         if (sortConfig !== null) {
             sortable.sort((a, b) => {
                 let aValue: any;
@@ -364,6 +384,9 @@ export default function Portfolio() {
                             Sync
                         </Button>
                         <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
+                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                            <Button variant="primary">Trade</Button>
+                        </Link>
                         <Button variant="primary">Download Report</Button>
                     </div>
                 </div>
@@ -631,6 +654,7 @@ export default function Portfolio() {
                                     <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('return')}>
                                         <div className="flex items-center justify-end gap-2">Return {getSortIcon('return')}</div>
                                     </th>
+                                    <th className="px-4 py-3 font-semibold"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -662,6 +686,11 @@ export default function Portfolio() {
                                                 <Badge variant={isPositive ? "success" : "error"}>
                                                     {isPositive ? "+" : ""}{totalReturn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({returnPercent.toFixed(2)}%)
                                                 </Badge>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                                                    <Button variant="ghost" size="sm">Trade</Button>
+                                                </Link>
                                             </td>
                                         </tr>
                                     )
