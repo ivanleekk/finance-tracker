@@ -115,19 +115,30 @@ export default function Accounts() {
         };
     }
 
-    // UPDATED: Now maps each account's balance to its name per date
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(D * A * H log H) nested filtering and sorting inside the date map
+    // with an O(N) single-pass approach that tracks running balances.
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
 
+        // Track the latest balance for each account to carry forward
+        const accountLatestBalances = new Map<string, number>();
+
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
             accounts.forEach(acc => {
-                const lastBalRec = acc.history.filter(h => h.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
-                dataPoint[acc.name] = lastBalRec ? Number(lastBalRec.balance_home_currency ?? lastBalRec.balance) : 0;
+                // Find if there's an exact record for this date
+                const balOnDate = acc.history.find(h => h.date === date);
+                if (balOnDate) {
+                    accountLatestBalances.set(acc.id, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
+                }
+
+                // Use the carried-forward balance (or 0 if none yet)
+                dataPoint[acc.name] = accountLatestBalances.get(acc.id) || 0;
             });
 
             return dataPoint;
