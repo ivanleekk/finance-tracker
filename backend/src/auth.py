@@ -95,6 +95,7 @@ def get_current_user(
         token_type: str = payload.get("type")
         if user_id_str is None or token_type != "access":
             raise credentials_exception
+            raise credentials_exception
     except jwt.InvalidTokenError:
         raise credentials_exception
 

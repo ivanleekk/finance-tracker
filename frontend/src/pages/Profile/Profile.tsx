@@ -233,7 +233,7 @@ export default function Profile() {
                                             <select
                                                 value={userTimezone}
                                                 onChange={(e) => setUserTimezone(e.target.value)}
-                                                className="w-full flex h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
+                                                className="w-full flex h-10 min-h-[44px] sm:min-h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
                                             >
                                                 {timezones.map(tz => (
                                                     <option key={tz.name} value={tz.name} className="dark:bg-base-900">{tz.label}</option>
@@ -241,11 +241,11 @@ export default function Profile() {
                                             </select>
                                         </div>
                                     </div>
-                                    <div className="flex justify-end">
+                                    <div className="flex justify-end pt-4">
                                         <Button
                                             onClick={handleUpdateUser}
                                             disabled={isSavingUser || (userName === user.name && userTimezone === user.preferred_timezone)}
-                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95"
+                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95 w-full sm:w-auto min-h-[44px]"
                                         >
                                             {isSavingUser ? "Saving..." : "Save Changes"}
                                         </Button>
@@ -287,7 +287,7 @@ export default function Profile() {
                                                 <select
                                                     value={householdCurrency}
                                                     onChange={(e) => setHouseholdCurrency(e.target.value)}
-                                                    className="w-full flex h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
+                                                    className="w-full flex h-10 min-h-[44px] sm:min-h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
                                                 >
                                                     {currencies.map(c => (
                                                         <option key={c.code} value={c.code} className="dark:bg-base-900">

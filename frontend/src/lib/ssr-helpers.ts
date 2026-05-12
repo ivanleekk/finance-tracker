@@ -24,15 +24,11 @@ export async function getSSRContext(request: Request) {
     if (cookie) headers.set("Cookie", cookie);
 
     const cookies = parseCookies(cookie);
-    const hasAuthTokens = !!(cookies['access_token'] || cookies['refresh_token']);
-    const url = new URL(request.url);
-    const isPublicRoute = ['/login', '/signup', '/logout', '/'].includes(url.pathname);
-
     let householdId = cookies['activeHouseholdId'];
     let newCookieHeader: string | null = null;
     let refreshSetCookieHeaders: string[] = [];
 
-    const ssrFetch = async (path: string, init?: RequestInit & { skipRedirect?: boolean }): Promise<Response> => {
+    const ssrFetch = async (path: string, init?: RequestInit): Promise<Response> => {
         const mergedHeaders = new Headers(headers);
         if (init?.headers) {
             const extraHeaders = new Headers(init.headers);
@@ -100,14 +96,7 @@ export async function getSSRContext(request: Request) {
                     headers: retryHeaders,
                 });
             } else {
-                console.warn(`[SSR] Refresh failed for ${path}${init?.skipRedirect ? ' (skipping redirect)' : ''}`);
-                
-                // Don't redirect if skipRedirect is requested or we're already on a public route/login page
-                if (init?.skipRedirect || isPublicRoute || url.pathname === '/login') {
-                    return response; // Return the original 401
-                }
-                
-                console.log(`[SSR] Redirecting to login from ${url.pathname}`);
+                console.warn(`[SSR] Refresh failed for ${path}, redirecting to login`);
                 throw redirect("/login");
             }
         }
@@ -115,18 +104,16 @@ export async function getSSRContext(request: Request) {
         return response;
     };
 
-    // Optional household verification - only if we have tokens and aren't on a public route
+    // Optional household verification
     let households: any[] = [];
-    if (hasAuthTokens && !isPublicRoute) {
-        try {
-            const hRes = await ssrFetch("/users/households", { skipRedirect: true });
-            if (hRes.ok) {
-                households = await hRes.json();
-            }
-        } catch (e) {
-            if (e instanceof Response && (e.status === 302 || e.status === 303)) throw e;
-            console.error("Failed to fetch households in SSR", e);
+    try {
+        const hRes = await ssrFetch("/users/households");
+        if (hRes.ok) {
+            households = await hRes.json();
         }
+    } catch (e) {
+        if (e instanceof Response && e.status === 302) throw e; // Pass through redirects
+        console.error("Failed to fetch households in SSR", e);
     }
 
     // Determine the best householdId to use

@@ -27,7 +27,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     let households: HouseholdResponse[] = [];
 
     try {
-        const res = await ssrFetch("/auth/me", { skipRedirect: true });
+        const res = await ssrFetch("/auth/me").catch(e => {
+            if (e instanceof Response && e.status === 302) return null;
+            throw e;
+        });
 
         if (res && res.ok) {
             isAuthenticated = true;
