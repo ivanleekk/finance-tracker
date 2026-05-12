@@ -38,13 +38,13 @@ export function TimeframeSelector() {
     };
 
     return (
-        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
+        <div className="flex flex-wrap gap-1 bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800 w-full sm:w-auto overflow-x-auto no-scrollbar">
             {options.map((option) => (
                 <button
                     key={option}
                     onClick={() => handleSelect(option)}
                     className={cn(
-                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                        "px-3 py-2 sm:py-1 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-md transition-all flex-1 sm:flex-none text-center whitespace-nowrap",
                         activeTimeframe === option
                             ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
                             : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"

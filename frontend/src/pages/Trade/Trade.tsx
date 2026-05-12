@@ -208,8 +208,8 @@ export default function Trade() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 flex justify-center items-start">
-            <div className="w-full max-w-md mt-10">
+        <div className="flex-1 p-4 sm:p-6 md:p-8 flex justify-center items-start overflow-y-auto">
+            <div className="w-full max-w-md sm:mt-10 mb-20 sm:mb-0">
                 <Card>
                     <CardHeader>
                         <CardTitle>Trade Execution</CardTitle>
@@ -224,7 +224,7 @@ export default function Trade() {
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Funding Account</label>
                             <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                 value={selectedAccountId}
                                 onChange={(e) => setSelectedAccountId(e.target.value)}
                                 required
@@ -239,7 +239,7 @@ export default function Trade() {
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Sub-Portfolio</label>
                             <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                 value={selectedSubportfolioId}
                                 onChange={(e) => setSelectedSubportfolioId(e.target.value)}
                                 required
@@ -259,11 +259,11 @@ export default function Trade() {
                             onChange={(e) => setTicker(e.target.value.toUpperCase())}
                         />
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
                                 <select
-                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                     value={currency}
                                     onChange={(e) => setCurrency(e.target.value)}
                                 >
@@ -282,7 +282,7 @@ export default function Trade() {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
                                 label="Share Quantity"
                                 type="number"
@@ -306,7 +306,7 @@ export default function Trade() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
                                 label="Order Type"
                                 value="Limit"

@@ -274,17 +274,17 @@ export default function Transactions() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 space-y-4 sm:space-y-6 p-4 sm:p-6 md:p-8 relative">
             {isLoading && (
-                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
+                <div className="absolute top-4 right-4 sm:right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
             )}
-            <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Transactions</h2>
-                <div className="flex gap-2">
-                    <Button onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Transactions</h2>
+                <div className="flex gap-2 w-full sm:w-auto">
+                    <Button onClick={() => setIsLogModalOpen(true)} className="flex items-center justify-center gap-2 w-full sm:w-auto min-h-[44px]">
                         <PlusCircle className="h-4 w-4" />
                         Log Transaction
                     </Button>
@@ -510,11 +510,11 @@ export default function Transactions() {
 
             {/* Filters */}
             <Card className="bg-base-50/50 dark:bg-base-900/50">
-                <CardContent className="pt-6 flex flex-wrap gap-4">
-                    <div className="space-y-1">
+                <CardContent className="pt-6 flex flex-col sm:flex-row flex-wrap gap-4">
+                    <div className="space-y-1 flex-1 min-w-[200px]">
                         <label className="text-xs font-medium text-base-500 dark:text-base-400">Activity Type</label>
                         <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                             value={filterCategory}
                             onChange={(e) => setFilterCategory(e.target.value)}
                         >
@@ -524,10 +524,10 @@ export default function Transactions() {
                         </select>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 flex-1 min-w-[200px]">
                         <label className="text-xs font-medium text-base-500">Account</label>
                         <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                             value={filterAccount}
                             onChange={(e) => setFilterAccount(e.target.value)}
                         >
@@ -538,10 +538,10 @@ export default function Transactions() {
                         </select>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 flex-1 min-w-[200px]">
                         <label className="text-xs font-medium text-base-500">Sub-Portfolio</label>
                         <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                             value={filterSubportfolio}
                             onChange={(e) => setFilterSubportfolio(e.target.value)}
                             disabled={filterCategory === "transaction"}
@@ -568,9 +568,9 @@ export default function Transactions() {
                             </div>
                         )}
                         {filteredHistory.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0">
+                            <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0 gap-4 sm:gap-0">
+                                <div className="flex items-start sm:items-center gap-4">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0 mt-1 sm:mt-0">
                                         {getIcon(item.type)}
                                     </div>
                                     <div className="space-y-1">
@@ -600,7 +600,7 @@ export default function Transactions() {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-0.5 shrink-0 w-full sm:w-auto mt-2 sm:mt-0 border-t sm:border-0 border-base-100 pt-2 sm:pt-0">
                                     <div className="flex items-center gap-2">
                                         <span className={`font-semibold ${getAmountColor(item.type)}`}>
                                             {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
@@ -608,21 +608,23 @@ export default function Transactions() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 min-h-[44px] min-w-[44px] sm:h-8 sm:w-8 p-0"
                                             onClick={() => handleDelete(item)}
                                             disabled={isDeleting === item.id}
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
-                                    {item.currencyNative !== item.currencyAccount && (
-                                        <span className="text-xs font-medium text-base-500 dark:text-base-400">
-                                            {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
-                                        </span>
-                                    )}
-                                    <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
-                                        {item.status}
-                                    </Badge>
+                                    <div className="flex items-center gap-2">
+                                        {item.currencyNative !== item.currencyAccount && (
+                                            <span className="text-xs font-medium text-base-500 dark:text-base-400">
+                                                {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
+                                            </span>
+                                        )}
+                                        <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
+                                            {item.status}
+                                        </Badge>
+                                    </div>
                                 </div>
                             </div>
                         ))}

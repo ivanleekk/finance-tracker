@@ -18,9 +18,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                         "border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 dark:bg-primary-950 dark:border-primary-800 dark:text-primary-400": variant === "secondary",
                         "text-base-700 hover:bg-base-100 dark:text-base-400 dark:hover:bg-base-800": variant === "ghost",
                         "bg-red-500 text-white hover:bg-red-600": variant === "danger",
-                        "min-h-8 px-3 text-sm": size === "sm",
-                        "min-h-10 px-4 py-2 text-base": size === "md",
-                        "py-2 min-h-12 px-8 text-lg": size === "lg",
+                        "min-h-[44px] sm:min-h-8 px-3 text-sm": size === "sm",
+                        "min-h-[44px] sm:min-h-10 px-4 py-2 text-base": size === "md",
+                        "py-2 min-h-[44px] sm:min-h-12 px-8 text-lg": size === "lg",
                     },
                     className
                 )}

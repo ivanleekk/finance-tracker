@@ -117,11 +117,11 @@ export default function Profile() {
     };
 
     return (
-        <div className="flex-1 space-y-8 p-8 pt-6">
-            <div className="flex items-center justify-between space-y-2">
+        <div className="flex-1 space-y-4 sm:space-y-6 md:space-y-8 p-4 sm:p-6 md:p-8 pt-6 relative overflow-y-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-2 sm:space-y-0">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Profile & Settings</h2>
-                    <p className="text-base-500 dark:text-base-400">Manage your account preferences and household configurations.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Profile & Settings</h2>
+                    <p className="text-sm sm:text-base text-base-500 dark:text-base-400">Manage your account preferences and household configurations.</p>
                 </div>
             </div>
 
@@ -130,20 +130,20 @@ export default function Profile() {
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800'
                     : 'bg-rose-50 text-rose-700 border border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800'
                     }`}>
-                    {message.type === 'success' ? <Check className="h-5 w-5" /> : <Shield className="h-5 w-5" />}
+                    {message.type === 'success' ? <Check className="h-5 w-5 shrink-0" /> : <Shield className="h-5 w-5 shrink-0" />}
                     <span className="font-medium">{message.text}</span>
                 </div>
             )}
 
-            <div className="grid gap-8 md:grid-cols-7">
+            <div className="grid gap-6 md:gap-8 md:grid-cols-7">
                 {/* Navigation Sidebar */}
                 <Card className="md:col-span-2 h-fit border-base-200/50 shadow-sm backdrop-blur-sm bg-white/50 dark:bg-base-900/50">
-                    <CardContent className="p-2">
-                        <div className="space-y-1">
+                    <CardContent className="p-2 flex flex-row md:flex-col gap-1 overflow-x-auto no-scrollbar">
+                        <div className="flex flex-row md:flex-col w-full min-w-max md:min-w-0 space-y-0 md:space-y-1 gap-1 md:gap-0">
                             <button
                                 onClick={() => setActiveSection("General")}
                                 className={cn(
-                                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
+                                    "w-full flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-lg text-sm font-medium transition-all whitespace-nowrap md:whitespace-normal",
                                     activeSection === "General"
                                         ? "bg-primary-50 text-primary-600 shadow-sm dark:bg-primary-950/50 dark:text-primary-400"
                                         : "text-base-600 hover:bg-base-50 hover:text-base-900 dark:text-base-400 dark:hover:bg-base-800 dark:hover:text-base-100"
@@ -156,7 +156,7 @@ export default function Profile() {
                             <button
                                 onClick={() => setActiveSection("Security")}
                                 className={cn(
-                                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
+                                    "w-full flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-lg text-sm font-medium transition-all whitespace-nowrap md:whitespace-normal",
                                     activeSection === "Security"
                                         ? "bg-primary-50 text-primary-600 shadow-sm dark:bg-primary-950/50 dark:text-primary-400"
                                         : "text-base-600 hover:bg-base-50 hover:text-base-900 dark:text-base-400 dark:hover:bg-base-800 dark:hover:text-base-100"
@@ -169,7 +169,7 @@ export default function Profile() {
                             <button
                                 onClick={() => setActiveSection("Appearance")}
                                 className={cn(
-                                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
+                                    "w-full flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-lg text-sm font-medium transition-all whitespace-nowrap md:whitespace-normal",
                                     activeSection === "Appearance"
                                         ? "bg-primary-50 text-primary-600 shadow-sm dark:bg-primary-950/50 dark:text-primary-400"
                                         : "text-base-600 hover:bg-base-50 hover:text-base-900 dark:text-base-400 dark:hover:bg-base-800 dark:hover:text-base-100"
@@ -179,11 +179,11 @@ export default function Profile() {
                                 Appearance
                                 <ChevronRight className={cn("ml-auto h-4 w-4 transition-transform", activeSection === "Appearance" ? "rotate-0 opacity-100" : "rotate-0 opacity-0")} />
                             </button>
-                            <button disabled className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-base-300 dark:text-base-700 cursor-not-allowed">
+                            <button disabled className="w-full flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-lg text-sm font-medium transition-all text-base-300 dark:text-base-700 cursor-not-allowed whitespace-nowrap md:whitespace-normal">
                                 <Bell className="h-4 w-4" />
                                 Notifications
                             </button>
-                            <button disabled className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-base-300 dark:text-base-700 cursor-not-allowed">
+                            <button disabled className="w-full flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-lg text-sm font-medium transition-all text-base-300 dark:text-base-700 cursor-not-allowed whitespace-nowrap md:whitespace-normal">
                                 <CreditCard className="h-4 w-4" />
                                 Subscription
                             </button>

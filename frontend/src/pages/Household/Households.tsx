@@ -142,18 +142,18 @@ export default function Households() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
-            <div className="flex items-center justify-between">
+        <div className="flex-1 space-y-4 sm:space-y-6 p-4 sm:p-6 md:p-8 relative">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Household Management</h2>
-                    <p className="text-base-500 dark:text-base-400 mt-1">Switch between households and manage members.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Household Management</h2>
+                    <p className="text-sm sm:text-base text-base-500 dark:text-base-400 mt-1">Switch between households and manage members.</p>
                 </div>
-                <div className="flex gap-3">
-                    <Button variant="secondary" onClick={() => setIsCreateModalOpen(true)}>
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+                    <Button variant="secondary" className="w-full sm:w-auto min-h-[44px]" onClick={() => setIsCreateModalOpen(true)}>
                         <Plus className="w-4 h-4 mr-2" />
                         New Household
                     </Button>
-                    <Button variant="primary" onClick={() => setIsInviteModalOpen(true)} disabled={!activeHousehold}>
+                    <Button variant="primary" className="w-full sm:w-auto min-h-[44px]" onClick={() => setIsInviteModalOpen(true)} disabled={!activeHousehold}>
                         <MailPlus className="w-4 h-4 mr-2" />
                         Invite Member
                     </Button>
@@ -216,12 +216,12 @@ export default function Households() {
 
                 {/* Member List */}
                 <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
                         <h3 className="text-lg font-semibold text-base-900 dark:text-base-50">
                             Members of {activeHousehold?.name || "..."}
                         </h3>
                         {activeHousehold && (
-                            <Button variant="ghost" size="sm" onClick={() => setIsEditModalOpen(true)} className="text-base-500 hover:text-base-900">
+                            <Button variant="ghost" size="sm" onClick={() => setIsEditModalOpen(true)} className="text-base-500 hover:text-base-900 min-h-[44px] sm:min-h-8 w-full sm:w-auto">
                                 <Settings className="w-4 h-4 mr-2" />
                                 Household Settings
                             </Button>
@@ -240,7 +240,7 @@ export default function Households() {
                                             </div>
                                             <div>
                                                 <CardTitle className="text-base font-semibold">{member.name}</CardTitle>
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                                     <CardDescription className="text-xs">{member.email}</CardDescription>
                                                     <button
                                                         onClick={(e) => {
@@ -281,7 +281,7 @@ export default function Households() {
                                             </div>
                                         </div>
                                         {member.role !== 'owner' && (
-                                            <Button variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto">
+                                            <Button variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto min-h-[44px] min-w-[44px]">
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         )}
@@ -351,7 +351,7 @@ export default function Households() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                         value={createForm.base_currency}
                                         onChange={(e) => setCreateForm({ ...createForm, base_currency: e.target.value })}
                                         required
@@ -365,7 +365,7 @@ export default function Households() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                         value={createForm.country_code}
                                         onChange={(e) => setCreateForm({ ...createForm, country_code: e.target.value })}
                                         required
@@ -408,7 +408,7 @@ export default function Households() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                         value={editForm.base_currency || ""}
                                         onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value })}
                                         required
@@ -422,7 +422,7 @@ export default function Households() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
                                     <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]"
                                         value={editForm.country_code || ""}
                                         onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
                                         required

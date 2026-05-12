@@ -25,10 +25,10 @@ describe('Button Component', () => {
 
     it('renders different sizes', () => {
         const { rerender } = render(<Button size="sm">Small</Button>);
-        expect(screen.getByRole('button', { name: /small/i })).toHaveClass('min-h-8 px-3 text-sm');
+        expect(screen.getByRole('button', { name: /small/i })).toHaveClass('min-h-[44px] sm:min-h-8 px-3 text-sm');
 
         rerender(<Button size="lg">Large</Button>);
-        expect(screen.getByRole('button', { name: /large/i })).toHaveClass('py-2 min-h-12 px-8 text-lg');
+        expect(screen.getByRole('button', { name: /large/i })).toHaveClass('py-2 min-h-[44px] sm:min-h-12 px-8 text-lg');
     });
 
     it('applies disabled styles and cannot be clicked when disabled', async () => {

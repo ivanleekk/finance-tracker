@@ -30,7 +30,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                     id={inputId}
                     disabled={disabled}
                     className={cn(
-                        "flex h-10 w-full rounded-md border border-base-300 bg-white px-3 py-2 text-sm text-base-900 placeholder:text-base-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:bg-base-100 disabled:text-base-500 dark:border-base-800 dark:bg-base-950 dark:text-base-50 dark:placeholder:text-base-600 dark:disabled:bg-base-900 dark:disabled:text-base-600",
+                        "flex h-10 min-h-[44px] sm:min-h-10 w-full rounded-md border border-base-300 bg-white px-3 py-2 text-sm text-base-900 placeholder:text-base-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:bg-base-100 disabled:text-base-500 dark:border-base-800 dark:bg-base-950 dark:text-base-50 dark:placeholder:text-base-600 dark:disabled:bg-base-900 dark:disabled:text-base-600",
                         {
                             "border-red-500 focus-visible:ring-red-500 dark:border-red-400 dark:focus-visible:ring-red-400": error,
                         },

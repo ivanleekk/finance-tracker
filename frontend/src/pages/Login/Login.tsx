@@ -58,9 +58,9 @@ export default function Login() {
     const isLoading = navigation.state === "submitting";
 
     return (
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center min-h-screen p-4 sm:p-0">
             {/* Replace standard <form> with React Router's <Form> */}
-            <Form method="post" className="w-full max-w-sm bg-white dark:bg-base-900 p-8 rounded-lg shadow-md border border-base-200 dark:border-base-800">
+            <Form method="post" className="w-full max-w-sm bg-white dark:bg-base-900 p-6 sm:p-8 rounded-lg shadow-md border border-base-200 dark:border-base-800">
                 <h2 className="text-2xl font-bold mb-6 text-center text-base-900 dark:text-base-50">Login to FinTracker</h2>
 
                 {/* Error Display */}
@@ -79,7 +79,7 @@ export default function Login() {
                         name="username" // Required for FormData extraction
                         type="text"
                         required
-                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
                 <div className="mb-6">
@@ -91,12 +91,12 @@ export default function Login() {
                         name="password" // Required for FormData extraction
                         type="password"
                         required
-                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
 
                 {/* Button Container */}
-                <div className="flex justify-between items-center gap-4">
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <Button
                         type="submit"
                         disabled={isLoading}

@@ -193,13 +193,13 @@ export default function Accounts() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
-            <div className="flex items-center justify-between">
+        <div className="flex-1 space-y-4 sm:space-y-6 p-4 sm:p-6 md:p-8 relative">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Bank Accounts</h2>
-                    <p className="text-base-500 dark:text-base-400 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Bank Accounts</h2>
+                    <p className="text-sm sm:text-base text-base-500 dark:text-base-400 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
                 </div>
-                <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
+                <Button className="w-full sm:w-auto min-h-[44px]" variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
             </div>
 
             {/* Chart Section */}
@@ -302,22 +302,22 @@ export default function Accounts() {
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400 min-w-[800px]">
                             <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('name')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors whitespace-nowrap" onClick={() => requestSort('name')}>
                                         <div className="flex items-center gap-2">Account Name {getSortIcon('name')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('type')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors whitespace-nowrap" onClick={() => requestSort('type')}>
                                         <div className="flex items-center gap-2">Type {getSortIcon('type')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('balance')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('balance')}>
                                         <div className="flex items-center justify-end gap-2">Current Balance {getSortIcon('balance')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('liquidity')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('liquidity')}>
                                         <div className="flex items-center justify-end gap-2">Liquidity {getSortIcon('liquidity')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold">Status</th>
+                                    <th className="px-4 py-3 font-semibold whitespace-nowrap">Status</th>
                                     <th className="px-4 py-3 font-semibold"></th>
                                 </tr>
                             </thead>

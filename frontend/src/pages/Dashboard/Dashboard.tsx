@@ -153,17 +153,19 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8">
-            <div className="flex items-center justify-between">
+        <div className="flex-1 space-y-4 sm:space-y-6 p-4 sm:p-6 md:p-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
-                    <p className="text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
+                    <p className="text-sm sm:text-base text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
                 </div>
-                <TimeframeSelector />
+                <div className="w-full sm:w-auto overflow-x-auto">
+                    <TimeframeSelector />
+                </div>
             </div>
 
             {/* Top Row: Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <StatCard
                     title="Net Worth"
                     value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(netWorth)}
@@ -197,20 +199,20 @@ export default function Dashboard() {
             </div>
 
             {/* Middle Row: Charts & Goals */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
+                <Card className="lg:col-span-4">
+                    <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between space-y-4 sm:space-y-0">
                         <div>
                             <CardTitle>Net Worth Trend</CardTitle>
                             <CardDescription>Your total wealth growth over time.</CardDescription>
                         </div>
-                        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
+                        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800 w-full sm:w-auto overflow-x-auto no-scrollbar">
                             {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                                 <button
                                     key={tf}
                                     onClick={() => setTimeframe(tf)}
                                     className={cn(
-                                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                        "px-3 py-2 sm:py-1 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-md transition-all flex-1 sm:flex-none text-center whitespace-nowrap",
                                         timeframe === tf
                                             ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
                                             : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
@@ -320,7 +322,7 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                <Card className="col-span-3">
+                <Card className="lg:col-span-3">
                     <CardHeader>
                         <CardTitle>Financial Goals</CardTitle>
                     </CardHeader>

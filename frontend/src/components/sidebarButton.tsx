@@ -22,13 +22,13 @@ function SidebarButton({ text, href, icon, onClick }: SidebarButtonProps) {
     const inactiveClasses = "text-base-600 hover:bg-base-100 hover:text-base-900 dark:text-base-400 dark:hover:bg-base-900 dark:hover:text-base-100";
     const activeClasses = "bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-400";
 
-    // 1. If an onClick is provided, render a standard <button>
-    if (onClick) {
+    // Fallback safety: If there's no href (and we want to render it as a standard button)
+    if (!href) {
         return (
             <button
                 onClick={onClick}
                 // Buttons aren't "active" routes, so they just get the inactive hover styling
-                className={cn(baseClasses, inactiveClasses, "text-left")}
+                className={cn(baseClasses, inactiveClasses, "text-left min-h-[44px]")}
             >
                 {IconContent}
                 {text}
@@ -36,16 +36,15 @@ function SidebarButton({ text, href, icon, onClick }: SidebarButtonProps) {
         )
     }
 
-    // 2. Fallback safety: If there's no onClick and no href, render nothing
-    if (!href) return null;
-
-    // 3. Otherwise, render your existing <NavLink>
+    // Render as a NavLink for navigation
     return (
         <NavLink
             to={href}
+            onClick={onClick} // Close the sidebar when clicked
             className={({ isActive }) =>
                 cn(
                     baseClasses,
+                    "min-h-[44px]", // Minimum touch target size
                     isActive ? activeClasses : inactiveClasses
                 )
             }

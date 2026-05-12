@@ -44,7 +44,7 @@ export function HouseholdSelector() {
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-2.5 text-left transition-all hover:bg-base-50 dark:hover:bg-base-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20",
+                    "flex w-full items-center justify-between gap-3 rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-2.5 text-left transition-all hover:bg-base-50 dark:hover:bg-base-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20 min-h-[44px]",
                     isOpen && "border-primary-500 ring-2 ring-primary-500/20"
                 )}
             >
@@ -73,7 +73,7 @@ export function HouseholdSelector() {
                                 revalidator.revalidate();
                             }}
                             className={cn(
-                                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-base-50 dark:hover:bg-base-800",
+                                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-base-50 dark:hover:bg-base-800 min-h-[44px]",
                                 activeHousehold?.id === household.id ? "bg-primary-50 dark:bg-primary-900/20 font-semibold text-primary-700 dark:text-primary-400" : "text-base-700 dark:text-base-300"
                             )}
                         >

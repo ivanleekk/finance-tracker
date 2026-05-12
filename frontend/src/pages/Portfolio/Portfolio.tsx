@@ -382,26 +382,26 @@ export default function Portfolio() {
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 space-y-4 sm:space-y-6 p-4 sm:p-6 md:p-8 relative">
             {isLoading && (
-                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
+                <div className="absolute top-4 right-4 sm:right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
             )}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Portfolio</h2>
-                    <p className="text-base-500 mt-1">Track your performance and risk metrics.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Portfolio</h2>
+                    <p className="text-sm sm:text-base text-base-500 mt-1">Track your performance and risk metrics.</p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto overflow-x-auto">
                     <TimeframeSelector />
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
                         <Button 
                             variant="secondary" 
                             onClick={handleSyncPortfolio} 
                             disabled={isSyncing}
-                            className="flex items-center gap-2"
+                            className="flex items-center gap-2 flex-1 sm:flex-none min-h-[44px]"
                         >
                             {isSyncing ? (
                                 <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
@@ -410,17 +410,17 @@ export default function Portfolio() {
                             )}
                             Sync
                         </Button>
-                        <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
-                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                            <Button variant="primary">Trade</Button>
+                        <Button variant="secondary" onClick={() => revalidator.revalidate()} className="flex-1 sm:flex-none min-h-[44px]">Refresh</Button>
+                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`} className="flex-1 sm:flex-none">
+                            <Button variant="primary" className="w-full min-h-[44px]">Trade</Button>
                         </Link>
-                        <Button variant="primary">Download Report</Button>
+                        <Button variant="primary" className="flex-1 sm:flex-none min-h-[44px]">Download Report</Button>
                     </div>
                 </div>
             </div>
 
             {/* Subportfolio Tabs */}
-            <div className="flex flex-wrap gap-2 items-center border-b border-base-200 pb-2">
+            <div className="flex overflow-x-auto no-scrollbar gap-2 items-center border-b border-base-200 pb-2 w-full">
                 {Object.keys(portfoliosData).map((tab) => (
                     <button
                         key={tab}
@@ -451,7 +451,7 @@ export default function Portfolio() {
 
             {isCreating && (
                 <Card className="bg-base-50 border-dashed">
-                    <CardContent className="pt-6 flex items-end gap-4">
+                    <CardContent className="pt-6 flex flex-col sm:flex-row items-stretch sm:items-end gap-4">
                         <div className="flex-1 space-y-2">
                             <Input
                                 label="Sub-Portfolio Name"
@@ -463,7 +463,7 @@ export default function Portfolio() {
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
                             <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[44px] sm:h-[42px]"
                                 value={newPortfolioRisk}
                                 onChange={e => setNewPortfolioRisk(e.target.value)}
                             >
@@ -481,16 +481,18 @@ export default function Portfolio() {
                                 placeholder="e.g. 100000"
                             />
                         </div>
-                        <Button variant="primary" className="h-[42px]" onClick={handleCreateSubPortfolio}>Create</Button>
-                        <Button variant="ghost" className="h-[42px]" onClick={() => setIsCreating(false)}>Cancel</Button>
+                        <div className="flex gap-2 sm:w-auto w-full">
+                            <Button variant="primary" className="flex-1 sm:flex-none min-h-[44px] sm:h-[42px]" onClick={handleCreateSubPortfolio}>Create</Button>
+                            <Button variant="ghost" className="flex-1 sm:flex-none min-h-[44px] sm:h-[42px]" onClick={() => setIsCreating(false)}>Cancel</Button>
+                        </div>
                     </CardContent>
                 </Card>
             )}
 
             {/* Portfolio Actions */}
             {activeTab !== "Overall" && !isCreating && activeSubportfolioObj && (
-                <div className="flex justify-end gap-2">
-                    <Button variant="secondary" onClick={() => {
+                <div className="flex flex-col sm:flex-row justify-end gap-2 w-full sm:w-auto">
+                    <Button variant="secondary" className="min-h-[44px]" onClick={() => {
                         setIsEditing(!isEditing);
                         setEditName(activeSubportfolioObj.name);
                         setEditRisk(activeSubportfolioObj.risk_profile);
@@ -498,7 +500,7 @@ export default function Portfolio() {
                     }}>
                         {isEditing ? "Cancel Edit" : "Edit Details"}
                     </Button>
-                    <Button variant="danger" onClick={() => handleDeleteSubPortfolio(activeSubportfolioObj.id)}>
+                    <Button variant="danger" className="min-h-[44px]" onClick={() => handleDeleteSubPortfolio(activeSubportfolioObj.id)}>
                         Delete {activeTab}
                     </Button>
                 </div>
@@ -506,7 +508,7 @@ export default function Portfolio() {
 
             {isEditing && activeSubportfolioObj && (
                 <Card className="bg-primary-50/30 border-primary-200 border-dashed">
-                    <CardContent className="pt-6 flex items-end gap-4">
+                    <CardContent className="pt-6 flex flex-col sm:flex-row items-stretch sm:items-end gap-4">
                         <div className="flex-1 space-y-2">
                             <Input
                                 label="Name"
@@ -517,7 +519,7 @@ export default function Portfolio() {
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
                             <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[44px] sm:h-[42px]"
                                 value={editRisk}
                                 onChange={e => setEditRisk(e.target.value)}
                             >
@@ -534,13 +536,13 @@ export default function Portfolio() {
                                 onChange={e => setEditTarget(e.target.value)}
                             />
                         </div>
-                        <Button variant="primary" className="h-[42px]" onClick={handleUpdateSubPortfolio}>Save Changes</Button>
+                        <Button variant="primary" className="w-full sm:w-auto min-h-[44px] sm:h-[42px]" onClick={handleUpdateSubPortfolio}>Save Changes</Button>
                     </CardContent>
                 </Card>
             )}
 
             {/* Top Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                 <StatCard title="Total Equity" value={currentData.stats.equity} />
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
@@ -558,18 +560,18 @@ export default function Portfolio() {
 
             {/* Equity Curve Chart */}
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between space-y-4 sm:space-y-0">
                     <div>
                         <CardTitle>{activeTab} Growth</CardTitle>
                         <CardDescription>Historical equity curve based on latest evaluation.</CardDescription>
                     </div>
-                    <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
+                    <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800 w-full sm:w-auto overflow-x-auto no-scrollbar">
                         {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                             <button
                                 key={tf}
                                 onClick={() => setTimeframe(tf)}
                                 className={cn(
-                                    "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                    "px-3 py-2 sm:py-1 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-md transition-all flex-1 sm:flex-none text-center whitespace-nowrap",
                                     timeframe === tf
                                         ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
                                         : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
@@ -660,25 +662,25 @@ export default function Portfolio() {
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400 min-w-[800px]">
                             <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('asset')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors whitespace-nowrap" onClick={() => requestSort('asset')}>
                                         <div className="flex items-center gap-2">Asset {getSortIcon('asset')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('shares')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('shares')}>
                                         <div className="flex items-center justify-end gap-2">Shares {getSortIcon('shares')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('avgCost')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('avgCost')}>
                                         <div className="flex items-center justify-end gap-2">Avg Cost {getSortIcon('avgCost')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('price')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('price')}>
                                         <div className="flex items-center justify-end gap-2">Price {getSortIcon('price')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('value')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('value')}>
                                         <div className="flex items-center justify-end gap-2">Value {getSortIcon('value')}</div>
                                     </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('return')}>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right whitespace-nowrap" onClick={() => requestSort('return')}>
                                         <div className="flex items-center justify-end gap-2">Return {getSortIcon('return')}</div>
                                     </th>
                                     <th className="px-4 py-3 font-semibold"></th>
@@ -739,7 +741,7 @@ export default function Portfolio() {
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                                                    <Button variant="ghost" size="sm">Trade</Button>
+                                                    <Button variant="ghost" size="sm" className="min-h-[44px] sm:min-h-8">Trade</Button>
                                                 </Link>
                                             </td>
                                         </tr>

@@ -26,11 +26,11 @@ export function Dialog({ isOpen, onClose, children }: DialogProps) {
 
             {/* Modal */}
             <div
-                className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-base-900 p-6 shadow-2xl transition-all animate-in zoom-in-95 duration-200 border border-base-100 dark:border-base-800"
+                className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-base-900 p-4 sm:p-6 shadow-2xl transition-all animate-in zoom-in-95 duration-200 border border-base-100 dark:border-base-800 max-h-[90vh] overflow-y-auto"
             >
                 <button
                     onClick={onClose}
-                    className="absolute right-4 top-4 rounded-full p-2 text-base-400 hover:bg-base-50 dark:hover:bg-base-800 hover:text-base-600 dark:hover:text-base-100 transition-colors"
+                    className="absolute right-2 sm:right-4 top-2 sm:top-4 rounded-full p-2 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-base-400 hover:bg-base-50 dark:hover:bg-base-800 hover:text-base-600 dark:hover:text-base-100 transition-colors"
                 >
                     <X className="h-5 w-5" />
                 </button>
