@@ -117,11 +117,11 @@ export default function Profile() {
     };
 
     return (
-        <div className="flex-1 space-y-4 sm:space-y-6 md:space-y-8 p-4 sm:p-6 md:p-8 pt-6 relative overflow-y-auto">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-2 sm:space-y-0">
+        <div className="flex-1 space-y-4 md:space-y-8 p-4 md:p-8 pt-6 relative overflow-y-auto">
+            <div className="flex flex-col md:flex-row md:items-center justify-between space-y-2 md:space-y-0">
                 <div>
-                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Profile & Settings</h2>
-                    <p className="text-sm sm:text-base text-base-500 dark:text-base-400">Manage your account preferences and household configurations.</p>
+                    <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Profile & Settings</h2>
+                    <p className="text-xs sm:text-sm md:text-base text-base-500 dark:text-base-400">Manage your account preferences and household configurations.</p>
                 </div>
             </div>
 
@@ -192,13 +192,13 @@ export default function Profile() {
                 </Card>
 
                 {/* Main Content Area */}
-                <div className="md:col-span-5 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-right-4 duration-500 w-full overflow-hidden">
+                <div className="md:col-span-5 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-right-4 duration-500 w-full">
                     {activeSection === "General" ? (
                         <>
                             {/* User Profile Section */}
                             <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary-500 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                <CardHeader className="p-4 sm:p-6">
+                                <CardHeader className="p-4 md:p-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg shrink-0">
                                             <User className="h-5 w-5" />
@@ -209,8 +209,8 @@ export default function Profile() {
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-6 p-4 sm:p-6 pt-0 sm:pt-0">
-                                    <div className="grid gap-6 sm:grid-cols-2">
+                                <CardContent className="space-y-6 p-4 md:p-6 pt-0 md:pt-0">
+                                    <div className="grid gap-6 md:grid-cols-2">
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-base-700 dark:text-base-300">Display Name</label>
                                             <Input
@@ -228,7 +228,7 @@ export default function Profile() {
                                                 className="bg-base-100/50 border-base-200 cursor-not-allowed opacity-70 text-[10px] font-mono"
                                             />
                                         </div>
-                                        <div className="space-y-2 sm:col-span-2">
+                                        <div className="space-y-2 md:col-span-2">
                                             <label className="text-sm font-medium text-base-700 dark:text-base-300">Preferred Timezone</label>
                                             <select
                                                 value={userTimezone}
@@ -245,7 +245,7 @@ export default function Profile() {
                                         <Button
                                             onClick={handleUpdateUser}
                                             disabled={isSavingUser || (userName === user.name && userTimezone === user.preferred_timezone)}
-                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95 w-full sm:w-auto min-h-[44px]"
+                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95 w-full md:w-auto min-h-[44px]"
                                         >
                                             {isSavingUser ? "Saving..." : "Save Changes"}
                                         </Button>
@@ -257,8 +257,8 @@ export default function Profile() {
                             {activeHousehold && (
                                 <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                     <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    <CardHeader className="p-4 sm:p-6">
-                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <CardHeader className="p-4 md:p-6">
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
                                                     <Globe className="h-5 w-5" />
@@ -268,14 +268,14 @@ export default function Profile() {
                                                     <CardDescription className="truncate">Configure global settings for {activeHousehold.name}.</CardDescription>
                                                 </div>
                                             </div>
-                                            <Badge variant="outline" className="sm:ml-auto w-fit bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 mt-2 sm:mt-0">
+                                            <Badge variant="outline" className="md:ml-auto w-fit bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 mt-2 md:mt-0">
                                                 Active Household
                                             </Badge>
                                         </div>
                                     </CardHeader>
-                                    <CardContent className="space-y-6 p-4 sm:p-6 pt-0 sm:pt-0">
-                                        <div className="grid gap-6 sm:grid-cols-2">
-                                            <div className="space-y-2 sm:col-span-2">
+                                    <CardContent className="space-y-6 p-4 md:p-6 pt-0 md:pt-0">
+                                        <div className="grid gap-6 md:grid-cols-2">
+                                            <div className="space-y-2 md:col-span-2">
                                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Household Name</label>
                                                 <Input
                                                     value={householdName}
@@ -283,7 +283,7 @@ export default function Profile() {
                                                     className="bg-base-50/50 dark:bg-base-900/50 border-base-200 dark:border-base-800 focus:bg-white dark:focus:bg-base-900 transition-all"
                                                 />
                                             </div>
-                                            <div className="space-y-2 sm:col-span-2">
+                                            <div className="space-y-2 md:col-span-2">
                                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Base Reporting Currency</label>
                                                 <CardDescription className="text-xs mb-2">This currency will be used for all aggregated charts and metrics.</CardDescription>
                                                 <select
@@ -304,7 +304,7 @@ export default function Profile() {
                                                 variant="secondary"
                                                 onClick={handleUpdateHousehold}
                                                 disabled={isSavingHousehold || (householdName === activeHousehold.name && householdCurrency === activeHousehold.base_currency)}
-                                                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95"
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 w-full md:w-auto"
                                             >
                                                 {isSavingHousehold ? "Saving..." : "Update Household"}
                                             </Button>
@@ -316,7 +316,7 @@ export default function Profile() {
                     ) : activeSection === "Appearance" ? (
                         <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full overflow-hidden">
                             <Card className="border-base-200/50 shadow-sm overflow-hidden w-full">
-                                <CardHeader className="p-4 sm:p-6">
+                                <CardHeader className="p-4 md:p-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg shrink-0">
                                             <Palette className="h-5 w-5" />
@@ -327,11 +327,11 @@ export default function Profile() {
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-6 md:space-y-8 p-4 sm:p-6 pt-0 sm:pt-0">
+                                <CardContent className="space-y-6 md:space-y-8 p-4 md:p-6 pt-0 md:pt-0">
 
 
                                     {/* Palette Selection */}
-                                    <div className="grid gap-8 sm:grid-cols-3">
+                                    <div className="grid gap-8 lg:grid-cols-3">
                                         {/* Primary */}
                                         <div className="space-y-4">
                                             <label className="text-sm font-semibold text-base-900 dark:text-base-50">Primary Color</label>
@@ -399,7 +399,7 @@ export default function Profile() {
                                                 secondaryColor === user.secondary_color &&
                                                 baseColor === user.base_color
                                             )}
-                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95 text-white"
+                                            className="bg-primary-600 hover:bg-primary-700 shadow-md shadow-primary-200 dark:shadow-none transition-all active:scale-95 text-white w-full md:w-auto"
                                         >
                                             {isSavingUser ? "Saving..." : "Apply Appearance"}
                                         </Button>
@@ -423,7 +423,7 @@ export default function Profile() {
                             {/* Security Settings Section */}
                             <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-rose-500 to-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                <CardHeader className="p-4 sm:p-6">
+                                <CardHeader className="p-4 md:p-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-lg shrink-0">
                                             <Lock className="h-5 w-5" />
@@ -434,14 +434,14 @@ export default function Profile() {
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-6 md:space-y-8 p-4 sm:p-6 pt-0 sm:pt-0">
+                                <CardContent className="space-y-6 md:space-y-8 p-4 md:p-6 pt-0 md:pt-0">
                                     {/* Email Section */}
                                     <div className="space-y-4">
                                         <div className="flex items-center gap-2 text-sm font-semibold text-base-900 dark:text-base-50">
                                             <Mail className="h-4 w-4" />
                                             Email Address
                                         </div>
-                                        <div className="grid gap-4 sm:grid-cols-2 items-end">
+                                        <div className="grid gap-4 md:grid-cols-2 items-end">
                                             <div className="space-y-2">
                                                 <label className="text-xs font-medium text-base-500 dark:text-base-400 uppercase tracking-wider">New Email Address</label>
                                                 <Input
@@ -465,7 +465,7 @@ export default function Profile() {
                                             <Lock className="h-4 w-4" />
                                             Update Password
                                         </div>
-                                        <div className="grid gap-6 sm:grid-cols-2">
+                                        <div className="grid gap-6 md:grid-cols-2">
                                             <div className="space-y-2">
                                                 <label className="text-xs font-medium text-base-500 dark:text-base-400 uppercase tracking-wider">New Password</label>
                                                 <Input
@@ -492,7 +492,7 @@ export default function Profile() {
                                         <Button
                                             onClick={handleUpdateSecurity}
                                             disabled={isSavingUser || (newEmail === user.email && !newPassword)}
-                                            className="bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-200 dark:shadow-none transition-all active:scale-95"
+                                            className="bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-200 dark:shadow-none transition-all active:scale-95 w-full md:w-auto"
                                         >
                                             {isSavingUser ? "Updating..." : "Update Security Settings"}
                                         </Button>
@@ -502,7 +502,7 @@ export default function Profile() {
 
                             {/* Additional Security Info */}
                             <Card className="border-base-200/50 dark:border-base-800 bg-base-50/30 dark:bg-base-900/30 w-full">
-                                <CardContent className="p-4 sm:p-6 flex items-start gap-4">
+                                <CardContent className="p-4 md:p-6 flex items-start gap-4">
                                     <div className="p-2 bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-lg shadow-sm shrink-0">
                                         <Shield className="h-5 w-5 text-primary-500 dark:text-primary-400" />
                                     </div>

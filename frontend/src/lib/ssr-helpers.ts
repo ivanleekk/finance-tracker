@@ -1,6 +1,8 @@
 import { getApiUrl } from "./api-url";
 import { redirect } from "react-router";
 
+const PUBLIC_ROUTES = ["/login", "/signup", "/logout", "/forgot-password", "/reset-password"];
+
 export const parseCookies = (cookieString: string | null) => {
     if (!cookieString) return {};
     return cookieString
@@ -27,6 +29,11 @@ export async function getSSRContext(request: Request) {
     let householdId = cookies['activeHouseholdId'];
     let newCookieHeader: string | null = null;
     let refreshSetCookieHeaders: string[] = [];
+
+    const url = new URL(request.url);
+    const isPublicRoute = PUBLIC_ROUTES.some(route => url.pathname.startsWith(route));
+    // If we have no cookies at all, we're definitely not authenticated
+    const hasAuthCookies = cookies['access_token'] || cookies['refresh_token'] || cookies['fastapi-jwt']; // Check common names
 
     const ssrFetch = async (path: string, init?: RequestInit): Promise<Response> => {
         const mergedHeaders = new Headers(headers);
@@ -97,23 +104,34 @@ export async function getSSRContext(request: Request) {
                 });
             } else {
                 console.warn(`[SSR] Refresh failed for ${path}, redirecting to login`);
-                throw redirect("/login");
+                if (!isPublicRoute) {
+                    throw redirect("/login");
+                }
+                // If it's a public route, just return the 401 response and let the loader handle it
+                return refreshRes;
             }
         }
 
         return response;
     };
 
-    // Optional household verification
+    // Optional household verification - SKIP if on public route or no auth cookies
     let households: any[] = [];
-    try {
-        const hRes = await ssrFetch("/users/households");
-        if (hRes.ok) {
-            households = await hRes.json();
+    if (!isPublicRoute) {
+        try {
+            const hRes = await ssrFetch("/users/households");
+            if (hRes.ok) {
+                households = await hRes.json();
+            }
+        } catch (e) {
+            if (e instanceof Response && (e.status === 302 || e.status === 401)) {
+                // If we get a redirect or 401 here, it's fine, we just won't have households
+                // But we should re-throw if it's a redirect and NOT on a public route
+                if (e.status === 302 && !isPublicRoute) throw e;
+            } else {
+                console.error("Failed to fetch households in SSR", e);
+            }
         }
-    } catch (e) {
-        if (e instanceof Response && e.status === 302) throw e; // Pass through redirects
-        console.error("Failed to fetch households in SSR", e);
     }
 
     // Determine the best householdId to use
@@ -130,6 +148,7 @@ export async function getSSRContext(request: Request) {
     return {
         headers,
         householdId,
+        households,
         ssrFetch,
         combineHeaders: (existingHeaders?: HeadersInit) => {
             const combined = new Headers(existingHeaders);

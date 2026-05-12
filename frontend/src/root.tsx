@@ -20,7 +20,7 @@ import { Link } from "react-router";
 import type { HouseholdResponse, UserResponse } from "./types/types";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-    const { ssrFetch, combineHeaders } = await getSSRContext(request);
+    const { ssrFetch, combineHeaders, households: initialHouseholds } = await getSSRContext(request);
 
     let isAuthenticated = false;
     let user: UserResponse | null = null;
@@ -28,16 +28,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     try {
         const res = await ssrFetch("/auth/me").catch(e => {
-            if (e instanceof Response && e.status === 302) return null;
+            if (e instanceof Response && (e.status === 302 || e.status === 401)) return null;
             throw e;
         });
 
         if (res && res.ok) {
             isAuthenticated = true;
             user = await res.json();
-            const hRes = await ssrFetch("/users/households");
-            if (hRes.ok) {
-                households = await hRes.json();
+            // households is already fetched in getSSRContext
+            households = initialHouseholds;
+            
+            // If getSSRContext didn't fetch them (e.g. because it was a public route but we're actually logged in)
+            if (households.length === 0) {
+                const hRes = await ssrFetch("/users/households");
+                if (hRes.ok) {
+                    households = await hRes.json();
+                }
             }
         }
         if (isAuthenticated && households.length === 0) {
