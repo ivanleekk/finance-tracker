@@ -192,24 +192,24 @@ export default function Profile() {
                 </Card>
 
                 {/* Main Content Area */}
-                <div className="md:col-span-5 space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className="md:col-span-5 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-right-4 duration-500 w-full overflow-hidden">
                     {activeSection === "General" ? (
                         <>
                             {/* User Profile Section */}
-                            <Card className="border-base-200/50 shadow-sm overflow-hidden group">
+                            <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary-500 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                <CardHeader>
+                                <CardHeader className="p-4 sm:p-6">
                                     <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg">
+                                        <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg shrink-0">
                                             <User className="h-5 w-5" />
                                         </div>
-                                        <div>
-                                            <CardTitle>Personal Information</CardTitle>
-                                            <CardDescription>Update your personal details and account settings.</CardDescription>
+                                        <div className="min-w-0">
+                                            <CardTitle className="truncate">Personal Information</CardTitle>
+                                            <CardDescription className="truncate">Update your personal details and account settings.</CardDescription>
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-6">
+                                <CardContent className="space-y-6 p-4 sm:p-6 pt-0 sm:pt-0">
                                     <div className="grid gap-6 sm:grid-cols-2">
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-base-700 dark:text-base-300">Display Name</label>
@@ -255,23 +255,25 @@ export default function Profile() {
 
                             {/* Household Settings Section */}
                             {activeHousehold && (
-                                <Card className="border-base-200/50 shadow-sm overflow-hidden group">
+                                <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                     <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    <CardHeader>
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                                                <Globe className="h-5 w-5" />
+                                    <CardHeader className="p-4 sm:p-6">
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
+                                                    <Globe className="h-5 w-5" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <CardTitle className="truncate">Household Preferences</CardTitle>
+                                                    <CardDescription className="truncate">Configure global settings for {activeHousehold.name}.</CardDescription>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <CardTitle>Household Preferences</CardTitle>
-                                                <CardDescription>Configure global settings for {activeHousehold.name}.</CardDescription>
-                                            </div>
-                                            <Badge variant="outline" className="ml-auto bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400">
+                                            <Badge variant="outline" className="sm:ml-auto w-fit bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 mt-2 sm:mt-0">
                                                 Active Household
                                             </Badge>
                                         </div>
                                     </CardHeader>
-                                    <CardContent className="space-y-6">
+                                    <CardContent className="space-y-6 p-4 sm:p-6 pt-0 sm:pt-0">
                                         <div className="grid gap-6 sm:grid-cols-2">
                                             <div className="space-y-2 sm:col-span-2">
                                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Household Name</label>
@@ -312,20 +314,20 @@ export default function Profile() {
                             )}
                         </>
                     ) : activeSection === "Appearance" ? (
-                        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <Card className="border-base-200/50 shadow-sm overflow-hidden">
-                                <CardHeader>
+                        <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full overflow-hidden">
+                            <Card className="border-base-200/50 shadow-sm overflow-hidden w-full">
+                                <CardHeader className="p-4 sm:p-6">
                                     <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg">
+                                        <div className="p-2 bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-lg shrink-0">
                                             <Palette className="h-5 w-5" />
                                         </div>
-                                        <div>
-                                            <CardTitle>Theme Customization</CardTitle>
-                                            <CardDescription>Personalize the look and feel of your dashboard.</CardDescription>
+                                        <div className="min-w-0">
+                                            <CardTitle className="truncate">Theme Customization</CardTitle>
+                                            <CardDescription className="truncate">Personalize the look and feel of your dashboard.</CardDescription>
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-8">
+                                <CardContent className="space-y-6 md:space-y-8 p-4 sm:p-6 pt-0 sm:pt-0">
 
 
                                     {/* Palette Selection */}
@@ -405,12 +407,12 @@ export default function Profile() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="border-secondary-100 bg-secondary-50/20 dark:bg-secondary-950/10 dark:border-secondary-900/30">
+                            <Card className="border-secondary-100 bg-secondary-50/20 dark:bg-secondary-950/10 dark:border-secondary-900/30 w-full">
                                 <CardContent className="p-4 flex items-center gap-4 text-secondary-700 dark:text-secondary-400">
-                                    <div className="p-2 bg-white dark:bg-base-900 rounded-lg shadow-sm border border-secondary-100 dark:border-secondary-900">
+                                    <div className="p-2 bg-white dark:bg-base-900 rounded-lg shadow-sm border border-secondary-100 dark:border-secondary-900 shrink-0">
                                         <Palette className="h-5 w-5 text-secondary-500 dark:text-secondary-400" />
                                     </div>
-                                    <p className="text-xs font-medium">
+                                    <p className="text-xs font-medium leading-relaxed">
                                         Tip: You can preview your theme changes instantly. Remember to click <strong>Apply Appearance</strong> to save them to your account.
                                     </p>
                                 </CardContent>
@@ -419,20 +421,20 @@ export default function Profile() {
                     ) : (
                         <>
                             {/* Security Settings Section */}
-                            <Card className="border-base-200/50 shadow-sm overflow-hidden group">
+                            <Card className="border-base-200/50 shadow-sm overflow-hidden group w-full">
                                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-rose-500 to-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                <CardHeader>
+                                <CardHeader className="p-4 sm:p-6">
                                     <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-lg">
+                                        <div className="p-2 bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-lg shrink-0">
                                             <Lock className="h-5 w-5" />
                                         </div>
-                                        <div>
-                                            <CardTitle>Security Settings</CardTitle>
-                                            <CardDescription>Secure your account with a strong password and verified email.</CardDescription>
+                                        <div className="min-w-0">
+                                            <CardTitle className="truncate">Security Settings</CardTitle>
+                                            <CardDescription className="truncate">Secure your account with a strong password and verified email.</CardDescription>
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent className="space-y-8">
+                                <CardContent className="space-y-6 md:space-y-8 p-4 sm:p-6 pt-0 sm:pt-0">
                                     {/* Email Section */}
                                     <div className="space-y-4">
                                         <div className="flex items-center gap-2 text-sm font-semibold text-base-900 dark:text-base-50">
@@ -499,13 +501,13 @@ export default function Profile() {
                             </Card>
 
                             {/* Additional Security Info */}
-                            <Card className="border-base-200/50 dark:border-base-800 bg-base-50/30 dark:bg-base-900/30">
-                                <CardContent className="p-6 flex items-start gap-4">
-                                    <div className="p-2 bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-lg shadow-sm">
+                            <Card className="border-base-200/50 dark:border-base-800 bg-base-50/30 dark:bg-base-900/30 w-full">
+                                <CardContent className="p-4 sm:p-6 flex items-start gap-4">
+                                    <div className="p-2 bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-lg shadow-sm shrink-0">
                                         <Shield className="h-5 w-5 text-primary-500 dark:text-primary-400" />
                                     </div>
-                                    <div className="space-y-1">
-                                        <h4 className="text-sm font-semibold text-base-900 dark:text-base-50">Security Recommendation</h4>
+                                    <div className="space-y-1 min-w-0">
+                                        <h4 className="text-sm font-semibold text-base-900 dark:text-base-50 truncate">Security Recommendation</h4>
                                         <p className="text-xs text-base-500 dark:text-base-400 leading-relaxed">
                                             We recommend using a unique password for FinTracker that you don't use elsewhere.
                                             Passwords are cryptographically hashed and salted before storage.
