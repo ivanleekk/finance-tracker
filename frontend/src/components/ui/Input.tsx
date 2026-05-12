@@ -8,9 +8,15 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-    ({ className, type, error, label, helperText, disabled, id, ...props }, ref) => {
+    ({ className, type, error, label, helperText, disabled, id, "aria-describedby": ariaDescribedBy, ...props }, ref) => {
         const generatedId = React.useId()
         const inputId = id || generatedId
+        const helperTextId = `${inputId}-helper`
+
+        const describedBy = [
+            helperText ? helperTextId : undefined,
+            ariaDescribedBy
+        ].filter(Boolean).join(" ") || undefined
 
         return (
             <div className="flex w-full flex-col gap-1.5">
@@ -29,6 +35,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                     type={type}
                     id={inputId}
                     disabled={disabled}
+                    aria-invalid={!!error}
+                    aria-describedby={describedBy}
                     className={cn(
                         "flex h-10 w-full rounded-md border border-base-300 bg-white px-3 py-2 text-sm text-base-900 placeholder:text-base-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:bg-base-100 disabled:text-base-500 dark:border-base-800 dark:bg-base-950 dark:text-base-50 dark:placeholder:text-base-600 dark:disabled:bg-base-900 dark:disabled:text-base-600",
                         {
@@ -41,6 +49,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                 />
                 {helperText && (
                     <p
+                        id={helperTextId}
                         className={cn("text-sm text-base-500 dark:text-base-400", {
                             "text-red-500 dark:text-red-400": error && !disabled,
                             "text-base-400 dark:text-base-600": disabled,
