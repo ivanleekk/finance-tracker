@@ -12,6 +12,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         const generatedId = React.useId()
         const inputId = id || generatedId
 
+        const helperTextId = helperText ? `${inputId}-description` : undefined
+
         return (
             <div className="flex w-full flex-col gap-1.5">
                 {label && (
@@ -29,6 +31,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                     type={type}
                     id={inputId}
                     disabled={disabled}
+                    aria-invalid={!!error}
+                    aria-describedby={helperTextId}
                     className={cn(
                         "flex h-10 w-full rounded-md border border-base-300 bg-white px-3 py-2 text-sm text-base-900 placeholder:text-base-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:bg-base-100 disabled:text-base-500 dark:border-base-800 dark:bg-base-950 dark:text-base-50 dark:placeholder:text-base-600 dark:disabled:bg-base-900 dark:disabled:text-base-600",
                         {
@@ -41,6 +45,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                 />
                 {helperText && (
                     <p
+                        id={helperTextId}
                         className={cn("text-sm text-base-500 dark:text-base-400", {
                             "text-red-500 dark:text-red-400": error && !disabled,
                             "text-base-400 dark:text-base-600": disabled,
