@@ -12,7 +12,7 @@ from src.models import (
     PortfolioSnapshot, MarketPrice, LiquidityStatus, TaxTreatment,
     TradeType, HouseholdRoleType
 )
-from src.services.snapshot_engine import run_daily_snapshot
+from src.services.snapshot_engine import run_daily_snapshot_targeted
 
 @pytest.fixture
 def mock_market_prices():
@@ -73,7 +73,7 @@ def test_daily_snapshot_engine_calculation(db_session: Session, mock_market_pric
     db_session.commit()
     
     # 4. Run snapshot for Oct 1
-    run_daily_snapshot(db_session, target_date)
+    run_daily_snapshot_targeted(db_session, target_date)
     
     # 5. Verify snapshot results
     snapshot = db_session.query(PortfolioSnapshot).filter_by(sub_portfolio_id=sp_id, asset_id=asset_id, date=target_date).first()
@@ -84,7 +84,7 @@ def test_daily_snapshot_engine_calculation(db_session: Session, mock_market_pric
     assert float(snapshot.current_price) == 150.0
     assert float(snapshot.current_value_home_currency) == 2250.0
     
-    run_daily_snapshot(db_session, target_date)
+    run_daily_snapshot_targeted(db_session, target_date)
     snapshots = db_session.query(PortfolioSnapshot).filter_by(sub_portfolio_id=sp_id, asset_id=asset_id, date=target_date).all()
     assert len(snapshots) == 1
 
@@ -152,7 +152,7 @@ def test_daily_snapshot_engine_transaction_rollback(db_session: Session, mock_ma
         mock_float.side_effect = side_effect
         
         # Run engine
-        run_daily_snapshot(db_session, target_date)
+        run_daily_snapshot_targeted(db_session, target_date)
         
     # Verify sp_success worked
     snapshot_success = db_session.query(PortfolioSnapshot).filter_by(sub_portfolio_id=sp_success_id, date=target_date).first()
