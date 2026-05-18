@@ -1,0 +1,3 @@
+## 2024-05-18 - Missing ARIA Labels on Icon-only UI components
+**Learning:** Common UI components like the Dialog close button only render a `<X />` icon without text. Without an `aria-label`, screen readers only announce these as "button", rendering them inaccessible. Furthermore, they are often missing explicit focus states (`focus-visible`) which harms keyboard navigation.
+**Action:** Always add descriptive `aria-label`s (e.g. `aria-label="Close dialog"`) to icon-only buttons and ensure proper focus visibility using Tailwind's `focus-visible:ring-2` to support both screen readers and keyboard users.
