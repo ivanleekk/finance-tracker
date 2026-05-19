@@ -105,10 +105,14 @@ export default function Accounts() {
         }).format(value);
     }
 
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(N log N) sorting with O(N) single-pass reduce to find the latest balance.
+    // This is critical because it's called inside the sortedAccounts sort callback.
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-        const last = sorted[sorted.length - 1];
+        const last = history.reduce((latest, current) =>
+            current.date.localeCompare(latest.date) > 0 ? current : latest
+        );
         return {
             balance: Number(last.balance),
             balanceHome: Number(last.balance_home_currency ?? last.balance)
