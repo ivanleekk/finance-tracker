@@ -1,10 +1,6 @@
-import pytest
-from datetime import date, datetime, timedelta
+from datetime import date
 import uuid
-from sqlalchemy import create_mock_engine
-from sqlalchemy.orm import Session
 from src.services.performance import calculate_performance_metrics, _calculate_xirr
-from src import models
 
 def test_xirr_basic():
     # CFs: -100 at t0, +110 at t1 year

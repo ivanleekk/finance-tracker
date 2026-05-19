@@ -1,6 +1,5 @@
 import pytest
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 import uuid
 from unittest.mock import patch
 
@@ -8,11 +7,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from src.models import (
-    User, Household, FinancialAccount, SubPortfolio, Asset, Trade,
-    PortfolioSnapshot, MarketPrice, LiquidityStatus, TaxTreatment,
-    TradeType, HouseholdRoleType
+    PortfolioSnapshot
 )
-from src.services.snapshot_engine import run_daily_snapshot
+from src.services.snapshot_engine import run_daily_snapshot_targeted as run_daily_snapshot
 
 @pytest.fixture
 def mock_market_prices():

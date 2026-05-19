@@ -1,9 +1,7 @@
 import uuid
 import pytest
-from httpx import AsyncClient
 from decimal import Decimal
 from datetime import date
-from src.main import app
 from src import models
 
 @pytest.fixture

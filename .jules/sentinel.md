@@ -1,0 +1,4 @@
+## $(date +%Y-%m-%d) - Timing Attack and Information Disclosure in Internal Router
+**Vulnerability:** The internal `/tasks/daily-snapshot` endpoint was exposed to timing attacks by using standard string comparison `!=` instead of `secrets.compare_digest` for validating the `SCHEDULER_SECRET`. Additionally, it leaked server error details directly to clients using `detail=str(e)`.
+**Learning:** Hardcoded string equality checks for secrets leave systems vulnerable to timing attacks. Exposing raw backend exception objects via FastAPI error details increases risk of information leakage. Also, when handling optional headers like `Header(None)`, `None` values must be explicitly checked before calling `compare_digest` to prevent unhandled `TypeError`s.
+**Prevention:** Use `secrets.compare_digest` for all secret comparisons, handle `None` cases before validation, and ensure HTTP exceptions return generic messages while logging the actual details server-side.

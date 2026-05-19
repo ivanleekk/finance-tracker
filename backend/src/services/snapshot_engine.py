@@ -1,17 +1,13 @@
 import uuid
 from datetime import date, timedelta
-from typing import List, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, desc, delete
+from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert
 import logging
-from decimal import Decimal
-import pandas as pd
 
 from src.models import (
     Trade, PortfolioSnapshot, Asset, TradeType, 
-    Household, SubPortfolio, MarketPrice, FinancialAccount,
-    ExchangeRate
+    Household, SubPortfolio, MarketPrice
 )
 from src.services.market_data import (
     fetch_and_cache_market_prices_range,

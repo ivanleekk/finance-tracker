@@ -1,13 +1,12 @@
 import polars as pl
 import numpy as np
-import numpy_financial as npf
-from datetime import date, datetime, timedelta
+from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 import uuid
 from typing import List, Optional, Dict
 
-from src.models import Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio
+from src.models import Trade, PortfolioSnapshot, MarketPrice, TradeType
 from src import schemas
 
 def calculate_performance_metrics(
