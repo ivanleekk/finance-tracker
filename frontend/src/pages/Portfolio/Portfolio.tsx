@@ -235,8 +235,10 @@ export default function Portfolio() {
                 }))
                 .filter(item => !startDate || item.date >= startDate);
 
-            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
-            const latestDate = sortedDates[sortedDates.length - 1];
+            // ⚡ Bolt Performance Optimization:
+            // Replaced O(N log N) sorting to find the latest date with an O(N) single-pass reduce.
+            const keys = Array.from(dailyEquity.keys());
+            const latestDate = keys.length > 0 ? keys.reduce((latest, current) => current > latest ? current : latest) : "";
             const latestSnaps = snaps.filter(s => {
                 const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
                 return dateKey === latestDate;
