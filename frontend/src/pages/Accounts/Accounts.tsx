@@ -118,9 +118,20 @@ export default function Accounts() {
     // ⚡ Bolt Performance Optimization:
     // Replaced O(D * A * H log H) nested filtering and sorting inside the date map
     // with an O(N) single-pass approach that tracks running balances.
+    // Further optimized to avoid .find() lookup by using a pre-computed hash map for balance updates.
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
-        accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
+        const balanceUpdatesByDate = new Map<string, Map<string, number>>();
+
+        accounts.forEach(acc => {
+            acc.history.forEach(h => {
+                allDatesSet.add(h.date);
+                if (!balanceUpdatesByDate.has(h.date)) {
+                    balanceUpdatesByDate.set(h.date, new Map());
+                }
+                balanceUpdatesByDate.get(h.date)!.set(acc.id, Number(h.balance_home_currency ?? h.balance));
+            });
+        });
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
 
@@ -130,14 +141,16 @@ export default function Accounts() {
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
-            accounts.forEach(acc => {
-                // Find if there's an exact record for this date
-                const balOnDate = acc.history.find(h => h.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(acc.id, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
+            // Apply updates for this specific date
+            const updatesToday = balanceUpdatesByDate.get(date);
+            if (updatesToday) {
+                updatesToday.forEach((newBal, accId) => {
+                    accountLatestBalances.set(accId, newBal);
+                });
+            }
 
-                // Use the carried-forward balance (or 0 if none yet)
+            // Populate data point with current running balances for all accounts
+            accounts.forEach(acc => {
                 dataPoint[acc.name] = accountLatestBalances.get(acc.id) || 0;
             });
 
