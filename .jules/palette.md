@@ -1,0 +1,3 @@
+## 2025-02-20 - Connect form validation and helper texts for screen readers
+**Learning:** Screen reader users miss important context when form inputs have visible error states (like red borders) or helper texts beneath them, unless these elements are explicitly linked via ARIA attributes.
+**Action:** When building or modifying form inputs, properly associate helper texts and error messages with the input element dynamically using `aria-describedby` and broadcast error states using `aria-invalid`.
