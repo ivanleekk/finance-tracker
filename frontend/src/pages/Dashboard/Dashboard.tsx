@@ -52,31 +52,39 @@ export default function Dashboard() {
         }).format(value)
     }
 
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(N log N) array copy and sort inside loop with an O(N) single-pass reduce
+    // to find the latest balance, significantly improving performance.
     const currentCash = useMemo(() => {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                const last = sorted[sorted.length - 1];
+                const last = history.reduce((latest, current) =>
+                    current.date > latest.date ? current : latest
+                );
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });
         return total;
     }, [balances]);
 
+    // ⚡ Bolt Performance Optimization:
+    // Replaced Object.keys(snapshotsByDate).sort() (O(N log N)) with an O(N) loop
+    // to track and find the latest date while building the snapshotsByDate map.
     const currentPortfolioValue = useMemo(() => {
         if (snapshots.length === 0) return 0;
 
         // Group snapshots by date and find the latest date
         const snapshotsByDate: Record<string, number> = {};
+        let latestDate = snapshots[0].date;
         snapshots.forEach(s => {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
+            if (s.date > latestDate) {
+                latestDate = s.date;
+            }
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
-
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        return snapshotsByDate[latestDate] || 0;
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
