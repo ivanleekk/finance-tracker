@@ -1,0 +1,4 @@
+## 2024-05-24 - Timing Attacks and Info Disclosure in Internal Tasks
+**Vulnerability:** Timing attack vulnerability due to simple string comparison (`!=`) for API secrets in `verify_scheduler_secret`. Information disclosure vulnerability due to exposing `str(e)` in internal task exceptions (`scheduled_snapshot_job`).
+**Learning:** Simple string comparison operators leak information about secret strings through variable execution time. Exposing full raw exceptions directly to HTTP clients can leak sensitive environment details or internal stack trace logic.
+**Prevention:** Always use `secrets.compare_digest` for secure, constant-time comparison of API keys or secrets (ensure explicit handling of `None` if they are optional). Always sanitize user-facing error messages, utilizing internal `logging` for the complete `str(e)` rather than injecting it into `HTTPException(detail=...)`.
