@@ -56,8 +56,11 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                const last = sorted[sorted.length - 1];
+                // ⚡ Bolt Performance Optimization:
+                // Replaced O(N log N) sorting with O(N) single-pass reduce to find the latest balance.
+                const last = history.reduce((latest, current) =>
+                    current.date > latest.date ? current : latest
+                , history[0]);
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });

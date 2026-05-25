@@ -1,3 +1,6 @@
 ## 2024-05-18 - Time-Series Chart Data Aggregation
 **Learning:** In a dashboard or analytics heavy app, computing running balances or aggregating time-series data dynamically in a render loop via nested filters/sorts (e.g. `arr.map(() => accounts.map(() => history.filter().sort()[0]))`) quickly becomes a catastrophic main-thread bottleneck, causing the UI to freeze as historical dataset sizes grow (e.g. `O(D * A * H log H)`).
 **Action:** When aggregating multi-dimensional time-series data for chart render loops, always use an O(N) single-pass approach: first extract and sort all unique dates (once), then iterate chronologically over those dates using hash maps to track running state variables (like `accountLatestBalances`). This avoids doing heavy array operations recursively on every data point.
+## 2024-05-18 - Single Extremum Finding
+**Learning:** Using `[...array].sort((a,b) => ...)[last]` to find a single extremum (like the latest date or maximum balance) inside of loops or component render cycles (e.g. `useMemo` dependencies) creates unnecessary GC pressure from array cloning and degrades performance to `O(N log N)`.
+**Action:** Always replace this anti-pattern with a single-pass `Array.prototype.reduce()` to find the maximum/minimum value, improving the time complexity to `O(N)` and avoiding memory allocation.

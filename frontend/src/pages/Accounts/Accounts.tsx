@@ -107,8 +107,14 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-        const last = sorted[sorted.length - 1];
+
+        // ⚡ Bolt Performance Optimization:
+        // Replaced O(N log N) sorting with O(N) single-pass reduce to find the latest balance.
+        // This is heavily called inside useMemo dependencies and render loops.
+        const last = history.reduce((latest, current) =>
+            current.date > latest.date ? current : latest
+        , history[0]);
+
         return {
             balance: Number(last.balance),
             balanceHome: Number(last.balance_home_currency ?? last.balance)
