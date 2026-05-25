@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from decimal import Decimal
-from typing import List
 from datetime import date
 import uuid
 from src import models

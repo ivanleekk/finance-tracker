@@ -1,7 +1,7 @@
 import uuid
 import pytest
 from decimal import Decimal
-from datetime import date, datetime, timezone
+from datetime import date
 from src import models
 
 @pytest.fixture

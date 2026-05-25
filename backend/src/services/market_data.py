@@ -7,7 +7,7 @@ import yfinance as yf
 import pandas as pd
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, desc
+from sqlalchemy import select
 
 from src.models import MarketPrice, ExchangeRate, Asset
 

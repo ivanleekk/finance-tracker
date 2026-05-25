@@ -1,0 +1,4 @@
+## 2026-05-25 - [Secret Comparison and Exception Information Disclosure]
+**Vulnerability:** Timing attacks on secret comparison via `!=` operator, and leaking internal configuration or state via returning unhandled exception trace string `str(e)`.
+**Learning:** Using standard operators (`==`, `!=`) to compare security tokens allows an attacker to deduce values via timing the differences in character evaluation times. Furthermore, directly reflecting internal exception strings into API error responses can leak sensitive PII or context to unauthorized endpoints.
+**Prevention:** Always compare security tokens and passwords with constant-time equality checks using `secrets.compare_digest`. Ensure `None` checking occurs beforehand to avoid TypeErrors. When dealing with top-level exceptions or unhandled blocks, respond with sanitized, static error strings (e.g. "An internal error occurred").
