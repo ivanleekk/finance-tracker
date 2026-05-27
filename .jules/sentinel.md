@@ -1,0 +1,4 @@
+## 2024-05-27 - FastAPI Optional Dependencies and Secrets Comparison
+**Vulnerability:** FastAPIs `Header(None)` and `secrets.compare_digest` type mismatch. A timing attack vulnerability existed where string comparison `!=` was used for `x_scheduler_secret != expected_secret`. However, `x_scheduler_secret` uses `Header(None)`, meaning it can be `None`.
+**Learning:** `secrets.compare_digest` requires both arguments to be strings (or bytes). If a header is optional (`None`), passing it to `compare_digest` raises a `TypeError`, leading to an internal server error (HTTP 500) rather than a clean authorization error (HTTP 401/403).
+**Prevention:** Always explicitly check for `None` before passing optional FastAPI dependencies (like `Header(None)`) into `secrets.compare_digest()`. Example: `if token is None or not secrets.compare_digest(token, expected_secret):`.
