@@ -1,0 +1,8 @@
+
+> finance-tracker@0.0.0 dev /app/frontend
+> react-router dev
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.0.2:5173/
+6:31:50 PM [vite] (client) ✨ new dependencies optimized: @microsoft/clarity, axios, clsx, lucide-react, tailwind-merge
+6:31:50 PM [vite] (client) ✨ optimized dependencies changed. reloading
