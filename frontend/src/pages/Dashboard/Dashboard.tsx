@@ -56,8 +56,11 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                const last = sorted[sorted.length - 1];
+                // ⚡ Bolt Performance Optimization:
+                // Replaced O(N log N) sorting with O(N) reduce to find the latest balance.
+                const last = history.reduce((latest, current) =>
+                    current.date > latest.date ? current : latest
+                );
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });
@@ -73,10 +76,16 @@ export default function Dashboard() {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
+        const dateKeys = Object.keys(snapshotsByDate);
+        if (dateKeys.length === 0) return 0;
 
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        // ⚡ Bolt Performance Optimization:
+        // Replaced O(N log N) sorting with O(N) reduce to find the latest date.
+        const latestDate = dateKeys.reduce((latest, current) =>
+            current > latest ? current : latest
+        );
+
+        return snapshotsByDate[latestDate];
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;

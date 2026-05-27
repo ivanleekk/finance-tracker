@@ -1,3 +1,7 @@
 ## 2024-05-18 - Time-Series Chart Data Aggregation
 **Learning:** In a dashboard or analytics heavy app, computing running balances or aggregating time-series data dynamically in a render loop via nested filters/sorts (e.g. `arr.map(() => accounts.map(() => history.filter().sort()[0]))`) quickly becomes a catastrophic main-thread bottleneck, causing the UI to freeze as historical dataset sizes grow (e.g. `O(D * A * H log H)`).
 **Action:** When aggregating multi-dimensional time-series data for chart render loops, always use an O(N) single-pass approach: first extract and sort all unique dates (once), then iterate chronologically over those dates using hash maps to track running state variables (like `accountLatestBalances`). This avoids doing heavy array operations recursively on every data point.
+
+## 2024-05-18 - Avoid O(N log N) Sorting for Extremums inside React Hooks
+**Learning:** In React components dealing with large financial datasets (like `Dashboard.tsx` and `Accounts.tsx`), operations that find a maximum or minimum value (e.g., finding the "latest date" or "most recent balance") using array copying and sorting (`[...arr].sort(...)` or `Object.keys(obj).sort(...)`) cause severe performance degradation, especially when placed inside loops or array sort callbacks, resulting in O(N^2 log N) performance hits.
+**Action:** Always replace O(N log N) sorting with a single-pass O(N) `Array.prototype.reduce()` to find extreme values (maximums, minimums, latest entries), drastically improving render times for dense dashboards.
