@@ -12,9 +12,8 @@ from src.services.snapshot_engine import run_snapshot_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
-from datetime import date
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 from decimal import Decimal
 

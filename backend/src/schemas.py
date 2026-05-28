@@ -1,6 +1,6 @@
 # src/schemas.py
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal

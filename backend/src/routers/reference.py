@@ -3,7 +3,6 @@ from typing import List, Dict
 import pycountry
 from sqlalchemy.orm import Session
 from src.database import get_db
-from src import schemas
 
 router = APIRouter(prefix="/reference", tags=["Reference Data"])
 
