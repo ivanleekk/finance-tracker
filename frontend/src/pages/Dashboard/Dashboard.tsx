@@ -81,34 +81,48 @@ export default function Dashboard() {
 
     const netWorth = currentCash + currentPortfolioValue;
 
-    // Aggregate historical data for the chart using real snapshots and carrying forward cash
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(D * (A * H + S)) nested filtering and finding inside the date map
+    // with an O(N) single-pass approach that tracks running balances and groups by date.
     const chartData = useMemo(() => {
         const allDatesSet = new Set<string>();
-        snapshots.forEach(s => allDatesSet.add(s.date));
-        Object.values(balances).forEach(history => {
-            history.forEach(b => allDatesSet.add(b.date));
+
+        // Pre-aggregate portfolio snapshots by date
+        const portfolioByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            allDatesSet.add(s.date);
+            portfolioByDate.set(s.date, (portfolioByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
+
+        // Pre-group balance updates by date
+        const balanceUpdatesByDate = new Map<string, Array<{accId: string, balance: number}>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                allDatesSet.add(b.date);
+                const updates = balanceUpdatesByDate.get(b.date) || [];
+                updates.push({ accId, balance: Number(b.balance_home_currency ?? b.balance) });
+                balanceUpdatesByDate.set(b.date, updates);
+            });
         });
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
         
         // Track the latest balance for each account to "carry forward"
         const accountLatestBalances = new Map<string, number>();
+        let currentTotalCash = 0;
         
         const rawData = sortedDates.map(date => {
             // Update latest balances for any account that has a record on THIS date
-            Object.entries(balances).forEach(([accId, history]) => {
-                const balOnDate = history.find(b => b.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
-            });
+            const updates = balanceUpdatesByDate.get(date);
+            if (updates) {
+                updates.forEach(update => {
+                    const previousBalance = accountLatestBalances.get(update.accId) || 0;
+                    currentTotalCash += (update.balance - previousBalance);
+                    accountLatestBalances.set(update.accId, update.balance);
+                });
+            }
 
-            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
-            
-            // Get portfolio snapshots for this date
-            const currentTotalPortfolio = snapshots
-                .filter(s => s.date === date)
-                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            const currentTotalPortfolio = portfolioByDate.get(date) || 0;
 
             return {
                 date,
@@ -327,14 +341,20 @@ export default function Dashboard() {
                     <CardContent className="flex flex-col gap-4">
                         {subPortfolios.length > 0 ? (
                             subPortfolios.slice(0, 3).map(sp => {
-                                const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
-                                const latestDate = spSnaps.length > 0 
-                                    ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
-                                    : null;
-                                
-                                const current = spSnaps
-                                    .filter(s => s.date === latestDate)
-                                    .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+                                // ⚡ Bolt Performance Optimization:
+                                // Replaced O(N) filtering with O(N) map-based aggregation and latest date tracking
+                                let latestDate: string | null = null;
+                                const current = snapshots.reduce((sum, s) => {
+                                    if (s.sub_portfolio_id === sp.id) {
+                                        if (!latestDate || s.date > latestDate) {
+                                            latestDate = s.date;
+                                            return Number(s.current_value_home_currency); // reset sum on newer date
+                                        } else if (s.date === latestDate) {
+                                            return sum + Number(s.current_value_home_currency);
+                                        }
+                                    }
+                                    return sum;
+                                }, 0);
                                 return (
                                     <GoalCard
                                         key={sp.id}
