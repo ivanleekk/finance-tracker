@@ -60,8 +60,8 @@ def get_ticker_price(
         
         return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date, currency=currency)
     except Exception as e:
-        print(f"yfinance error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
+        print(f"yfinance error for ticker {ticker}: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}")
 
 def sync_trade_transaction(db: Session, db_trade: models.Trade):
     """
