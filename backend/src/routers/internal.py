@@ -54,8 +54,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
                 results.append({"household_id": hh_id, "status": "no_data"})
                 
         return {"status": "success", "processed": len(results), "details": results}
-    except Exception as e:
+    except Exception:
+        # Avoid exposing internal exception details
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="An internal server error occurred while processing the snapshot job."
         )

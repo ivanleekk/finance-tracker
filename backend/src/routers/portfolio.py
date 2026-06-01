@@ -12,9 +12,8 @@ from src.services.snapshot_engine import run_snapshot_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
-from datetime import date
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 from decimal import Decimal
 
@@ -60,8 +59,9 @@ def get_ticker_price(
         
         return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date, currency=currency)
     except Exception as e:
-        print(f"yfinance error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
+        # Avoid exposing detailed internal exception information
+        print(f"yfinance error for {ticker}: {type(e).__name__}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}.")
 
 def sync_trade_transaction(db: Session, db_trade: models.Trade):
     """
