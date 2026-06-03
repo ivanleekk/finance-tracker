@@ -1,0 +1,4 @@
+## 2025-02-27 - Information Disclosure and Timing Attack in Daily Snapshot Endpoint
+**Vulnerability:** The internal `/tasks/daily-snapshot` endpoint had two vulnerabilities: it leaked detailed exception strings to the client in HTTP 500 responses (`detail=str(e)`), potentially exposing sensitive database or internal state information, and it compared the `X-Scheduler-Secret` header using a simple equality check (`!=`), which is susceptible to timing attacks.
+**Learning:** Even internal endpoints need strict error sanitization and secure secret comparison. Optional headers like `Header(None)` require explicit `None` checks before using functions like `secrets.compare_digest` to prevent runtime `TypeError`s.
+**Prevention:** Always use `secrets.compare_digest` for secret/token comparisons and never expose `str(e)` in HTTP responses; use generic error messages instead.
