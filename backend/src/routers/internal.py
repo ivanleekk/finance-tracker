@@ -55,7 +55,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
                 
         return {"status": "success", "processed": len(results), "details": results}
     except Exception as e:
+        import logging
+        logging.error("Snapshot job failed: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="An internal server error occurred while processing the request"
         )
