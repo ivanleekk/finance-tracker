@@ -40,11 +40,11 @@ export function TimeframeSelector() {
     return (
         <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
             {options.map((option) => (
-                <button
+                <button type="button"
                     key={option}
                     onClick={() => handleSelect(option)}
                     className={cn(
-                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                        "px-3 py-1 text-xs font-medium rounded-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
                         activeTimeframe === option
                             ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
                             : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"

@@ -281,7 +281,7 @@ export default function Households() {
                                             </div>
                                         </div>
                                         {member.role !== 'owner' && (
-                                            <Button variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto">
+                                            <Button type="button" aria-label="Remove member" variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto focus-visible:ring-2 focus-visible:ring-primary-500">
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         )}

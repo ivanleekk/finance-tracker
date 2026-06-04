@@ -606,9 +606,11 @@ export default function Transactions() {
                                             {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
                                         </span>
                                         <Button
+                                            type="button"
+                                            aria-label="Delete transaction"
                                             variant="ghost"
                                             size="sm"
-                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0 focus-visible:ring-2 focus-visible:ring-primary-500"
                                             onClick={() => handleDelete(item)}
                                             disabled={isDeleting === item.id}
                                         >
