@@ -91,24 +91,37 @@ export default function Dashboard() {
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
         
-        // Track the latest balance for each account to "carry forward"
+        // ⚡ Bolt Performance Optimization:
+        // Pre-compute maps for O(1) lookups by date instead of O(N) finds/filters inside the map loop.
+        // This reduces time complexity from O(D * (B + S)) to O(D + B + S).
+        const balancesByDate = new Map<string, Map<string, number>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                if (!balancesByDate.has(b.date)) balancesByDate.set(b.date, new Map());
+                balancesByDate.get(b.date)!.set(accId, Number(b.balance_home_currency ?? b.balance));
+            });
+        });
+
+        const snapshotsByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            snapshotsByDate.set(s.date, (snapshotsByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
+
         const accountLatestBalances = new Map<string, number>();
+        let currentTotalCash = 0; // Running total instead of reducing Map.values() every iteration
         
         const rawData = sortedDates.map(date => {
-            // Update latest balances for any account that has a record on THIS date
-            Object.entries(balances).forEach(([accId, history]) => {
-                const balOnDate = history.find(b => b.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
-            });
+            // Update latest balances and running total for any account that has a record on THIS date
+            const balsOnDate = balancesByDate.get(date);
+            if (balsOnDate) {
+                balsOnDate.forEach((newVal, accId) => {
+                    const oldVal = accountLatestBalances.get(accId) || 0;
+                    currentTotalCash += (newVal - oldVal);
+                    accountLatestBalances.set(accId, newVal);
+                });
+            }
 
-            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
-            
-            // Get portfolio snapshots for this date
-            const currentTotalPortfolio = snapshots
-                .filter(s => s.date === date)
-                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            const currentTotalPortfolio = snapshotsByDate.get(date) || 0;
 
             return {
                 date,
