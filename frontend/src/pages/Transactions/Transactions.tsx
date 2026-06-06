@@ -605,7 +605,7 @@ export default function Transactions() {
                                         <span className={`font-semibold ${getAmountColor(item.type)}`}>
                                             {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
                                         </span>
-                                        <Button
+                                        <Button aria-label="Delete transaction"
                                             variant="ghost"
                                             size="sm"
                                             className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"

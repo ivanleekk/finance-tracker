@@ -438,7 +438,7 @@ export default function Portfolio() {
                         {tab}
                     </button>
                 ))}
-                <button
+                <button type="button" aria-label="Create new portfolio"
                     onClick={() => setIsCreating(!isCreating)}
                     className={cn(
                         "px-3 py-1 text-sm font-medium transition-colors border rounded-md ml-2",
