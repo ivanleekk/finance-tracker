@@ -107,8 +107,8 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-        const last = sorted[sorted.length - 1];
+// ⚡ Bolt: Optimize finding the latest date from O(N log N) sorting to O(N) single-pass reduce
+        const last = history.reduce((max, h) => h.date > max.date ? h : max);
         return {
             balance: Number(last.balance),
             balanceHome: Number(last.balance_home_currency ?? last.balance)
@@ -122,7 +122,7 @@ export default function Accounts() {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a > b ? 1 : a < b ? -1 : 0);
 
         // Track the latest balance for each account to carry forward
         const accountLatestBalances = new Map<string, number>();
@@ -599,7 +599,8 @@ export default function Accounts() {
                                         <tbody className="divide-y divide-base-100 dark:divide-base-800">
                                             {historyAccount.history
                                                 .filter(h => h.is_manual)
-                                                .sort((a, b) => b.date.localeCompare(a.date))
+                                                // ⚡ Bolt: Optimize date string sorting using standard operators instead of localeCompare
+                                                .sort((a, b) => b.date > a.date ? 1 : b.date < a.date ? -1 : 0)
                                                 .map((h) => (
                                                     <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
                                                         <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
