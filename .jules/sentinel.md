@@ -1,0 +1,5 @@
+
+## 2024-05-27 - [Fix Timing Attack & Information Leakage in Scheduler]
+**Vulnerability:** The internal `scheduled_snapshot_job` endpoint leaked internal server errors (`str(e)`) to the client, exposing backend details. Additionally, the `verify_scheduler_secret` dependency compared authentication tokens using a standard equality operator (`!=`), leaving it vulnerable to timing attacks.
+**Learning:** Comparing cryptographic tokens or passwords directly with standard string comparisons in Python allows an attacker to deduce the token length and content character-by-character based on execution time differences. Similarly, leaking raw exceptions in APIs acts as a reconnaissance vector for attackers.
+**Prevention:** Always use `secrets.compare_digest()` for comparing security tokens or passwords to ensure constant-time verification. Always mask internal server errors with a generic HTTP detail string and log the actual trace internally. Ensure `None` checking on optional headers before digest comparison.
