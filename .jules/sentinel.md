@@ -1,0 +1,4 @@
+## 2025-06-09 - [Prevent Timing Attacks on Scheduler Secret and Hide Exception Details]
+**Vulnerability:** The internal API endpoint for running daily snapshots used a basic string equality check (`==` / `!=`) for the scheduler secret, which was vulnerable to timing attacks. Also, an overly broad exception handler returned `str(e)`, leaking internal implementation details (such as stack traces or internal errors) directly to the client.
+**Learning:** Naive string comparison of secrets in Python should be avoided; `secrets.compare_digest` must be used instead. Also, handling generic exceptions shouldn't expose internal variables in public-facing errors.
+**Prevention:** Use `secrets.compare_digest(a, b)` for constant-time comparison when verifying tokens, passwords, or secrets. Check for `None` before applying `compare_digest`. Ensure `detail` fields in HTTP exceptions return generalized user-friendly error messages rather than raw internal error outputs.
