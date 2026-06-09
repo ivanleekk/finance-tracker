@@ -107,7 +107,7 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+        const sorted = [...history].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
         const last = sorted[sorted.length - 1];
         return {
             balance: Number(last.balance),
@@ -122,22 +122,34 @@ export default function Accounts() {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
         // Track the latest balance for each account to carry forward
         const accountLatestBalances = new Map<string, number>();
 
+        // Pre-group balances by date to avoid O(N) finds inside the map loop
+        const balancesByDate = new Map<string, Array<{accId: string, accName: string, balance: number}>>();
+        accounts.forEach(acc => {
+            acc.history.forEach(h => {
+                const dateArr = balancesByDate.get(h.date) || [];
+                dateArr.push({accId: acc.id, accName: acc.name, balance: Number(h.balance_home_currency ?? h.balance)});
+                balancesByDate.set(h.date, dateArr);
+            });
+        });
+
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
-            accounts.forEach(acc => {
-                // Find if there's an exact record for this date
-                const balOnDate = acc.history.find(h => h.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(acc.id, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
+            // Update latest balances for any account that has a record on THIS date
+            const balancesForDate = balancesByDate.get(date);
+            if (balancesForDate) {
+                balancesForDate.forEach(({accId, balance}) => {
+                    accountLatestBalances.set(accId, balance);
+                });
+            }
 
-                // Use the carried-forward balance (or 0 if none yet)
+            // Assign the carried-forward balance (or 0 if none yet) for each account
+            accounts.forEach(acc => {
                 dataPoint[acc.name] = accountLatestBalances.get(acc.id) || 0;
             });
 
@@ -599,7 +611,7 @@ export default function Accounts() {
                                         <tbody className="divide-y divide-base-100 dark:divide-base-800">
                                             {historyAccount.history
                                                 .filter(h => h.is_manual)
-                                                .sort((a, b) => b.date.localeCompare(a.date))
+                                                .sort((a, b) => (b.date < a.date ? -1 : b.date > a.date ? 1 : 0))
                                                 .map((h) => (
                                                     <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
                                                         <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
