@@ -193,8 +193,11 @@ export default function Households() {
                         {households.map((h) => (
                             <button
                                 key={h.id}
+                                type="button"
                                 onClick={() => setActiveHousehold(h)}
-                                className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left ${activeHousehold?.id === h.id
+                                aria-label={`Select household ${h.name}`}
+                                aria-pressed={activeHousehold?.id === h.id}
+                                className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${activeHousehold?.id === h.id
                                     ? "border-primary-500 bg-primary-50/50 dark:bg-primary-900/20 shadow-sm"
                                     : "border-base-200 dark:border-base-800 bg-white dark:bg-base-900 hover:border-base-300 dark:hover:border-base-700 hover:bg-base-50 dark:hover:bg-base-800"
                                     }`}
@@ -281,7 +284,7 @@ export default function Households() {
                                             </div>
                                         </div>
                                         {member.role !== 'owner' && (
-                                            <Button variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto">
+                                            <Button aria-label="Remove member" variant="ghost" onClick={() => handleRemoveMember(member.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 h-auto">
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         )}

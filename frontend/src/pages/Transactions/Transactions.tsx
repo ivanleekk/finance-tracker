@@ -304,17 +304,23 @@ export default function Transactions() {
                 </DialogHeader>
 
                 {/* Tab Switcher */}
-                <div className="flex p-1 bg-base-100 dark:bg-base-900 rounded-lg mb-6">
+                <div className="flex p-1 bg-base-100 dark:bg-base-900 rounded-lg mb-6" role="tablist">
                     <button
                         type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transaction' ? 'bg-white dark:bg-base-700 shadow-sm text-primary-600 dark:text-primary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
+                        role="tab"
+                        aria-selected={activeTab === 'transaction'}
+                        aria-controls="transaction-panel"
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${activeTab === 'transaction' ? 'bg-white dark:bg-base-700 shadow-sm text-primary-600 dark:text-primary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
                         onClick={() => setActiveTab('transaction')}
                     >
                         Income/Expense
                     </button>
                     <button
                         type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white dark:bg-base-700 shadow-sm text-secondary-600 dark:text-secondary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
+                        role="tab"
+                        aria-selected={activeTab === 'transfer'}
+                        aria-controls="transfer-panel"
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${activeTab === 'transfer' ? 'bg-white dark:bg-base-700 shadow-sm text-secondary-600 dark:text-secondary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
                         onClick={() => setActiveTab('transfer')}
                     >
                         Transfer
@@ -608,6 +614,7 @@ export default function Transactions() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            aria-label="Delete transaction"
                                             className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
                                             onClick={() => handleDelete(item)}
                                             disabled={isDeleting === item.id}

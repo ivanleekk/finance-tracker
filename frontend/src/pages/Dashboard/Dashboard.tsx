@@ -208,9 +208,12 @@ export default function Dashboard() {
                             {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                                 <button
                                     key={tf}
+                                    type="button"
                                     onClick={() => setTimeframe(tf)}
+                                    aria-label={`View ${tf.toLowerCase()} timeframe`}
+                                    aria-pressed={timeframe === tf}
                                     className={cn(
-                                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                        "px-3 py-1 text-xs font-medium rounded-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
                                         timeframe === tf
                                             ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
                                             : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
