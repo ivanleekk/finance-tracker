@@ -56,8 +56,10 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                const last = sorted[sorted.length - 1];
+                // ⚡ Bolt: O(N) single-pass reduce to find latest balance instead of O(N log N) sort
+                const last = history.reduce((latest, current) =>
+                    current.date > latest.date ? current : latest
+                , history[0]);
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });
@@ -67,48 +69,67 @@ export default function Dashboard() {
     const currentPortfolioValue = useMemo(() => {
         if (snapshots.length === 0) return 0;
 
-        // Group snapshots by date and find the latest date
+        // ⚡ Bolt: Single pass O(N) loop to group and find latest date simultaneously
+        let latestDate = "";
         const snapshotsByDate: Record<string, number> = {};
+
         snapshots.forEach(s => {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
+            if (s.date > latestDate) {
+                latestDate = s.date;
+            }
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
-
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        return snapshotsByDate[latestDate] || 0;
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
 
     // Aggregate historical data for the chart using real snapshots and carrying forward cash
     const chartData = useMemo(() => {
+        // ⚡ Bolt: O(N) single-pass aggregation using Hash Maps to prevent nested array looping
         const allDatesSet = new Set<string>();
-        snapshots.forEach(s => allDatesSet.add(s.date));
-        Object.values(balances).forEach(history => {
-            history.forEach(b => allDatesSet.add(b.date));
+
+        // Map: Date -> Portfolio Value
+        const portfolioByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            allDatesSet.add(s.date);
+            const currentVal = portfolioByDate.get(s.date) || 0;
+            portfolioByDate.set(s.date, currentVal + Number(s.current_value_home_currency));
         });
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        // Map: Date -> Map(AccountId -> Balance)
+        const balancesByDate = new Map<string, Map<string, number>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                allDatesSet.add(b.date);
+                if (!balancesByDate.has(b.date)) {
+                    balancesByDate.set(b.date, new Map());
+                }
+                balancesByDate.get(b.date)!.set(accId, Number(b.balance_home_currency ?? b.balance));
+            });
+        });
+
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a < b ? -1 : (a > b ? 1 : 0));
         
         // Track the latest balance for each account to "carry forward"
         const accountLatestBalances = new Map<string, number>();
         
         const rawData = sortedDates.map(date => {
-            // Update latest balances for any account that has a record on THIS date
-            Object.entries(balances).forEach(([accId, history]) => {
-                const balOnDate = history.find(b => b.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
-            });
+            // Update latest balances if there are updates on THIS date
+            const updatesOnDate = balancesByDate.get(date);
+            if (updatesOnDate) {
+                updatesOnDate.forEach((val, accId) => {
+                    accountLatestBalances.set(accId, val);
+                });
+            }
 
-            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
+            // O(N) over accounts (fast) instead of O(N) over historical arrays every tick
+            let currentTotalCash = 0;
+            accountLatestBalances.forEach(val => currentTotalCash += val);
             
-            // Get portfolio snapshots for this date
-            const currentTotalPortfolio = snapshots
-                .filter(s => s.date === date)
-                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            // O(1) Map lookup instead of O(N) filter & reduce
+            const currentTotalPortfolio = portfolioByDate.get(date) || 0;
 
             return {
                 date,
@@ -141,7 +162,7 @@ export default function Dashboard() {
             binned.set(key, item);
         });
 
-        return Array.from(binned.values()).sort((a, b) => a.date.localeCompare(b.date));
+        return Array.from(binned.values()).sort((a, b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
     }, [balances, snapshots, timeframe, startDate]);
 
     if (!activeHousehold) {
