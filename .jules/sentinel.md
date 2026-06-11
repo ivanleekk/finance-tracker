@@ -1,0 +1,4 @@
+## 2025-06-11 - [Timing Attack in Scheduler Secret Verification]
+**Vulnerability:** A simple string comparison (`!=`) was used to compare the scheduler secret header with the expected secret, making the endpoint vulnerable to timing attacks. Additionally, exceptions were leaking internal details (`detail=str(e)`).
+**Learning:** Even internal or scheduled endpoints require secure comparison operations (`secrets.compare_digest`) for authorization headers, and error handling must always return generic responses. Optional dependencies like `Header(None)` must be explicitly checked for `None` before being passed into secure comparison functions to avoid `TypeError`.
+**Prevention:** Always use constant-time comparison functions for secrets/tokens and avoid exposing stringified exception details (`str(e)`) in API responses.
