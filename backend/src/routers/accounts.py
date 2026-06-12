@@ -4,7 +4,7 @@ from typing import List
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
-from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
+from src.services.account_service import propagate_balance_change
 from src.services.market_data import fetch_and_cache_exchange_rates
 from sqlalchemy import desc, func
 from decimal import Decimal

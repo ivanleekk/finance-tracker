@@ -1,4 +1,3 @@
-import os
 from sqlalchemy import create_engine, inspect
 
 DATABASE_URL = "postgresql://fin:fin@localhost:5432/fin"
