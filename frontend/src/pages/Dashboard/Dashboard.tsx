@@ -89,26 +89,44 @@ export default function Dashboard() {
             history.forEach(b => allDatesSet.add(b.date));
         });
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        // Use standard relational operators for faster date sorting
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         
+        // Optimize: Pre-calculate sums and balances by date to avoid O(N^2) array operations inside the map loop
+        const portfolioByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            portfolioByDate.set(s.date, (portfolioByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
+
+        const balanceUpdatesByDate = new Map<string, Array<{accId: string, value: number}>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                let updates = balanceUpdatesByDate.get(b.date);
+                if (!updates) {
+                    updates = [];
+                    balanceUpdatesByDate.set(b.date, updates);
+                }
+                updates.push({ accId, value: Number(b.balance_home_currency ?? b.balance) });
+            });
+        });
+
         // Track the latest balance for each account to "carry forward"
         const accountLatestBalances = new Map<string, number>();
+        let currentTotalCash = 0;
         
         const rawData = sortedDates.map(date => {
-            // Update latest balances for any account that has a record on THIS date
-            Object.entries(balances).forEach(([accId, history]) => {
-                const balOnDate = history.find(b => b.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
-            });
-
-            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
+            // Apply any balance updates for THIS date
+            const updatesOnDate = balanceUpdatesByDate.get(date);
+            if (updatesOnDate) {
+                updatesOnDate.forEach(update => {
+                    const prevValue = accountLatestBalances.get(update.accId) || 0;
+                    currentTotalCash += (update.value - prevValue);
+                    accountLatestBalances.set(update.accId, update.value);
+                });
+            }
             
             // Get portfolio snapshots for this date
-            const currentTotalPortfolio = snapshots
-                .filter(s => s.date === date)
-                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            const currentTotalPortfolio = portfolioByDate.get(date) || 0;
 
             return {
                 date,
@@ -328,13 +346,13 @@ export default function Dashboard() {
                         {subPortfolios.length > 0 ? (
                             subPortfolios.slice(0, 3).map(sp => {
                                 const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
-                                const latestDate = spSnaps.length > 0 
-                                    ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
-                                    : null;
-                                
-                                const current = spSnaps
-                                    .filter(s => s.date === latestDate)
-                                    .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+                                // Optimize: Calculate latest date and sum directly without filtering to reduce array allocations
+                                let latestDate = null;
+                                let current = 0;
+                                if (spSnaps.length > 0) {
+                                    latestDate = spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date);
+                                    current = spSnaps.reduce((sum, s) => s.date === latestDate ? sum + Number(s.current_value_home_currency) : sum, 0);
+                                }
                                 return (
                                     <GoalCard
                                         key={sp.id}
@@ -362,7 +380,7 @@ export default function Dashboard() {
                 <CardContent>
                     <div className="space-y-4">
                         {transactions.length > 0 ? (
-                            transactions.slice(0, 5).sort((a, b) => b.date.localeCompare(a.date)).map((tx) => (
+                            transactions.slice(0, 5).sort((a, b) => (b.date < a.date ? -1 : b.date > a.date ? 1 : 0)).map((tx) => (
                                 <div key={tx.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                     <div>
                                         <p className="font-medium text-base-900 dark:text-base-50">{tx.description || 'Transaction'}</p>
