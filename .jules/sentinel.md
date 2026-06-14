@@ -1,0 +1,4 @@
+## 2025-02-27 - [Fix timing attack and info disclosure in internal router]
+**Vulnerability:** The internal `/tasks/daily-snapshot` endpoint checked `x_scheduler_secret != expected_secret` causing a timing vulnerability. Furthermore, it returned `detail=str(e)` on unhandled exceptions and specifically noted `"SCHEDULER_SECRET not set"` in error details, leaking sensitive internal server paths/state to the client.
+**Learning:** Using `==` or `!=` to verify secret tokens allows attackers to measure the time taken to reject an invalid secret and deduce the valid string byte by byte. Also, FastAPI `HTTPException` responses must use sanitized, generic messages instead of raw exceptions `str(e)`.
+**Prevention:** Always use `secrets.compare_digest()` for string comparisons of security secrets (with prior null-checking if optional via `Header(None)`), and use generic messages like `"An internal server error occurred"` for generic HTTP 500 exceptions.
