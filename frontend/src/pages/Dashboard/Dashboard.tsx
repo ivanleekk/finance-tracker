@@ -56,7 +56,8 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+                // ⚡ Bolt: Replace localeCompare with standard relational operators for faster date string comparison
+                const sorted = [...history].sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
                 const last = sorted[sorted.length - 1];
                 total += Number(last.balance_home_currency ?? last.balance);
             }
@@ -73,10 +74,12 @@ export default function Dashboard() {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
+        // ⚡ Bolt: Replace O(N log N) sort with O(N) reduce for extremum finding
+        const dateKeys = Object.keys(snapshotsByDate);
+        if (dateKeys.length === 0) return 0;
+        const latestDate = dateKeys.reduce((a, b) => a > b ? a : b);
 
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        return snapshotsByDate[latestDate];
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
@@ -89,7 +92,8 @@ export default function Dashboard() {
             history.forEach(b => allDatesSet.add(b.date));
         });
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        // ⚡ Bolt: Replace localeCompare with standard relational operators for faster date string comparison
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a > b ? 1 : a < b ? -1 : 0);
         
         // Track the latest balance for each account to "carry forward"
         const accountLatestBalances = new Map<string, number>();
@@ -141,7 +145,7 @@ export default function Dashboard() {
             binned.set(key, item);
         });
 
-        return Array.from(binned.values()).sort((a, b) => a.date.localeCompare(b.date));
+        return Array.from(binned.values()).sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
     }, [balances, snapshots, timeframe, startDate]);
 
     if (!activeHousehold) {
@@ -362,7 +366,7 @@ export default function Dashboard() {
                 <CardContent>
                     <div className="space-y-4">
                         {transactions.length > 0 ? (
-                            transactions.slice(0, 5).sort((a, b) => b.date.localeCompare(a.date)).map((tx) => (
+                            transactions.slice(0, 5).sort((a, b) => b.date > a.date ? 1 : b.date < a.date ? -1 : 0).map((tx) => (
                                 <div key={tx.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                     <div>
                                         <p className="font-medium text-base-900 dark:text-base-50">{tx.description || 'Transaction'}</p>
