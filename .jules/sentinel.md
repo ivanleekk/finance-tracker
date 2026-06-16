@@ -1,0 +1,4 @@
+## 2024-06-16 - Prevent Timing Attacks & Info Leakage
+**Vulnerability:** Timing attack vulnerability due to regular string comparison of the scheduler secret (`x_scheduler_secret != expected_secret`). Information disclosure vulnerability due to exposing raw exception details in HTTP 500 error responses (`detail=str(e)`).
+**Learning:** Python's standard `!=` operator returns `False` immediately upon encountering the first mismatching character, leaking the length of the matching prefix and allowing attackers to guess the secret character by character. Also, passing unhandled raw exception strings to users can expose database schemas, internal paths, and configuration details.
+**Prevention:** Always use `secrets.compare_digest` for constant-time comparison of secrets, tokens, or passwords, handling potential `None` values beforehand. Use generic, non-revealing error messages for unhandled exceptions in API responses.
