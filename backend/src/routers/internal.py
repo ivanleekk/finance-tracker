@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session
 from datetime import date
 import os
+import secrets
 
 from src.database import get_db
 from src.models import Household, PortfolioSnapshot, Trade
@@ -18,7 +19,8 @@ def verify_scheduler_secret(x_scheduler_secret: str = Header(None)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Server configuration error: SCHEDULER_SECRET not set"
         )
-    if x_scheduler_secret != expected_secret:
+    # Use constant-time comparison to prevent timing attacks, and safely handle None values
+    if not x_scheduler_secret or not secrets.compare_digest(x_scheduler_secret, expected_secret):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid scheduler secret"
@@ -57,5 +59,6 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            # Use generic error message to prevent internal server details from being leaked to users
+            detail="An internal error occurred during the snapshot process."
         )
