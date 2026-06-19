@@ -1,0 +1,3 @@
+## 2025-02-12 - Dialog component missing generic a11y parameters
+**Learning:** Found that the generic `Dialog` component's close button lacked an `aria-label`, a `type="button"` attribute (risking form submissions if used within one), and `focus-visible` styling, making it invisible to keyboard navigation. This pattern often occurs with generic, icon-only buttons built from scratch.
+**Action:** When implementing buttons in the frontend, particularly generic or icon-only buttons, always explicitly set `type="button"` to prevent accidental form submissions, include `aria-label` for screen readers, and apply `focus-visible:ring-2` (or similar) Tailwind classes to ensure proper keyboard focus visibility.
