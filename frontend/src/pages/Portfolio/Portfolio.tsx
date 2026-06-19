@@ -227,19 +227,20 @@ export default function Portfolio() {
                 dailyEquity.set(dateKey, (dailyEquity.get(dateKey) || 0) + Number(s.current_value_home_currency));
             });
 
-            const history = Array.from(dailyEquity.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .map(([date, equity]) => ({
-                    date,
-                    equity
-                }))
-                .filter(item => !startDate || item.date >= startDate);
+            // ⚡ Bolt: Fast string comparison for ISO dates
+            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a > b ? 1 : a < b ? -1 : 0);
 
-            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
+            const history = sortedDates
+                .filter(date => !startDate || date >= startDate)
+                .map(date => ({
+                    date,
+                    equity: dailyEquity.get(date)!
+                }));
+
             const latestDate = sortedDates[sortedDates.length - 1];
+            // ⚡ Bolt: Use exact string prefix matching to avoid splitting strings in the filter loop
             const latestSnaps = snaps.filter(s => {
-                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
-                return dateKey === latestDate;
+                return typeof s.date === 'string' ? s.date.startsWith(latestDate) : s.date === latestDate;
             });
 
             const assetMap = new Map(assets.map(a => [a.id, a]));
