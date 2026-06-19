@@ -1,0 +1,4 @@
+## 2025-02-28 - Information Disclosure & Timing Attack in Internal Router
+**Vulnerability:** The `/internal/tasks/daily-snapshot` endpoint exposed raw exception details to the client via `str(e)` in the error handler. Additionally, the `verify_scheduler_secret` dependency used standard string comparison `!=` for verifying the authentication secret.
+**Learning:** Exposing raw `str(e)` errors from database queries or internal application logic leaks stack traces or internal structure that an attacker can use for reconnaissance. Standard string comparisons short-circuit when they find a mismatch, allowing an attacker to determine the secret character by character via timing attacks.
+**Prevention:** Always use generic HTTP error messages for internal exceptions (and log the actual error internally). Always use `secrets.compare_digest` when comparing sensitive tokens or secrets, taking care to handle potential `None` values beforehand to avoid TypeErrors.
