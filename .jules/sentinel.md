@@ -1,0 +1,4 @@
+## 2024-05-15 - Information Disclosure in Internal Endpoints
+**Vulnerability:** The internal `/tasks/daily-snapshot` endpoint was leaking raw internal exception strings (`str(e)`) to the client, which could expose internal stack traces or database schema details upon failure. Additionally, the secret comparison for the scheduler secret was vulnerable to timing attacks as it used `!=` instead of `secrets.compare_digest`.
+**Learning:** Generic error messages should be returned in API exceptions and exceptions should be logged rather than exposed to clients. When verifying HTTP header secrets, safe string comparison methods must be used to mitigate timing attacks.
+**Prevention:** Audit all endpoints for information disclosure in exception handling. Use `secrets.compare_digest` when comparing API keys or webhook secrets.
