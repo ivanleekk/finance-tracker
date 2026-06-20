@@ -107,8 +107,7 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-        const last = sorted[sorted.length - 1];
+        const last = history.reduce((max, current) => (current.date > max.date ? current : max), history[0]);
         return {
             balance: Number(last.balance),
             balanceHome: Number(last.balance_home_currency ?? last.balance)
