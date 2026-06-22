@@ -1,0 +1,12 @@
+## 2024-06-03 - Prevent timing attack in token verification and information disclosure in Exception Handlers
+**Vulnerability:**
+1. A potential timing attack vulnerability existed in the `/internal` endpoint where `x_scheduler_secret` was being compared to the environment variable `SCHEDULER_SECRET` using a standard `!=` equality check. This standard comparison checks strings character by character and returns false on the first mismatch, allowing an attacker to theoretically determine the secret via time-based analysis.
+2. The internal server error exceptions raised in multiple locations (`backend/src/routers/internal.py` and `backend/src/routers/portfolio.py`) directly returned the internal Python exception's string representation `str(e)` in the error `detail`, causing an information disclosure vulnerability that could expose internal implementation details, stack traces, or other potentially sensitive context.
+
+**Learning:**
+1. When validating or comparing authentication tokens, secrets, or any sensitive string variables against an expected value in Python, the standard string comparison operator (`==` or `!=`) is susceptible to timing attacks. Using `secrets.compare_digest` protects against these side-channel attacks by taking a constant amount of time regardless of the contents matching.
+2. In HTTP endpoints, specifically when using FastAPI `HTTPException`, internal exception details such as `str(e)` or exception payloads should never be exposed to the end user or client via the `detail` parameter, to avoid leaking sensitive internal state or logic execution details.
+
+**Prevention:**
+1. Always utilize `secrets.compare_digest(value1, value2)` when comparing authentication secrets, tokens, or hashes. Additionally, assure one of the elements being compared is safely valid for typing rules in comparison as `compare_digest` may not work optimally against `None`, ensuring proper `None` checks like `if not value or not secrets.compare_digest(value, expected):`.
+2. When catching broad exceptions via `except Exception as e:`, sanitize the returned information. Return a generic, safe error message to the client (e.g., `raise HTTPException(..., detail="Internal server error occurred")`). Log the actual exception detail `str(e)` securely to backend server logs if debugging is needed, but never pipe it straight to the API response. Also, consider replacing `except Exception as e:` with `except Exception:` when the variable `e` is no longer used, to avoid linting errors.
