@@ -107,7 +107,7 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+        const sorted = [...history].sort((a, b) => a.date > b.date ? 1 : (a.date < b.date ? -1 : 0));
         const last = sorted[sorted.length - 1];
         return {
             balance: Number(last.balance),
@@ -122,7 +122,8 @@ export default function Accounts() {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        // ⚡ Bolt Performance Optimization: Replaced localeCompare with standard relational operators for faster date sorting.
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a > b ? 1 : (a < b ? -1 : 0));
 
         // Track the latest balance for each account to carry forward
         const accountLatestBalances = new Map<string, number>();
@@ -599,7 +600,7 @@ export default function Accounts() {
                                         <tbody className="divide-y divide-base-100 dark:divide-base-800">
                                             {historyAccount.history
                                                 .filter(h => h.is_manual)
-                                                .sort((a, b) => b.date.localeCompare(a.date))
+                                                .sort((a, b) => b.date > a.date ? 1 : (b.date < a.date ? -1 : 0))
                                                 .map((h) => (
                                                     <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
                                                         <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">

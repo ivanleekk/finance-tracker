@@ -182,7 +182,7 @@ export default function Portfolio() {
 
             return Array.from(binned.entries())
                 .filter(([date]) => !startDate || date >= startDate)
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                .sort((a, b) => a[0] > b[0] ? 1 : (a[0] < b[0] ? -1 : 0))
                 .map(([date, equity]) => ({ date, equity }));
         };
 
@@ -228,14 +228,15 @@ export default function Portfolio() {
             });
 
             const history = Array.from(dailyEquity.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                .sort((a, b) => a[0] > b[0] ? 1 : (a[0] < b[0] ? -1 : 0))
                 .map(([date, equity]) => ({
                     date,
                     equity
                 }))
                 .filter(item => !startDate || item.date >= startDate);
 
-            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
+        // ⚡ Bolt Performance Optimization: Replaced localeCompare with standard relational operators for faster date sorting.
+            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a > b ? 1 : (a < b ? -1 : 0));
             const latestDate = sortedDates[sortedDates.length - 1];
             const latestSnaps = snaps.filter(s => {
                 const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
