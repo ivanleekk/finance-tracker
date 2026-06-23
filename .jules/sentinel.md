@@ -1,0 +1,5 @@
+
+## 2024-06-23 - Timing Attack in Secret Comparison and Information Disclosure via Exception Handling
+**Vulnerability:** The application used `!=` to compare a sensitive secret `x_scheduler_secret != expected_secret`, which makes it vulnerable to a timing attack. In addition, the internal router raised an exception passing internal details `detail=str(e)` leading to Information Disclosure.
+**Learning:** Even internal API endpoints and scheduled cron endpoints must compare tokens securely using constant-time string comparisons. Passing unhandled exception messages into HTTP responses can expose internal system states and paths, enabling further exploitation. Also, when using `secrets.compare_digest` with FastAPI header fields, `None` values must be handled properly before comparison.
+**Prevention:** Always use `secrets.compare_digest(a, b)` for comparing secrets, tokens, or hashes. Catch broad exceptions securely by returning a generic error message (e.g. `detail="An internal error occurred."`) without using the exception value itself. Handle null checks before utilizing digest comparison.
