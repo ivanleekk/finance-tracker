@@ -31,7 +31,7 @@ export function Dialog({ isOpen, onClose, children }: DialogProps) {
                 <button
                     onClick={onClose}
                     className="absolute right-4 top-4 rounded-full p-2 text-base-400 hover:bg-base-50 dark:hover:bg-base-800 hover:text-base-600 dark:hover:text-base-100 transition-colors"
-                >
+                 aria-label="Close dialog">
                     <X className="h-5 w-5" />
                 </button>
                 {children}
