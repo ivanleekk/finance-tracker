@@ -20,15 +20,19 @@ export function Dialog({ isOpen, onClose, children }: DialogProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
             {/* Backdrop */}
             <div
+                aria-hidden="true"
                 className="fixed inset-0 bg-base-900/40 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
                 onClick={onClose}
             />
 
             {/* Modal */}
             <div
+                role="dialog"
+                aria-modal="true"
                 className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-base-900 p-6 shadow-2xl transition-all animate-in zoom-in-95 duration-200 border border-base-100 dark:border-base-800"
             >
                 <button
+                    aria-label="Close dialog"
                     onClick={onClose}
                     className="absolute right-4 top-4 rounded-full p-2 text-base-400 hover:bg-base-50 dark:hover:bg-base-800 hover:text-base-600 dark:hover:text-base-100 transition-colors"
                 >
