@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session
 from datetime import date
 import os
-
+import logging
 from src.database import get_db
 from src.models import Household, PortfolioSnapshot, Trade
 from sqlalchemy import select, func
 from src.services.snapshot_engine import run_snapshot_range
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
 def verify_scheduler_secret(x_scheduler_secret: str = Header(None)):
@@ -54,8 +55,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
                 results.append({"household_id": hh_id, "status": "no_data"})
                 
         return {"status": "success", "processed": len(results), "details": results}
-    except Exception as e:
+    except Exception:
+        logger.error("Failed to execute scheduled snapshot job", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="An internal server error occurred"
         )
