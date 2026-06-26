@@ -1,0 +1,4 @@
+## 2025-02-28 - Information Disclosure and Timing Attack in Scheduled Snapshot Job
+**Vulnerability:** The internal daily-snapshot cronjob endpoint (`/internal/tasks/daily-snapshot`) had two critical vulnerabilities: a timing attack vulnerability on the secret authentication (`x_scheduler_secret != expected_secret`) and information disclosure leaking potentially sensitive traceback messages directly to external clients via `str(e)`.
+**Learning:** Using `!=` on headers exposes string comparison times which could theoretically allow attackers to guess the token char by char. Also, returning unhandled exception strings (`str(e)`) via HTTP 500 can reveal database states or internal service structures.
+**Prevention:** Always use `secrets.compare_digest` for secret validation, and catch generic exceptions to log them with `logging.getLogger(__name__).error(..., exc_info=True)` while returning a safe, generic HTTP 500 error string to the client.
