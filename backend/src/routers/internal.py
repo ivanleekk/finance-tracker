@@ -3,10 +3,15 @@ from sqlalchemy.orm import Session
 from datetime import date
 import os
 
+import secrets
+import logging
+
 from src.database import get_db
 from src.models import Household, PortfolioSnapshot, Trade
 from sqlalchemy import select, func
 from src.services.snapshot_engine import run_snapshot_range
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
@@ -18,7 +23,7 @@ def verify_scheduler_secret(x_scheduler_secret: str = Header(None)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Server configuration error: SCHEDULER_SECRET not set"
         )
-    if x_scheduler_secret != expected_secret:
+    if x_scheduler_secret is None or not secrets.compare_digest(x_scheduler_secret, expected_secret):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid scheduler secret"
@@ -54,8 +59,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
                 results.append({"household_id": hh_id, "status": "no_data"})
                 
         return {"status": "success", "processed": len(results), "details": results}
-    except Exception as e:
+    except Exception:
+        logger.error("Error in scheduled_snapshot_job", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="An internal server error occurred"
         )
