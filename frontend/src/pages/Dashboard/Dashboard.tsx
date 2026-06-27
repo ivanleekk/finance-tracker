@@ -94,21 +94,41 @@ export default function Dashboard() {
         // Track the latest balance for each account to "carry forward"
         const accountLatestBalances = new Map<string, number>();
         
-        const rawData = sortedDates.map(date => {
-            // Update latest balances for any account that has a record on THIS date
-            Object.entries(balances).forEach(([accId, history]) => {
-                const balOnDate = history.find(b => b.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(accId, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
+        // Pre-compute maps for faster O(1) lookups instead of O(N^2) nested finds/filters
+        // Group balances by date, then by account ID
+        const balancesByDate = new Map<string, Map<string, number>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                if (!balancesByDate.has(b.date)) {
+                    balancesByDate.set(b.date, new Map<string, number>());
                 }
+                balancesByDate.get(b.date)!.set(accId, Number(b.balance_home_currency ?? b.balance));
             });
+        });
 
-            const currentTotalCash = Array.from(accountLatestBalances.values()).reduce((sum, val) => sum + val, 0);
+        // Group portfolio snapshots by date
+        const portfolioByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            portfolioByDate.set(s.date, (portfolioByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
+
+        const rawData = sortedDates.map(date => {
+            // Update latest balances for any account that has a record on THIS date using O(1) lookup
+            const dateBalances = balancesByDate.get(date);
+            if (dateBalances) {
+                dateBalances.forEach((balance, accId) => {
+                    accountLatestBalances.set(accId, balance);
+                });
+            }
+
+            // Calculate totals using O(N) iteration instead of O(N^2) filter/reduce
+            let currentTotalCash = 0;
+            accountLatestBalances.forEach((val) => {
+                currentTotalCash += val;
+            });
             
-            // Get portfolio snapshots for this date
-            const currentTotalPortfolio = snapshots
-                .filter(s => s.date === date)
-                .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+            // O(1) lookup for portfolio value
+            const currentTotalPortfolio = portfolioByDate.get(date) || 0;
 
             return {
                 date,

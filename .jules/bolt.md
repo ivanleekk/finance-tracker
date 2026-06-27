@@ -1,3 +1,6 @@
 ## 2024-05-18 - Time-Series Chart Data Aggregation
 **Learning:** In a dashboard or analytics heavy app, computing running balances or aggregating time-series data dynamically in a render loop via nested filters/sorts (e.g. `arr.map(() => accounts.map(() => history.filter().sort()[0]))`) quickly becomes a catastrophic main-thread bottleneck, causing the UI to freeze as historical dataset sizes grow (e.g. `O(D * A * H log H)`).
 **Action:** When aggregating multi-dimensional time-series data for chart render loops, always use an O(N) single-pass approach: first extract and sort all unique dates (once), then iterate chronologically over those dates using hash maps to track running state variables (like `accountLatestBalances`). This avoids doing heavy array operations recursively on every data point.
+## 2024-05-23 - Avoid nested O(N) operations in chart data map loops
+**Learning:** Nested array operations like `.find()` or `.filter()` inside `.map()` loops can lead to O(N^2) performance when aggregating time-series chart data, causing main-thread blocking on large datasets.
+**Action:** Pre-compute lookup maps (Hash Maps) outside the loop to achieve O(1) lookups, changing overall complexity to O(N).
