@@ -1,0 +1,4 @@
+## 2024-05-24 - Timing Attacks and Info Disclosure in Internal Router
+**Vulnerability:** The internal router used standard string equality (`!=`) for secret comparison, making it vulnerable to timing attacks. It also exposed full exception details (`str(e)`) via HTTPException on errors, risking information disclosure.
+**Learning:** FastAPI dependency headers are strings, and when checking against expected secrets, constant-time comparison must be used. Additionally, returning `str(e)` in HTTP responses leaks sensitive server internals.
+**Prevention:** Always use `secrets.compare_digest` (after checking for None) for sensitive string comparisons. Catch generic exceptions without exposing the variable to the user; instead, log the error internally (`exc_info=True`) and return a generic 500 error message.
