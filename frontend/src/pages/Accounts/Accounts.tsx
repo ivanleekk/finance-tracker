@@ -122,19 +122,28 @@ export default function Accounts() {
         const allDatesSet = new Set<string>();
         accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a.localeCompare(b));
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => a > b ? 1 : a < b ? -1 : 0);
+
+        // ⚡ Bolt: Pre-compute balances by date for O(1) lookup
+        const balancesByDateAndAcc = new Map<string, Map<string, number>>();
+        accounts.forEach(acc => {
+            acc.history.forEach(h => {
+                if (!balancesByDateAndAcc.has(h.date)) balancesByDateAndAcc.set(h.date, new Map());
+                balancesByDateAndAcc.get(h.date)!.set(acc.id, Number(h.balance_home_currency ?? h.balance));
+            });
+        });
 
         // Track the latest balance for each account to carry forward
         const accountLatestBalances = new Map<string, number>();
 
         return sortedDates.map(date => {
             const dataPoint: any = { date };
+            const balancesToday = balancesByDateAndAcc.get(date);
 
             accounts.forEach(acc => {
                 // Find if there's an exact record for this date
-                const balOnDate = acc.history.find(h => h.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(acc.id, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
+                if (balancesToday && balancesToday.has(acc.id)) {
+                    accountLatestBalances.set(acc.id, balancesToday.get(acc.id)!);
                 }
 
                 // Use the carried-forward balance (or 0 if none yet)
