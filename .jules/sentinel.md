@@ -1,0 +1,4 @@
+## 2024-05-24 - Timing Attack and Information Disclosure in Internal Router
+**Vulnerability:** The internal router compared secrets using the `!=` operator, creating a timing attack vulnerability. Additionally, an unhandled exception was being returned directly to the user via `str(e)`, causing information disclosure.
+**Learning:** Python's standard equality operators perform short-circuit evaluation, leaking the length of matching characters through execution time. Exposing raw exception details can leak system internals or stack traces.
+**Prevention:** Always use `secrets.compare_digest` for secret or signature comparisons and verify the input is not `None`. Never return raw exception strings (`str(e)`); log the error internally with `exc_info=True` and return a generic error message to the client.
