@@ -611,6 +611,7 @@ export default function Transactions() {
                                             className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
                                             onClick={() => handleDelete(item)}
                                             disabled={isDeleting === item.id}
+                                            aria-label="Delete transaction"
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>

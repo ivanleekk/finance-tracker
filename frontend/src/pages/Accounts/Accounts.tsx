@@ -583,7 +583,7 @@ export default function Accounts() {
                                     <CardTitle>Balance History: {historyAccount.name}</CardTitle>
                                     <CardDescription>Manual balance checkpoints for this account.</CardDescription>
                                 </div>
-                                <Button variant="ghost" size="sm" onClick={() => setIsHistoryModalOpen(false)}>✕</Button>
+                                <Button variant="ghost" size="sm" onClick={() => setIsHistoryModalOpen(false)} aria-label="Close history">✕</Button>
                             </CardHeader>
                             <CardContent className="overflow-y-auto pt-4">
                                 <div className="space-y-4">
