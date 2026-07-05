@@ -1,0 +1,4 @@
+## 2024-07-05 - Fix timing attack and info disclosure in internal router
+**Vulnerability:** The internal API was vulnerable to a timing attack when verifying the scheduler secret (`x_scheduler_secret != expected_secret`). It also leaked sensitive internal error details via `str(e)` in the global exception handler.
+**Learning:** Standard string comparisons stop at the first mismatch, allowing attackers to guess the secret character by character by measuring response times. Returning `str(e)` in HTTP 500 responses can expose database structures, internal paths, or downstream API errors to unauthenticated users.
+**Prevention:** Always use `secrets.compare_digest` for cryptographic string comparisons, ensuring to check for `None` to prevent type errors. Catch broad exceptions, log them internally with `exc_info=True` for debugging, and return a generic, non-descriptive error message to the client.
