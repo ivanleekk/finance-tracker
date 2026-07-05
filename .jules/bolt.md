@@ -1,3 +1,6 @@
 ## 2024-05-18 - Time-Series Chart Data Aggregation
 **Learning:** In a dashboard or analytics heavy app, computing running balances or aggregating time-series data dynamically in a render loop via nested filters/sorts (e.g. `arr.map(() => accounts.map(() => history.filter().sort()[0]))`) quickly becomes a catastrophic main-thread bottleneck, causing the UI to freeze as historical dataset sizes grow (e.g. `O(D * A * H log H)`).
 **Action:** When aggregating multi-dimensional time-series data for chart render loops, always use an O(N) single-pass approach: first extract and sort all unique dates (once), then iterate chronologically over those dates using hash maps to track running state variables (like `accountLatestBalances`). This avoids doing heavy array operations recursively on every data point.
+## 2023-10-27 - [O(n^2) Chart Data Aggregation]
+**Learning:** Found nested arrays `.find()` and `.filter()` operations inside a `.map()` block in `Dashboard.tsx`, leading to quadratic complexity for charting historical data.
+**Action:** Replace `O(n^2)` lookups with pre-computed `Map` collections before the array map loop to reduce nested collection filtering and finding, drastically improving calculation speed on larger data arrays. Also replaced `localeCompare` string comparison with logical inequality operators (`a < b ? -1 : a > b ? 1 : 0`).
