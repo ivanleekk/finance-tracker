@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "node_modules/.bin/react-router",
+      "runtimeArgs": ["dev"],
+      "cwd": "frontend",
+      "port": 5173
+    }
+  ]
+}
