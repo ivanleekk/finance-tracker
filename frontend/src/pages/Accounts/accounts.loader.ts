@@ -28,14 +28,22 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     const accounts: AccountResponse[] = await accountsRes.json();
     const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
 
-    const accountsWithHistory = await Promise.all(
-        accounts.map(async (acc) => {
-            const balancesRes = await ssrFetch(`/accounts/balances/account/${acc.id}`);
-            if (!balancesRes.ok) throw new Error("Failed to fetch balances for account");
-            const balances: BalanceResponse[] = await balancesRes.json();
-            return { ...acc, history: balances };
-        })
-    );
+    const balancesRes = await ssrFetch(`/accounts/balances/household/${householdId}`);
+    if (!balancesRes.ok) {
+        throw new Error(`Failed to fetch balances: ${balancesRes.statusText}`);
+    }
+    const allBalances: BalanceResponse[] = await balancesRes.json();
+
+    const balanceMap: Record<string, BalanceResponse[]> = {};
+    allBalances.forEach(b => {
+        if (!balanceMap[b.account_id]) balanceMap[b.account_id] = [];
+        balanceMap[b.account_id].push(b);
+    });
+
+    const accountsWithHistory = accounts.map(acc => ({
+        ...acc,
+        history: balanceMap[acc.id] || []
+    }));
 
     return {
         accounts: accountsWithHistory,
@@ -118,6 +126,16 @@ export async function action({ request }: ActionFunctionArgs) {
         });
 
         if (!res.ok) return { error: "Failed to delete account" };
+        return { success: true };
+    }
+
+    if (intent === "deleteBalance") {
+        const balanceId = formData.get("balanceId") as string;
+        const res = await ssrFetch(`/accounts/balances/${balanceId}`, {
+            method: "DELETE",
+        });
+
+        if (!res.ok) return { error: "Failed to delete balance" };
         return { success: true };
     }
 

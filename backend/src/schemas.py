@@ -55,6 +55,8 @@ class HouseholdBase(BaseModel):
     name: str
     base_currency: str
     country_code: str
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdCreate(HouseholdBase):
@@ -65,6 +67,8 @@ class HouseholdUpdate(BaseModel):
     name: Optional[str] = None
     base_currency: Optional[str] = None
     country_code: Optional[str] = None
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdResponse(HouseholdBase):
@@ -214,6 +218,7 @@ class CategoryResponse(CategoryBase):
 class TransactionBase(BaseModel):
     date: datetime
     amount: Decimal
+    amount_home_currency: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     description: Optional[str] = None
@@ -227,6 +232,7 @@ class TransactionCreate(TransactionBase):
 class TransactionUpdate(BaseModel):
     date: Optional[datetime] = None
     amount: Optional[Decimal] = None
+    amount_home_currency: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     description: Optional[str] = None
@@ -240,6 +246,7 @@ class TransactionResponse(TransactionBase):
     category_id: uuid.UUID
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    transaction_type: TransactionType
     transfer_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -285,6 +292,7 @@ class SubPortfolioBase(BaseModel):
     name: str
     risk_profile: str
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioCreate(SubPortfolioBase):
@@ -295,6 +303,7 @@ class SubPortfolioUpdate(BaseModel):
     name: Optional[str] = None
     risk_profile: Optional[str] = None
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioResponse(SubPortfolioBase):
@@ -310,6 +319,7 @@ class TradeBase(BaseModel):
     price: Decimal
     currency: Optional[str] = None
     exchange_rate: float
+    description: Optional[str] = None
 
 
 class TradeCreate(TradeBase):
@@ -326,6 +336,7 @@ class TradeUpdate(BaseModel):
     price: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    description: Optional[str] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -338,6 +349,8 @@ class TradeResponse(TradeBase):
     sub_portfolio_id: Optional[uuid.UUID] = None
     asset_id: Optional[uuid.UUID] = None
     account_id: Optional[uuid.UUID] = None
+    transaction_id: Optional[uuid.UUID] = None
+    currency: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 

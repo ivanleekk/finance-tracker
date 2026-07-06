@@ -231,6 +231,10 @@ def update_household(
         existing_household.base_currency = household_update.base_currency
     if household_update.country_code is not None:
         existing_household.country_code = household_update.country_code
+    if household_update.default_funding_account_id is not None:
+        existing_household.default_funding_account_id = household_update.default_funding_account_id
+    if household_update.default_sub_portfolio_id is not None:
+        existing_household.default_sub_portfolio_id = household_update.default_sub_portfolio_id
 
     db.commit()
     db.refresh(existing_household)

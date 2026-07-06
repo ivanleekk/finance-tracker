@@ -60,8 +60,8 @@ The frontend has migrated from Client-Side Rendering (CSR) to React Router v7 SS
   - If a route has multiple forms, use a hidden input (`<input type="hidden" name="_intent" value="actionName" />`) to switch logic within the action.
   - **Deletion Pattern:** Use a confirmation modal with a `useFetcher` form to safely handle permanent deletions without full page reloads.
 - **Internal Docker Networking:**
-  - Because `loader` and `action` functions run in the Node.js SSR server inside a Docker container, they cannot use `localhost:5001`.
-  - You MUST use the `getApiUrl(path)` utility from `src/lib/api-url.ts` which dynamically resolves to `http://backend:5001` on the server and `http://localhost:5001` in the browser.
+  - Because `loader` and `action` functions run in the Node.js SSR server inside a Docker container, they cannot use `localhost:8000`.
+  - You MUST use the `getApiUrl(path)` utility from `src/lib/api-url.ts` which dynamically resolves to `http://backend:8000` on the server and `http://localhost:8000` in the browser.
 - **Cookie & Session Management:**
   - Server-side fetches do not automatically include browser cookies.
   - In every `loader` and `action`, you MUST manually extract the `Cookie` from the incoming `request.headers` and forward it to the backend fetch.

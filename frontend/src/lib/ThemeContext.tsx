@@ -14,7 +14,16 @@ interface ThemeContextType {
     setBaseColor: (color: string) => void;
 }
 
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+const ThemeContext = createContext<ThemeContextType>({
+    themeMode: "system",
+    primaryColor: "sky",
+    secondaryColor: "fuchsia",
+    baseColor: "mauve",
+    setThemeMode: () => console.warn("setThemeMode called outside of ThemeProvider"),
+    setPrimaryColor: () => console.warn("setPrimaryColor called outside of ThemeProvider"),
+    setSecondaryColor: () => console.warn("setSecondaryColor called outside of ThemeProvider"),
+    setBaseColor: () => console.warn("setBaseColor called outside of ThemeProvider"),
+});
 
 export const THEME_PALETTES = {
     primary: ["sky", "indigo", "rose", "emerald", "blue"],
@@ -23,8 +32,10 @@ export const THEME_PALETTES = {
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { user } = useAuth();
-    const [themeMode, setThemeMode] = useState<ThemeMode>(user?.theme_mode || "system");
+    const auth = useAuth();
+    const user = auth?.user;
+
+    const [themeMode] = useState<ThemeMode>("dark");
     const [primaryColor, setPrimaryColor] = useState(user?.primary_color || "sky");
     const [secondaryColor, setSecondaryColor] = useState(user?.secondary_color || "fuchsia");
     const [baseColor, setBaseColor] = useState(user?.base_color || "mauve");
@@ -32,7 +43,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Sync with user object when it changes (e.g. after login or profile update)
     useEffect(() => {
         if (user) {
-            setThemeMode(user.theme_mode);
             setPrimaryColor(user.primary_color);
             setSecondaryColor(user.secondary_color);
             setBaseColor(user.base_color);
@@ -56,41 +66,21 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         applyPalette("base", baseColor);
     }, [primaryColor, secondaryColor, baseColor]);
 
-    // Apply Dark Mode
+    // Always ensure Dark Mode is applied
     useEffect(() => {
         const root = window.document.documentElement;
-        root.classList.remove("light", "dark");
-
-        if (themeMode === "system") {
-            const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-            root.classList.add(systemTheme);
-        } else {
-            root.classList.add(themeMode);
-        }
-    }, [themeMode]);
-
-    // Handle System Theme Changes
-    useEffect(() => {
-        if (themeMode !== "system") return;
-
-        const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-        const handleChange = () => {
-            const root = window.document.documentElement;
-            root.classList.remove("light", "dark");
-            root.classList.add(mediaQuery.matches ? "dark" : "light");
-        };
-
-        mediaQuery.addEventListener("change", handleChange);
-        return () => mediaQuery.removeEventListener("change", handleChange);
-    }, [themeMode]);
+        root.classList.remove("light");
+        root.classList.add("dark");
+        root.style.colorScheme = "dark";
+    }, []);
 
     return (
         <ThemeContext.Provider value={{
-            themeMode,
+            themeMode: "dark",
             primaryColor,
             secondaryColor,
             baseColor,
-            setThemeMode,
+            setThemeMode: () => { }, // No-op
             setPrimaryColor,
             setSecondaryColor,
             setBaseColor
@@ -102,8 +92,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 export const useTheme = () => {
     const context = useContext(ThemeContext);
-    if (context === undefined) {
-        throw new Error("useTheme must be used within a ThemeProvider");
-    }
+    // Note: We provide a default context now, so this will only trigger if 
+    // the hook is called in a way that truly bypasses the context.
     return context;
 };

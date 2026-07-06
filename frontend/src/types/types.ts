@@ -60,7 +60,10 @@ export type HouseholdResponse = {
   name: string;
   base_currency: string;
   country_code: string;
+  default_funding_account_id?: string;
+  default_sub_portfolio_id?: string;
 };
+
 
 export type HouseholdMemberResponse = {
   id: string;
@@ -90,7 +93,10 @@ export type BalanceResponse = {
   account_id: string;
   date: string;
   balance: number;
+  balance_home_currency?: number;
+  is_manual: boolean;
 };
+
 
 export type AccountAccessResponse = {
   id: string;
@@ -121,7 +127,12 @@ export type TransactionResponse = {
   category_id: string;
   date: string;
   amount: number;
+  amount_home_currency?: number;
+  currency?: string | null;
+  exchange_rate?: number | null;
   description: string | null;
+  transaction_type: TransactionType;
+  transfer_id?: string | null;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---
@@ -140,6 +151,7 @@ export type SubPortfolioResponse = {
   name: string;
   risk_profile: string;
   target_date: string | null;
+  target_amount: number | null;
 };
 
 export type TradeResponse = {
@@ -152,8 +164,12 @@ export type TradeResponse = {
   date: string;
   quantity: number;
   price: number;
+  currency?: string | null;
   exchange_rate: number;
+  transaction_id?: string | null;
+  description?: string | null;
 };
+
 
 export type PortfolioSnapshotResponse = {
   id: string;

@@ -465,3 +465,46 @@ def test_delete_account_balance_unauthorized(client, other_auth_headers, test_ho
         headers=other_auth_headers
     )
     assert response.status_code == 403
+
+def test_get_household_balances(client, auth_headers, test_household, db_session):
+    account1 = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Account 1",
+        liquidity="liquid",
+        tax_status="taxable",
+        currency="USD"
+    )
+    account2 = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Account 2",
+        liquidity="liquid",
+        tax_status="taxable",
+        currency="USD"
+    )
+    db_session.add(account1)
+    db_session.add(account2)
+    db_session.commit()
+
+    from datetime import date
+    balance1 = models.AccountBalance(
+        id=uuid.uuid7(),
+        account_id=account1.id,
+        date=date.today(),
+        balance=100.0
+    )
+    balance2 = models.AccountBalance(
+        id=uuid.uuid7(),
+        account_id=account2.id,
+        date=date.today(),
+        balance=200.0
+    )
+    db_session.add(balance1)
+    db_session.add(balance2)
+    db_session.commit()
+
+    response = client.get(f"/accounts/balances/household/{test_household.id}", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2

@@ -35,9 +35,20 @@ export default function Dashboard() {
     }, [activeHousehold?.id]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { 
-            style: 'currency', 
-            currency: activeHousehold?.base_currency || 'USD' 
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(value)
+    }
+
+    const formatCompactCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD',
+            notation: 'compact',
+            maximumFractionDigits: 1
         }).format(value)
     }
 
@@ -45,8 +56,8 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                const last = sorted[sorted.length - 1];
+                // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
+                const last = history.reduce((max, current) => current.date > max.date ? current : max, history[0]);
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });
@@ -54,7 +65,7 @@ export default function Dashboard() {
     }, [balances]);
 
     const currentPortfolioValue = useMemo(() => {
-        if (snapshots.length === 0) return 0;
+        if (!snapshots || snapshots.length === 0) return 0;
 
         // Group snapshots by date and find the latest date
         const snapshotsByDate: Record<string, number> = {};
@@ -62,50 +73,70 @@ export default function Dashboard() {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
+        const datesArr = Object.keys(snapshotsByDate);
+        if (datesArr.length === 0) return 0;
 
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        const latestDate = datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]);
+
+        return snapshotsByDate[latestDate] || 0;
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
 
-    // Aggregate historical data for the chart using real snapshots
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(N^2) nested `.find()` and `.filter()` array operations inside `.map()`
+    // with O(N) hash map lookups to prevent main-thread blocking. Also replaced `localeCompare` with relational operators.
     const chartData = useMemo(() => {
-        const dailyData = new Map<string, { cash: number; portfolio: number }>();
-        
-        // Cash: Aggregate from balances
-        Object.values(balances).forEach(history => {
+        const allDatesSet = new Set<string>();
+
+        // Pre-compute daily portfolio snapshots
+        const snapshotsByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            allDatesSet.add(s.date);
+            snapshotsByDate.set(s.date, (snapshotsByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
+
+        // Pre-compute daily balance updates
+        const balancesByDate = new Map<string, Array<{id: string, bal: number}>>();
+        Object.entries(balances).forEach(([accId, history]) => {
             history.forEach(b => {
-                const existing = dailyData.get(b.date) || { cash: 0, portfolio: 0 };
-                dailyData.set(b.date, { ...existing, cash: existing.cash + Number(b.balance_home_currency ?? b.balance) });
+                allDatesSet.add(b.date);
+                const list = balancesByDate.get(b.date) || [];
+                list.push({ id: accId, bal: Number(b.balance_home_currency ?? b.balance) });
+                balancesByDate.set(b.date, list);
             });
         });
 
-        // Portfolio: Aggregate from snapshots
-        snapshots.forEach(s => {
-            const existing = dailyData.get(s.date) || { cash: 0, portfolio: 0 };
-            dailyData.set(s.date, { ...existing, portfolio: existing.portfolio + Number(s.current_value_home_currency) });
-        });
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : (a > b ? 1 : 0)));
 
-        const sortedDates = Array.from(dailyData.keys())
-            .filter(date => !startDate || date >= startDate)
-            .sort((a, b) => a.localeCompare(b));
-
+        const accountLatestBalances = new Map<string, number>();
+        
         const rawData = sortedDates.map(date => {
-            const data = dailyData.get(date)!;
+            const updates = balancesByDate.get(date);
+            if (updates) {
+                updates.forEach(u => accountLatestBalances.set(u.id, u.bal));
+            }
+
+            let currentTotalCash = 0;
+            accountLatestBalances.forEach(bal => currentTotalCash += bal);
+            
+            const currentTotalPortfolio = snapshotsByDate.get(date) || 0;
+
             return {
-                date, // ISO string for unique key
-                netWorth: data.cash + data.portfolio,
-                cash: data.cash,
-                portfolio: data.portfolio
+                date,
+                netWorth: currentTotalCash + currentTotalPortfolio,
+                cash: currentTotalCash,
+                portfolio: currentTotalPortfolio
             };
         });
 
-        if (timeframe === "Daily") return rawData;
+        // Filter by start date if applicable
+        const filteredData = rawData.filter(item => !startDate || item.date >= startDate);
+
+        if (timeframe === "Daily") return filteredData;
 
         const binned = new Map<string, any>();
-        rawData.forEach(item => {
+        filteredData.forEach(item => {
             const d = new Date(item.date);
             let key = "";
             if (timeframe === "Weekly") {
@@ -122,8 +153,8 @@ export default function Dashboard() {
             binned.set(key, item);
         });
 
-        return Array.from(binned.values()).sort((a, b) => a.date.localeCompare(b.date));
-    }, [balances, snapshots, timeframe]);
+        return Array.from(binned.values()).sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)));
+    }, [balances, snapshots, timeframe, startDate]);
 
     if (!activeHousehold) {
         return (
@@ -138,7 +169,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
-                    <p className="text-base-500 mt-1">Overview of your household financial health.</p>
+                    <p className="text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
                 </div>
                 <TimeframeSelector />
             </div>
@@ -147,12 +178,12 @@ export default function Dashboard() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <StatCard
                     title="Net Worth"
-                    value={formatCurrency(netWorth)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(netWorth)}
                     trend="neutral"
                 />
                 <StatCard
                     title="Portfolio Value"
-                    value={formatCurrency(currentPortfolioValue)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(currentPortfolioValue)}
                     trend="neutral"
                 />
                 <StatCard
@@ -185,7 +216,7 @@ export default function Dashboard() {
                             <CardTitle>Net Worth Trend</CardTitle>
                             <CardDescription>Your total wealth growth over time.</CardDescription>
                         </div>
-                        <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
                             {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                                 <button
                                     key={tf}
@@ -193,8 +224,8 @@ export default function Dashboard() {
                                     className={cn(
                                         "px-3 py-1 text-xs font-medium rounded-md transition-all",
                                         timeframe === tf
-                                            ? "bg-white text-base-900 shadow-sm"
-                                            : "text-base-500 hover:text-base-700"
+                                            ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
                                     )}
                                 >
                                     {tf}
@@ -217,7 +248,7 @@ export default function Dashboard() {
                                                 <stop offset="95%" stopColor="var(--color-secondary-500)" stopOpacity={0} />
                                             </linearGradient>
                                         </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-100)" />
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                         <XAxis
                                             dataKey="date"
                                             axisLine={false}
@@ -235,7 +266,7 @@ export default function Dashboard() {
                                             axisLine={false}
                                             tickLine={false}
                                             tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
-                                            tickFormatter={(value) => `$${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                                            tickFormatter={(value) => formatCompactCurrency(value)}
                                         />
                                         <Tooltip
                                             content={({ active, payload, label }) => {
@@ -248,21 +279,21 @@ export default function Dashboard() {
                                                             <div className="space-y-1.5">
                                                                 {payload.map((entry: any, index: number) => (
                                                                     <div key={index} className="flex items-center justify-between gap-4">
-                                                                        <span 
+                                                                        <span
                                                                             className="text-sm font-semibold"
                                                                             style={{ color: entry.stroke }}
                                                                         >
                                                                             {entry.name === 'portfolio' ? 'Portfolio' : entry.name === 'cash' ? 'Cash' : entry.name}
                                                                         </span>
                                                                         <span className="text-sm font-bold text-base-900 dark:text-base-50">
-                                                                            {formatCurrency(entry.value)}
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(entry.value)}
                                                                         </span>
                                                                     </div>
                                                                 ))}
                                                                 <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
                                                                     <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
                                                                     <span className="text-sm font-bold text-base-900 dark:text-base-50">
-                                                                        {formatCurrency(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
                                                                     </span>
                                                                 </div>
                                                             </div>
@@ -308,16 +339,21 @@ export default function Dashboard() {
                     <CardContent className="flex flex-col gap-4">
                         {subPortfolios.length > 0 ? (
                             subPortfolios.slice(0, 3).map(sp => {
-                                const current = snapshots
-                                    .filter(s => s.sub_portfolio_id === sp.id)
+                                const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
+                                const latestDate = spSnaps.length > 0 
+                                    ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
+                                    : null;
+                                
+                                const current = spSnaps
+                                    .filter(s => s.date === latestDate)
                                     .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
                                 return (
                                     <GoalCard
                                         key={sp.id}
                                         title={sp.name}
                                         currentValue={current}
-                                        targetValue={10000} // TODO: Add target_value to SubPortfolio model
-                                        formatValue={(v) => `$${v.toLocaleString()}`}
+                                        targetValue={sp.target_amount || 10000}
+                                        formatValue={(v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v)}
                                     />
                                 );
                             })
@@ -338,15 +374,15 @@ export default function Dashboard() {
                 <CardContent>
                     <div className="space-y-4">
                         {transactions.length > 0 ? (
-                            transactions.slice(0, 5).sort((a, b) => b.date.localeCompare(a.date)).map((tx) => (
-                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 pb-4 last:border-0 last:pb-0">
+                            transactions.slice(0, 5).sort((a, b) => (b.date < a.date ? -1 : (b.date > a.date ? 1 : 0))).map((tx) => (
+                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                     <div>
-                                        <p className="font-medium text-base-900">{tx.description || 'Transaction'}</p>
-                                        <p className="text-sm text-base-500">{new Date(tx.date).toLocaleDateString()}</p>
+                                        <p className="font-medium text-base-900 dark:text-base-50">{tx.description || 'Transaction'}</p>
+                                        <p className="text-sm text-base-500 dark:text-base-400">{new Date(tx.date).toLocaleDateString()}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600' : 'text-base-900'}`}>
-                                            {formatCurrency(Number(tx.amount))}
+                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600 dark:text-green-400' : 'text-base-900 dark:text-base-50'}`}>
+                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(Number(tx.amount))}
                                         </span>
                                         <Badge variant="success">
                                             Completed

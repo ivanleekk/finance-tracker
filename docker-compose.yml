@@ -3,10 +3,10 @@ services:
         build:
             context: ./backend
             target: ${DOCKER_TARGET:-development}
-        expose:
-            - "5001"
+        ports:
+            - "8000:8000"
         environment:
-            - PORT=5001
+            - PORT=8000
             - HOST=0.0.0.0
             - DATABASE_URL=postgresql://fin:fin@db:5432/fin
             - POSTGRES_HOST=db
@@ -14,6 +14,10 @@ services:
             - POSTGRES_DB=fin
             - POSTGRES_USER=fin
             - POSTGRES_PASSWORD=fin
+            - API_URL=http://localhost:8000
+            - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+            - AUTH_COOKIE_DOMAIN=localhost
+            - SCHEDULER_SECRET=local-dev-secret
         env_file:
             - .env
         depends_on:
@@ -25,12 +29,11 @@ services:
         build:
             context: ./frontend
             target: ${DOCKER_TARGET:-development}
-        expose:
-            - "5173"
-            - "3000"
+        ports:
+            - "5173:5173"
         environment:
-            - VITE_API_URL=http://localhost:5001
-            - INTERNAL_API_URL=http://backend:5001
+            - VITE_API_URL=http://localhost:8000
+            - INTERNAL_API_URL=http://backend:8000
         restart: unless-stopped
         extra_hosts:
             - "host.docker.internal:host-gateway"
@@ -38,6 +41,8 @@ services:
     db:
       image: postgres:18-alpine
       restart: always
+      ports:
+        - "5432:5432"
       environment:
         POSTGRES_DB: fin
         POSTGRES_USER: fin

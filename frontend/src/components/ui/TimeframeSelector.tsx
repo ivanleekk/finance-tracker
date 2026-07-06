@@ -33,12 +33,12 @@ export function TimeframeSelector() {
         } else {
             newParams.delete("start_date");
         }
-        
+
         setSearchParams(newParams);
     };
 
     return (
-        <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
             {options.map((option) => (
                 <button
                     key={option}
@@ -46,8 +46,8 @@ export function TimeframeSelector() {
                     className={cn(
                         "px-3 py-1 text-xs font-medium rounded-md transition-all",
                         activeTimeframe === option
-                            ? "bg-white text-base-900 shadow-sm"
-                            : "text-base-500 hover:text-base-700"
+                            ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
                     )}
                 >
                     {option}

@@ -52,7 +52,7 @@ export default function LandingPage() {
     ];
 
     return (
-        <div className="min-h-screen bg-white selection:bg-primary-100 selection:text-primary-900">
+        <div className="min-h-screen bg-base-50 dark:bg-base-950 selection:bg-primary-100 selection:text-primary-900 transition-colors duration-300">
             {/* Navigation Header */}
             {/* <nav className="fixed top-0 z-50 w-full border-b border-base-200/50 bg-white/70 backdrop-blur-xl">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -71,8 +71,8 @@ export default function LandingPage() {
 
             {/* Hero Section */}
             <section className="relative overflow-hidden pt-32 pb-20 lg:pt-48 lg:pb-32">
-                <div className="absolute top-0 -z-10 h-full w-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary-100/40 via-white to-transparent" />
-                <div className="absolute bottom-0 -z-10 h-1/2 w-full bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-indigo-50/30 via-white to-transparent" />
+                <div className="absolute top-0 -z-10 h-full w-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary-100/40 via-base-50 dark:via-base-950 to-transparent" />
+                <div className="absolute bottom-0 -z-10 h-1/2 w-full bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-indigo-50/30 via-base-50 dark:via-base-950 to-transparent" />
 
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="flex flex-col items-center text-center">
@@ -81,7 +81,7 @@ export default function LandingPage() {
                             <span>v2.0 is now live</span>
                             <ChevronRight className="h-3 w-3" />
                         </div>
-                        <h1 className="text-5xl font-extrabold tracking-tight text-base-900 sm:text-7xl mb-8 max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
+                        <h1 className="text-5xl font-extrabold tracking-tight text-base-900 dark:text-base-50 sm:text-7xl mb-8 max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
                             Master Your Wealth with <span className="bg-gradient-to-r from-primary-600 to-indigo-600 bg-clip-text text-transparent">Precision Analytics</span>
                         </h1>
                         <p className="text-xl text-base-500 max-w-2xl mb-12 animate-in fade-in slide-in-from-bottom-10 duration-1000">
@@ -98,9 +98,9 @@ export default function LandingPage() {
                         <div className="mt-20 flex flex-col items-center gap-6 opacity-60 grayscale transition-all hover:grayscale-0 animate-in fade-in duration-1000">
                             <p className="text-sm font-medium text-base-500">TRUSTED BY INVESTORS ACROSS THE GLOBE</p>
                             <div className="flex flex-wrap justify-center gap-12">
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900"><BarChart3 className="h-6 w-6" /> CapitalView</div>
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900"><LineChart className="h-6 w-6" /> GrowthFlow</div>
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900"><Layers className="h-6 w-6" /> StackWise</div>
+                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><BarChart3 className="h-6 w-6 text-primary-600" /> CapitalView</div>
+                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><LineChart className="h-6 w-6 text-indigo-600" /> GrowthFlow</div>
+                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><Layers className="h-6 w-6 text-violet-600" /> StackWise</div>
                             </div>
                         </div>
                     </div>
@@ -108,20 +108,20 @@ export default function LandingPage() {
             </section>
 
             {/* Features Section */}
-            <section className="py-24 bg-base-50/50">
+            <section className="py-24 bg-base-50/50 dark:bg-base-900/20">
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="mb-20 text-center">
-                        <h2 className="text-sm font-semibold tracking-wide text-primary-600 uppercase mb-3">Capabilities</h2>
-                        <h3 className="text-4xl font-bold text-base-900">Built for modern portfolios</h3>
+                        <h2 className="text-sm font-semibold tracking-wide text-primary-600 dark:text-primary-400 uppercase mb-3">Capabilities</h2>
+                        <h3 className="text-4xl font-bold text-base-900 dark:text-base-50">Built for modern portfolios</h3>
                     </div>
                     <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
                         {features.map((feature, idx) => (
-                            <Card key={idx} className="group border-none shadow-md hover:shadow-xl transition-all duration-300 bg-white/80 backdrop-blur-sm overflow-hidden">
+                            <Card key={idx} className="group border-none shadow-md hover:shadow-xl transition-all duration-300 bg-white/80 dark:bg-base-900/80 backdrop-blur-sm overflow-hidden">
                                 <div className="p-8">
                                     <div className={cn("mb-6 flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-110 duration-300", feature.bg, feature.color)}>
                                         {feature.icon}
                                     </div>
-                                    <h4 className="text-xl font-bold text-base-900 mb-3">{feature.title}</h4>
+                                    <h4 className="text-xl font-bold text-base-900 dark:text-base-50 mb-3">{feature.title}</h4>
                                     <p className="text-base-500 leading-relaxed text-sm">
                                         {feature.description}
                                     </p>
@@ -193,7 +193,7 @@ export default function LandingPage() {
             <section className="py-24">
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="flex flex-col items-center text-center space-y-8">
-                        <h2 className="text-4xl font-bold text-base-900 sm:text-5xl">Ready to take control?</h2>
+                        <h2 className="text-4xl font-bold text-base-900 dark:text-base-50 sm:text-5xl">Ready to take control?</h2>
                         <p className="text-lg text-base-500 max-w-xl">
                             Join thousands of investors using FinTracker to build their future. Sign up today and get your financial journey started.
                         </p>
@@ -210,17 +210,17 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            <footer className="border-t border-base-200 py-12">
+            <footer className="border-t border-base-200 dark:border-base-800 py-12">
                 <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div className="flex items-center gap-2 text-xl font-bold text-base-900">
+                    <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50">
                         <Wallet className="h-6 w-6 text-primary-600" />
                         FinTracker
                     </div>
                     <p className="text-sm text-base-500">© 2026 FinTracker Inc. All rights reserved.</p>
                     <div className="flex gap-6">
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600">Privacy</Link>
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600">Terms</Link>
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600">Contact</Link>
+                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Privacy</Link>
+                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Terms</Link>
+                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Contact</Link>
                     </div>
                 </div>
             </footer>
@@ -230,7 +230,7 @@ export default function LandingPage() {
 
 function Card({ children, className }: { children: React.ReactNode; className?: string }) {
     return (
-        <div className={cn("rounded-2xl bg-white", className)}>
+        <div className={cn("rounded-2xl bg-white dark:bg-base-900", className)}>
             {children}
         </div>
     )

@@ -6,7 +6,7 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from decimal import Decimal
 from datetime import datetime, timezone
 import uuid
@@ -181,14 +181,23 @@ def add_account_balance(
 
     verify_household_access(db_account.household_id, current_user, db)
 
+    # Check if a balance already exists for this date
+    db_balance = db.query(models.AccountBalance).filter(
+        models.AccountBalance.account_id == balance.account_id,
+        models.AccountBalance.date == balance.date
+    ).first()
+
     # Calculate delta for propagation if there's already a balance chain
     # What would the balance have been on this date?
-    prev_balance_rec = db.query(models.AccountBalance).filter(
-        models.AccountBalance.account_id == balance.account_id,
-        models.AccountBalance.date < balance.date
-    ).order_by(desc(models.AccountBalance.date)).first()
+    if db_balance:
+        expected_balance = db_balance.balance
+    else:
+        prev_balance_rec = db.query(models.AccountBalance).filter(
+            models.AccountBalance.account_id == balance.account_id,
+            models.AccountBalance.date < balance.date
+        ).order_by(desc(models.AccountBalance.date)).first()
+        expected_balance = prev_balance_rec.balance if prev_balance_rec else Decimal("0")
     
-    expected_balance = prev_balance_rec.balance if prev_balance_rec else Decimal("0")
     delta = balance.balance - expected_balance
 
     # Handle Currency Conversion for manual balance
@@ -196,15 +205,21 @@ def add_account_balance(
     acc_curr = db_account.currency or "USD"
     rate = fetch_and_cache_exchange_rates(db, acc_curr, home_curr, balance.date)
 
-    db_balance = models.AccountBalance(
-        id=uuid.uuid7(),
-        account_id=balance.account_id,
-        date=balance.date,
-        balance=balance.balance,
-        balance_home_currency=float(balance.balance) * rate,
-        is_manual=True
-    )
-    db.add(db_balance)
+    if db_balance:
+        db_balance.balance = balance.balance
+        db_balance.balance_home_currency = float(balance.balance) * rate
+        db_balance.is_manual = True
+    else:
+        db_balance = models.AccountBalance(
+            id=uuid.uuid7(),
+            account_id=balance.account_id,
+            date=balance.date,
+            balance=balance.balance,
+            balance_home_currency=float(balance.balance) * rate,
+            is_manual=True
+        )
+        db.add(db_balance)
+    
     db.flush()
 
     # If there's a difference, create a reconciliation transaction
@@ -246,6 +261,26 @@ def add_account_balance(
     db.commit()
     db.refresh(db_balance)
     return db_balance
+
+
+@router.get(
+    "/balances/household/{household_id}", response_model=List[schemas.BalanceResponse]
+)
+def get_household_balances(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+
+    accounts = db.query(models.FinancialAccount).filter(models.FinancialAccount.household_id == household_id).all()
+    account_ids = [account.id for account in accounts]
+
+    if not account_ids:
+        return []
+
+    balances = db.query(models.AccountBalance).filter(models.AccountBalance.account_id.in_(account_ids)).all()
+    return balances
 
 
 @router.get(
@@ -314,6 +349,25 @@ def delete_account_balance(
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_balance.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
 
+    if db_balance.is_manual:
+        # 1. Find the reconciliation transaction
+        adj_transaction = db.query(models.Transaction).filter(
+            models.Transaction.account_id == db_balance.account_id,
+            func.date(models.Transaction.date) == db_balance.date,
+            models.Transaction.description == f"Automated reconciliation for {db_balance.date}"
+        ).first()
+
+        if adj_transaction:
+            # 2. Calculate the delta that was introduced
+            delta = adj_transaction.amount if adj_transaction.transaction_type == models.TransactionType.income else -adj_transaction.amount
+            
+            # 3. Propagate the negative delta forward
+            propagate_balance_change(db, db_balance.account_id, db_balance.date, -delta)
+            
+            # 4. Delete the transaction
+            db.delete(adj_transaction)
+
+    # 5. Delete the balance record
     db.delete(db_balance)
     db.commit()
     return

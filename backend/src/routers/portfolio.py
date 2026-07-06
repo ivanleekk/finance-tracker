@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from typing import List, Optional
 import uuid
 from datetime import datetime, date
@@ -10,11 +11,14 @@ from src.auth import get_current_user, verify_household_access
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
-from src.services.market_data import fetch_and_cache_treasury_rates
+from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
+import logging
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["Investments & Trades"])
 
@@ -80,7 +84,9 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
         db.flush()
 
     # 2. Calculate amount
-    amount = Decimal(str(db_trade.quantity)) * db_trade.price * Decimal(str(db_trade.exchange_rate))
+    # Store amount in the original trade currency
+    amount = Decimal(str(db_trade.quantity)) * db_trade.price
+    amount_in_acc = amount * Decimal(str(db_trade.exchange_rate))
     
     # 3. Determine transaction type
     # A buy trade is an expense (cash out), a sell trade is income (cash in)
@@ -100,7 +106,8 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
         if db_transaction:
             # Capture old impact for balance sync
             old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-            old_impact = db_transaction.amount * old_multiplier
+            old_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+            old_impact = (db_transaction.amount * Decimal(str(old_exchange_rate))) * old_multiplier
             old_date = db_transaction.date.date()
 
             # Update transaction fields
@@ -110,10 +117,18 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
             db_transaction.amount = amount
             db_transaction.description = description
             db_transaction.transaction_type = trans_type
+            db_transaction.currency = db_trade.currency
+            db_transaction.exchange_rate = db_trade.exchange_rate
+
+            # Calculate amount_home_currency
+            db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+            home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+            rate_to_home = fetch_and_cache_exchange_rates(db, db_transaction.currency, home_curr, db_trade.date.date())
+            db_transaction.amount_home_currency = amount * Decimal(str(rate_to_home))
 
             # New impact for balance sync
             new_multiplier = 1 if trans_type == models.TransactionType.income else -1
-            new_impact = amount * new_multiplier
+            new_impact = amount_in_acc * new_multiplier
             new_date = db_trade.date.date()
 
             if old_date == new_date:
@@ -124,13 +139,20 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
 
             return db_transaction
 
+    db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+    home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+    rate_to_home = fetch_and_cache_exchange_rates(db, db_trade.currency, home_curr, db_trade.date.date())
+    amount_home_currency = amount * Decimal(str(rate_to_home))
+
     db_transaction = models.Transaction(
         id=uuid.uuid7(),
         account_id=db_trade.account_id,
         category_id=investment_category.id,
         date=db_trade.date,
         amount=amount,
+        amount_home_currency=amount_home_currency,
         currency=db_trade.currency, # Inherit trade currency
+        exchange_rate=db_trade.exchange_rate,
         description=description,
         transaction_type=trans_type
     )
@@ -140,7 +162,7 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
 
     # Sync to account balance for new transaction
     new_multiplier = 1 if trans_type == models.TransactionType.income else -1
-    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount * new_multiplier)
+    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount_in_acc * new_multiplier)
 
     return db_transaction
 
@@ -152,17 +174,70 @@ def create_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    # Try to enrich with yfinance data if name is default or currency is missing
+    ticker_name = asset.name
+    ticker_currency = asset.currency
+
+    if "Equity" in asset.name or not asset.currency:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if info:
+                if "Equity" in asset.name:
+                    ticker_name = info.get('shortName') or info.get('longName') or asset.name
+                ticker_currency = info.get('currency') or asset.currency or "USD"
+        except Exception as e:
+            logger.warning(f"Failed to enrich asset {asset.ticker} from yfinance: {e}")
+
     db_asset = models.Asset(
         id=asset.id if asset.id else uuid.uuid7(),
-        ticker=asset.ticker,
-        name=asset.name,
+        ticker=asset.ticker.upper(),
+        name=ticker_name,
         type=asset.type,
-        currency=asset.currency,
+        currency=ticker_currency.upper() if ticker_currency else "USD",
     )
     db.add(db_asset)
     db.commit()
     db.refresh(db_asset)
     return db_asset
+
+@router.post("/assets/fix", status_code=status.HTTP_200_OK)
+def fix_all_asset_currencies(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    One-time maintenance endpoint to fix asset currencies and names using yfinance.
+    """
+    assets = db.query(models.Asset).all()
+    updated_count = 0
+    for asset in assets:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if not info:
+                continue
+            
+            new_curr = info.get('currency')
+            new_name = info.get('shortName') or info.get('longName')
+            
+            changed = False
+            if new_curr and new_curr.upper() != asset.currency.upper():
+                asset.currency = new_curr.upper()
+                changed = True
+            
+            if new_name and ("Equity" in asset.name or not asset.name):
+                asset.name = new_name
+                changed = True
+            
+            if changed:
+                updated_count += 1
+        except Exception as e:
+            logger.error(f"Error fixing asset {asset.ticker}: {e}")
+            continue
+    
+    db.commit()
+    return {"status": "success", "updated_assets": updated_count}
 
 @router.get("/assets", response_model=List[schemas.AssetResponse])
 def search_assets(
@@ -224,6 +299,7 @@ def create_subportfolio(
         name=subportfolio.name,
         risk_profile=subportfolio.risk_profile,
         target_date=subportfolio.target_date,
+        target_amount=subportfolio.target_amount,
     )
     db.add(db_subportfolio)
     db.commit()
@@ -243,43 +319,38 @@ def get_household_subportfolios(
     subportfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
     return subportfolios
 
-@router.get(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.get("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def get_subportfolio(
     subportfolio_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    verify_household_access(sp.household_id, current_user, db)
+    return sp
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-    return db_subportfolio
-
-@router.put(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.patch("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def update_subportfolio(
     subportfolio_id: uuid.UUID,
-    subportfolio_update: schemas.SubPortfolioUpdate,
+    update: schemas.SubPortfolioUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    
+    verify_household_access(db_sp.household_id, current_user, db)
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-
-    update_data = subportfolio_update.model_dump(exclude_unset=True)
+    update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(db_subportfolio, key, value)
+        setattr(db_sp, key, value)
 
     db.commit()
-    db.refresh(db_subportfolio)
-    return db_subportfolio
+    db.refresh(db_sp)
+    return db_sp
 
 @router.delete("/subportfolios/{subportfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_subportfolio(
@@ -327,14 +398,8 @@ def execute_trade(
     db.commit()
     db.refresh(db_trade)
 
-    # Trigger background snapshot update from the trade date until today
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        trade.household_id, 
-        trade.date.date(), 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, trade.household_id, trade.date.date(), date.today())
     # We must construct trade base manually because db column is trade_type while schema uses type
     response = schemas.TradeResponse(
         id=db_trade.id,
@@ -348,6 +413,7 @@ def execute_trade(
         price=db_trade.price,
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
     return response
 
@@ -373,7 +439,9 @@ def get_household_trades(
             date=t.date,
             quantity=t.quantity,
             price=t.price,
+            currency=t.currency,
             exchange_rate=t.exchange_rate,
+            transaction_id=t.transaction_id,
         ) for t in trades
     ]
 
@@ -407,13 +475,8 @@ def update_trade(
     db.commit()
     db.refresh(db_trade)
 
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        db_trade.household_id, 
-        recalc_start_date, 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, db_trade.household_id, recalc_start_date, date.today())
 
     return schemas.TradeResponse(
         id=db_trade.id,
@@ -425,7 +488,9 @@ def update_trade(
         date=db_trade.date,
         quantity=db_trade.quantity,
         price=db_trade.price,
+        currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
 
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -455,13 +520,8 @@ def delete_trade(
     db.delete(db_trade)
     db.commit()
 
-    background_tasks.add_task(
-        run_snapshot_range, 
-        db, 
-        household_id, 
-        trade_date, 
-        date.today()
-    )
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, household_id, trade_date, date.today())
     return
 
 # --- PORTFOLIO ACCESS ---
@@ -620,7 +680,8 @@ def get_household_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -653,7 +714,8 @@ def get_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -716,6 +778,38 @@ def delete_portfolio_snapshot(
     db.delete(db_snapshot)
     db.commit()
     return
+
+@router.post("/household/{household_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+def sync_portfolio_snapshots(
+    household_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Manually trigger a portfolio snapshot sync for the specified household.
+    This will catch up snapshots from the last recorded date until today.
+    """
+    verify_household_access(household_id, current_user, db)
+    
+    # Always sync from the earliest trade date to ensure full historical accuracy
+    # when manually triggered.
+    sync_start_date = db.execute(
+        select(func.min(func.date(models.Trade.date)))
+        .where(models.Trade.household_id == household_id)
+    ).scalar()
+    
+    print(f"DEBUG: Sync Triggered. Earliest Trade Date in DB: {sync_start_date}")
+        
+    if sync_start_date:
+        print(f"DEBUG: Initiating full sync from {sync_start_date} to {date.today()}")
+        # Sync snapshots synchronously for serverless reliability
+        run_snapshot_range(db, household_id, sync_start_date, date.today())
+        
+        return {"status": "success", "message": f"Full sync completed from {sync_start_date}", "from": sync_start_date, "to": date.today()}
+    else:
+        print(f"DEBUG: Sync aborted: No trades found for household {household_id}")
+        return {"status": "no_data", "message": "No trades found to generate snapshots."}
 
 # --- DIVIDENDS ---
 

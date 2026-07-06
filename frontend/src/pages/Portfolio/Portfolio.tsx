@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useLoaderData, useRevalidator, useNavigation, useSearchParams } from "react-router"
+import { useLoaderData, useRevalidator, useNavigation, useSearchParams, Link } from "react-router"
 import { StatCard } from "../../components/ui/StatCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -20,8 +20,11 @@ type Holding = {
     ticker: string;
     name: string;
     shares: number;
-    avgCost: number;
-    currentPrice: number;
+    avgCost: number; // Home currency
+    currentPrice: number; // Home currency
+    currency: string; // Ticker's base currency
+    avgCostNative: number;
+    currentPriceNative: number;
 };
 
 type PortfolioData = {
@@ -50,9 +53,18 @@ export default function Portfolio() {
     const [searchParams] = useSearchParams()
     const startDate = searchParams.get("start_date")
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { 
-        style: 'currency', 
-        currency: activeHousehold?.base_currency || 'USD' 
+    const formatCurrency = (val: number, code?: string) => new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: code || activeHousehold?.base_currency || 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(val);
+
+    const formatCompactCurrency = (val: number) => new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: activeHousehold?.base_currency || 'USD',
+        notation: 'compact',
+        maximumFractionDigits: 1
     }).format(val);
 
     const [activeTab, setActiveTab] = useState("Overall")
@@ -60,6 +72,13 @@ export default function Portfolio() {
     const [isCreating, setIsCreating] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState("")
     const [newPortfolioRisk, setNewPortfolioRisk] = useState("Moderate")
+    const [newPortfolioTarget, setNewPortfolioTarget] = useState("")
+    const [isSyncing, setIsSyncing] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+    const [editName, setEditName] = useState("")
+    const [editRisk, setEditRisk] = useState("Moderate")
+    const [editTarget, setEditTarget] = useState("")
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -74,15 +93,35 @@ export default function Portfolio() {
             const res = await api.post<SubPortfolioResponse>('/portfolio/subportfolios', {
                 name: newPortfolioName,
                 risk_profile: newPortfolioRisk,
+                target_amount: newPortfolioTarget ? parseFloat(newPortfolioTarget) : null,
                 household_id: activeHousehold.id
             });
             setIsCreating(false);
             setNewPortfolioName("");
+            setNewPortfolioTarget("");
             setActiveTab(res.data.name);
             revalidator.revalidate(); // Re-fetch to get new portfolio in the loader data
         } catch (e) {
             console.error(e);
             alert("Failed to create sub-portfolio");
+        }
+    };
+
+    const handleUpdateSubPortfolio = async () => {
+        const sp = subportfolios.find(s => s.name === activeTab);
+        if (!sp || !editName.trim()) return;
+        try {
+            await api.patch(`/portfolio/subportfolios/${sp.id}`, {
+                name: editName,
+                risk_profile: editRisk,
+                target_amount: editTarget ? parseFloat(editTarget) : null
+            });
+            setIsEditing(false);
+            setActiveTab(editName);
+            revalidator.revalidate();
+        } catch (e) {
+            console.error(e);
+            alert("Failed to update sub-portfolio");
         }
     };
 
@@ -97,6 +136,23 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to delete sub-portfolio. It might have associated trades.");
+        }
+    };
+
+    const handleSyncPortfolio = async () => {
+        if (!activeHousehold) return;
+        setIsSyncing(true);
+        try {
+            await api.post(`/portfolio/household/${activeHousehold.id}/sync`);
+            // Wait a bit for the background task to start/process
+            setTimeout(() => {
+                revalidator.revalidate();
+                setIsSyncing(false);
+            }, 1500);
+        } catch (e) {
+            console.error(e);
+            alert("Failed to sync portfolio snapshots");
+            setIsSyncing(false);
         }
     };
 
@@ -126,7 +182,8 @@ export default function Portfolio() {
 
             return Array.from(binned.entries())
                 .filter(([date]) => !startDate || date >= startDate)
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                // ⚡ Bolt: Fast string comparison instead of localeCompare
+                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
                 .map(([date, equity]) => ({ date, equity }));
         };
 
@@ -172,31 +229,68 @@ export default function Portfolio() {
             });
 
             const history = Array.from(dailyEquity.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                // ⚡ Bolt: Fast string comparison instead of localeCompare
+                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
                 .map(([date, equity]) => ({
                     date,
                     equity
                 }))
                 .filter(item => !startDate || item.date >= startDate);
 
-            const sortedDates = Array.from(dailyEquity.keys()).sort((a, b) => a.localeCompare(b));
-            const latestDate = sortedDates[sortedDates.length - 1];
-            const latestSnaps = snaps.filter(s => s.date === latestDate);
+            // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
+            const datesArr = Array.from(dailyEquity.keys());
+            const latestDate = datesArr.length > 0 ? datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]) : null;
+            const latestSnaps = snaps.filter(s => {
+                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
+                return dateKey === latestDate;
+            });
 
             const assetMap = new Map(assets.map(a => [a.id, a]));
-            const holdings: Holding[] = latestSnaps
+            const holdingMap = new Map<string, Holding>();
+
+            latestSnaps
                 .filter(s => s.quantity > 0.001)
-                .map(s => {
+                .forEach(s => {
                     const asset = assetMap.get(s.asset_id);
-                    return {
-                        assetId: s.asset_id,
-                        ticker: asset?.ticker || "UNKNOWN",
-                        name: asset?.name || "Unknown Asset",
-                        shares: s.quantity,
-                        avgCost: Number(s.average_cost_basis_home_currency ?? s.average_cost_basis),
-                        currentPrice: Number(s.price) * (s.exchange_rate_used || 1.0)
-                    };
+                    const ticker = asset?.ticker || "UNKNOWN";
+                    const currency = asset?.currency || "USD";
+                    
+                    const currentPriceHome = Number(s.price) * (s.exchange_rate_used || 1.0);
+                    const costBasisHome = Number(s.average_cost_basis_home_currency ?? (Number(s.average_cost_basis) * (s.exchange_rate_used || 1.0)));
+                    const currentPriceNative = Number(s.price);
+                    const costBasisNative = Number(s.average_cost_basis);
+
+                    if (holdingMap.has(ticker)) {
+                        const existing = holdingMap.get(ticker)!;
+                        const totalShares = existing.shares + s.quantity;
+                        
+                        // Weighted average for home currency
+                        const totalCostHome = (existing.shares * existing.avgCost) + (s.quantity * costBasisHome);
+                        existing.avgCost = totalShares > 0 ? totalCostHome / totalShares : 0;
+                        
+                        // Weighted average for native currency
+                        const totalCostNative = (existing.shares * existing.avgCostNative) + (s.quantity * costBasisNative);
+                        existing.avgCostNative = totalShares > 0 ? totalCostNative / totalShares : 0;
+                        
+                        existing.shares = totalShares;
+                        existing.currentPrice = currentPriceHome;
+                        existing.currentPriceNative = currentPriceNative;
+                    } else {
+                        holdingMap.set(ticker, {
+                            assetId: s.asset_id,
+                            ticker: ticker,
+                            name: asset?.name || "Unknown Asset",
+                            shares: s.quantity,
+                            avgCost: costBasisHome,
+                            currentPrice: currentPriceHome,
+                            currency: currency,
+                            avgCostNative: costBasisNative,
+                            currentPriceNative: currentPriceNative
+                        });
+                    }
                 });
+
+            const holdings: Holding[] = Array.from(holdingMap.values());
 
             const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
 
@@ -241,13 +335,59 @@ export default function Portfolio() {
     const isLoading = navigation.state === "loading" || revalidator.state === "loading";
 
     // Default to Overall if tab is deleted
-    const currentData = portfoliosData[activeTab] || portfoliosData["Overall"];
+    const rawData = portfoliosData[activeTab] || portfoliosData["Overall"];
+    
+    const sortedHoldings = useMemo(() => {
+        if (!rawData.holdings) return [];
+        const sortable = [...rawData.holdings];
+        if (sortConfig !== null) {
+            sortable.sort((a, b) => {
+                let aValue: any;
+                let bValue: any;
+
+                switch (sortConfig.key) {
+                    case 'asset': aValue = a.ticker; bValue = b.ticker; break;
+                    case 'shares': aValue = a.shares; bValue = b.shares; break;
+                    case 'avgCost': aValue = a.avgCost; bValue = b.avgCost; break;
+                    case 'price': aValue = a.currentPrice; bValue = b.currentPrice; break;
+                    case 'value': aValue = a.shares * a.currentPrice; bValue = b.shares * b.currentPrice; break;
+                    case 'return': 
+                        aValue = (a.shares * a.currentPrice) - (a.shares * a.avgCost);
+                        bValue = (b.shares * b.currentPrice) - (b.shares * b.avgCost);
+                        break;
+                    default: aValue = 0; bValue = 0;
+                }
+
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return sortable;
+    }, [rawData.holdings, sortConfig]);
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIcon = (key: string) => {
+        if (!sortConfig || sortConfig.key !== key) return <svg className="w-3 h-3 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>;
+        return sortConfig.direction === 'asc' 
+            ? <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg>
+            : <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>;
+    };
+
+    const currentData = { ...rawData, holdings: sortedHoldings };
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
 
     return (
         <div className="flex-1 space-y-6 p-8 relative">
             {isLoading && (
-                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 px-3 py-1 rounded-full border border-base-200">
+                <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
@@ -260,7 +400,23 @@ export default function Portfolio() {
                 <div className="flex items-center gap-4">
                     <TimeframeSelector />
                     <div className="flex gap-2">
+                        <Button 
+                            variant="secondary" 
+                            onClick={handleSyncPortfolio} 
+                            disabled={isSyncing}
+                            className="flex items-center gap-2"
+                        >
+                            {isSyncing ? (
+                                <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                            )}
+                            Sync
+                        </Button>
                         <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
+                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                            <Button variant="primary">Trade</Button>
+                        </Link>
                         <Button variant="primary">Download Report</Button>
                     </div>
                 </div>
@@ -278,8 +434,8 @@ export default function Portfolio() {
                         className={cn(
                             "px-4 py-2 text-sm font-medium transition-colors border-b-2 rounded-t-md",
                             activeTab === tab && !isCreating
-                                ? "border-primary-500 text-primary-600 bg-primary-50/50"
-                                : "border-transparent text-base-500 hover:text-base-900 hover:bg-base-50"
+                                ? "border-primary-500 text-primary-600 dark:text-primary-400 bg-primary-50/50 dark:bg-primary-900/20"
+                                : "border-transparent text-base-500 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100 hover:bg-base-50 dark:hover:bg-base-800"
                         )}
                     >
                         {tab}
@@ -289,7 +445,7 @@ export default function Portfolio() {
                     onClick={() => setIsCreating(!isCreating)}
                     className={cn(
                         "px-3 py-1 text-sm font-medium transition-colors border rounded-md ml-2",
-                        isCreating ? "border-secondary-500 text-secondary-600 bg-secondary-50" : "border-base-200 text-base-600 hover:bg-base-50"
+                        isCreating ? "border-secondary-500 text-secondary-600 dark:text-secondary-400 bg-secondary-50 dark:bg-secondary-900/20" : "border-base-200 dark:border-base-800 text-base-600 dark:text-base-400 hover:bg-base-50 dark:hover:bg-base-800"
                     )}
                 >
                     + New
@@ -308,9 +464,9 @@ export default function Portfolio() {
                             />
                         </div>
                         <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium text-base-900">Risk Profile</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
                                 value={newPortfolioRisk}
                                 onChange={e => setNewPortfolioRisk(e.target.value)}
                             >
@@ -318,6 +474,15 @@ export default function Portfolio() {
                                 <option value="Moderate">Moderate</option>
                                 <option value="Aggressive">Aggressive</option>
                             </select>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Target Amount"
+                                type="number"
+                                value={newPortfolioTarget}
+                                onChange={e => setNewPortfolioTarget(e.target.value)}
+                                placeholder="e.g. 100000"
+                            />
                         </div>
                         <Button variant="primary" className="h-[42px]" onClick={handleCreateSubPortfolio}>Create</Button>
                         <Button variant="ghost" className="h-[42px]" onClick={() => setIsCreating(false)}>Cancel</Button>
@@ -327,11 +492,54 @@ export default function Portfolio() {
 
             {/* Portfolio Actions */}
             {activeTab !== "Overall" && !isCreating && activeSubportfolioObj && (
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                    <Button variant="secondary" onClick={() => {
+                        setIsEditing(!isEditing);
+                        setEditName(activeSubportfolioObj.name);
+                        setEditRisk(activeSubportfolioObj.risk_profile);
+                        setEditTarget(activeSubportfolioObj.target_amount?.toString() || "");
+                    }}>
+                        {isEditing ? "Cancel Edit" : "Edit Details"}
+                    </Button>
                     <Button variant="danger" onClick={() => handleDeleteSubPortfolio(activeSubportfolioObj.id)}>
                         Delete {activeTab}
                     </Button>
                 </div>
+            )}
+
+            {isEditing && activeSubportfolioObj && (
+                <Card className="bg-primary-50/30 border-primary-200 border-dashed">
+                    <CardContent className="pt-6 flex items-end gap-4">
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Name"
+                                value={editName}
+                                onChange={e => setEditName(e.target.value)}
+                            />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
+                            <select
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                value={editRisk}
+                                onChange={e => setEditRisk(e.target.value)}
+                            >
+                                <option value="Conservative">Conservative</option>
+                                <option value="Moderate">Moderate</option>
+                                <option value="Aggressive">Aggressive</option>
+                            </select>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <Input
+                                label="Target Amount"
+                                type="number"
+                                value={editTarget}
+                                onChange={e => setEditTarget(e.target.value)}
+                            />
+                        </div>
+                        <Button variant="primary" className="h-[42px]" onClick={handleUpdateSubPortfolio}>Save Changes</Button>
+                    </CardContent>
+                </Card>
             )}
 
             {/* Top Stats */}
@@ -340,8 +548,15 @@ export default function Portfolio() {
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
+                {activeSubportfolioObj?.target_amount && (
+                    <StatCard 
+                        title="Goal Progress" 
+                        value={`${((parseFloat(currentData.stats.equity.replace(/[^0-9.-]+/g,"")) / activeSubportfolioObj.target_amount) * 100).toFixed(1)}%`} 
+                        trend="neutral"
+                        description={`Target: ${formatCurrency(activeSubportfolioObj.target_amount)}`}
+                    />
+                )}
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
-                <StatCard title="Sortino Ratio" value={currentData.stats.sortino} trend="neutral" />
             </div>
 
             {/* Equity Curve Chart */}
@@ -351,7 +566,7 @@ export default function Portfolio() {
                         <CardTitle>{activeTab} Growth</CardTitle>
                         <CardDescription>Historical equity curve based on latest evaluation.</CardDescription>
                     </div>
-                    <div className="flex bg-base-100 p-1 rounded-lg border border-base-200">
+                    <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
                         {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
                             <button
                                 key={tf}
@@ -359,8 +574,8 @@ export default function Portfolio() {
                                 className={cn(
                                     "px-3 py-1 text-xs font-medium rounded-md transition-all",
                                     timeframe === tf
-                                        ? "bg-white text-base-900 shadow-sm"
-                                        : "text-base-500 hover:text-base-700"
+                                        ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                        : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
                                 )}
                             >
                                 {tf}
@@ -378,7 +593,7 @@ export default function Portfolio() {
                                         <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                 <XAxis
                                     dataKey="date"
                                     axisLine={false}
@@ -395,8 +610,8 @@ export default function Portfolio() {
                                 <YAxis
                                     axisLine={false}
                                     tickLine={false}
-                                    tick={{ fill: '#64748b', fontSize: 12 }}
-                                    tickFormatter={(value) => `$${value / 1000}k`}
+                                    tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
+                                    tickFormatter={(value) => formatCompactCurrency(value)}
                                 />
                                 <Tooltip
                                     content={({ active, payload, label }) => {
@@ -409,7 +624,7 @@ export default function Portfolio() {
                                                     <div className="space-y-1.5">
                                                         {payload.map((entry: any, index: number) => (
                                                             <div key={index} className="flex items-center justify-between gap-4">
-                                                                <span 
+                                                                <span
                                                                     className="text-sm font-semibold"
                                                                     style={{ color: entry.stroke }}
                                                                 >
@@ -448,15 +663,28 @@ export default function Portfolio() {
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600">
-                            <thead className="border-b border-base-200 bg-base-50/50 text-base-900">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                            <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
                                 <tr>
-                                    <th className="px-4 py-3 font-semibold">Asset</th>
-                                    <th className="px-4 py-3 font-semibold">Shares</th>
-                                    <th className="px-4 py-3 font-semibold">Avg Cost</th>
-                                    <th className="px-4 py-3 font-semibold">Current Price</th>
-                                    <th className="px-4 py-3 font-semibold">Market Value</th>
-                                    <th className="px-4 py-3 font-semibold">Total Return</th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('asset')}>
+                                        <div className="flex items-center gap-2">Asset {getSortIcon('asset')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('shares')}>
+                                        <div className="flex items-center justify-end gap-2">Shares {getSortIcon('shares')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('avgCost')}>
+                                        <div className="flex items-center justify-end gap-2">Avg Cost {getSortIcon('avgCost')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('price')}>
+                                        <div className="flex items-center justify-end gap-2">Price {getSortIcon('price')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('value')}>
+                                        <div className="flex items-center justify-end gap-2">Value {getSortIcon('value')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('return')}>
+                                        <div className="flex items-center justify-end gap-2">Return {getSortIcon('return')}</div>
+                                    </th>
+                                    <th className="px-4 py-3 font-semibold"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -468,26 +696,54 @@ export default function Portfolio() {
                                     </tr>
                                 )}
                                 {currentData.holdings.map((h) => {
-                                    const marketValue = h.shares * h.currentPrice
-                                    const costBasis = h.shares * h.avgCost
-                                    const totalReturn = marketValue - costBasis
-                                    const returnPercent = (totalReturn / costBasis) * 100
-                                    const isPositive = totalReturn >= 0
+                                    const marketValueHome = h.shares * h.currentPrice;
+                                    const marketValueNative = h.shares * h.currentPriceNative;
+                                    const costBasisHome = h.shares * h.avgCost;
+                                    const totalReturnHome = marketValueHome - costBasisHome;
+                                    const returnPercent = costBasisHome > 0 ? (totalReturnHome / costBasisHome) * 100 : 0;
+                                    const isPositive = totalReturnHome >= 0;
 
                                     return (
-                                        <tr key={h.ticker} className="border-b border-base-100 hover:bg-base-50/50 transition-colors">
+                                        <tr key={h.ticker} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
                                             <td className="px-4 py-3">
-                                                <div className="font-medium text-base-900">{h.ticker}</div>
-                                                <div className="text-xs text-base-500">{h.name}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="font-medium text-base-900 dark:text-base-50">{h.ticker}</div>
+                                                    <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-base-100 dark:bg-base-800 text-base-500 border-none uppercase">
+                                                        {h.currency}
+                                                    </Badge>
+                                                </div>
+                                                <div className="text-xs text-base-500 dark:text-base-400">{h.name}</div>
                                             </td>
-                                            <td className="px-4 py-3">{h.shares}</td>
-                                            <td className="px-4 py-3">${h.avgCost.toFixed(2)}</td>
-                                            <td className="px-4 py-3">${h.currentPrice.toFixed(2)}</td>
-                                            <td className="px-4 py-3 font-medium text-base-900">${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3 text-right">{h.shares.toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="text-sm font-medium text-base-900 dark:text-base-50">{formatCurrency(h.currentPriceNative, h.currency)}</div>
+                                                <div className="text-[10px] text-base-400 dark:text-base-500">
+                                                    ≈ {formatCurrency(h.currentPrice)}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="text-sm text-base-600 dark:text-base-300">{formatCurrency(h.avgCostNative, h.currency)}</div>
+                                                <div className="text-[10px] text-base-400 dark:text-base-500">
+                                                    ≈ {formatCurrency(h.avgCost)}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-medium">
+                                                <div className="text-base-900 dark:text-base-50">{formatCurrency(marketValueHome)}</div>
+                                                {h.currency !== activeHousehold.base_currency && (
+                                                    <div className="text-[10px] text-base-400 dark:text-base-500 font-normal">
+                                                        {formatCurrency(marketValueNative, h.currency)}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
                                                 <Badge variant={isPositive ? "success" : "error"}>
-                                                    {isPositive ? "+" : ""}{totalReturn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({returnPercent.toFixed(2)}%)
+                                                    {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
                                                 </Badge>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                                                    <Button variant="ghost" size="sm">Trade</Button>
+                                                </Link>
                                             </td>
                                         </tr>
                                     )
