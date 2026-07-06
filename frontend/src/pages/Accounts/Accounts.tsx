@@ -107,8 +107,8 @@ export default function Accounts() {
 
     const getCurrentBalanceDetails = (history: BalanceResponse[]) => {
         if (history.length === 0) return { balance: 0, balanceHome: 0 };
-        // ⚡ Bolt: Replaced O(N log N) sort with O(N) reduce for finding latest balance
-        const last = history.reduce((latest, current) => current.date > latest.date ? current : latest);
+        // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
+        const last = history.reduce((max, current) => current.date > max.date ? current : max, history[0]);
         return {
             balance: Number(last.balance),
             balanceHome: Number(last.balance_home_currency ?? last.balance)

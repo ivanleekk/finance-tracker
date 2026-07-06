@@ -56,8 +56,8 @@ export default function Dashboard() {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                // ⚡ Bolt: Replaced O(N log N) sort with O(N) reduce to find latest balance
-                const last = history.reduce((latest, current) => current.date > latest.date ? current : latest);
+                // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
+                const last = history.reduce((max, current) => current.date > max.date ? current : max, history[0]);
                 total += Number(last.balance_home_currency ?? last.balance);
             }
         });
@@ -65,7 +65,7 @@ export default function Dashboard() {
     }, [balances]);
 
     const currentPortfolioValue = useMemo(() => {
-        if (snapshots.length === 0) return 0;
+        if (!snapshots || snapshots.length === 0) return 0;
 
         // Group snapshots by date and find the latest date
         const snapshotsByDate: Record<string, number> = {};
@@ -73,12 +73,12 @@ export default function Dashboard() {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
         });
 
-        const dates = Object.keys(snapshotsByDate);
-        if (dates.length === 0) return 0;
+        const datesArr = Object.keys(snapshotsByDate);
+        if (datesArr.length === 0) return 0;
 
-        // ⚡ Bolt: Replaced O(N log N) sort with O(N) reduce to find latest date
-        const latestDate = dates.reduce((latest, current) => current > latest ? current : latest);
-        return snapshotsByDate[latestDate];
+        const latestDate = datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]);
+
+        return snapshotsByDate[latestDate] || 0;
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
@@ -108,7 +108,7 @@ export default function Dashboard() {
         });
 
         const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : (a > b ? 1 : 0)));
-        
+
         const accountLatestBalances = new Map<string, number>();
         
         const rawData = sortedDates.map(date => {
