@@ -182,7 +182,8 @@ export default function Portfolio() {
 
             return Array.from(binned.entries())
                 .filter(([date]) => !startDate || date >= startDate)
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                // ⚡ Bolt: Fast string comparison instead of localeCompare
+                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
                 .map(([date, equity]) => ({ date, equity }));
         };
 
@@ -228,7 +229,8 @@ export default function Portfolio() {
             });
 
             const history = Array.from(dailyEquity.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
+                // ⚡ Bolt: Fast string comparison instead of localeCompare
+                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
                 .map(([date, equity]) => ({
                     date,
                     equity

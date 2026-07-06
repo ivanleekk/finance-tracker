@@ -12,27 +12,11 @@
   }
 }
 
-/* @source inline("color-red-{50,{100..900..100},950}");
-@source inline("color-indigo-{50,{100..900..100},950}");
-@source inline("color-violet-{50,{100..900..100},950}");
-@source inline("color-rose-{50,{100..900..100},950}");
-@source inline("color-emerald-{50,{100..900..100},950}");
-@source inline("color-blue-{50,{100..900..100},950}");
-@source inline("color-amber-{50,{100..900..100},950}");
-@source inline("color-cyan-{50,{100..900..100},950}");
-@source inline("color-teal-{50,{100..900..100},950}");
-@source inline("color-fuchsia-{50,{100..900..100},950}");
-@source inline("color-purple-{50,{100..900..100},950}");
-@source inline("color-pink-{50,{100..900..100},950}");
-@source inline("color-orange-{50,{100..900..100},950}");
-@source inline("color-yellow-{50,{100..900..100},950}");
-@source inline("color-lime-{50,{100..900..100},950}");
-@source inline("color-slate-{50,{100..900..100},950}");
-@source inline("color-gray-{50,{100..900..100},950}");
-@source inline("color-zinc-{50,{100..900..100},950}");
-@source inline("color-neutral-{50,{100..900..100},950}");
-@source inline("color-stone-{50,{100..900..100},950}");
-@source inline("color-mauve-{50,{100..900..100},950}"); */
+/* Forces Tailwind to emit the full 50-950 shade set for every color that
+   THEME_PALETTES (ThemeContext.tsx) can pick at runtime. ThemeContext builds
+   `var(--color-{name}-{shade})` dynamically in JS, so Tailwind's static
+   source scanner never sees those tokens unless we spell them out here. */
+@source inline("bg-{sky,indigo,rose,emerald,blue,fuchsia,orange,yellow,mauve,slate}-{50,100,200,300,400,500,600,700,800,900,950}");
 
 @theme {
     --dark-mode: selector(.dark);
