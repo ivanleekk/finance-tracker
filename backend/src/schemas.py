@@ -394,6 +394,10 @@ class DividendBase(BaseModel):
     date: datetime
     amount: Decimal
     exchange_rate: float
+    per_share_amount: Optional[Decimal] = None
+    quantity: Optional[float] = None
+    amount_home_currency: Optional[Decimal] = None
+    is_manual: Optional[bool] = None
 
 
 class DividendCreate(DividendBase):
@@ -420,6 +424,13 @@ class DividendResponse(DividendBase):
     asset_id: uuid.UUID
     account_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
+
+
+class DividendSyncResponse(BaseModel):
+    status: str
+    count: int
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
 
 
 class ExchangeRateBase(BaseModel):
@@ -462,6 +473,8 @@ class PerformanceMetrics(BaseModel):
     treynor_ratio: float
     alpha: Optional[float] = None
     beta: Optional[float] = None
+    dividend_income: float = 0.0  # Total dividends received in window (home currency)
+    dividend_yield: float = 0.0  # dividend_income / current portfolio value
 
 
 class SubPortfolioMetricsResponse(BaseModel):

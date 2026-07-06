@@ -47,7 +47,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -144,6 +144,8 @@ export default function Portfolio() {
         setIsSyncing(true);
         try {
             await api.post(`/portfolio/household/${activeHousehold.id}/sync`);
+            // Record any dividends that went ex since the last sync
+            await api.post(`/portfolio/household/${activeHousehold.id}/dividends/sync`);
             // Wait a bit for the background task to start/process
             setTimeout(() => {
                 revalidator.revalidate();
@@ -324,6 +326,23 @@ export default function Portfolio() {
         return dataMap;
     }, [snapshots, assets, subportfolios, timeframe, metrics]);
 
+    // Dividends for the active tab (all sub-portfolios when "Overall"), newest first.
+    // Kept above the early return so hook order stays stable across renders.
+    const dividendData = useMemo(() => {
+        const sp = subportfolios.find(s => s.name === activeTab);
+        const assetById = new Map(assets.map(a => [a.id, a]));
+        const relevant = dividends
+            .filter(d => activeTab === "Overall" || d.sub_portfolio_id === sp?.id)
+            .map(d => ({
+                ...d,
+                ticker: assetById.get(d.asset_id)?.ticker || "UNKNOWN",
+                homeAmount: d.amount_home_currency ?? d.amount,
+            }))
+            .sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : 0)));
+        const total = relevant.reduce((sum, d) => sum + (Number(d.homeAmount) || 0), 0);
+        return { rows: relevant, total };
+    }, [dividends, assets, subportfolios, activeTab]);
+
     if (!activeHousehold) {
         return (
             <div className="flex-1 flex items-center justify-center p-8 text-base-500">
@@ -383,6 +402,11 @@ export default function Portfolio() {
 
     const currentData = { ...rawData, holdings: sortedHoldings };
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
+
+    // Metrics for the active tab (includes dividend_income / dividend_yield).
+    const activeMetrics = activeTab === "Overall"
+        ? metrics?.overall_metrics
+        : metrics?.sub_portfolio_metrics?.find(m => m.sub_portfolio_id === activeSubportfolioObj?.id)?.metrics;
 
     return (
         <div className="flex-1 space-y-6 p-8 relative">
@@ -748,6 +772,76 @@ export default function Portfolio() {
                                         </tr>
                                     )
                                 })}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Dividend Income */}
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <div>
+                        <CardTitle>{activeTab} Dividend Income</CardTitle>
+                        <CardDescription>Automatically tracked from your holdings.</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        {activeMetrics?.dividend_yield != null && activeMetrics.dividend_yield > 0 && (
+                            <div className="text-right">
+                                <div className="text-xs text-base-500 dark:text-base-400">Trailing yield</div>
+                                <div className="text-lg font-semibold text-base-900 dark:text-base-50">
+                                    {(activeMetrics.dividend_yield * 100).toFixed(2)}%
+                                </div>
+                            </div>
+                        )}
+                        <div className="text-right">
+                            <div className="text-xs text-base-500 dark:text-base-400">Total received</div>
+                            <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                                {formatCurrency(dividendData.total)}
+                            </div>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
+                            <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
+                                <tr>
+                                    <th className="px-4 py-3 font-semibold">Date</th>
+                                    <th className="px-4 py-3 font-semibold">Asset</th>
+                                    <th className="px-4 py-3 font-semibold text-right">Per Share</th>
+                                    <th className="px-4 py-3 font-semibold text-right">Shares</th>
+                                    <th className="px-4 py-3 font-semibold text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {dividendData.rows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={5} className="px-4 py-8 text-center text-base-500">
+                                            No dividends recorded yet. Click Sync to fetch payouts for your holdings.
+                                        </td>
+                                    </tr>
+                                )}
+                                {dividendData.rows.map((d) => (
+                                    <tr key={d.id} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
+                                        <td className="px-4 py-3 whitespace-nowrap">{new Date(d.date).toLocaleDateString()}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-base-900 dark:text-base-50">{d.ticker}</span>
+                                                {d.is_manual && (
+                                                    <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-base-100 dark:bg-base-800 text-base-500 border-none uppercase">
+                                                        Manual
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">{d.per_share_amount != null ? formatCurrency(Number(d.per_share_amount)) : "—"}</td>
+                                        <td className="px-4 py-3 text-right">{d.quantity != null ? Number(d.quantity).toLocaleString() : "—"}</td>
+                                        <td className="px-4 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">
+                                            +{formatCurrency(Number(d.homeAmount))}
+                                        </td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                     </div>

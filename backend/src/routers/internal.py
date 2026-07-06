@@ -7,6 +7,7 @@ from src.database import get_db
 from src.models import Household, PortfolioSnapshot, Trade
 from sqlalchemy import select, func
 from src.services.snapshot_engine import run_snapshot_range
+from src.services.dividend_engine import sync_dividends_range
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
@@ -49,7 +50,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
             if last_snapshot_date:
                 # Catch up from last_snapshot_date to today
                 run_snapshot_range(db, hh_id, last_snapshot_date, today)
-                results.append({"household_id": hh_id, "status": "updated", "from": last_snapshot_date, "to": today})
+                # Record any dividends that went ex within the caught-up range
+                dividends_recorded = sync_dividends_range(db, hh_id, last_snapshot_date, today)
+                results.append({"household_id": hh_id, "status": "updated", "from": last_snapshot_date, "to": today, "dividends_recorded": dividends_recorded})
             else:
                 results.append({"household_id": hh_id, "status": "no_data"})
                 

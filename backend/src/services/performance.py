@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 import uuid
 from typing import List, Optional, Dict
 
-from src.models import Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio
+from src.models import Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio, Dividend
 from src import schemas
 
 def calculate_performance_metrics(
@@ -162,6 +162,23 @@ def calculate_performance_metrics(
     downside_vol = float(ds_std) * np.sqrt(252) if ds_std is not None else 0.0
     sortino = (ann_twr - effective_rf) / downside_vol if downside_vol > 0 else (0.0 if (ann_twr - effective_rf) <= 0 else 100.0)
 
+    # --- F. Dividend Income & Trailing Yield ---
+    # Dividends are credited to cash accounts and are NOT part of the asset
+    # equity curve (snapshots), so summing them here does not double-count.
+    div_query = select(
+        func.coalesce(Dividend.amount_home_currency, Dividend.amount).label("amount")
+    ).where(Dividend.household_id == household_id)
+    if sub_portfolio_id:
+        div_query = div_query.where(Dividend.sub_portfolio_id == sub_portfolio_id)
+    if start_date:
+        div_query = div_query.where(func.date(Dividend.date) >= start_date)
+    if end_date:
+        div_query = div_query.where(func.date(Dividend.date) <= end_date)
+
+    dividend_income = sum(float(r.amount) for r in db.execute(div_query).all() if r.amount is not None)
+    # Trailing yield on the portfolio's current (window-end) market value.
+    dividend_yield = dividend_income / end_val if end_val > 0 else 0.0
+
     return schemas.PerformanceMetrics(
         simple_return=simple_return,
         time_weighted_return=ann_twr,
@@ -170,7 +187,9 @@ def calculate_performance_metrics(
         sharpe_ratio=sharpe,
         sortino_ratio=sortino,
         treynor_ratio=(ann_twr - effective_rf) / 1.0, # Default beta=1
-        beta=1.0
+        beta=1.0,
+        dividend_income=dividend_income,
+        dividend_yield=dividend_yield
     )
 
 def _empty_metrics() -> schemas.PerformanceMetrics:

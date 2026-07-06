@@ -194,6 +194,10 @@ export type DividendResponse = {
   date: string;
   amount: number;
   exchange_rate: number;
+  per_share_amount?: number | null;
+  quantity?: number | null;
+  amount_home_currency?: number | null;
+  is_manual?: boolean | null;
 };
 
 export type ExchangeRateResponse = {
@@ -214,6 +218,8 @@ export type PerformanceMetrics = {
   treynor_ratio: number;
   alpha?: number;
   beta?: number;
+  dividend_income?: number;
+  dividend_yield?: number;
 };
 
 export type SubPortfolioMetricsResponse = {

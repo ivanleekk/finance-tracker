@@ -9,6 +9,7 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
 from src.services.snapshot_engine import run_snapshot_range
+from src.services.dividend_engine import sync_dividends_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
@@ -400,6 +401,8 @@ def execute_trade(
 
     # Sync snapshots synchronously for serverless reliability
     run_snapshot_range(db, trade.household_id, trade.date.date(), date.today())
+    # Refresh auto-tracked dividends for the affected range (snapshots must be fresh first)
+    sync_dividends_range(db, trade.household_id, trade.date.date(), date.today())
     # We must construct trade base manually because db column is trade_type while schema uses type
     response = schemas.TradeResponse(
         id=db_trade.id,
@@ -477,6 +480,8 @@ def update_trade(
 
     # Sync snapshots synchronously for serverless reliability
     run_snapshot_range(db, db_trade.household_id, recalc_start_date, date.today())
+    # Refresh auto-tracked dividends for the affected range
+    sync_dividends_range(db, db_trade.household_id, recalc_start_date, date.today())
 
     return schemas.TradeResponse(
         id=db_trade.id,
@@ -522,6 +527,8 @@ def delete_trade(
 
     # Sync snapshots synchronously for serverless reliability
     run_snapshot_range(db, household_id, trade_date, date.today())
+    # Refresh auto-tracked dividends for the affected range
+    sync_dividends_range(db, household_id, trade_date, date.today())
     return
 
 # --- PORTFOLIO ACCESS ---
@@ -830,11 +837,41 @@ def log_dividend(
         date=dividend.date,
         amount=dividend.amount,
         exchange_rate=dividend.exchange_rate,
+        is_manual=True,
     )
     db.add(db_dividend)
     db.commit()
     db.refresh(db_dividend)
     return db_dividend
+
+
+@router.post("/household/{household_id}/dividends/sync", response_model=schemas.DividendSyncResponse, status_code=status.HTTP_200_OK)
+def sync_household_dividends(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Manually trigger an automatic dividend sync for the household. Recomputes
+    snapshots from the earliest trade so holdings are current, then records any
+    dividends whose ex-dividend date has passed. Idempotent and safe to re-run.
+    """
+    verify_household_access(household_id, current_user, db)
+
+    sync_start_date = db.execute(
+        select(func.min(func.date(models.Trade.date)))
+        .where(models.Trade.household_id == household_id)
+    ).scalar()
+
+    if not sync_start_date:
+        return schemas.DividendSyncResponse(status="no_data", count=0, from_date=None, to_date=None)
+
+    today = date.today()
+    # Ensure snapshot holdings are fresh before deriving dividends.
+    run_snapshot_range(db, household_id, sync_start_date, today)
+    count = sync_dividends_range(db, household_id, sync_start_date, today)
+
+    return schemas.DividendSyncResponse(status="success", count=count, from_date=sync_start_date, to_date=today)
 
 @router.get(
     "/dividends/household/{household_id}",

@@ -323,17 +323,26 @@ class PortfolioSnapshot(Base):
 
 class Dividend(Base):
     __tablename__ = "dividends"
+    __table_args__ = (
+        UniqueConstraint('sub_portfolio_id', 'asset_id', 'date', name='uq_dividend_sub_portfolio_asset_date'),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True)
     date = Column(DateTime(timezone=True))
-    amount = Column(Numeric)
+    amount = Column(Numeric)  # Total payout in asset currency (per_share * quantity)
+    amount_home_currency = Column(Numeric, nullable=True)  # Converted to household base currency
+    per_share_amount = Column(Numeric, nullable=True)  # Per-share dividend in asset currency
+    quantity = Column(Float, nullable=True)  # Shares held on the ex-dividend date
     exchange_rate = Column(Float)
+    is_manual = Column(Boolean, default=True)  # False for auto-tracked dividends
 
     household = relationship("Household", back_populates="dividends")
     sub_portfolio = relationship("SubPortfolio", back_populates="dividends")
     asset = relationship("Asset", back_populates="dividends")
     account = relationship("FinancialAccount", back_populates="dividends")
+    transaction = relationship("Transaction")
