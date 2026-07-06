@@ -4,3 +4,7 @@
 ## 2024-05-19 - JavaScript String Comparison Performance
 **Learning:** In highly iterative render cycles or sorting algorithms (like rendering a chart with thousands of historical data points), using `String.prototype.localeCompare` on ISO date strings is a significant and unnecessary main-thread bottleneck compared to native lexical operators (`>` and `<`). Additionally, creating full array copies just to `.sort()` them when you only need to extract a single extremum (e.g. the most recent date) creates huge `O(N log N)` overhead.
 **Action:** When working with standardized formats like ISO-8601 dates in JS/TS, always use `>` and `<` for comparison. For finding a single min/max value, use an `O(N)` single-pass `Array.prototype.reduce()` (with appropriate empty array safety checks) instead of `.sort()[0]`.
+
+## 2024-07-04 - Optimize Chart Data Aggregation
+**Learning:** Using nested array operations like `.find()` or `.filter()` inside a `.map()` loop for large time-series datasets causes O(N^2) complexity, leading to main-thread blocking. Additionally, using `localeCompare` for standard ISO date strings adds unnecessary overhead compared to relational operators (`<`, `>`).
+**Action:** Use an O(N) single-pass approach with a hash map (Map) to pre-compute and track running tallies for chart data aggregation. Replace `localeCompare` with standard relational operators for faster date string comparisons.

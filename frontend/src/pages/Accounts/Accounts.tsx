@@ -116,29 +116,36 @@ export default function Accounts() {
     }
 
     // ⚡ Bolt Performance Optimization:
-    // Replaced O(D * A * H log H) nested filtering and sorting inside the date map
-    // with an O(N) single-pass approach that tracks running balances.
+    // Replaced O(N^2) nested `.find()` operations inside `.map()`
+    // with O(N) hash map lookups to prevent main-thread blocking. Also replaced `localeCompare`.
     const aggregatedChartData = useMemo(() => {
         const allDatesSet = new Set<string>();
-        accounts.forEach(acc => acc.history.forEach(h => allDatesSet.add(h.date)));
+        const balancesByDate = new Map<string, Array<{id: string, name: string, bal: number}>>();
 
-        const sortedDates = Array.from(allDatesSet).sort((a, b) => a > b ? 1 : (a < b ? -1 : 0));
+        accounts.forEach(acc => {
+            acc.history.forEach(h => {
+                allDatesSet.add(h.date);
+                const list = balancesByDate.get(h.date) || [];
+                list.push({ id: acc.id, name: acc.name, bal: Number(h.balance_home_currency ?? h.balance) });
+                balancesByDate.set(h.date, list);
+            });
+        });
 
-        // Track the latest balance for each account to carry forward
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : (a > b ? 1 : 0)));
+
         const accountLatestBalances = new Map<string, number>();
+        const allAccountNames = Array.from(new Set(accounts.map(acc => acc.name)));
 
         return sortedDates.map(date => {
             const dataPoint: any = { date };
 
-            accounts.forEach(acc => {
-                // Find if there's an exact record for this date
-                const balOnDate = acc.history.find(h => h.date === date);
-                if (balOnDate) {
-                    accountLatestBalances.set(acc.id, Number(balOnDate.balance_home_currency ?? balOnDate.balance));
-                }
+            const updates = balancesByDate.get(date);
+            if (updates) {
+                updates.forEach(u => accountLatestBalances.set(u.name, u.bal));
+            }
 
-                // Use the carried-forward balance (or 0 if none yet)
-                dataPoint[acc.name] = accountLatestBalances.get(acc.id) || 0;
+            allAccountNames.forEach(name => {
+                dataPoint[name] = accountLatestBalances.get(name) || 0;
             });
 
             return dataPoint;
@@ -599,7 +606,7 @@ export default function Accounts() {
                                         <tbody className="divide-y divide-base-100 dark:divide-base-800">
                                             {historyAccount.history
                                                 .filter(h => h.is_manual)
-                                                .sort((a, b) => b.date > a.date ? 1 : (b.date < a.date ? -1 : 0))
+                                                .sort((a, b) => (b.date < a.date ? -1 : (b.date > a.date ? 1 : 0)))
                                                 .map((h) => (
                                                     <tr key={h.id} className="group hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
                                                         <td className="px-2 py-3 font-medium text-base-900 dark:text-base-50">
