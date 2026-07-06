@@ -49,6 +49,10 @@ export type UserResponse = {
   email: string;
   preferred_timezone: string;
   name: string;
+  theme_mode: "light" | "dark" | "system";
+  primary_color: string;
+  secondary_color: string;
+  base_color: string;
 };
 
 export type HouseholdResponse = {
@@ -56,7 +60,10 @@ export type HouseholdResponse = {
   name: string;
   base_currency: string;
   country_code: string;
+  default_funding_account_id?: string;
+  default_sub_portfolio_id?: string;
 };
+
 
 export type HouseholdMemberResponse = {
   id: string;
@@ -86,7 +93,10 @@ export type BalanceResponse = {
   account_id: string;
   date: string;
   balance: number;
+  balance_home_currency?: number;
+  is_manual: boolean;
 };
+
 
 export type AccountAccessResponse = {
   id: string;
@@ -117,7 +127,12 @@ export type TransactionResponse = {
   category_id: string;
   date: string;
   amount: number;
+  amount_home_currency?: number;
+  currency?: string | null;
+  exchange_rate?: number | null;
   description: string | null;
+  transaction_type: TransactionType;
+  transfer_id?: string | null;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---
@@ -136,6 +151,7 @@ export type SubPortfolioResponse = {
   name: string;
   risk_profile: string;
   target_date: string | null;
+  target_amount: number | null;
 };
 
 export type TradeResponse = {
@@ -148,8 +164,12 @@ export type TradeResponse = {
   date: string;
   quantity: number;
   price: number;
+  currency?: string | null;
   exchange_rate: number;
+  transaction_id?: string | null;
+  description?: string | null;
 };
+
 
 export type PortfolioSnapshotResponse = {
   id: string;
@@ -161,7 +181,8 @@ export type PortfolioSnapshotResponse = {
   price: number;
   exchange_rate_used: number;
   current_value_home_currency: number;
-  averge_cost_basis: number;
+  average_cost_basis: number;
+  average_cost_basis_home_currency: number;
 };
 
 export type DividendResponse = {
@@ -181,4 +202,40 @@ export type ExchangeRateResponse = {
   base_currency: string;
   target_currency: string;
   rate: number;
+};
+
+export type PerformanceMetrics = {
+  simple_return: number;
+  time_weighted_return: number;
+  money_weighted_return: number;
+  volatility: number;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  treynor_ratio: number;
+  alpha?: number;
+  beta?: number;
+};
+
+export type SubPortfolioMetricsResponse = {
+  sub_portfolio_id: string;
+  name: string;
+  metrics: PerformanceMetrics;
+};
+
+export type PortfolioMetricsResponse = {
+  household_id: string;
+  overall_metrics: PerformanceMetrics;
+  sub_portfolio_metrics: SubPortfolioMetricsResponse[];
+};
+// --- 5. REFERENCE DATA ---
+
+export type CurrencyResponse = {
+  code: string;
+  name: string;
+  symbol: string;
+};
+
+export type CountryResponse = {
+  code: string;
+  name: string;
 };

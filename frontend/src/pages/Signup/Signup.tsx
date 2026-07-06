@@ -17,18 +17,22 @@ export async function action({ request }: ActionFunctionArgs) {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            return { error: errorData.detail || "An error occurred during signup." };
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                const errorData = await response.json();
+                return { error: errorData.detail || "An error occurred during signup." };
+            }
+            return { error: `Server error (${response.status}). Please check backend logs.` };
         }
 
         // After signup, we might want to log the user in automatically
         // or just redirect to login page. The current implementation 
         // in Signup.tsx redirected to dashboard, but that requires 
         // a session which we don't have yet (unless the backend returns one).
-        
+
         // If backend returns a Set-Cookie on signup, we should forward it.
         const setCookieHeader = response.headers.get("Set-Cookie");
-        
+
         return redirect("/dashboard", {
             headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
         });
@@ -46,17 +50,17 @@ export default function Signup() {
 
     return (
         <div className="flex items-center justify-center h-screen">
-            <Form method="post" className="w-full max-w-sm bg-white p-8 rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold mb-6 text-center">Sign Up for FinTracker</h2>
+            <Form method="post" className="w-full max-w-sm bg-white dark:bg-base-900 p-8 rounded-lg shadow-md border border-base-200 dark:border-base-800">
+                <h2 className="text-2xl font-bold mb-6 text-center text-base-900 dark:text-base-50">Sign Up for FinTracker</h2>
 
                 {actionData?.error && (
-                    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+                    <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded text-sm">
                         {actionData.error}
                     </div>
                 )}
 
                 <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="name">
+                    <label className="block text-base-700 dark:text-base-300 text-sm font-bold mb-2" htmlFor="name">
                         Username
                     </label>
                     <input
@@ -64,11 +68,11 @@ export default function Signup() {
                         name="name"
                         type="text"
                         required
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
                 <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="email">
+                    <label className="block text-base-700 dark:text-base-300 text-sm font-bold mb-2" htmlFor="email">
                         Email
                     </label>
                     <input
@@ -76,11 +80,11 @@ export default function Signup() {
                         name="email"
                         type="email"
                         required
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
                 <div className="mb-6">
-                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+                    <label className="block text-base-700 dark:text-base-300 text-sm font-bold mb-2" htmlFor="password">
                         Password
                     </label>
                     <input
@@ -88,10 +92,10 @@ export default function Signup() {
                         name="password"
                         type="password"
                         required
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300"
+                        className="w-full px-3 py-2 border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-900 dark:text-base-50 rounded-lg focus:outline-none focus:ring focus:border-blue-300"
                     />
                 </div>
-                
+
                 <div className="flex flex-col gap-4">
                     <Button
                         type="submit"
@@ -100,10 +104,10 @@ export default function Signup() {
                     >
                         {isLoading ? "Signing up..." : "Sign Up"}
                     </Button>
-                    
-                    <p className="text-center text-sm text-base-500">
+
+                    <p className="text-center text-sm text-base-500 dark:text-base-400">
                         Already have an account?{" "}
-                        <Link to="/login" className="text-primary-600 hover:underline">
+                        <Link to="/login" className="text-primary-600 dark:text-primary-400 hover:underline">
                             Log In
                         </Link>
                     </p>

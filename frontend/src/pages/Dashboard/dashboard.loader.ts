@@ -5,7 +5,8 @@ import type {
     BalanceResponse, 
     SubPortfolioResponse, 
     TransactionResponse, 
-    PortfolioSnapshotResponse 
+    PortfolioSnapshotResponse,
+    PortfolioMetricsResponse
 } from "../../types/types";
 
 export type DashboardLoaderData = {
@@ -14,35 +15,38 @@ export type DashboardLoaderData = {
     subPortfolios: SubPortfolioResponse[];
     transactions: TransactionResponse[];
     snapshots: PortfolioSnapshotResponse[];
+    metrics: PortfolioMetricsResponse | null;
 };
 
 export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<DashboardLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
+    const url = new URL(request.url);
+    const startDate = url.searchParams.get("start_date");
+    const endDate = url.searchParams.get("end_date");
+
+    const metricsUrl = `/portfolio/household/${householdId}/metrics` + 
+        (startDate || endDate ? `?${new URLSearchParams({ 
+            ...(startDate && { start_date: startDate }), 
+            ...(endDate && { end_date: endDate }) 
+        })}` : "");
+
     try {
-        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, allBalancesRes] = await Promise.all([
+        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes, allBalancesRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
+            ssrFetch(metricsUrl),
             ssrFetch(`/accounts/balances/household/${householdId}`)
         ]);
 
-        if (!accountsRes.ok || !subPortfoliosRes.ok || !transactionsRes.ok || !snapshotsRes.ok) {
-            console.error("One or more dashboard requests failed", {
-                accounts: accountsRes.status,
-                subPortfolios: subPortfoliosRes.status,
-                transactions: transactionsRes.status,
-                snapshots: snapshotsRes.status
-            });
-            throw new Error("Failed to fetch dashboard data");
-        }
-
-        const [accounts, subPortfolios, transactions, snapshots] = await Promise.all([
-            accountsRes.json(),
-            subPortfoliosRes.json(),
-            transactionsRes.json(),
-            snapshotsRes.json()
+        const [accounts, subPortfolios, transactions, snapshots, metrics] = await Promise.all([
+            accountsRes.ok ? accountsRes.json() : [],
+            subPortfoliosRes.ok ? subPortfoliosRes.json() : [],
+            transactionsRes.ok ? transactionsRes.json() : [],
+            snapshotsRes.ok ? snapshotsRes.json() : [],
+            metricsRes.ok ? metricsRes.json() : null
         ]);
 
         const allBalances: BalanceResponse[] = allBalancesRes.ok ? await allBalancesRes.json() : [];
@@ -58,7 +62,8 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             balances: balanceMap,
             subPortfolios,
             transactions,
-            snapshots
+            snapshots,
+            metrics
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
@@ -68,7 +73,8 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             balances: {}, 
             subPortfolios: [], 
             transactions: [], 
-            snapshots: [] 
+            snapshots: [],
+            metrics: null
         };
     }
 }

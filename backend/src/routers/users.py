@@ -15,7 +15,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.post(
-    "/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED
+    "", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED
 )
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
@@ -60,7 +60,7 @@ def search_user_by_email(
     return user
 
 
-@router.get("/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
+@router.get("", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
 def get_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
 ):
@@ -70,7 +70,7 @@ def get_user(
     return user
 
 
-@router.put("/", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
+@router.put("", response_model=schemas.UserResponse, status_code=status.HTTP_200_OK)
 def update_user(
     user_update: schemas.UserUpdate,
     db: Session = Depends(get_db),
@@ -92,13 +92,29 @@ def update_user(
         existing_user.preferred_timezone = user_update.preferred_timezone
     if user_update.name is not None:
         existing_user.name = user_update.name
+    
+    if user_update.theme_mode is not None:
+        existing_user.theme_mode = user_update.theme_mode
+    if user_update.primary_color is not None:
+        existing_user.primary_color = user_update.primary_color
+    if user_update.secondary_color is not None:
+        existing_user.secondary_color = user_update.secondary_color
+    if user_update.base_color is not None:
+        existing_user.base_color = user_update.base_color
+
+    if user_update.email is not None:
+        # Check if the new email is already taken by another user
+        duplicate_user = db.query(models.User).filter(models.User.email == user_update.email, models.User.id != current_user.id).first()
+        if duplicate_user:
+            raise HTTPException(status_code=400, detail="Email already registered by another user")
+        existing_user.email = user_update.email
 
     db.commit()
     db.refresh(existing_user)
     return existing_user
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
 ):
@@ -215,6 +231,10 @@ def update_household(
         existing_household.base_currency = household_update.base_currency
     if household_update.country_code is not None:
         existing_household.country_code = household_update.country_code
+    if household_update.default_funding_account_id is not None:
+        existing_household.default_funding_account_id = household_update.default_funding_account_id
+    if household_update.default_sub_portfolio_id is not None:
+        existing_household.default_sub_portfolio_id = household_update.default_sub_portfolio_id
 
     db.commit()
     db.refresh(existing_household)

@@ -1,21 +1,32 @@
-import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import type { AccountResponse, BalanceResponse } from "../../types/types";
+import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
+import type { AccountResponse, BalanceResponse, CurrencyResponse } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
 
 export type AccountWithHistory = AccountResponse & {
     history: BalanceResponse[];
 };
 
-export async function loader({ request }: LoaderFunctionArgs): Promise<AccountWithHistory[]> {
+export type AccountsLoaderData = {
+    accounts: AccountWithHistory[];
+    currencies: CurrencyResponse[];
+};
+
+export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
-    // Server-side fetching using dynamic URL (backend:5001 vs localhost:5001)
-    const accountsRes = await ssrFetch(`/accounts/household/${householdId}`);
+    if (!householdId) {
+        throw redirect("/households");
+    }
+    const [accountsRes, currenciesRes] = await Promise.all([
+        ssrFetch(`/accounts/household/${householdId}`),
+        ssrFetch(`/reference/currencies`)
+    ]);
 
     if (!accountsRes.ok) {
         throw new Error(`Failed to fetch accounts: ${accountsRes.statusText}`);
     }
     const accounts: AccountResponse[] = await accountsRes.json();
+    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
 
     const balancesRes = await ssrFetch(`/accounts/balances/household/${householdId}`);
     if (!balancesRes.ok) {
@@ -34,7 +45,10 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountWi
         history: balanceMap[acc.id] || []
     }));
 
-    return accountsWithHistory;
+    return {
+        accounts: accountsWithHistory,
+        currencies
+    };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -51,7 +65,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const balance = formData.get("balance") as string;
         const date = formData.get("date") as string;
 
-        const accRes = await ssrFetch("/accounts/", {
+        const accRes = await ssrFetch("/accounts", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -112,6 +126,16 @@ export async function action({ request }: ActionFunctionArgs) {
         });
 
         if (!res.ok) return { error: "Failed to delete account" };
+        return { success: true };
+    }
+
+    if (intent === "deleteBalance") {
+        const balanceId = formData.get("balanceId") as string;
+        const res = await ssrFetch(`/accounts/balances/${balanceId}`, {
+            method: "DELETE",
+        });
+
+        if (!res.ok) return { error: "Failed to delete balance" };
         return { success: true };
     }
 

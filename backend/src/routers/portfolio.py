@@ -1,13 +1,170 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from typing import List, Optional
 import uuid
+from datetime import datetime, date
 
 from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access
+from src.services.snapshot_engine import run_snapshot_range
+from src.services.account_service import sync_transaction_to_balances
+from src.services.performance import calculate_performance_metrics
+from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
+from datetime import date
+import yfinance as yf
+from datetime import datetime, timedelta
+import logging
+from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["Investments & Trades"])
+
+
+@router.get("/price", response_model=schemas.TickerPriceResponse)
+def get_ticker_price(
+    ticker: str,
+    date: str,
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Fetch the historical closing price of a ticker using yfinance.
+    If the exact date is not available (e.g., weekend), it returns the most recent prior closing price.
+    """
+    try:
+        start_dt = datetime.strptime(date, "%Y-%m-%d")
+        # We look back up to 7 days to handle weekends/holidays
+        lookback_start = start_dt - timedelta(days=7)
+        end_dt = start_dt + timedelta(days=1)
+        
+        df = yf.download(
+            ticker, 
+            start=lookback_start.strftime("%Y-%m-%d"), 
+            end=end_dt.strftime("%Y-%m-%d"), 
+            progress=False
+        )
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No price data found for ticker: {ticker}")
+            
+        # The dataframe index is the date. We want the closing price closest to the target date.
+        # Since we downloaded up to target_date + 1, the last row is the closest available.
+        price = float(df['Close'].iloc[-1].item())
+        actual_date = df.index[-1].date()
+        
+        # Fetch currency - info can be slow, but we'll try it
+        ticker_obj = yf.Ticker(ticker)
+        currency = ticker_obj.info.get('currency', 'USD')
+        
+        return schemas.TickerPriceResponse(ticker=ticker.upper(), price=price, date=actual_date, currency=currency)
+    except Exception as e:
+        print(f"yfinance error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
+
+def sync_trade_transaction(db: Session, db_trade: models.Trade):
+    """
+    Creates or updates a Transaction corresponding to a Trade.
+    """
+    # 1. Find or create the "Investment" category for this household
+    investment_category = db.query(models.Category).filter(
+        models.Category.household_id == db_trade.household_id,
+        models.Category.name == "Investment"
+    ).first()
+
+    if not investment_category:
+        investment_category = models.Category(
+            id=uuid.uuid7(),
+            household_id=db_trade.household_id,
+            name="Investment",
+            type=models.TransactionType.expense.value
+        )
+        db.add(investment_category)
+        db.flush()
+
+    # 2. Calculate amount
+    # Store amount in the original trade currency
+    amount = Decimal(str(db_trade.quantity)) * db_trade.price
+    amount_in_acc = amount * Decimal(str(db_trade.exchange_rate))
+    
+    # 3. Determine transaction type
+    # A buy trade is an expense (cash out), a sell trade is income (cash in)
+    if db_trade.trade_type == models.TradeType.buy or db_trade.trade_type == "buy":
+        trans_type = models.TransactionType.expense
+    else:
+        trans_type = models.TransactionType.income
+
+    # 4. Get asset ticker for description
+    asset = db.query(models.Asset).filter(models.Asset.id == db_trade.asset_id).first()
+    ticker = asset.ticker if asset else "Unknown"
+    trade_type_str = db_trade.trade_type.value if hasattr(db_trade.trade_type, "value") else str(db_trade.trade_type)
+    description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
+
+    if db_trade.transaction_id:
+        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
+        if db_transaction:
+            # Capture old impact for balance sync
+            old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+            old_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
+            old_impact = (db_transaction.amount * Decimal(str(old_exchange_rate))) * old_multiplier
+            old_date = db_transaction.date.date()
+
+            # Update transaction fields
+            db_transaction.account_id = db_trade.account_id
+            db_transaction.category_id = investment_category.id
+            db_transaction.date = db_trade.date
+            db_transaction.amount = amount
+            db_transaction.description = description
+            db_transaction.transaction_type = trans_type
+            db_transaction.currency = db_trade.currency
+            db_transaction.exchange_rate = db_trade.exchange_rate
+
+            # Calculate amount_home_currency
+            db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+            home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+            rate_to_home = fetch_and_cache_exchange_rates(db, db_transaction.currency, home_curr, db_trade.date.date())
+            db_transaction.amount_home_currency = amount * Decimal(str(rate_to_home))
+
+            # New impact for balance sync
+            new_multiplier = 1 if trans_type == models.TransactionType.income else -1
+            new_impact = amount_in_acc * new_multiplier
+            new_date = db_trade.date.date()
+
+            if old_date == new_date:
+                sync_transaction_to_balances(db, db_trade.account_id, new_date, new_impact - old_impact)
+            else:
+                sync_transaction_to_balances(db, db_trade.account_id, old_date, -old_impact)
+                sync_transaction_to_balances(db, db_trade.account_id, new_date, new_impact)
+
+            return db_transaction
+
+    db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
+    home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
+    rate_to_home = fetch_and_cache_exchange_rates(db, db_trade.currency, home_curr, db_trade.date.date())
+    amount_home_currency = amount * Decimal(str(rate_to_home))
+
+    db_transaction = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=db_trade.account_id,
+        category_id=investment_category.id,
+        date=db_trade.date,
+        amount=amount,
+        amount_home_currency=amount_home_currency,
+        currency=db_trade.currency, # Inherit trade currency
+        exchange_rate=db_trade.exchange_rate,
+        description=description,
+        transaction_type=trans_type
+    )
+    db.add(db_transaction)
+    db.flush()
+    db_trade.transaction_id = db_transaction.id
+
+    # Sync to account balance for new transaction
+    new_multiplier = 1 if trans_type == models.TransactionType.income else -1
+    sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount_in_acc * new_multiplier)
+
+    return db_transaction
 
 # --- ASSETS ---
 
@@ -17,17 +174,70 @@ def create_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    # Try to enrich with yfinance data if name is default or currency is missing
+    ticker_name = asset.name
+    ticker_currency = asset.currency
+
+    if "Equity" in asset.name or not asset.currency:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if info:
+                if "Equity" in asset.name:
+                    ticker_name = info.get('shortName') or info.get('longName') or asset.name
+                ticker_currency = info.get('currency') or asset.currency or "USD"
+        except Exception as e:
+            logger.warning(f"Failed to enrich asset {asset.ticker} from yfinance: {e}")
+
     db_asset = models.Asset(
         id=asset.id if asset.id else uuid.uuid7(),
-        ticker=asset.ticker,
-        name=asset.name,
+        ticker=asset.ticker.upper(),
+        name=ticker_name,
         type=asset.type,
-        currency=asset.currency,
+        currency=ticker_currency.upper() if ticker_currency else "USD",
     )
     db.add(db_asset)
     db.commit()
     db.refresh(db_asset)
     return db_asset
+
+@router.post("/assets/fix", status_code=status.HTTP_200_OK)
+def fix_all_asset_currencies(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    One-time maintenance endpoint to fix asset currencies and names using yfinance.
+    """
+    assets = db.query(models.Asset).all()
+    updated_count = 0
+    for asset in assets:
+        try:
+            t = yf.Ticker(asset.ticker)
+            info = t.info
+            if not info:
+                continue
+            
+            new_curr = info.get('currency')
+            new_name = info.get('shortName') or info.get('longName')
+            
+            changed = False
+            if new_curr and new_curr.upper() != asset.currency.upper():
+                asset.currency = new_curr.upper()
+                changed = True
+            
+            if new_name and ("Equity" in asset.name or not asset.name):
+                asset.name = new_name
+                changed = True
+            
+            if changed:
+                updated_count += 1
+        except Exception as e:
+            logger.error(f"Error fixing asset {asset.ticker}: {e}")
+            continue
+    
+    db.commit()
+    return {"status": "success", "updated_assets": updated_count}
 
 @router.get("/assets", response_model=List[schemas.AssetResponse])
 def search_assets(
@@ -89,6 +299,7 @@ def create_subportfolio(
         name=subportfolio.name,
         risk_profile=subportfolio.risk_profile,
         target_date=subportfolio.target_date,
+        target_amount=subportfolio.target_amount,
     )
     db.add(db_subportfolio)
     db.commit()
@@ -108,43 +319,38 @@ def get_household_subportfolios(
     subportfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
     return subportfolios
 
-@router.get(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.get("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def get_subportfolio(
     subportfolio_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    verify_household_access(sp.household_id, current_user, db)
+    return sp
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-    return db_subportfolio
-
-@router.put(
-    "/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse
-)
+@router.patch("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
 def update_subportfolio(
     subportfolio_id: uuid.UUID,
-    subportfolio_update: schemas.SubPortfolioUpdate,
+    update: schemas.SubPortfolioUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
-    if not db_subportfolio:
-        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_sp:
+        raise HTTPException(status_code=404, detail="SubPortfolio not found")
+    
+    verify_household_access(db_sp.household_id, current_user, db)
 
-    verify_household_access(db_subportfolio.household_id, current_user, db)
-
-    update_data = subportfolio_update.model_dump(exclude_unset=True)
+    update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(db_subportfolio, key, value)
+        setattr(db_sp, key, value)
 
     db.commit()
-    db.refresh(db_subportfolio)
-    return db_subportfolio
+    db.refresh(db_sp)
+    return db_sp
 
 @router.delete("/subportfolios/{subportfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_subportfolio(
@@ -167,6 +373,7 @@ def delete_subportfolio(
 @router.post("/trades", response_model=schemas.TradeResponse, status_code=status.HTTP_201_CREATED)
 def execute_trade(
     trade: schemas.TradeCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -182,11 +389,17 @@ def execute_trade(
         date=trade.date,
         quantity=trade.quantity,
         price=trade.price,
+        currency=trade.currency,
         exchange_rate=trade.exchange_rate,
     )
     db.add(db_trade)
+    db.flush() # Ensure trade is available for sync
+    sync_trade_transaction(db, db_trade)
     db.commit()
     db.refresh(db_trade)
+
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, trade.household_id, trade.date.date(), date.today())
     # We must construct trade base manually because db column is trade_type while schema uses type
     response = schemas.TradeResponse(
         id=db_trade.id,
@@ -198,7 +411,9 @@ def execute_trade(
         date=db_trade.date,
         quantity=db_trade.quantity,
         price=db_trade.price,
+        currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
     return response
 
@@ -224,7 +439,9 @@ def get_household_trades(
             date=t.date,
             quantity=t.quantity,
             price=t.price,
+            currency=t.currency,
             exchange_rate=t.exchange_rate,
+            transaction_id=t.transaction_id,
         ) for t in trades
     ]
 
@@ -232,6 +449,7 @@ def get_household_trades(
 def update_trade(
     trade_id: uuid.UUID,
     trade_update: schemas.TradeUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -241,6 +459,11 @@ def update_trade(
 
     verify_household_access(db_trade.household_id, current_user, db)
 
+    # Record the earliest date affected by this update
+    original_date = db_trade.date.date()
+    new_date = trade_update.date.date() if trade_update.date else original_date
+    recalc_start_date = min(original_date, new_date)
+
     update_data = trade_update.model_dump(exclude_unset=True)
     if 'type' in update_data:
         db_trade.trade_type = update_data.pop('type').value
@@ -248,8 +471,13 @@ def update_trade(
     for key, value in update_data.items():
         setattr(db_trade, key, value)
 
+    sync_trade_transaction(db, db_trade)
     db.commit()
     db.refresh(db_trade)
+
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, db_trade.household_id, recalc_start_date, date.today())
+
     return schemas.TradeResponse(
         id=db_trade.id,
         household_id=db_trade.household_id,
@@ -260,12 +488,15 @@ def update_trade(
         date=db_trade.date,
         quantity=db_trade.quantity,
         price=db_trade.price,
+        currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
     )
 
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_trade(
     trade_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -275,8 +506,22 @@ def delete_trade(
 
     verify_household_access(db_trade.household_id, current_user, db)
 
+    household_id = db_trade.household_id
+    trade_date = db_trade.date.date()
+
+    # Also delete the associated transaction and reverse its impact
+    if db_trade.transaction_id:
+        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
+        if db_transaction:
+            multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+            sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+            db.delete(db_transaction)
+
     db.delete(db_trade)
     db.commit()
+
+    # Sync snapshots synchronously for serverless reliability
+    run_snapshot_range(db, household_id, trade_date, date.today())
     return
 
 # --- PORTFOLIO ACCESS ---
@@ -435,7 +680,8 @@ def get_household_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -468,7 +714,8 @@ def get_portfolio_snapshots(
             price=s.current_price,
             exchange_rate_used=s.exchange_rate_used,
             current_value_home_currency=s.current_value_home_currency,
-            averge_cost_basis=s.average_cost_basis,
+            average_cost_basis=s.average_cost_basis,
+            average_cost_basis_home_currency=s.average_cost_basis_home_currency,
         ) for s in snapshots
     ]
 
@@ -531,6 +778,38 @@ def delete_portfolio_snapshot(
     db.delete(db_snapshot)
     db.commit()
     return
+
+@router.post("/household/{household_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+def sync_portfolio_snapshots(
+    household_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Manually trigger a portfolio snapshot sync for the specified household.
+    This will catch up snapshots from the last recorded date until today.
+    """
+    verify_household_access(household_id, current_user, db)
+    
+    # Always sync from the earliest trade date to ensure full historical accuracy
+    # when manually triggered.
+    sync_start_date = db.execute(
+        select(func.min(func.date(models.Trade.date)))
+        .where(models.Trade.household_id == household_id)
+    ).scalar()
+    
+    print(f"DEBUG: Sync Triggered. Earliest Trade Date in DB: {sync_start_date}")
+        
+    if sync_start_date:
+        print(f"DEBUG: Initiating full sync from {sync_start_date} to {date.today()}")
+        # Sync snapshots synchronously for serverless reliability
+        run_snapshot_range(db, household_id, sync_start_date, date.today())
+        
+        return {"status": "success", "message": f"Full sync completed from {sync_start_date}", "from": sync_start_date, "to": date.today()}
+    else:
+        print(f"DEBUG: Sync aborted: No trades found for household {household_id}")
+        return {"status": "no_data", "message": "No trades found to generate snapshots."}
 
 # --- DIVIDENDS ---
 
@@ -678,8 +957,73 @@ def delete_exchange_rate(
 
 
 # Note: This is where we will eventually put the Polars math endpoints!
-@router.get("/household/{household_id}/metrics")
-def get_portfolio_metrics(household_id: int, db: Session = Depends(get_db)):
-    raise HTTPException(
-        status_code=501, detail="Sharpe/Sortino calculation not implemented"
+@router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
+def get_portfolio_metrics(
+    household_id: uuid.UUID, 
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+    
+    # Ensure fresh risk-free rate data (^IRX)
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            # Don't block metrics calculation if yfinance fails
+            print(f"Failed to fetch treasury rates: {e}")
+    
+    # 1. Calculate overall metrics
+    overall = calculate_performance_metrics(db, household_id, start_date=start_date, end_date=end_date)
+    
+    # 2. Calculate metrics for each sub-portfolio
+    sub_portfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
+    sub_metrics = []
+    
+    for sp in sub_portfolios:
+        metrics = calculate_performance_metrics(db, household_id, sub_portfolio_id=sp.id, start_date=start_date, end_date=end_date)
+        sub_metrics.append(schemas.SubPortfolioMetricsResponse(
+            sub_portfolio_id=sp.id,
+            name=sp.name,
+            metrics=metrics
+        ))
+        
+    return schemas.PortfolioMetricsResponse(
+        household_id=household_id,
+        overall_metrics=overall,
+        sub_portfolio_metrics=sub_metrics
     )
+
+@router.get("/subportfolios/{subportfolio_id}/metrics", response_model=schemas.PerformanceMetrics)
+def get_subportfolio_metrics(
+    subportfolio_id: uuid.UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    db_subportfolio = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_subportfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+
+    verify_household_access(db_subportfolio.household_id, current_user, db)
+    
+    # Ensure fresh risk-free rate data (^IRX)
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            print(f"Failed to fetch treasury rates: {e}")
+
+    metrics = calculate_performance_metrics(
+        db, 
+        db_subportfolio.household_id, 
+        sub_portfolio_id=subportfolio_id,
+        start_date=start_date,
+        end_date=end_date
+    )
+    return metrics

@@ -3,10 +3,12 @@ import { GoalCard } from "../../components/ui/GoalCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
-import { useEffect, useMemo } from "react"
-import { useLoaderData, useRevalidator } from "react-router"
+import { useEffect, useMemo, useState } from "react"
+import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
+import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
+import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 
 export { dashboardLoader as loader } from "./dashboard.loader";
 
@@ -17,9 +19,13 @@ export default function Dashboard() {
         balances = {},
         subPortfolios = [],
         transactions = [],
-        snapshots = []
+        snapshots = [],
+        metrics = null
     } = (useLoaderData() as DashboardLoaderData) || {};
     const revalidator = useRevalidator();
+    const [searchParams] = useSearchParams();
+    const [timeframe, setTimeframe] = useState("Monthly");
+    const startDate = searchParams.get("start_date");
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -29,22 +35,37 @@ export default function Dashboard() {
     }, [activeHousehold?.id]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(value)
+    }
+
+    const formatCompactCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD',
+            notation: 'compact',
+            maximumFractionDigits: 1
+        }).format(value)
     }
 
     const currentCash = useMemo(() => {
         let total = 0;
         Object.values(balances).forEach(history => {
             if (history.length > 0) {
-                const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-                total += Number(sorted[sorted.length - 1].balance);
+                // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
+                const last = history.reduce((max, current) => current.date > max.date ? current : max, history[0]);
+                total += Number(last.balance_home_currency ?? last.balance);
             }
         });
         return total;
     }, [balances]);
 
     const currentPortfolioValue = useMemo(() => {
-        if (snapshots.length === 0) return 0;
+        if (!snapshots || snapshots.length === 0) return 0;
 
         // Group snapshots by date and find the latest date
         const snapshotsByDate: Record<string, number> = {};
@@ -52,56 +73,88 @@ export default function Dashboard() {
             snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
         });
 
-        const sortedDates = Object.keys(snapshotsByDate).sort((a, b) => a.localeCompare(b));
-        if (sortedDates.length === 0) return 0;
+        const datesArr = Object.keys(snapshotsByDate);
+        if (datesArr.length === 0) return 0;
 
-        return snapshotsByDate[sortedDates[sortedDates.length - 1]];
+        const latestDate = datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]);
+
+        return snapshotsByDate[latestDate] || 0;
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
 
-    // Aggregate historical data for the chart
+    // ⚡ Bolt Performance Optimization:
+    // Replaced O(N^2) nested `.find()` and `.filter()` array operations inside `.map()`
+    // with O(N) hash map lookups to prevent main-thread blocking. Also replaced `localeCompare` with relational operators.
     const chartData = useMemo(() => {
-        const allDates = new Set<string>();
-        Object.values(balances).flat().forEach(b => allDates.add(b.date));
-        snapshots.forEach(s => allDates.add(s.date));
+        const allDatesSet = new Set<string>();
 
-        const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
+        // Pre-compute daily portfolio snapshots
+        const snapshotsByDate = new Map<string, number>();
+        snapshots.forEach(s => {
+            allDatesSet.add(s.date);
+            snapshotsByDate.set(s.date, (snapshotsByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        });
 
-        return sortedDates.map(date => {
-            let cash = 0;
-            Object.values(balances).forEach(history => {
-                const pastOrCurrent = history.filter(h => h.date <= date).sort((a, b) => a.date.localeCompare(b.date));
-                if (pastOrCurrent.length > 0) {
-                    cash += Number(pastOrCurrent[pastOrCurrent.length - 1].balance);
-                }
+        // Pre-compute daily balance updates
+        const balancesByDate = new Map<string, Array<{id: string, bal: number}>>();
+        Object.entries(balances).forEach(([accId, history]) => {
+            history.forEach(b => {
+                allDatesSet.add(b.date);
+                const list = balancesByDate.get(b.date) || [];
+                list.push({ id: accId, bal: Number(b.balance_home_currency ?? b.balance) });
+                balancesByDate.set(b.date, list);
             });
+        });
 
-            let portfolio = 0;
-            const snapshotsOnDate = snapshots.filter(s => s.date === date);
-            if (snapshotsOnDate.length > 0) {
-                portfolio = snapshotsOnDate.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
-            } else {
-                // Find latest snapshots before this date
-                const subPortfolioIds = Array.from(new Set(snapshots.map(s => s.sub_portfolio_id)));
-                subPortfolioIds.forEach(spId => {
-                    const pastSnapshots = snapshots
-                        .filter(s => s.sub_portfolio_id === spId && s.date < date)
-                        .sort((a, b) => a.date.localeCompare(b.date));
-                    if (pastSnapshots.length > 0) {
-                        portfolio += Number(pastSnapshots[pastSnapshots.length - 1].current_value_home_currency);
-                    }
-                });
+        const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : (a > b ? 1 : 0)));
+
+        const accountLatestBalances = new Map<string, number>();
+        
+        const rawData = sortedDates.map(date => {
+            const updates = balancesByDate.get(date);
+            if (updates) {
+                updates.forEach(u => accountLatestBalances.set(u.id, u.bal));
             }
+
+            let currentTotalCash = 0;
+            accountLatestBalances.forEach(bal => currentTotalCash += bal);
+            
+            const currentTotalPortfolio = snapshotsByDate.get(date) || 0;
 
             return {
                 date,
-                netWorth: cash + portfolio,
-                cash,
-                portfolio
+                netWorth: currentTotalCash + currentTotalPortfolio,
+                cash: currentTotalCash,
+                portfolio: currentTotalPortfolio
             };
         });
-    }, [balances, snapshots]);
+
+        // Filter by start date if applicable
+        const filteredData = rawData.filter(item => !startDate || item.date >= startDate);
+
+        if (timeframe === "Daily") return filteredData;
+
+        const binned = new Map<string, any>();
+        filteredData.forEach(item => {
+            const d = new Date(item.date);
+            let key = "";
+            if (timeframe === "Weekly") {
+                const startOfWeek = new Date(d);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+                startOfWeek.setDate(diff);
+                key = startOfWeek.toISOString().split('T')[0];
+            } else if (timeframe === "Monthly") {
+                key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+            } else if (timeframe === "Yearly") {
+                key = `${d.getFullYear()}-01-01`;
+            }
+            binned.set(key, item);
+        });
+
+        return Array.from(binned.values()).sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)));
+    }, [balances, snapshots, timeframe, startDate]);
 
     if (!activeHousehold) {
         return (
@@ -115,26 +168,42 @@ export default function Dashboard() {
         <div className="flex-1 space-y-6 p-8">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900">Dashboard</h2>
-                    <p className="text-base-500 mt-1">Overview of your household financial health.</p>
+                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
+                    <p className="text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
                 </div>
+                <TimeframeSelector />
             </div>
 
             {/* Top Row: Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <StatCard
                     title="Net Worth"
-                    value={formatCurrency(netWorth)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(netWorth)}
                     trend="neutral"
                 />
                 <StatCard
                     title="Portfolio Value"
-                    value={formatCurrency(currentPortfolioValue)}
+                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(currentPortfolioValue)}
                     trend="neutral"
                 />
                 <StatCard
-                    title="Cash Balance"
-                    value={formatCurrency(currentCash)}
+                    title="Overall Return"
+                    value={`${((metrics?.overall_metrics?.simple_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.simple_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="TWR (Ann.)"
+                    value={`${((metrics?.overall_metrics?.time_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.time_weighted_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="IRR / MWR"
+                    value={`${((metrics?.overall_metrics?.money_weighted_return || 0) * 100).toFixed(2)}%`}
+                    trend={(metrics?.overall_metrics?.money_weighted_return || 0) >= 0 ? "up" : "down"}
+                />
+                <StatCard
+                    title="Sharpe Ratio"
+                    value={metrics?.overall_metrics?.sharpe_ratio !== undefined && metrics?.overall_metrics?.sharpe_ratio !== null ? metrics.overall_metrics.sharpe_ratio.toFixed(2) : "0.00"}
                     trend="neutral"
                 />
             </div>
@@ -142,46 +211,115 @@ export default function Dashboard() {
             {/* Middle Row: Charts & Goals */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
-                    <CardHeader>
-                        <CardTitle>Net Worth Trend</CardTitle>
-                        <CardDescription>Your total wealth growth over time.</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                        <div>
+                            <CardTitle>Net Worth Trend</CardTitle>
+                            <CardDescription>Your total wealth growth over time.</CardDescription>
+                        </div>
+                        <div className="flex bg-base-100 dark:bg-base-900/50 p-1 rounded-lg border border-base-200 dark:border-base-800">
+                            {["Daily", "Weekly", "Monthly", "Yearly"].map((tf) => (
+                                <button
+                                    key={tf}
+                                    onClick={() => setTimeframe(tf)}
+                                    className={cn(
+                                        "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                        timeframe === tf
+                                            ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                                    )}
+                                >
+                                    {tf}
+                                </button>
+                            ))}
+                        </div>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        <div className="h-[300px] w-full">
+                        <div className="h-[300px] w-full relative min-h-0">
                             {chartData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <defs>
-                                            <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                                            <linearGradient id="colorPortfolio" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.2} />
+                                                <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0} />
+                                            </linearGradient>
+                                            <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--color-secondary-500)" stopOpacity={0.2} />
+                                                <stop offset="95%" stopColor="var(--color-secondary-500)" stopOpacity={0} />
                                             </linearGradient>
                                         </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
                                         <XAxis
                                             dataKey="date"
                                             axisLine={false}
                                             tickLine={false}
-                                            tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
+                                            tickFormatter={(val) => {
+                                                const d = new Date(val);
+                                                if (timeframe === "Yearly") return d.getUTCFullYear().toString();
+                                                if (timeframe === "Monthly") return d.toLocaleDateString('default', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+                                                return d.toLocaleDateString('default', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                                            }}
                                             dy={10}
                                         />
                                         <YAxis
                                             axisLine={false}
                                             tickLine={false}
-                                            tick={{ fill: '#94a3b8', fontSize: 12 }}
-                                            tickFormatter={(value) => `$${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
+                                            tickFormatter={(value) => formatCompactCurrency(value)}
                                         />
                                         <Tooltip
-                                            formatter={(value: any) => [formatCurrency(value as number), 'Net Worth']}
-                                            contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                            content={({ active, payload, label }) => {
+                                                if (active && payload && payload.length) {
+                                                    return (
+                                                        <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl backdrop-blur-md bg-opacity-95">
+                                                            <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                                {new Date(label).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                                                            </p>
+                                                            <div className="space-y-1.5">
+                                                                {payload.map((entry: any, index: number) => (
+                                                                    <div key={index} className="flex items-center justify-between gap-4">
+                                                                        <span
+                                                                            className="text-sm font-semibold"
+                                                                            style={{ color: entry.stroke }}
+                                                                        >
+                                                                            {entry.name === 'portfolio' ? 'Portfolio' : entry.name === 'cash' ? 'Cash' : entry.name}
+                                                                        </span>
+                                                                        <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(entry.value)}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                                <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-4">
+                                                                    <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
+                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(payload.reduce((sum: number, entry: any) => sum + Number(entry.value), 0))}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            }}
                                         />
                                         <Area
                                             type="monotone"
-                                            dataKey="netWorth"
-                                            stroke="#0ea5e9"
+                                            dataKey="portfolio"
+                                            stackId="1"
+                                            stroke="var(--color-primary-500)"
                                             strokeWidth={2}
                                             fillOpacity={1}
-                                            fill="url(#colorNetWorth)"
+                                            fill="url(#colorPortfolio)"
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="cash"
+                                            stackId="1"
+                                            stroke="var(--color-secondary-500)"
+                                            strokeWidth={2}
+                                            fillOpacity={1}
+                                            fill="url(#colorCash)"
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>
@@ -201,16 +339,21 @@ export default function Dashboard() {
                     <CardContent className="flex flex-col gap-4">
                         {subPortfolios.length > 0 ? (
                             subPortfolios.slice(0, 3).map(sp => {
-                                const current = snapshots
-                                    .filter(s => s.sub_portfolio_id === sp.id)
+                                const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
+                                const latestDate = spSnaps.length > 0 
+                                    ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
+                                    : null;
+                                
+                                const current = spSnaps
+                                    .filter(s => s.date === latestDate)
                                     .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
                                 return (
                                     <GoalCard
                                         key={sp.id}
                                         title={sp.name}
                                         currentValue={current}
-                                        targetValue={10000} // TODO: Add target_value to SubPortfolio model
-                                        formatValue={(v) => `$${v.toLocaleString()}`}
+                                        targetValue={sp.target_amount || 10000}
+                                        formatValue={(v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v)}
                                     />
                                 );
                             })
@@ -231,15 +374,15 @@ export default function Dashboard() {
                 <CardContent>
                     <div className="space-y-4">
                         {transactions.length > 0 ? (
-                            transactions.slice(0, 5).sort((a, b) => b.date.localeCompare(a.date)).map((tx) => (
-                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 pb-4 last:border-0 last:pb-0">
+                            transactions.slice(0, 5).sort((a, b) => (b.date < a.date ? -1 : (b.date > a.date ? 1 : 0))).map((tx) => (
+                                <div key={tx.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
                                     <div>
-                                        <p className="font-medium text-base-900">{tx.description || 'Transaction'}</p>
-                                        <p className="text-sm text-base-500">{new Date(tx.date).toLocaleDateString()}</p>
+                                        <p className="font-medium text-base-900 dark:text-base-50">{tx.description || 'Transaction'}</p>
+                                        <p className="text-sm text-base-500 dark:text-base-400">{new Date(tx.date).toLocaleDateString()}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600' : 'text-base-900'}`}>
-                                            {formatCurrency(Number(tx.amount))}
+                                        <span className={`font-semibold ${Number(tx.amount) > 0 ? 'text-green-600 dark:text-green-400' : 'text-base-900 dark:text-base-50'}`}>
+                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD' }).format(Number(tx.amount))}
                                         </span>
                                         <Badge variant="success">
                                             Completed

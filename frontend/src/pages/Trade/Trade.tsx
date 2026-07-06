@@ -1,57 +1,107 @@
 import { useState, useEffect, useMemo } from "react"
-import { useLoaderData } from "react-router"
+import { useLoaderData, useSearchParams } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
 import { Button } from "../../components/ui/Button"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-import type { AccountResponse, SubPortfolioResponse, AssetResponse } from "../../types/types"
-import { tradeFormLoader } from "./trade.loader"
+import type { AccountResponse, SubPortfolioResponse, AssetResponse, CurrencyResponse } from "../../types/types"
+import { tradeFormLoader, type TradeLoaderData } from "./trade.loader"
 
 export { tradeFormLoader as loader } from "./trade.loader";
 
 export default function Trade() {
-    const { activeHousehold } = useHousehold();
-    const loaderData = useLoaderData() as { accounts: AccountResponse[], subportfolios: SubPortfolioResponse[] };
-    
+    const { activeHousehold, refreshHouseholds } = useHousehold();
+    const loaderData = (useLoaderData() as TradeLoaderData) || { accounts: [], subportfolios: [], currencies: [] };
+
     const [accounts] = useState<AccountResponse[]>(loaderData.accounts || []);
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
-    const [selectedAccountId, setSelectedAccountId] = useState(accounts.length > 0 ? accounts[0].id : "")
-    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState(subportfolios.length > 0 ? subportfolios[0].id : "")
-    const [ticker, setTicker] = useState("")
+    const [searchParams] = useSearchParams();
+    const [isSaveDefault, setIsSaveDefault] = useState(false);
+    const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+
+    const [selectedAccountId, setSelectedAccountId] = useState(() => {
+        const paramId = searchParams.get("account_id");
+        if (paramId && accounts.some(a => a.id === paramId)) return paramId;
+        if (activeHousehold?.default_funding_account_id && accounts.some(a => a.id === activeHousehold.default_funding_account_id)) {
+            return activeHousehold.default_funding_account_id;
+        }
+        return accounts.length > 0 ? accounts[0].id : "";
+    });
+
+    const [selectedSubportfolioId, setSelectedSubportfolioId] = useState(() => {
+        const paramId = searchParams.get("sub_portfolio_id");
+        if (paramId && subportfolios.some(sp => sp.id === paramId)) return paramId;
+        if (activeHousehold?.default_sub_portfolio_id && subportfolios.some(sp => sp.id === activeHousehold.default_sub_portfolio_id)) {
+            return activeHousehold.default_sub_portfolio_id;
+        }
+        return subportfolios.length > 0 ? subportfolios[0].id : "";
+    });
+
+    const [ticker, setTicker] = useState(searchParams.get("ticker")?.toUpperCase() || "")
+
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [price, setPrice] = useState("")
+    const [currency, setCurrency] = useState(activeHousehold?.base_currency || "USD")
+    const [exchangeRate, setExchangeRate] = useState("1.0")
+    const [description, setDescription] = useState("")
+    const [isFetchingPrice, setIsFetchingPrice] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
 
-    // Deterministic mock price generator based on string hashing
-    const getDeterministicPrice = (symbol: string, dateString: string) => {
-        if (!symbol) return 0;
-        const seedStr = symbol.toUpperCase() + dateString;
-        let hash = 0;
-        for (let i = 0; i < seedStr.length; i++) {
-            hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        // Generate a pseudo-random price between $10 and $510
-        const pseudoRandom = Math.abs(Math.sin(hash));
-        const generatedPrice = 10 + (pseudoRandom * 500);
-        return generatedPrice;
-    }
 
-    // Auto-prefill the price when ticker or date changes
+
+    // Auto-prefill the price when ticker or date changes using real yfinance data from backend
     useEffect(() => {
-        if (ticker.trim() !== "" && date) {
-            // Simulate an API call delay
-            const timer = setTimeout(() => {
-                const fetchedPrice = getDeterministicPrice(ticker, date);
-                setPrice(fetchedPrice.toFixed(2));
-            }, 300);
+        if (ticker.trim().length >= 1 && date) {
+            const fetchPrice = async () => {
+                setIsFetchingPrice(true);
+                try {
+                    const response = await api.get(`/portfolio/price?ticker=${ticker}&date=${date}`);
+                    setPrice(response.data.price.toFixed(2));
+                    if (response.data.currency) {
+                        setCurrency(response.data.currency);
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch price:", err);
+                    // We don't necessarily clear the price on error, allowing for manual entry
+                } finally {
+                    setIsFetchingPrice(false);
+                }
+            };
+
+            const timer = setTimeout(fetchPrice, 600); // Debounce to avoid excessive API calls
             return () => clearTimeout(timer);
         } else {
             setPrice("");
         }
     }, [ticker, date]);
+
+    // Auto-prefill the exchange rate when currency, account, or date changes
+    useEffect(() => {
+        if (!selectedAccountId || !currency || !date) return;
+
+        const account = accounts.find(a => a.id === selectedAccountId);
+        if (!account) return;
+
+        const accountCurrency = account.currency || "USD";
+
+        if (currency === accountCurrency) {
+            setExchangeRate("1.0");
+            return;
+        }
+
+        const fetchRate = async () => {
+            try {
+                const response = await api.get(`/reference/exchange_rate?base=${currency}&target=${accountCurrency}&date=${date}`);
+                setExchangeRate(response.data.rate.toString());
+            } catch (err) {
+                console.error("Failed to fetch exchange rate:", err);
+            }
+        };
+
+        fetchRate();
+    }, [selectedAccountId, currency, date, accounts]);
 
     const estimatedTotal = useMemo(() => {
         const q = parseFloat(quantity) || 0;
@@ -60,7 +110,10 @@ export default function Trade() {
     }, [quantity, price]);
 
     const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: activeHousehold?.base_currency || 'USD'
+        }).format(value)
     }
 
     const handleTrade = async (type: "Buy" | "Sell") => {
@@ -68,9 +121,9 @@ export default function Trade() {
         setMessage(null);
 
         if (accounts.length === 0 || subportfolios.length === 0) {
-            setMessage({ 
-                text: "You need at least one account and one sub-portfolio to execute a trade. Please create them in the Accounts and Portfolio sections first.", 
-                type: "error" 
+            setMessage({
+                text: "You need at least one account and one sub-portfolio to execute a trade. Please create them in the Accounts and Portfolio sections first.",
+                type: "error"
             });
             return;
         }
@@ -96,7 +149,7 @@ export default function Trade() {
                     ticker: ticker.toUpperCase(),
                     name: `${ticker.toUpperCase()} Equity`,
                     type: "Stock",
-                    currency: activeHousehold.base_currency || "USD"
+                    currency: currency // Use the detected currency instead of household default
                 });
                 assetId = newAssetRes.data.id;
             }
@@ -109,12 +162,25 @@ export default function Trade() {
                 date: tradeDate.toISOString(),
                 quantity: parseFloat(quantity),
                 price: parseFloat(price),
-                exchange_rate: 1.0, // Simplification
+                currency: currency,
+                exchange_rate: parseFloat(exchangeRate),
                 household_id: activeHousehold.id,
                 sub_portfolio_id: selectedSubportfolioId,
                 asset_id: assetId,
-                account_id: selectedAccountId
+                account_id: selectedAccountId,
+                description: description || null
             });
+
+
+            // 3. Update Household Defaults if requested
+            if (isSaveDefault && activeHousehold) {
+                await api.put(`/users/households/${activeHousehold.id}`, {
+                    default_funding_account_id: selectedAccountId,
+                    default_sub_portfolio_id: selectedSubportfolioId
+                });
+                await refreshHouseholds();
+            }
+
 
             setMessage({ text: `Successfully executed ${type} order for ${ticker.toUpperCase()}!`, type: "success" });
 
@@ -122,6 +188,8 @@ export default function Trade() {
             setTicker("");
             setQuantity("");
             setPrice("");
+            setDescription("");
+
             // Keep date, subportfolio and account as is for rapid entry of multiple trades
         } catch (err: any) {
             console.error("Trade execution failed:", err);
@@ -149,14 +217,14 @@ export default function Trade() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {message && (
-                            <div className={`p-3 rounded text-sm ${message.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                            <div className={`p-3 rounded text-sm ${message.type === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'}`}>
                                 {message.text}
                             </div>
                         )}
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-900">Funding Account</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Funding Account</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                 value={selectedAccountId}
                                 onChange={(e) => setSelectedAccountId(e.target.value)}
                                 required
@@ -169,9 +237,9 @@ export default function Trade() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-900">Sub-Portfolio</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Sub-Portfolio</label>
                             <select
-                                className="w-full rounded-md border border-base-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                 value={selectedSubportfolioId}
                                 onChange={(e) => setSelectedSubportfolioId(e.target.value)}
                                 required
@@ -192,6 +260,53 @@ export default function Trade() {
                         />
 
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
+                                <select
+                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    value={currency}
+                                    onChange={(e) => setCurrency(e.target.value)}
+                                >
+                                    {loaderData.currencies.map(c => (
+                                        <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <Input
+                                label="Exchange Rate"
+                                type="number"
+                                step="0.0001"
+                                value={exchangeRate}
+                                onChange={(e) => setExchangeRate(e.target.value)}
+                                placeholder="Rate to Account"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input
+                                label="Share Quantity"
+                                type="number"
+                                step="0.0001"
+                                placeholder="0.00"
+                                value={quantity}
+                                onChange={(e) => setQuantity(e.target.value)}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50 flex items-center justify-between">
+                                    Price
+                                    {isFetchingPrice && <div className="h-3 w-3 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />}
+                                </label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={price}
+                                    onChange={(e) => setPrice(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
                             <Input
                                 label="Order Type"
                                 value="Limit"
@@ -206,29 +321,30 @@ export default function Trade() {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Description (Optional)</label>
                             <Input
-                                label="Quantity"
-                                type="number"
-                                placeholder="0"
-                                min="1"
-                                step="1"
-                                value={quantity}
-                                onChange={(e) => setQuantity(e.target.value)}
-                            />
-                            <Input
-                                label="Limit Price"
-                                type="number"
-                                placeholder="0.00"
-                                min="0.01"
-                                step="0.01"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                                helperText={ticker ? "Auto-filled historical price" : ""}
+                                placeholder="e.g. Portfolio rebalancing"
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
                             />
                         </div>
 
+                        <div className="flex items-center space-x-2 py-2">
+                            <input
+                                type="checkbox"
+                                id="saveDefault"
+                                className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500"
+                                checked={isSaveDefault}
+                                onChange={(e) => setIsSaveDefault(e.target.checked)}
+                            />
+                            <label htmlFor="saveDefault" className="text-sm text-base-600 dark:text-base-400">
+                                Save these selections as default for this household
+                            </label>
+                        </div>
+
                         <div className="pt-4 flex gap-3">
+
                             <Button
                                 className="w-full"
                                 variant="primary"
@@ -248,8 +364,8 @@ export default function Trade() {
                         </div>
 
                         <div className="pt-4 text-center">
-                            <p className="text-sm text-base-500">
-                                Estimated Total: <span className="font-semibold text-base-900">{formatCurrency(estimatedTotal)}</span>
+                            <p className="text-sm text-base-500 dark:text-base-400">
+                                Estimated Total: <span className="font-semibold text-base-900 dark:text-base-50">{formatCurrency(estimatedTotal)}</span>
                             </p>
                         </div>
                     </CardContent>

@@ -6,47 +6,20 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal
 
-from src.routers import accounts, cashflow, portfolio, users, auth
-from src.database import SessionLocal
-from src.services.snapshot_engine import run_daily_snapshot
-
-def scheduled_snapshot_job():
-    db = SessionLocal()
-    try:
-        # We process the snapshot for the current UTC date at 11:50 PM
-        target_date = datetime.now(timezone.utc).date()
-        run_daily_snapshot(db, target_date)
-    finally:
-        db.close()
-
-scheduler = BackgroundScheduler()
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: configure and start the scheduler
-    scheduler.add_job(
-        scheduled_snapshot_job,
-        CronTrigger(hour=23, minute=50, timezone=timezone.utc),
-        id="daily_portfolio_snapshot",
-        replace_existing=True,
-    )
-    scheduler.start()
-    yield
-    # Shutdown: cleanly stop the scheduler
-    scheduler.shutdown()
+# 1. Grab the current API URL from the environment (default to localhost for dev)
+api_url = os.getenv("API_URL", "http://localhost:8000")
 
 app = FastAPI(
     title="Finance Tracker API",
     description="Multi-tenant wealth, banking, and portfolio tracking.",
     version="1.0.0",
-    lifespan=lifespan,
+    # 2. Pass the dynamic variable here
     servers=[
         {
-            "url": "http://localhost:5001", 
-            "description": "Local Development Server"
+            "url": api_url, 
+            "description": "Finance Tracker API Server"
         },
     ],
 )
@@ -74,6 +47,8 @@ app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(cashflow.router)
 app.include_router(portfolio.router)
+app.include_router(reference.router)
+app.include_router(internal.router)
 
 
 @app.get("/")

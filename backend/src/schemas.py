@@ -13,6 +13,7 @@ from src.models import (
     TransactionType,
     HouseholdRoleType,
     TradeType,
+    ThemeMode,
 )
 
 # ----------------------------------------
@@ -24,6 +25,10 @@ class UserBase(BaseModel):
     email: EmailStr
     preferred_timezone: str = "UTC"
     name: str
+    theme_mode: ThemeMode = ThemeMode.system
+    primary_color: str = "sky"
+    secondary_color: str = "fuchsia"
+    base_color: str = "mauve"
 
 
 class UserCreate(UserBase):
@@ -34,6 +39,11 @@ class UserUpdate(BaseModel):
     preferred_timezone: Optional[str] = None
     name: Optional[str] = None
     password: Optional[str] = None
+    email: Optional[EmailStr] = None
+    theme_mode: Optional[ThemeMode] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    base_color: Optional[str] = None
 
 
 class UserResponse(UserBase):
@@ -45,6 +55,8 @@ class HouseholdBase(BaseModel):
     name: str
     base_currency: str
     country_code: str
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdCreate(HouseholdBase):
@@ -55,6 +67,8 @@ class HouseholdUpdate(BaseModel):
     name: Optional[str] = None
     base_currency: Optional[str] = None
     country_code: Optional[str] = None
+    default_funding_account_id: Optional[uuid.UUID] = None
+    default_sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class HouseholdResponse(HouseholdBase):
@@ -118,6 +132,7 @@ class AccountResponse(AccountBase):
 class BalanceBase(BaseModel):
     date: date
     balance: Decimal
+    is_manual: bool = True
 
 
 class BalanceCreate(BalanceBase):
@@ -127,11 +142,13 @@ class BalanceCreate(BalanceBase):
 class BalanceUpdate(BaseModel):
     date: Optional[date] = None
     balance: Optional[Decimal] = None
+    balance_home_currency: Optional[Decimal] = None
 
 
 class BalanceResponse(BalanceBase):
     id: uuid.UUID
     account_id: uuid.UUID
+    balance_home_currency: Optional[Decimal] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -201,6 +218,9 @@ class CategoryResponse(CategoryBase):
 class TransactionBase(BaseModel):
     date: datetime
     amount: Decimal
+    amount_home_currency: Optional[Decimal] = None
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     description: Optional[str] = None
 
 
@@ -212,6 +232,9 @@ class TransactionCreate(TransactionBase):
 class TransactionUpdate(BaseModel):
     date: Optional[datetime] = None
     amount: Optional[Decimal] = None
+    amount_home_currency: Optional[Decimal] = None
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -221,7 +244,20 @@ class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
+    transaction_type: TransactionType
+    transfer_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransferCreate(BaseModel):
+    from_account_id: uuid.UUID
+    to_account_id: uuid.UUID
+    amount: Decimal
+    date: datetime
+    currency: Optional[str] = None
+    description: Optional[str] = None
 
 
 # ----------------------------------------
@@ -256,6 +292,7 @@ class SubPortfolioBase(BaseModel):
     name: str
     risk_profile: str
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioCreate(SubPortfolioBase):
@@ -266,6 +303,7 @@ class SubPortfolioUpdate(BaseModel):
     name: Optional[str] = None
     risk_profile: Optional[str] = None
     target_date: Optional[date] = None
+    target_amount: Optional[Decimal] = None
 
 
 class SubPortfolioResponse(SubPortfolioBase):
@@ -279,7 +317,9 @@ class TradeBase(BaseModel):
     date: datetime
     quantity: float
     price: Decimal
+    currency: Optional[str] = None
     exchange_rate: float
+    description: Optional[str] = None
 
 
 class TradeCreate(TradeBase):
@@ -294,7 +334,9 @@ class TradeUpdate(BaseModel):
     date: Optional[datetime] = None
     quantity: Optional[float] = None
     price: Optional[Decimal] = None
+    currency: Optional[str] = None
     exchange_rate: Optional[float] = None
+    description: Optional[str] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -307,6 +349,8 @@ class TradeResponse(TradeBase):
     sub_portfolio_id: Optional[uuid.UUID] = None
     asset_id: Optional[uuid.UUID] = None
     account_id: Optional[uuid.UUID] = None
+    transaction_id: Optional[uuid.UUID] = None
+    currency: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -316,7 +360,8 @@ class PortfolioSnapshotBase(BaseModel):
     price: Decimal
     exchange_rate_used: float
     current_value_home_currency: Decimal
-    averge_cost_basis: Decimal
+    average_cost_basis: Decimal
+    average_cost_basis_home_currency: Decimal
 
 
 class PortfolioSnapshotCreate(PortfolioSnapshotBase):
@@ -331,7 +376,7 @@ class PortfolioSnapshotUpdate(BaseModel):
     price: Optional[Decimal] = None
     exchange_rate_used: Optional[float] = None
     current_value_home_currency: Optional[Decimal] = None
-    averge_cost_basis: Optional[Decimal] = None
+    average_cost_basis: Optional[Decimal] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -398,3 +443,34 @@ class ExchangeRateUpdate(BaseModel):
 class ExchangeRateResponse(ExchangeRateBase):
     id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
+
+
+class TickerPriceResponse(BaseModel):
+    ticker: str
+    price: float
+    date: date
+    currency: str
+
+
+class PerformanceMetrics(BaseModel):
+    simple_return: float
+    time_weighted_return: float
+    money_weighted_return: float
+    volatility: float
+    sharpe_ratio: float
+    sortino_ratio: float
+    treynor_ratio: float
+    alpha: Optional[float] = None
+    beta: Optional[float] = None
+
+
+class SubPortfolioMetricsResponse(BaseModel):
+    sub_portfolio_id: uuid.UUID
+    name: str
+    metrics: PerformanceMetrics
+
+
+class PortfolioMetricsResponse(BaseModel):
+    household_id: uuid.UUID
+    overall_metrics: PerformanceMetrics
+    sub_portfolio_metrics: List[SubPortfolioMetricsResponse]

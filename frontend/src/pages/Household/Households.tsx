@@ -3,23 +3,31 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings } from "lucide-react"
-import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse } from "../../types/types"
+import { useLoaderData, useSearchParams } from "react-router"
+import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, CurrencyResponse, CountryResponse } from "../../types/types"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-
+import type { HouseholdsLoaderData } from "./households.loader"
 export { householdsLoader as loader } from "./households.loader";
 
 export default function Households() {
     const { households, activeHousehold, setActiveHousehold, refreshHouseholds } = useHousehold();
+    const { currencies = [], countries = [] } = useLoaderData() as HouseholdsLoaderData;
     const [members, setMembers] = useState<HouseholdMemberUserResponse[]>([])
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [inviteEmail, setInviteEmail] = useState("")
-    const [newHouseholdName, setNewHouseholdName] = useState("")
+    const [createForm, setCreateForm] = useState({
+        name: "",
+        base_currency: "USD",
+        country_code: "US"
+    })
     const [editForm, setEditForm] = useState<Partial<HouseholdResponse>>({})
     const [isLoadingMembers, setIsLoadingMembers] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [searchParams] = useSearchParams()
+    const isSetupMode = searchParams.get("setup") === "true"
 
     const [pendingRoleUpdate, setPendingRoleUpdate] = useState<{ memberId: string, newRole: HouseholdRoleType } | null>(null)
 
@@ -107,15 +115,15 @@ export default function Households() {
 
     const handleCreateHousehold = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newHouseholdName) return;
+        if (!createForm.name) return;
 
         try {
-            await api.post('/users/households', {
-                name: newHouseholdName,
-                base_currency: "USD", // Default
-                country_code: "US"    // Default
+            await api.post('/users/households', createForm);
+            setCreateForm({
+                name: "",
+                base_currency: "USD",
+                country_code: "US"
             });
-            setNewHouseholdName("");
             setIsCreateModalOpen(false);
             refreshHouseholds();
         } catch (err) {
@@ -137,8 +145,8 @@ export default function Households() {
         <div className="flex-1 space-y-6 p-8 relative">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900">Household Management</h2>
-                    <p className="text-base-500 mt-1">Switch between households and manage members.</p>
+                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Household Management</h2>
+                    <p className="text-base-500 dark:text-base-400 mt-1">Switch between households and manage members.</p>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="secondary" onClick={() => setIsCreateModalOpen(true)}>
@@ -152,6 +160,31 @@ export default function Households() {
                 </div>
             </div>
 
+            {isSetupMode && households.length === 0 && (
+                <Card className="bg-primary-50 dark:bg-primary-950/30 border-primary-200 dark:border-primary-800 border-2 shadow-lg animate-in fade-in slide-in-from-top-4 duration-500">
+                    <CardContent className="pt-6 pb-6 flex flex-col md:flex-row items-center gap-6">
+                        <div className="p-4 bg-primary-100 dark:bg-primary-900/50 rounded-2xl text-primary-600 dark:text-primary-400">
+                            <Home className="w-12 h-12" />
+                        </div>
+                        <div className="flex-1 text-center md:text-left">
+                            <h3 className="text-2xl font-bold text-primary-900 dark:text-primary-50 mb-2">Welcome to Finance Tracker!</h3>
+                            <p className="text-primary-700 dark:text-primary-300 max-w-2xl">
+                                To get started, you'll need to create your first household. A household is where you manage your accounts, transactions, and portfolios together with your family or for yourself.
+                            </p>
+                        </div>
+                        <Button
+                            variant="primary"
+                            size="lg"
+                            className="whitespace-nowrap shadow-md hover:shadow-lg transition-all"
+                            onClick={() => setIsCreateModalOpen(true)}
+                        >
+                            <Plus className="w-5 h-5 mr-2" />
+                            Create My First Household
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
             <div className="grid gap-6 lg:grid-cols-3">
                 {/* Household Selector */}
                 <div className="lg:col-span-1 space-y-4">
@@ -162,17 +195,17 @@ export default function Households() {
                                 key={h.id}
                                 onClick={() => setActiveHousehold(h)}
                                 className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left ${activeHousehold?.id === h.id
-                                    ? "border-primary-500 bg-primary-50/50 shadow-sm"
-                                    : "border-base-200 bg-white hover:border-base-300 hover:bg-base-50"
+                                    ? "border-primary-500 bg-primary-50/50 dark:bg-primary-900/20 shadow-sm"
+                                    : "border-base-200 dark:border-base-800 bg-white dark:bg-base-900 hover:border-base-300 dark:hover:border-base-700 hover:bg-base-50 dark:hover:bg-base-800"
                                     }`}
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${activeHousehold?.id === h.id ? "bg-primary-100 text-primary-600" : "bg-base-100 text-base-500"}`}>
+                                    <div className={`p-2 rounded-lg ${activeHousehold?.id === h.id ? "bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400" : "bg-base-100 dark:bg-base-800 text-base-500 dark:text-base-400"}`}>
                                         <Home className="w-5 h-5" />
                                     </div>
                                     <div>
-                                        <p className={`font-medium ${activeHousehold?.id === h.id ? "text-primary-900" : "text-base-900"}`}>{h.name}</p>
-                                        <p className="text-xs text-base-500">{h.base_currency} • {h.country_code}</p>
+                                        <p className={`font-medium ${activeHousehold?.id === h.id ? "text-primary-900 dark:text-primary-50" : "text-base-900 dark:text-base-50"}`}>{h.name}</p>
+                                        <p className="text-xs text-base-500 dark:text-base-400">{h.base_currency} • {h.country_code}</p>
                                     </div>
                                 </div>
                                 {activeHousehold?.id === h.id && <ChevronRight className="w-5 h-5 text-primary-500" />}
@@ -184,7 +217,7 @@ export default function Households() {
                 {/* Member List */}
                 <div className="lg:col-span-2 space-y-4">
                     <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-base-900">
+                        <h3 className="text-lg font-semibold text-base-900 dark:text-base-50">
                             Members of {activeHousehold?.name || "..."}
                         </h3>
                         {activeHousehold && (
@@ -202,7 +235,7 @@ export default function Households() {
                                 <Card key={member.id}>
                                     <CardHeader className="flex flex-row items-center justify-between py-4">
                                         <div className="flex items-center gap-4">
-                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-100 text-base-500">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-100 dark:bg-base-800 text-base-500 dark:text-base-400">
                                                 <UserCircle className="h-6 h-6" />
                                             </div>
                                             <div>
@@ -221,10 +254,10 @@ export default function Households() {
                                                         }}
                                                         disabled={member.role === 'owner'}
                                                         className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full transition-all ${member.role === 'owner'
-                                                            ? 'bg-primary-100 text-primary-700 cursor-default'
+                                                            ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 cursor-default'
                                                             : pendingRoleUpdate?.memberId === member.id
-                                                                ? 'bg-amber-100 text-amber-700 ring-2 ring-amber-500 scale-105 cursor-pointer animate-pulse'
-                                                                : 'bg-base-100 text-base-600 hover:bg-base-200 cursor-pointer'
+                                                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 ring-2 ring-amber-500 scale-105 cursor-pointer animate-pulse'
+                                                                : 'bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-400 hover:bg-base-200 dark:hover:bg-base-700 cursor-pointer'
                                                             }`}
                                                         title={member.role === 'owner'
                                                             ? "Owner role cannot be changed"
@@ -256,7 +289,7 @@ export default function Households() {
                                 </Card>
                             ))}
                             {members.length === 0 && activeHousehold && (
-                                <p className="text-sm text-base-500 italic py-8 text-center bg-base-50/50 rounded-xl border border-dashed border-base-200">
+                                <p className="text-sm text-base-500 dark:text-base-400 italic py-8 text-center bg-base-50/50 dark:bg-base-900/50 rounded-xl border border-dashed border-base-200 dark:border-base-800">
                                     No members found for this household.
                                 </p>
                             )}
@@ -276,7 +309,7 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleInvite} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Email Address</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Email Address</label>
                                     <Input
                                         type="email"
                                         placeholder="user@example.com"
@@ -307,13 +340,41 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleCreateHousehold} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Household Name</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Household Name</label>
                                     <Input
                                         placeholder="e.g. My Family"
-                                        value={newHouseholdName}
-                                        onChange={(e) => setNewHouseholdName(e.target.value)}
+                                        value={createForm.name}
+                                        onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                                         required
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        value={createForm.base_currency}
+                                        onChange={(e) => setCreateForm({ ...createForm, base_currency: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">Select Currency</option>
+                                        {currencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                        value={createForm.country_code}
+                                        onChange={(e) => setCreateForm({ ...createForm, country_code: e.target.value })}
+                                        required
+                                    >
+                                        <option value="">Select Country</option>
+                                        {countries.map(c => (
+                                            <option key={c.code} value={c.code}>{c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
@@ -336,7 +397,7 @@ export default function Households() {
                         <CardContent>
                             <form onSubmit={handleUpdateHousehold} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Household Name</label>
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Household Name</label>
                                     <Input
                                         placeholder="e.g. My Family"
                                         value={editForm.name || ""}
@@ -345,22 +406,32 @@ export default function Households() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Base Currency</label>
-                                    <Input
-                                        placeholder="USD, EUR, GBP, etc."
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.base_currency || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value.toUpperCase() })}
+                                        onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value })}
                                         required
-                                    />
+                                    >
+                                        <option value="">Select Currency</option>
+                                        {currencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-900">Country Code</label>
-                                    <Input
-                                        placeholder="US, GB, DE, etc."
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
+                                    <select
+                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                         value={editForm.country_code || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value.toUpperCase() })}
+                                        onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
                                         required
-                                    />
+                                    >
+                                        <option value="">Select Country</option>
+                                        {countries.map(c => (
+                                            <option key={c.code} value={c.code}>{c.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>

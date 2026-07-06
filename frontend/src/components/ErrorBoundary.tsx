@@ -34,16 +34,16 @@ export function ErrorBoundary() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
-                    <Button 
-                        variant="primary" 
+                    <Button
+                        variant="primary"
                         className="w-full bg-red-600 hover:bg-red-700 text-white border-none"
                         onClick={() => window.location.reload()}
                     >
                         <RefreshCcw className="mr-2 h-4 w-4" />
                         Try Again
                     </Button>
-                    <Button 
-                        variant="ghost" 
+                    <Button
+                        variant="ghost"
                         className="w-full text-red-700 hover:bg-red-100 hover:text-red-800"
                         onClick={() => navigate("/")}
                     >

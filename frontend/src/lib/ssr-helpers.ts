@@ -24,52 +24,135 @@ export async function getSSRContext(request: Request) {
     if (cookie) headers.set("Cookie", cookie);
 
     const cookies = parseCookies(cookie);
+    const hasAuthTokens = !!(cookies['access_token'] || cookies['refresh_token']);
+    const url = new URL(request.url);
+    const isPublicRoute = ['/login', '/signup', '/logout', '/'].includes(url.pathname);
+
     let householdId = cookies['activeHouseholdId'];
     let newCookieHeader: string | null = null;
+    let refreshSetCookieHeaders: string[] = [];
 
-    const ssrFetch = async (path: string, init?: RequestInit) => {
+    const ssrFetch = async (path: string, init?: RequestInit & { skipRedirect?: boolean }): Promise<Response> => {
+        const mergedHeaders = new Headers(headers);
+        if (init?.headers) {
+            const extraHeaders = new Headers(init.headers);
+            extraHeaders.forEach((value, key) => {
+                mergedHeaders.set(key, value);
+            });
+        }
+
         const response = await fetch(getApiUrl(path), {
             ...init,
-            headers: {
-                ...Object.fromEntries(headers),
-                ...init?.headers,
-            },
+            headers: mergedHeaders,
         });
 
-        if (response.status === 401) {
-            throw redirect("/login");
+        // Handle 401 by attempting to refresh
+        if (
+            response.status === 401 && 
+            !path.includes('/auth/refresh') && 
+            !path.includes('/auth/token')
+        ) {
+            console.log(`[SSR] 401 detected for ${path}, attempting refresh...`);
+            
+            const refreshRes = await fetch(getApiUrl("/auth/refresh"), {
+                method: "POST",
+                headers: mergedHeaders,
+            });
+
+            if (refreshRes.ok) {
+                console.log(`[SSR] Refresh successful, retrying ${path}`);
+                
+                // Collect the new Set-Cookie headers to send back to the browser
+                const newCookies = refreshRes.headers.getSetCookie();
+                refreshSetCookieHeaders.push(...newCookies);
+
+                // Create a new cookie string for the retry
+                // We extract the key=value part from each Set-Cookie header
+                const newCookieValues = newCookies.map(c => c.split(';')[0]);
+                
+                // Update our local context headers for subsequent calls
+                const currentCookie = headers.get("Cookie") || "";
+                const currentCookieParts = currentCookie.split(';').map(p => p.trim()).filter(Boolean);
+                
+                // Merge: replace existing keys with new ones
+                const cookieMap = new Map();
+                currentCookieParts.forEach(p => {
+                    const [k, v] = p.split('=');
+                    cookieMap.set(k, v);
+                });
+                newCookieValues.forEach(p => {
+                    const [k, v] = p.split('=');
+                    cookieMap.set(k, v);
+                });
+                
+                const updatedCookieString = Array.from(cookieMap.entries())
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join('; ');
+                
+                headers.set("Cookie", updatedCookieString);
+
+                // Retry the original request with updated headers
+                const retryHeaders = new Headers(mergedHeaders);
+                retryHeaders.set("Cookie", updatedCookieString);
+
+                return fetch(getApiUrl(path), {
+                    ...init,
+                    headers: retryHeaders,
+                });
+            } else {
+                console.warn(`[SSR] Refresh failed for ${path}${init?.skipRedirect ? ' (skipping redirect)' : ''}`);
+                
+                // Don't redirect if skipRedirect is requested or we're already on a public route/login page
+                if (init?.skipRedirect || isPublicRoute || url.pathname === '/login') {
+                    return response; // Return the original 401
+                }
+                
+                console.log(`[SSR] Redirecting to login from ${url.pathname}`);
+                throw redirect("/login");
+            }
         }
 
         return response;
     };
 
-    if (!householdId) {
+    // Optional household verification - only if we have tokens and aren't on a public route
+    let households: any[] = [];
+    if (hasAuthTokens && !isPublicRoute) {
         try {
-            const hRes = await fetch(getApiUrl("/users/households"), {
-                headers: { ...Object.fromEntries(headers) }
-            });
+            const hRes = await ssrFetch("/users/households", { skipRedirect: true });
             if (hRes.ok) {
-                const households = await hRes.json();
-                if (households.length > 0) {
-                    householdId = households[0].id;
-                    newCookieHeader = `activeHouseholdId=${householdId}; Path=/; Max-Age=31536000`;
-                }
+                households = await hRes.json();
             }
         } catch (e) {
-            console.error("Failed to fetch default household in SSR", e);
+            if (e instanceof Response && (e.status === 302 || e.status === 303)) throw e;
+            console.error("Failed to fetch households in SSR", e);
         }
+    }
+
+    // Determine the best householdId to use
+    if (households.length > 0) {
+        const isValid = householdId && households.some(h => h.id === householdId);
+        if (!isValid) {
+            householdId = households[0].id;
+            newCookieHeader = `activeHouseholdId=${householdId}; Path=/; Max-Age=31536000`;
+        }
+    } else {
+        householdId = undefined;
     }
 
     return {
         headers,
         householdId,
         ssrFetch,
-        // Helper to combine headers for the response
         combineHeaders: (existingHeaders?: HeadersInit) => {
             const combined = new Headers(existingHeaders);
             if (newCookieHeader) {
                 combined.append("Set-Cookie", newCookieHeader);
             }
+            // Add all collected refresh cookies
+            refreshSetCookieHeaders.forEach(sc => {
+                combined.append("Set-Cookie", sc);
+            });
             return combined;
         }
     };
