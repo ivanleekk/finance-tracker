@@ -32,12 +32,13 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes] = await Promise.all([
+        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes, allBalancesRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
-            ssrFetch(metricsUrl)
+            ssrFetch(metricsUrl),
+            ssrFetch(`/accounts/balances/household/${householdId}`)
         ]);
 
         const [accounts, subPortfolios, transactions, snapshots, metrics] = await Promise.all([
@@ -48,13 +49,13 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             metricsRes.ok ? metricsRes.json() : null
         ]);
 
+        const allBalances: BalanceResponse[] = allBalancesRes.ok ? await allBalancesRes.json() : [];
+
         const balanceMap: Record<string, BalanceResponse[]> = {};
-        await Promise.all(accounts.map(async (acc: AccountResponse) => {
-            const bRes = await ssrFetch(`/accounts/balances/account/${acc.id}`);
-            if (bRes.ok) {
-                balanceMap[acc.id] = await bRes.json();
-            }
-        }));
+        allBalances.forEach(b => {
+            if (!balanceMap[b.account_id]) balanceMap[b.account_id] = [];
+            balanceMap[b.account_id].push(b);
+        });
 
         return {
             accounts,

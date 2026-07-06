@@ -1,3 +1,6 @@
+## 2024-05-06 - [Fix N+1 query]
+**Learning:** Found N+1 query loading multiple accounts then firing multiple balance fetches on frontend instead of batched backend endpoint.
+**Action:** Always batch related fetches when querying a list, ideally by providing a batched backend endpoint.
 ## 2024-05-18 - Time-Series Chart Data Aggregation
 **Learning:** In a dashboard or analytics heavy app, computing running balances or aggregating time-series data dynamically in a render loop via nested filters/sorts (e.g. `arr.map(() => accounts.map(() => history.filter().sort()[0]))`) quickly becomes a catastrophic main-thread bottleneck, causing the UI to freeze as historical dataset sizes grow (e.g. `O(D * A * H log H)`).
 **Action:** When aggregating multi-dimensional time-series data for chart render loops, always use an O(N) single-pass approach: first extract and sort all unique dates (once), then iterate chronologically over those dates using hash maps to track running state variables (like `accountLatestBalances`). This avoids doing heavy array operations recursively on every data point.

@@ -264,6 +264,26 @@ def add_account_balance(
 
 
 @router.get(
+    "/balances/household/{household_id}", response_model=List[schemas.BalanceResponse]
+)
+def get_household_balances(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+
+    accounts = db.query(models.FinancialAccount).filter(models.FinancialAccount.household_id == household_id).all()
+    account_ids = [account.id for account in accounts]
+
+    if not account_ids:
+        return []
+
+    balances = db.query(models.AccountBalance).filter(models.AccountBalance.account_id.in_(account_ids)).all()
+    return balances
+
+
+@router.get(
     "/balances/account/{account_id}", response_model=List[schemas.BalanceResponse]
 )
 def get_account_balances(
