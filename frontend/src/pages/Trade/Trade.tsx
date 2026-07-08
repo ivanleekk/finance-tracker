@@ -360,7 +360,7 @@ export default function Trade() {
                             </label>
                         </div>
 
-                        <div className="pt-4 flex gap-3">
+                        <div className="pt-4 grid grid-cols-2 gap-3">
 
                             <Button
                                 className="w-full"

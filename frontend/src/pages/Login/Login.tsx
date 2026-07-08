@@ -96,7 +96,7 @@ export default function Login() {
                 </div>
 
                 {/* Button Container */}
-                <div className="flex justify-between items-center gap-4">
+                <div className="grid grid-cols-2 items-center gap-4">
                     <Button
                         type="submit"
                         disabled={isLoading}
