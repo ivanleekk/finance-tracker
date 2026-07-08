@@ -39,8 +39,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
         }
         if (isAuthenticated && households.length === 0) {
             const url = new URL(request.url);
-            if (url.pathname !== "/households" && url.pathname !== "/logout" && url.pathname !== "/login" && url.pathname !== "/signup") {
-                return redirect("/households?setup=true");
+            if (!["/households", "/onboarding", "/logout", "/login", "/signup"].includes(url.pathname)) {
+                return redirect("/onboarding");
             }
         }
 

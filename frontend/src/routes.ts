@@ -7,6 +7,7 @@ export default [
     route("/", "LandingPage.tsx"),
     route("/login", "pages/Login/Login.tsx"),
     route("/signup", "pages/Signup/Signup.tsx"),
+    route("/onboarding", "pages/Onboarding/Onboarding.tsx"),
     route("/logout", "pages/Logout/logout.ts"),
     route("/dashboard", "pages/Dashboard/Dashboard.tsx"),
     route("/accounts", "pages/Accounts/Accounts.tsx"),
