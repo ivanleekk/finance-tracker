@@ -2,18 +2,26 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
-import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings } from "lucide-react"
-import { useLoaderData, useSearchParams } from "react-router"
-import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, CurrencyResponse, CountryResponse } from "../../types/types"
+import { Badge } from "../../components/ui/Badge"
+import { StatCard } from "../../components/ui/StatCard"
+import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings, Clock } from "lucide-react"
+import { useLoaderData, useSearchParams, useRevalidator } from "react-router"
+import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, HouseholdInviteResponse, HouseholdSplitShareResponse, SplitMode } from "../../types/types"
 import { useHousehold } from "../../lib/HouseholdContext"
+import { useAuth } from "../../lib/AuthContext"
 import api from "../../lib/api"
 import type { HouseholdsLoaderData } from "./households.loader"
 export { householdsLoader as loader } from "./households.loader";
 
 export default function Households() {
     const { households, activeHousehold, setActiveHousehold, refreshHouseholds } = useHousehold();
-    const { currencies = [], countries = [] } = useLoaderData() as HouseholdsLoaderData;
+    const { user: currentUser } = useAuth();
+    const revalidator = useRevalidator();
+    const { currencies = [], countries = [], accounts = [] } = useLoaderData() as HouseholdsLoaderData;
     const [members, setMembers] = useState<HouseholdMemberUserResponse[]>([])
+    const [invites, setInvites] = useState<HouseholdInviteResponse[]>([])
+    const [splitShares, setSplitShares] = useState<HouseholdSplitShareResponse[]>([])
+    const [splitMode, setSplitMode] = useState<SplitMode>("even")
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -34,6 +42,9 @@ export default function Households() {
     useEffect(() => {
         if (activeHousehold) {
             fetchMembers(activeHousehold.id);
+            fetchInvites(activeHousehold.id);
+            setSplitMode(activeHousehold.default_split_mode);
+            api.get(`/users/households/${activeHousehold.id}/split-shares`).then(r => setSplitShares(r.data)).catch(() => setSplitShares([]));
             setPendingRoleUpdate(null);
             setEditForm({
                 name: activeHousehold.name,
@@ -54,6 +65,60 @@ export default function Households() {
             setIsLoadingMembers(false);
         }
     };
+
+    const fetchInvites = async (householdId: string) => {
+        try {
+            const response = await api.get(`/users/households/${householdId}/invites`);
+            setInvites(response.data);
+        } catch (error) {
+            console.error("Failed to fetch invites", error);
+        }
+    };
+
+    const handleResendInvite = async (inviteId: string) => {
+        try {
+            await api.post(`/users/invites/${inviteId}/resend`);
+            if (activeHousehold) fetchInvites(activeHousehold.id);
+        } catch (err) {
+            console.error("Failed to resend invite", err);
+        }
+    };
+
+    const handleCancelInvite = async (inviteId: string) => {
+        try {
+            await api.delete(`/users/invites/${inviteId}`);
+            setInvites(invites.filter(i => i.id !== inviteId));
+        } catch (err) {
+            console.error("Failed to cancel invite", err);
+        }
+    };
+
+    const handleSetSplitMode = async (mode: SplitMode) => {
+        if (!activeHousehold) return;
+        setSplitMode(mode);
+        try {
+            await api.put(`/users/households/${activeHousehold.id}`, { default_split_mode: mode });
+            if (mode === "even" && members.length > 0) {
+                const evenPercent = (100 / members.length).toFixed(2);
+                const shares = members.map(m => ({ user_id: m.user_id, share_percent: evenPercent }));
+                const res = await api.put(`/users/households/${activeHousehold.id}/split-shares`, shares);
+                setSplitShares(res.data);
+            }
+        } catch (err) {
+            console.error("Failed to update split mode", err);
+        }
+    };
+
+    const handleToggleAccountShared = async (accountId: string, currentlyPrivate: boolean) => {
+        try {
+            await api.put(`/accounts/${accountId}`, { owner_user_id: currentlyPrivate ? null : currentUser?.id });
+            revalidator.revalidate();
+        } catch (err) {
+            console.error("Failed to update account sharing", err);
+        }
+    };
+
+    const sharedAccountsCount = accounts.filter(a => !a.owner_user_id).length;
 
     const handleUpdateRole = async (memberId: string, currentRole: string) => {
         if (currentRole === 'owner') return;
@@ -94,22 +159,19 @@ export default function Households() {
         if (!inviteEmail || !activeHousehold) return;
 
         try {
-            // 1. Search for user by email
-            const userRes = await api.get(`/users/search?email=${inviteEmail}`);
-            const user = userRes.data;
-
-            // 2. Add as member
-            await api.post('/users/householdmembers', {
-                household_id: activeHousehold.id,
-                user_id: user.id,
-                role: "viewer"
+            // Invites work whether or not the person already has an account - if they do, they're
+            // joined immediately; otherwise the invite stays pending until they sign up with that email.
+            await api.post(`/users/households/${activeHousehold.id}/invites`, {
+                email: inviteEmail,
+                role: "editor"
             });
 
             setInviteEmail("")
             setIsInviteModalOpen(false)
             fetchMembers(activeHousehold.id);
+            fetchInvites(activeHousehold.id);
         } catch (err: any) {
-            setError(err.response?.data?.detail || "Failed to invite member. Make sure the user exists.");
+            setError(err.response?.data?.detail || "Failed to send invite.");
         }
     }
 
@@ -183,6 +245,14 @@ export default function Households() {
                         </Button>
                     </CardContent>
                 </Card>
+            )}
+
+            {activeHousehold && (
+                <div className="grid gap-4 md:grid-cols-3">
+                    <StatCard title="Members" value={String(members.length)} description={invites.length > 0 ? `+ ${invites.length} invited` : undefined} trend="neutral" />
+                    <StatCard title="Shared accounts" value={`${sharedAccountsCount}`} description={`of ${accounts.length}`} trend="neutral" />
+                    <StatCard title="Base currency" value={activeHousehold.base_currency} trend="neutral" />
+                </div>
             )}
 
             <div className="grid gap-6 lg:grid-cols-3">
@@ -293,10 +363,114 @@ export default function Households() {
                                     No members found for this household.
                                 </p>
                             )}
+                            {invites.map((invite) => (
+                                <Card key={invite.id} className="border-dashed border-amber-200 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/10">
+                                    <CardHeader className="flex flex-row items-center justify-between py-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-amber-300 dark:border-amber-800 text-amber-500">
+                                                <Clock className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <CardTitle className="text-base font-semibold">{invite.email}</CardTitle>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant="warning">PENDING</Badge>
+                                                    <CardDescription className="text-xs">
+                                                        Invited {new Date(invite.created_at).toLocaleDateString('default', { month: 'short', day: 'numeric' })}
+                                                    </CardDescription>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Button variant="ghost" size="sm" onClick={() => handleResendInvite(invite.id)}>Resend</Button>
+                                            <Button variant="ghost" size="sm" onClick={() => handleCancelInvite(invite.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </CardHeader>
+                                </Card>
+                            ))}
                         </div>
                     )}
                 </div>
             </div>
+
+            {activeHousehold && members.length > 1 && (
+                <div className="grid gap-6 lg:grid-cols-2">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Default expense split</CardTitle>
+                            <CardDescription>Applied to new shared expenses. Override per transaction anytime.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {splitShares.length > 0 && (
+                                <div className="space-y-2">
+                                    {splitShares.map(s => {
+                                        const member = members.find(m => m.user_id === s.user_id);
+                                        return (
+                                            <div key={s.id} className="flex items-center gap-3">
+                                                <span className="text-sm text-base-700 dark:text-base-300 w-24 truncate">{member?.name || "Member"}</span>
+                                                <div className="flex-1 h-2 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
+                                                    <div className="h-full bg-primary-500" style={{ width: `${s.share_percent}%` }} />
+                                                </div>
+                                                <span className="text-xs font-mono text-base-500 w-10 text-right">{Number(s.share_percent).toFixed(0)}%</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            <div className="flex gap-2 pt-2">
+                                {(["even", "by_income", "custom"] as SplitMode[]).map(mode => (
+                                    <button
+                                        key={mode}
+                                        onClick={() => handleSetSplitMode(mode)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${splitMode === mode
+                                            ? "bg-primary-500 text-white border-primary-500"
+                                            : "border-base-200 dark:border-base-800 text-base-600 dark:text-base-400 hover:border-base-300"
+                                            }`}
+                                    >
+                                        {mode === "even" ? "50 / 50" : mode === "by_income" ? "By income" : "Custom"}
+                                    </button>
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>What's shared with the household</CardTitle>
+                            <CardDescription>Toggle any account between private and shared.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {accounts.map(a => {
+                                    const isPrivate = !!a.owner_user_id;
+                                    const isMine = a.owner_user_id === currentUser?.id;
+                                    return (
+                                        <div key={a.id} className="flex items-center justify-between gap-3 rounded-lg border border-base-100 dark:border-base-800 px-3 py-2.5">
+                                            <span className="text-sm text-base-800 dark:text-base-200 truncate">
+                                                {isPrivate && "🔒 "}{a.name}
+                                            </span>
+                                            <button
+                                                role="switch"
+                                                aria-checked={!isPrivate}
+                                                disabled={isPrivate && !isMine}
+                                                onClick={() => handleToggleAccountShared(a.id, isPrivate)}
+                                                title={isPrivate && !isMine ? "Only the owner can share this account" : undefined}
+                                                className={`relative w-9 h-5 rounded-full transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${!isPrivate ? "bg-primary-500" : "bg-base-300 dark:bg-base-700"}`}
+                                            >
+                                                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${!isPrivate ? "translate-x-4" : ""}`} />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                                {accounts.length === 0 && (
+                                    <div className="col-span-full text-center py-4 text-base-500 italic text-sm">No accounts yet.</div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             {/* Invite Modal */}
             {isInviteModalOpen && (

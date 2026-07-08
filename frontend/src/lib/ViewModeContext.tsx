@@ -73,8 +73,9 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem(TOOLTIP_SEEN_KEY, "true");
     };
 
-    // Solo users (no household) only ever see their own items - force "private" semantics.
-    const effectiveViewMode: ViewMode = hasHousehold ? viewMode : "private";
+    // Solo users have no one to hide things from - "blended" semantics show everything that's
+    // theirs regardless of whether it happened to be tagged shared (null) or private (owned).
+    const effectiveViewMode: ViewMode = hasHousehold ? viewMode : "blended";
 
     return (
         <ViewModeContext.Provider value={{

@@ -12,8 +12,12 @@ export default [
     route("/accounts", "pages/Accounts/Accounts.tsx"),
     route("/trade", "pages/Trade/Trade.tsx"),
     route("/portfolio", "pages/Portfolio/Portfolio.tsx"),
+    route("/dividends", "pages/Dividends/Dividends.tsx"),
     route("/transactions", "pages/Transactions/Transactions.tsx"),
+    route("/goals", "pages/Goals/Goals.tsx"),
+    route("/goals/:id", "pages/Goals/GoalDetail.tsx"),
     route("/households", "pages/Household/Households.tsx"),
+    route("/settings", "pages/Settings/Settings.tsx"),
     route("/profile", "pages/Profile/Profile.tsx"),
     route("*?", "catchall.tsx"),
 ] satisfies RouteConfig;
