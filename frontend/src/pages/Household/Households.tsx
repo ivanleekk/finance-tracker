@@ -6,7 +6,7 @@ import { Badge } from "../../components/ui/Badge"
 import { StatCard } from "../../components/ui/StatCard"
 import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings, Clock } from "lucide-react"
 import { useLoaderData, useSearchParams, useRevalidator } from "react-router"
-import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, HouseholdInviteResponse, HouseholdSplitShareResponse, SplitMode } from "../../types/types"
+import type { HouseholdMemberUserResponse, HouseholdRoleType, HouseholdResponse, HouseholdInviteResponse, HouseholdSplitShareResponse, SplitMode, BalanceResponse } from "../../types/types"
 import { useHousehold } from "../../lib/HouseholdContext"
 import { useAuth } from "../../lib/AuthContext"
 import api from "../../lib/api"
@@ -17,7 +17,7 @@ export default function Households() {
     const { households, activeHousehold, setActiveHousehold, refreshHouseholds } = useHousehold();
     const { user: currentUser } = useAuth();
     const revalidator = useRevalidator();
-    const { currencies = [], countries = [], accounts = [] } = useLoaderData() as HouseholdsLoaderData;
+    const { currencies = [], countries = [], accounts = [], balances = [] } = useLoaderData() as HouseholdsLoaderData;
     const [members, setMembers] = useState<HouseholdMemberUserResponse[]>([])
     const [invites, setInvites] = useState<HouseholdInviteResponse[]>([])
     const [splitShares, setSplitShares] = useState<HouseholdSplitShareResponse[]>([])
@@ -119,6 +119,26 @@ export default function Households() {
     };
 
     const sharedAccountsCount = accounts.filter(a => !a.owner_user_id).length;
+
+    const sharedNetWorth = (() => {
+        const latestByAccount = new Map<string, BalanceResponse>();
+        balances.forEach(b => {
+            const existing = latestByAccount.get(b.account_id);
+            if (!existing || b.date > existing.date) latestByAccount.set(b.account_id, b);
+        });
+        return accounts
+            .filter(a => !a.owner_user_id)
+            .reduce((sum, a) => {
+                const bal = latestByAccount.get(a.id);
+                return sum + Number(bal?.balance_home_currency ?? bal?.balance ?? 0);
+            }, 0);
+    })();
+
+    const formatCurrency = (value: number) => new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: activeHousehold?.base_currency || 'USD',
+        maximumFractionDigits: 0,
+    }).format(value);
 
     const handleUpdateRole = async (memberId: string, currentRole: string) => {
         if (currentRole === 'owner') return;
@@ -248,7 +268,8 @@ export default function Households() {
             )}
 
             {activeHousehold && (
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-4">
+                    <StatCard title="Shared net worth" value={formatCurrency(sharedNetWorth)} trend="neutral" />
                     <StatCard title="Members" value={String(members.length)} description={invites.length > 0 ? `+ ${invites.length} invited` : undefined} trend="neutral" />
                     <StatCard title="Shared accounts" value={`${sharedAccountsCount}`} description={`of ${accounts.length}`} trend="neutral" />
                     <StatCard title="Base currency" value={activeHousehold.base_currency} trend="neutral" />
@@ -324,10 +345,10 @@ export default function Households() {
                                                         }}
                                                         disabled={member.role === 'owner'}
                                                         className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full transition-all ${member.role === 'owner'
-                                                            ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 cursor-default'
+                                                            ? 'bg-secondary-100 dark:bg-secondary-900/50 text-secondary-700 dark:text-secondary-400 cursor-default'
                                                             : pendingRoleUpdate?.memberId === member.id
                                                                 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 ring-2 ring-amber-500 scale-105 cursor-pointer animate-pulse'
-                                                                : 'bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-400 hover:bg-base-200 dark:hover:bg-base-700 cursor-pointer'
+                                                                : 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 hover:bg-primary-200 dark:hover:bg-primary-800 cursor-pointer'
                                                             }`}
                                                         title={member.role === 'owner'
                                                             ? "Owner role cannot be changed"

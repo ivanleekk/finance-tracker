@@ -13,8 +13,22 @@ import { TopBar } from "../../components/TopBar"
 import { OwnershipTag } from "../../components/ui/OwnershipTag"
 import { useAuth } from "../../lib/AuthContext"
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
+import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
+
+function categoryIcon(name: string): string {
+    const low = name.toLowerCase();
+    if (/(food|dining|restaurant|cafe|coffee|lunch|dinner)/.test(low)) return "☕";
+    if (/(transport|taxi|grab|uber|mrt|bus|fuel|petrol)/.test(low)) return "🚕";
+    if (/(grocery|groceries|supermarket|fairprice)/.test(low)) return "🛒";
+    if (/(entertain|movie|netflix|game)/.test(low)) return "🎬";
+    if (/(shop|retail)/.test(low)) return "🛍️";
+    if (/(hous|rent|mortgage)/.test(low)) return "🏠";
+    if (/(salary|income|payroll)/.test(low)) return "💰";
+    if (/(invest|dividend)/.test(low)) return "💵";
+    return "💳";
+}
 
 type UnifiedHistoryItem = {
     id: string;
@@ -48,6 +62,7 @@ export default function Transactions() {
     const [filterCategory, setFilterCategory] = useState<string>("all")
     const [filterAccount, setFilterAccount] = useState<string>("all")
     const [filterSubportfolio, setFilterSubportfolio] = useState<string>("all")
+    const [filterFlow, setFilterFlow] = useState<"all" | "income" | "expense">("all")
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -160,6 +175,11 @@ export default function Transactions() {
 
     const isLoading = navigation.state === "loading";
 
+    const tradeTransactionIds = useMemo(
+        () => new Set(trades.map(t => t.transaction_id).filter(Boolean)),
+        [trades]
+    );
+
     const combinedHistory = useMemo(() => {
         // Maps for O(1) lookups
         const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
@@ -199,8 +219,6 @@ export default function Transactions() {
         });
 
         // 2. Process Transactions (Filtering out those linked to trades)
-        const tradeTransactionIds = new Set(trades.map(t => t.transaction_id).filter(Boolean));
-
         const txItems: UnifiedHistoryItem[] = transactions
             .filter(tx => !tradeTransactionIds.has(tx.id))
             .map(tx => {
@@ -241,7 +259,9 @@ export default function Transactions() {
 
         // 3. Unify and Sort
         return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name]);
+    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds]);
+
+    const isInflow = (type: string) => ['deposit', 'income', 'sell', 'transfer_in'].includes(type);
 
     const filteredHistory = useMemo(() => {
         return combinedHistory.filter(item => {
@@ -252,9 +272,71 @@ export default function Transactions() {
                 if (filterSubportfolio === "none" && item.subportfolioId !== null) return false;
                 if (filterSubportfolio !== "none" && item.subportfolioId !== filterSubportfolio) return false;
             }
+            if (filterFlow !== "all" && (filterFlow === "income") !== isInflow(item.type)) return false;
             return true;
         });
-    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, viewMode, user?.id]);
+    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, filterFlow, viewMode, user?.id]);
+
+    const groupedHistory = useMemo(() => {
+        const groups = new Map<string, UnifiedHistoryItem[]>();
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+        filteredHistory.forEach(item => {
+            const d = new Date(item.date); d.setHours(0, 0, 0, 0);
+            const dayLabel = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+            let label: string;
+            if (d.getTime() === today.getTime()) label = `Today · ${dayLabel}`;
+            else if (d.getTime() === yesterday.getTime()) label = `Yesterday · ${dayLabel}`;
+            else label = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+            if (!groups.has(label)) groups.set(label, []);
+            groups.get(label)!.push(item);
+        });
+        return Array.from(groups.entries());
+    }, [filteredHistory]);
+
+    const cashflowData = useMemo(() => {
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const weeks = [0, 1, 2, 3, 4].map(() => ({ in: 0, out: 0 }));
+        let totalIn = 0, totalOut = 0;
+        transactions.forEach(tx => {
+            if (tradeTransactionIds.has(tx.id)) return;
+            const d = new Date(tx.date);
+            if (d < monthStart) return;
+            const account = accounts.find(a => a.id === tx.account_id);
+            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
+            const weekIdx = Math.min(4, Math.floor((d.getDate() - 1) / 7));
+            if (tx.transaction_type === 'income') {
+                weeks[weekIdx].in += homeAmount;
+                totalIn += homeAmount;
+            } else {
+                weeks[weekIdx].out += homeAmount;
+                totalOut += homeAmount;
+            }
+        });
+        const max = Math.max(1, ...weeks.map(w => Math.max(w.in, w.out)));
+        return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
+    }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
+
+    const topCategories = useMemo(() => {
+        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+        const byCategory = new Map<string, number>();
+        transactions.forEach(tx => {
+            if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            const account = accounts.find(a => a.id === tx.account_id);
+            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const name = categoryMap.get(tx.category_id) || "Uncategorized";
+            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
+            byCategory.set(name, (byCategory.get(name) || 0) + homeAmount);
+        });
+        const items = Array.from(byCategory.entries())
+            .map(([name, amount]) => ({ name, amount, icon: categoryIcon(name) }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 4);
+        const max = Math.max(1, ...items.map(c => c.amount));
+        return { items, max };
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
 
     const getIcon = (type: string) => {
         if (type === 'deposit' || type === 'income' || type === 'transfer_in') return <ArrowDownRight className="h-5 w-5 text-green-500" />
@@ -303,6 +385,69 @@ export default function Transactions() {
             )}
             <div className="flex justify-end">
                 <Button variant="secondary">Export CSV</Button>
+            </div>
+
+            {/* Cashflow + Top categories */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                            <CardTitle className="text-sm">Cashflow · {cashflowData.monthLabel}</CardTitle>
+                            <div className="flex items-center gap-4 font-mono text-xs font-semibold">
+                                <span className="text-emerald-600 dark:text-emerald-400">+{cashflowData.totalIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} in</span>
+                                <span className="text-red-500">−{cashflowData.totalOut.toLocaleString(undefined, { maximumFractionDigits: 0 })} out</span>
+                            </div>
+                        </div>
+                        <div className="flex items-end gap-4 h-28">
+                            {cashflowData.weeks.map((w, i) => (
+                                <div key={i} className="flex-1 flex items-end justify-center gap-1 h-full">
+                                    <div className="w-3 rounded-t bg-emerald-500" style={{ height: `${(w.in / cashflowData.max) * 100}%` }} title={`+${w.in.toFixed(0)}`} />
+                                    <div className="w-3 rounded-t bg-red-400" style={{ height: `${(w.out / cashflowData.max) * 100}%` }} title={`-${w.out.toFixed(0)}`} />
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-6">
+                        <CardTitle className="text-sm mb-4">Top categories</CardTitle>
+                        {topCategories.items.length === 0 ? (
+                            <div className="text-sm text-base-500 py-4 text-center">No expenses yet.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {topCategories.items.map(cat => (
+                                    <div key={cat.name}>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
+                                            <span className="font-mono text-xs text-base-500">{cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                        </div>
+                                        <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
+                                            <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / topCategories.max) * 100}%` }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Flow filter chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+                {(["all", "income", "expense"] as const).map(f => (
+                    <button
+                        key={f}
+                        onClick={() => setFilterFlow(f)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors",
+                            filterFlow === f
+                                ? "bg-gradient-to-br from-secondary-500 to-secondary-700 text-white"
+                                : "bg-base-100 dark:bg-base-900 border border-base-200 dark:border-base-800 text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                        )}
+                    >
+                        {f}
+                    </button>
+                ))}
             </div>
 
             {/* Log Transaction Modal */}
@@ -569,78 +714,87 @@ export default function Transactions() {
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="overflow-hidden">
                 <CardHeader>
                     <CardTitle>All Activity</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="space-y-4">
-                        {filteredHistory.length === 0 && (
-                            <div className="py-8 text-center text-base-500">
-                                No historical activity found matching these filters.
+                <CardContent className="p-0">
+                    {groupedHistory.length === 0 && (
+                        <div className="py-8 text-center text-base-500">
+                            No historical activity found matching these filters.
+                        </div>
+                    )}
+                    {groupedHistory.map(([label, items]) => (
+                        <div key={label}>
+                            <div className="px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
+                                {label}
                             </div>
-                        )}
-                        {filteredHistory.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0">
-                                        {getIcon(item.type)}
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-base-900 dark:text-base-50 capitalize">
-                                            {item.type.startsWith('transfer') ? 'Transfer' : item.type} {item.assetOrCategory !== "UNKNOWN" ? item.assetOrCategory : ""}
-                                        </p>
-                                        {item.description && (
-                                            <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
-                                                {item.description}
-                                            </p>
-                                        )}
-                                        <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">
-                                            <span>{formatDate(item.date)}</span>
-                                            {item.shares && (
-                                                <>
-                                                    <span>•</span>
-                                                    <span>{item.shares} shares</span>
-                                                </>
-                                            )}
+                            <div className="divide-y divide-base-100 dark:divide-base-800">
+                                {items.map((item) => (
+                                    <div key={item.id} className="flex items-center justify-between px-6 py-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0 text-lg">
+                                                {item.categoryType === 'transaction' && !item.type.startsWith('transfer')
+                                                    ? categoryIcon(item.assetOrCategory)
+                                                    : getIcon(item.type)}
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="font-medium text-base-900 dark:text-base-50 capitalize">
+                                                    {item.type.startsWith('transfer') ? 'Transfer' : item.type} {item.assetOrCategory !== "UNKNOWN" ? item.assetOrCategory : ""}
+                                                </p>
+                                                {item.description && (
+                                                    <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
+                                                        {item.description}
+                                                    </p>
+                                                )}
+                                                <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">
+                                                    <span>{formatDate(item.date)}</span>
+                                                    {item.shares && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span>{item.shares} shares</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                    <Badge variant="neutral">{item.householdName}</Badge>
+                                                    <Badge variant="neutral">{item.accountName}</Badge>
+                                                    {item.subportfolioName && (
+                                                        <Badge variant="neutral">{item.subportfolioName}</Badge>
+                                                    )}
+                                                    <OwnershipTag ownerUserId={item.ownerUserId} show={hasHousehold && viewMode === "blended"} />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            <Badge variant="neutral">{item.householdName}</Badge>
-                                            <Badge variant="neutral">{item.accountName}</Badge>
-                                            {item.subportfolioName && (
-                                                <Badge variant="neutral">{item.subportfolioName}</Badge>
+                                        <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-semibold ${getAmountColor(item.type)}`}>
+                                                    {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
+                                                </span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                                    onClick={() => handleDelete(item)}
+                                                    disabled={isDeleting === item.id}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                            {item.currencyNative !== item.currencyAccount && (
+                                                <span className="text-xs font-medium text-base-500 dark:text-base-400">
+                                                    {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
+                                                </span>
                                             )}
-                                            <OwnershipTag ownerUserId={item.ownerUserId} show={hasHousehold && viewMode === "blended"} />
+                                            <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
+                                                {item.status}
+                                            </Badge>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-0.5 shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`font-semibold ${getAmountColor(item.type)}`}>
-                                            {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
-                                            onClick={() => handleDelete(item)}
-                                            disabled={isDeleting === item.id}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {item.currencyNative !== item.currencyAccount && (
-                                        <span className="text-xs font-medium text-base-500 dark:text-base-400">
-                                            {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
-                                        </span>
-                                    )}
-                                    <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
-                                        {item.status}
-                                    </Badge>
-                                </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    ))}
                 </CardContent>
             </Card>
             </div>

@@ -6,7 +6,8 @@
       "runtimeExecutable": "node_modules/.bin/react-router",
       "runtimeArgs": ["dev"],
       "cwd": "frontend",
-      "port": 5173
+      "port": 5173,
+      "autoPort": false
     }
   ]
 }

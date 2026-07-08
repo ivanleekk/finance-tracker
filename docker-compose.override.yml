@@ -1,0 +1,24 @@
+services:
+    backend:
+        volumes:
+            - ./backend:/app
+        environment:
+            - DEBUG=true
+            # watchfiles (used by `fastapi dev` --reload) falls back to polling when
+            # native filesystem events don't propagate through the bind mount.
+            - WATCHFILES_FORCE_POLLING=true
+
+    frontend:
+        environment:
+            # Vite's own watcher doesn't read CHOKIDAR_USEPOLLING automatically - it's
+            # wired explicitly in vite.config.ts. Kept as the env var name since that's
+            # the conventional one to reach for when HMR seems stuck in a container.
+            - CHOKIDAR_USEPOLLING=true
+            # /app/node_modules is a fresh named volume (see below) separate from the
+            # bind-mounted source, so pnpm's dependency-status check always sees it as
+            # out of sync on a clean volume and wants to interactively confirm purging
+            # it - there's no TTY in a detached container, so that prompt just hangs.
+            - CI=true
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules

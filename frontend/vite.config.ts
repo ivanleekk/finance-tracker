@@ -11,5 +11,12 @@ export default defineConfig({
     ],
     server: {
         host: true,
+        // Bind-mounted volumes (e.g. Docker Desktop on macOS/Windows) don't always
+        // propagate native filesystem events, so HMR silently stops picking up
+        // changes. CHOKIDAR_USEPOLLING=true (set by docker-compose.override.yml)
+        // falls back to polling - Vite doesn't read that env var on its own.
+        watch: process.env.CHOKIDAR_USEPOLLING === 'true'
+            ? { usePolling: true, interval: 300 }
+            : undefined,
     }
 })

@@ -13,7 +13,7 @@ export { goalDetailLoader as loader } from "./goalDetail.loader";
 export default function GoalDetail() {
     const { activeHousehold } = useHousehold();
     const params = useParams();
-    const { goal, snapshots = [], trades = [], accounts = [] } = (useLoaderData() as GoalDetailLoaderData) || {};
+    const { goal, snapshots = [], trades = [], accounts = [], members = [] } = (useLoaderData() as GoalDetailLoaderData) || {};
 
     const formatCurrency = (v: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v);
@@ -34,6 +34,27 @@ export default function GoalDetail() {
             .filter(f => f.total > 0)
             .sort((a, b) => b.total - a.total);
     }, [trades, accountMap]);
+
+    const contributionsByMember = useMemo(() => {
+        const byOwner = new Map<string, number>();
+        trades.forEach(t => {
+            const account = accountMap.get(t.account_id);
+            const ownerKey = account?.owner_user_id || "shared";
+            const amt = Number(t.quantity) * Number(t.price) * Number(t.exchange_rate) * (t.type === "sell" ? -1 : 1);
+            byOwner.set(ownerKey, (byOwner.get(ownerKey) || 0) + amt);
+        });
+        const memberMap = new Map(members.map(m => [m.user_id, m.name]));
+        const items = Array.from(byOwner.entries())
+            .map(([ownerKey, total]) => ({
+                key: ownerKey,
+                name: ownerKey === "shared" ? "Shared accounts" : (memberMap.get(ownerKey) || "Member"),
+                total,
+            }))
+            .filter(i => i.total > 0)
+            .sort((a, b) => b.total - a.total);
+        const max = Math.max(1, ...items.map(i => i.total));
+        return { items, max };
+    }, [trades, accountMap, members]);
 
     const recentContributions = useMemo(() => {
         return [...trades]
@@ -165,6 +186,27 @@ export default function GoalDetail() {
                                     <span className="font-mono text-sm text-base-700 dark:text-base-300">{formatCurrency(f.total)}</span>
                                 </div>
                             ))}
+                            {members.length > 1 && contributionsByMember.items.length > 0 && (
+                                <div className="pt-3 mt-1 border-t border-base-100 dark:border-base-800 space-y-3">
+                                    <div className="text-sm font-semibold text-base-900 dark:text-base-50">Contributions by member</div>
+                                    {contributionsByMember.items.map((m, i) => (
+                                        <div key={m.key} className="flex items-center gap-3">
+                                            <div
+                                                className="w-6 h-6 rounded-full shrink-0 bg-gradient-to-br"
+                                                style={{ backgroundImage: `linear-gradient(135deg, ${i % 2 === 0 ? 'var(--color-primary-400), var(--color-primary-600)' : 'var(--color-secondary-400), var(--color-secondary-600)'})` }}
+                                            />
+                                            <span className="flex-1 text-sm text-base-700 dark:text-base-300 truncate">{m.name}</span>
+                                            <div className="w-24 h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
+                                                <div
+                                                    className={i % 2 === 0 ? "h-full bg-primary-500" : "h-full bg-secondary-500"}
+                                                    style={{ width: `${(m.total / contributionsByMember.max) * 100}%` }}
+                                                />
+                                            </div>
+                                            <span className="font-mono text-xs text-base-500 w-16 text-right">{formatCurrency(m.total)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
 

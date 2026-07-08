@@ -32,10 +32,20 @@ cors_origins = [
     if origin.strip()
 ]
 
+# Beyond the explicit origins above, also allow any localhost/127.0.0.1 port.
+# The frontend dev server doesn't always land on the configured port (another
+# process already holds it, a second worktree, ad hoc preview tooling, ...),
+# and CORS_ORIGINS being a fixed list turns that into an opaque network error
+# instead of a clear CORS failure. Scoped to loopback hosts only, so this can't
+# widen access for a real deployment - no external origin can present as
+# "localhost" to a browser's CORS check.
+cors_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

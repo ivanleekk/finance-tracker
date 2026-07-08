@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLoaderData, useRevalidator, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
@@ -49,6 +49,23 @@ export default function Settings() {
     const [requireFaceId, setRequireFaceId] = useState(user.require_face_id_for_vault);
     const [defaultPrivate, setDefaultPrivate] = useState(user.default_new_items_private);
     const [saving, setSaving] = useState(false);
+
+    const baseCurrency = activeHousehold?.base_currency;
+    const fxReference = baseCurrency === "USD" ? "EUR" : "USD";
+    const [fxRate, setFxRate] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (!baseCurrency || baseCurrency === fxReference) return;
+        let cancelled = false;
+        api.get("/reference/exchange_rate", {
+            params: { base: fxReference, target: baseCurrency, date: new Date().toISOString().split("T")[0] }
+        }).then(res => {
+            if (!cancelled) setFxRate(res.data.rate);
+        }).catch(() => {
+            if (!cancelled) setFxRate(null);
+        });
+        return () => { cancelled = true; };
+    }, [baseCurrency, fxReference]);
 
     const savePrivacy = async (patch: Partial<{ hide_private_from_household: boolean; require_face_id_for_vault: boolean; default_new_items_private: boolean }>) => {
         setSaving(true);
@@ -105,6 +122,12 @@ export default function Settings() {
                             <div className="flex items-center justify-between py-2 text-sm">
                                 <span className="text-base-500 dark:text-base-400">Base currency</span>
                                 <Badge variant="secondary">{activeHousehold?.base_currency || "—"}</Badge>
+                            </div>
+                            <div className="flex items-center justify-between py-2 border-t border-base-100 dark:border-base-800 text-sm">
+                                <span className="text-base-500 dark:text-base-400">FX rate source</span>
+                                <span className="text-base-900 dark:text-base-50 font-medium font-mono text-xs">
+                                    {fxRate != null ? `Live · ${fxReference} ${fxRate.toFixed(2)}` : "Live"}
+                                </span>
                             </div>
                             <div className="flex items-center justify-between py-2 border-t border-base-100 dark:border-base-800 text-sm">
                                 <span className="text-base-500 dark:text-base-400">Reference currencies available</span>

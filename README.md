@@ -48,10 +48,18 @@ Create `.env` files in both `frontend/` and `backend/` directories. Refer to the
 ```bash
 docker-compose up --build
 ```
+`docker-compose.override.yml` is picked up automatically (no `-f` flags needed) and gives both services live-reload: source is bind-mounted, so edits on the host show up without rebuilding.
+
 The application will be available at:
 -   **Frontend**: `http://localhost:5173`
 -   **Backend API**: `http://localhost:8000`
 -   **API Docs**: `http://localhost:8000/docs`
+
+If any of those ports are already taken on your machine, override them without touching the compose files:
+```bash
+FRONTEND_PORT=5174 BACKEND_PORT=8001 DB_PORT=5433 docker-compose up --build
+```
+The backend's CORS also accepts any `http://localhost:<port>` origin in addition to `CORS_ORIGINS`, so a frontend dev server running on an unexpected port (a second worktree, another tool) still works without edits.
 
 ## ☁️ Deployment (Cloud Run)
 

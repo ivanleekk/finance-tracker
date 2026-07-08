@@ -26,7 +26,10 @@ type Holding = {
     currency: string; // Ticker's base currency
     avgCostNative: number;
     currentPriceNative: number;
+    assetType: string;
 };
+
+const ALLOCATION_COLORS = ["#38bdf8", "#4ade80", "#fbbf24", "#e879f9", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf"];
 
 type PortfolioData = {
     stats: {
@@ -288,7 +291,8 @@ export default function Portfolio() {
                             currentPrice: currentPriceHome,
                             currency: currency,
                             avgCostNative: costBasisNative,
-                            currentPriceNative: currentPriceNative
+                            currentPriceNative: currentPriceNative,
+                            assetType: asset?.type || "other"
                         });
                     }
                 });
@@ -403,6 +407,32 @@ export default function Portfolio() {
 
     const currentData = { ...rawData, holdings: sortedHoldings };
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
+
+    const allocationSlices = (() => {
+        const byType = new Map<string, number>();
+        let totalValue = 0;
+        currentData.holdings.forEach(h => {
+            const value = h.shares * h.currentPrice;
+            totalValue += value;
+            byType.set(h.assetType, (byType.get(h.assetType) || 0) + value);
+        });
+        return Array.from(byType.entries())
+            .map(([type, value]) => ({ type, value, pct: totalValue > 0 ? (value / totalValue) * 100 : 0 }))
+            .sort((a, b) => b.value - a.value);
+    })();
+
+    const fxExposure = (() => {
+        const byCurrency = new Map<string, number>();
+        let totalValue = 0;
+        currentData.holdings.forEach(h => {
+            const value = h.shares * h.currentPrice;
+            totalValue += value;
+            byCurrency.set(h.currency, (byCurrency.get(h.currency) || 0) + value);
+        });
+        return Array.from(byCurrency.entries())
+            .map(([currency, value]) => ({ currency, pct: totalValue > 0 ? (value / totalValue) * 100 : 0 }))
+            .sort((a, b) => b.pct - a.pct);
+    })();
 
     // Metrics for the active tab (includes dividend_income / dividend_yield).
     const activeMetrics = activeTab === "Overall"
@@ -577,6 +607,7 @@ export default function Portfolio() {
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title="Div Yield" value={activeMetrics?.dividend_yield != null ? `${(activeMetrics.dividend_yield * 100).toFixed(1)}%` : "—"} />
                 {activeSubportfolioObj?.target_amount && (
                     <StatCard 
                         title="Goal Progress" 
@@ -685,7 +716,60 @@ export default function Portfolio() {
                 </CardContent>
             </Card>
 
-            {/* Holdings Table */}
+            {/* Allocation + Holdings */}
+            <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6 items-start">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Allocation</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {allocationSlices.length > 0 ? (
+                        <>
+                            <div className="flex justify-center mb-4">
+                                <div
+                                    className="w-[130px] h-[130px] rounded-full flex items-center justify-center"
+                                    style={{
+                                        background: `conic-gradient(${(() => {
+                                            let acc = 0;
+                                            return allocationSlices.map((s, i) => {
+                                                const start = acc;
+                                                acc += s.pct;
+                                                return `${ALLOCATION_COLORS[i % ALLOCATION_COLORS.length]} ${start}% ${acc}%`;
+                                            }).join(", ");
+                                        })()})`,
+                                    }}
+                                >
+                                    <div className="w-20 h-20 rounded-full bg-white dark:bg-base-900 flex flex-col items-center justify-center">
+                                        <div className="font-mono font-bold text-base-900 dark:text-base-50">{currentData.holdings.length}</div>
+                                        <div className="font-mono text-[8px] text-base-500">holdings</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-2 mb-4">
+                                {allocationSlices.map((s, i) => (
+                                    <div key={s.type} className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: ALLOCATION_COLORS[i % ALLOCATION_COLORS.length] }} />
+                                        <span className="flex-1 text-xs text-base-700 dark:text-base-300 capitalize">{s.type.replace('_', ' ')}</span>
+                                        <span className="font-mono text-xs text-base-500">{s.pct.toFixed(0)}%</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="border-t border-base-100 dark:border-base-800 pt-3">
+                                <div className="text-[10px] font-mono uppercase tracking-wider text-base-400 mb-2">FX exposure</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {fxExposure.map(fx => (
+                                        <span key={fx.currency} className="flex-1 text-center bg-base-100 dark:bg-base-800 rounded-lg py-1.5 font-mono text-xs font-semibold text-base-700 dark:text-base-300">
+                                            {fx.currency} {fx.pct.toFixed(0)}%
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-sm text-base-500 text-center py-8">No holdings yet.</div>
+                    )}
+                </CardContent>
+            </Card>
             <Card>
                 <CardHeader>
                     <CardTitle>{activeTab} Holdings</CardTitle>
@@ -782,6 +866,7 @@ export default function Portfolio() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
 
             {/* Dividend Income */}
             <Card>

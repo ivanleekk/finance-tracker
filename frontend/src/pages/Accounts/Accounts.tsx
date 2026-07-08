@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { StatCard } from "../../components/ui/StatCard";
 import { OwnershipTag } from "../../components/ui/OwnershipTag";
 import { TopBar } from "../../components/TopBar";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
@@ -11,7 +12,7 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { LiquidityStatus, TaxTreatment } from "../../types/types";
-import type { AccountWithHistory, AccountsLoaderData } from "./accounts.loader";
+import type { AccountsLoaderData } from "./accounts.loader";
 import type { BalanceResponse } from "../../types/types";
 
 export { loader, action } from "./accounts.loader";
@@ -27,6 +28,29 @@ const CHART_COLORS = [
     "#f43f5e", // Rose
     "#6366f1", // Indigo
 ];
+
+const LIQUIDITY_META: Record<string, { label: string; className: string }> = {
+    [LiquidityStatus.Liquid]: { label: "LIQUID", className: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" },
+    [LiquidityStatus.MarketLiquid]: { label: "MARKET", className: "text-primary-600 dark:text-primary-400 bg-primary-500/10" },
+    [LiquidityStatus.TimeLocked]: { label: "TIME-LOCK", className: "text-amber-600 dark:text-amber-400 bg-amber-500/10" },
+    [LiquidityStatus.Retirement]: { label: "RETIREMENT", className: "text-amber-600 dark:text-amber-400 bg-amber-500/10" },
+};
+
+const TAX_META: Record<string, { label: string; className: string }> = {
+    [TaxTreatment.Taxable]: { label: "TAXABLE", className: "text-base-500 dark:text-base-400 bg-base-200/60 dark:bg-base-800" },
+    [TaxTreatment.TaxDeferred]: { label: "TAX-DEFER", className: "text-secondary-600 dark:text-secondary-400 bg-secondary-500/10" },
+    [TaxTreatment.TaxFree]: { label: "TAX-FREE", className: "text-secondary-600 dark:text-secondary-400 bg-secondary-500/10" },
+};
+
+const ACCOUNT_GROUPS: { key: string; label: string; liquidities: LiquidityStatus[] }[] = [
+    { key: "cash", label: "Cash & liquid", liquidities: [LiquidityStatus.Liquid] },
+    { key: "invest", label: "Investments", liquidities: [LiquidityStatus.MarketLiquid] },
+    { key: "retirement", label: "Retirement · CPF & SRS", liquidities: [LiquidityStatus.TimeLocked, LiquidityStatus.Retirement] },
+];
+
+function initialsFor(name: string) {
+    return (name.split(/\s+/)[0] || name).slice(0, 4).toUpperCase();
+}
 
 export default function Accounts() {
     const { activeHousehold } = useHousehold();
@@ -72,8 +96,6 @@ export default function Accounts() {
 
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
-
-    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // Close modals on successful submission
     useEffect(() => {
@@ -170,45 +192,28 @@ export default function Accounts() {
         return accounts.find(a => a.id === historyAccountId) || null;
     }, [accounts, historyAccountId]);
 
-    const sortedAccounts = useMemo(() => {
-        const sortable = [...accounts];
-        if (sortConfig !== null) {
-            sortable.sort((a, b) => {
-                let aValue: any;
-                let bValue: any;
+    const summaryStats = useMemo(() => {
+        let totalAssets = 0, liquidNow = 0, retirement = 0;
+        const currencySet = new Set<string>();
+        accounts.forEach(acc => {
+            const bal = getCurrentBalanceDetails(acc.history).balanceHome;
+            totalAssets += bal;
+            currencySet.add(acc.currency);
+            if (acc.liquidity === LiquidityStatus.Liquid) liquidNow += bal;
+            if (acc.liquidity === LiquidityStatus.TimeLocked || acc.liquidity === LiquidityStatus.Retirement) retirement += bal;
+        });
+        return { totalAssets, liquidNow, retirement, currencies: Array.from(currencySet).sort() };
+    }, [accounts]);
 
-                const getBal = (acc: AccountWithHistory) => getCurrentBalanceDetails(acc.history).balanceHome;
-
-                switch (sortConfig.key) {
-                    case 'name': aValue = a.name; bValue = b.name; break;
-                    case 'type': aValue = a.tax_status; bValue = b.tax_status; break;
-                    case 'balance': aValue = getBal(a); bValue = getBal(b); break;
-                    case 'liquidity': aValue = a.liquidity; bValue = b.liquidity; break;
-                    default: aValue = 0; bValue = 0;
-                }
-
-                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
-            });
-        }
-        return sortable;
-    }, [accounts, sortConfig]);
-
-    const requestSort = (key: string) => {
-        let direction: 'asc' | 'desc' = 'asc';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-    };
-
-    const getSortIcon = (key: string) => {
-        if (!sortConfig || sortConfig.key !== key) return <svg className="w-3 h-3 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>;
-        return sortConfig.direction === 'asc'
-            ? <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg>
-            : <svg className="w-3 h-3 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>;
-    };
+    const accountGroups = useMemo(() => {
+        return ACCOUNT_GROUPS.map(group => {
+            const groupAccounts = accounts
+                .filter(acc => group.liquidities.includes(acc.liquidity))
+                .sort((a, b) => getCurrentBalanceDetails(b.history).balanceHome - getCurrentBalanceDetails(a.history).balanceHome);
+            const groupTotal = groupAccounts.reduce((sum, acc) => sum + getCurrentBalanceDetails(acc.history).balanceHome, 0);
+            return { ...group, accounts: groupAccounts, total: groupTotal };
+        }).filter(group => group.accounts.length > 0);
+    }, [accounts]);
 
     const openUpdateModal = (accountId: string) => {
         setUpdateBalanceData({ accountId, date: new Date().toISOString().split('T')[0], balance: "" });
@@ -232,6 +237,14 @@ export default function Accounts() {
             />
             <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
             <p className="text-base-500 dark:text-base-400 -mt-2">Manage and track your cash balances for {activeHousehold.name}.</p>
+
+            {/* Summary stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard title="Total assets" value={formatCurrency(summaryStats.totalAssets)} />
+                <StatCard title="Liquid now" value={formatCurrency(summaryStats.liquidNow)} />
+                <StatCard title="Retirement" value={formatCurrency(summaryStats.retirement)} />
+                <StatCard title="Currencies" value={summaryStats.currencies.join(" · ") || "—"} />
+            </div>
 
             {/* Chart Section */}
             <Card>
@@ -326,89 +339,73 @@ export default function Accounts() {
                 </CardContent>
             </Card>
 
-            {/* Table Section */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Connected Accounts</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-base-600 dark:text-base-400">
-                            <thead className="border-b border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 text-base-900 dark:text-base-50">
-                                <tr>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('name')}>
-                                        <div className="flex items-center gap-2">Account Name {getSortIcon('name')}</div>
-                                    </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors" onClick={() => requestSort('type')}>
-                                        <div className="flex items-center gap-2">Type {getSortIcon('type')}</div>
-                                    </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('balance')}>
-                                        <div className="flex items-center justify-end gap-2">Current Balance {getSortIcon('balance')}</div>
-                                    </th>
-                                    <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-base-100/50 transition-colors text-right" onClick={() => requestSort('liquidity')}>
-                                        <div className="flex items-center justify-end gap-2">Liquidity {getSortIcon('liquidity')}</div>
-                                    </th>
-                                    <th className="px-4 py-3 font-semibold">Status</th>
-                                    <th className="px-4 py-3 font-semibold"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {sortedAccounts.map((acc) => (
-                                    <tr key={acc.id} className="border-b border-base-100 dark:border-base-800 hover:bg-base-50/50 dark:hover:bg-base-900/50 transition-colors">
-                                        <td className="px-4 py-4 font-medium text-base-900 dark:text-base-50">
-                                            <div className="flex items-center gap-2">
-                                                {acc.name}
-                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{acc.currency}</Badge>
-                                                <OwnershipTag ownerUserId={acc.owner_user_id} show={hasHousehold && viewMode === "blended"} className="text-[9px] px-1.5 py-0 h-4" />
+            {/* Grouped accounts */}
+            <div className="space-y-5">
+                {accountGroups.map(group => (
+                    <div key={group.key}>
+                        <div className="flex items-baseline gap-2 mb-2 px-1">
+                            <h3 className="font-display font-bold text-sm text-base-900 dark:text-base-50">{group.label}</h3>
+                            <span className="font-mono text-xs text-base-500 dark:text-base-400">{formatCurrency(group.total)}</span>
+                        </div>
+                        <Card className="overflow-hidden">
+                            <CardContent className="p-0">
+                                {group.accounts.map(acc => {
+                                    const { balance, balanceHome } = getCurrentBalanceDetails(acc.history);
+                                    const liquidityMeta = LIQUIDITY_META[acc.liquidity];
+                                    const taxMeta = TAX_META[acc.tax_status];
+                                    return (
+                                        <div key={acc.id} className="flex flex-wrap items-center gap-3 px-4 py-3 border-b last:border-b-0 border-base-100 dark:border-base-800/70 hover:bg-base-50/50 dark:hover:bg-base-900/40 transition-colors">
+                                            <div className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[10px] font-bold shrink-0 bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                                                {initialsFor(acc.name)}
                                             </div>
-                                        </td>
-                                        <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>
-                                        <td className="px-4 py-4 text-right">
-                                            <div className="font-medium text-base-900 dark:text-base-50">
-                                                {formatCurrency(getCurrentBalanceDetails(acc.history).balanceHome)}
-                                            </div>
-                                            {acc.currency !== activeHousehold?.base_currency && (
-                                                <div className="text-xs text-base-500 dark:text-base-400">
-                                                    {formatCurrency(getCurrentBalanceDetails(acc.history).balance, acc.currency)}
+                                            <div className="flex-1 min-w-[140px]">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-base-900 dark:text-base-50">{acc.name}</span>
+                                                    <OwnershipTag ownerUserId={acc.owner_user_id} show={hasHousehold && viewMode === "blended"} className="text-[9px] px-1.5 py-0 h-4" />
                                                 </div>
+                                                <div className="text-[10px] font-mono uppercase tracking-wide text-base-400 dark:text-base-500">{acc.currency}</div>
+                                            </div>
+                                            {liquidityMeta && (
+                                                <span className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${liquidityMeta.className}`}>{liquidityMeta.label}</span>
                                             )}
-                                        </td>
-                                        <td className="px-4 py-4 text-right capitalize">{acc.liquidity.replace('_', ' ')}</td>
-                                        <td className="px-4 py-4">
-                                            <Badge variant="success">
-                                                Active
-                                            </Badge>
-                                        </td>
-                                        <td className="px-4 py-4 text-right flex justify-end gap-2">
-                                            <Button variant="ghost" size="sm" onClick={() => {
-                                                setHistoryAccountId(acc.id);
-                                                setIsHistoryModalOpen(true);
-                                            }}>History</Button>
-                                            <Link to={`/trade?account_id=${acc.id}`}>
-                                                <Button variant="ghost" size="sm">Trade</Button>
-                                            </Link>
-                                            <Button variant="ghost" size="sm" onClick={() => openUpdateModal(acc.id)}>Update Balance</Button>
-
-
-                                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => {
-                                                setAccountToDelete({ id: acc.id, name: acc.name });
-                                                setIsDeleteModalOpen(true);
-                                            }}>Delete</Button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {accounts.length === 0 && (
-                                    <tr>
-                                        <td colSpan={6} className="px-4 py-8 text-center text-base-500">
-                                            No accounts found for this household.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                            {taxMeta && (
+                                                <span className={`hidden md:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${taxMeta.className}`}>{taxMeta.label}</span>
+                                            )}
+                                            <div className="text-right w-28 shrink-0">
+                                                <div className="font-mono font-semibold text-base-900 dark:text-base-50">{formatCurrency(balanceHome)}</div>
+                                                {acc.currency !== activeHousehold?.base_currency && (
+                                                    <div className="text-[10px] text-base-400 dark:text-base-500 font-mono">{formatCurrency(balance, acc.currency)}</div>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0 ml-auto">
+                                                <Button variant="ghost" size="sm" onClick={() => {
+                                                    setHistoryAccountId(acc.id);
+                                                    setIsHistoryModalOpen(true);
+                                                }}>History</Button>
+                                                <Link to={`/trade?account_id=${acc.id}`}>
+                                                    <Button variant="ghost" size="sm">Trade</Button>
+                                                </Link>
+                                                <Button variant="ghost" size="sm" className="text-secondary-600 dark:text-secondary-400" onClick={() => openUpdateModal(acc.id)}>Update</Button>
+                                                <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => {
+                                                    setAccountToDelete({ id: acc.id, name: acc.name });
+                                                    setIsDeleteModalOpen(true);
+                                                }}>Delete</Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </CardContent>
+                        </Card>
                     </div>
-                </CardContent>
-            </Card>
+                ))}
+                {accounts.length === 0 && (
+                    <Card>
+                        <CardContent className="py-8 text-center text-base-500">
+                            No accounts found for this household.
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
 
             {/* Add Account Modal */}
             {
