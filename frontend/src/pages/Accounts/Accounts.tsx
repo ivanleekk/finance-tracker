@@ -4,8 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { OwnershipTag } from "../../components/ui/OwnershipTag";
+import { TopBar } from "../../components/TopBar";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { useHousehold } from "../../lib/HouseholdContext";
+import { useAuth } from "../../lib/AuthContext";
+import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { LiquidityStatus, TaxTreatment } from "../../types/types";
 import type { AccountWithHistory, AccountsLoaderData } from "./accounts.loader";
 import type { BalanceResponse } from "../../types/types";
@@ -26,7 +30,13 @@ const CHART_COLORS = [
 
 export default function Accounts() {
     const { activeHousehold } = useHousehold();
-    const { accounts = [], currencies = [] } = (useLoaderData() as AccountsLoaderData) || {};
+    const { user } = useAuth();
+    const { viewMode, hasHousehold } = useViewMode();
+    const { accounts: allAccounts = [], currencies = [] } = (useLoaderData() as AccountsLoaderData) || {};
+    const accounts = useMemo(
+        () => allAccounts.filter(a => isVisibleInViewMode(a.owner_user_id, viewMode, user?.id)),
+        [allAccounts, viewMode, user?.id]
+    );
 
     // We use fetchers for mutations to avoid full page navigations and to easily keep modals open/closed based on state
     const addAccountFetcher = useFetcher();
@@ -42,13 +52,15 @@ export default function Accounts() {
         balance: string;
         currency: string;
         date: string;
+        isPrivate: boolean;
     }>({
         name: "",
         liquidity: LiquidityStatus.Liquid,
         tax_status: TaxTreatment.Taxable,
         balance: "",
         currency: "USD",
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        isPrivate: user?.default_new_items_private ?? true,
     });
 
 
@@ -73,7 +85,8 @@ export default function Accounts() {
                 tax_status: TaxTreatment.Taxable,
                 balance: "",
                 currency: "USD",
-                date: new Date().toISOString().split('T')[0]
+                date: new Date().toISOString().split('T')[0],
+                isPrivate: user?.default_new_items_private ?? true,
             });
 
         }
@@ -211,14 +224,14 @@ export default function Accounts() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Bank Accounts</h2>
-                    <p className="text-base-500 dark:text-base-400 mt-1">Manage and track your cash balances for {activeHousehold.name}.</p>
-                </div>
-                <Button variant="primary" onClick={() => setIsAddAccountModalOpen(true)}>Add New Account</Button>
-            </div>
+        <div className="flex-1 flex flex-col overflow-hidden">
+            <TopBar
+                title="Accounts"
+                commandPlaceholder="Log or find…"
+                cta={<Button variant="cta" onClick={() => setIsAddAccountModalOpen(true)}>+ Link account</Button>}
+            />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
+            <p className="text-base-500 dark:text-base-400 -mt-2">Manage and track your cash balances for {activeHousehold.name}.</p>
 
             {/* Chart Section */}
             <Card>
@@ -346,6 +359,7 @@ export default function Accounts() {
                                             <div className="flex items-center gap-2">
                                                 {acc.name}
                                                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{acc.currency}</Badge>
+                                                <OwnershipTag ownerUserId={acc.owner_user_id} show={hasHousehold && viewMode === "blended"} className="text-[9px] px-1.5 py-0 h-4" />
                                             </div>
                                         </td>
                                         <td className="px-4 py-4 capitalize">{acc.tax_status.replace('_', ' ')}</td>
@@ -408,6 +422,7 @@ export default function Accounts() {
                             <CardContent>
                                 <addAccountFetcher.Form method="post" className="space-y-4">
                                     <input type="hidden" name="_intent" value="addAccount" />
+                                    <input type="hidden" name="current_user_id" value={user?.id ?? ""} />
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900 dark:text-base-50">Account Name</label>
                                         <Input
@@ -483,6 +498,18 @@ export default function Accounts() {
                                             ))}
                                         </select>
                                     </div>
+                                    {hasHousehold && (
+                                        <label className="flex items-center gap-2.5 rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                name="is_private"
+                                                checked={newAccount.isPrivate}
+                                                onChange={(e) => setNewAccount({ ...newAccount, isPrivate: e.target.checked })}
+                                                className="accent-secondary-500"
+                                            />
+                                            <span className="text-sm text-base-700 dark:text-base-300">🔒 Private — only visible to you</span>
+                                        </label>
+                                    )}
                                     <div className="flex gap-3 justify-end pt-4">
                                         <Button variant="ghost" type="button" onClick={() => setIsAddAccountModalOpen(false)}>Cancel</Button>
                                         <Button variant="primary" type="submit" disabled={addAccountFetcher.state !== "idle"}>
@@ -649,6 +676,7 @@ export default function Accounts() {
                     </div>
                 )
             }
+            </div>
         </div >
     )
 }

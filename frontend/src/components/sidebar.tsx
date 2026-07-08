@@ -9,7 +9,10 @@ import {
     Landmark,
     Users,
     LogOut,
-    LogIn // Added LogIn icon
+    LogIn, // Added LogIn icon
+    CircleDollarSign,
+    Target,
+    Settings,
 } from "lucide-react";
 import SidebarButton from "./sidebarButton";
 import { useAuth } from "../lib/AuthContext";
@@ -34,10 +37,13 @@ function Sidebar() {
                     {isAuthenticated && <HouseholdSelector />}
                     <SidebarButton text="Dashboard" href="/dashboard" icon={<LayoutDashboard />} />
                     <SidebarButton text="Accounts" href="/accounts" icon={<Landmark />} />
-                    <SidebarButton text="Households" href="/households" icon={<Users />} />
-                    <SidebarButton text="Trade" href="/trade" icon={<ArrowRightLeft />} />
                     <SidebarButton text="Portfolio" href="/portfolio" icon={<PieChart />} />
+                    <SidebarButton text="Dividends" href="/dividends" icon={<CircleDollarSign />} />
                     <SidebarButton text="Transactions" href="/transactions" icon={<History />} />
+                    <SidebarButton text="Trade" href="/trade" icon={<ArrowRightLeft />} />
+                    <SidebarButton text="Goals" href="/goals" icon={<Target />} />
+                    <SidebarButton text="Household" href="/households" icon={<Users />} />
+                    <SidebarButton text="Settings" href="/settings" icon={<Settings />} />
                 </div>
 
                 <div className="flex flex-col gap-1">

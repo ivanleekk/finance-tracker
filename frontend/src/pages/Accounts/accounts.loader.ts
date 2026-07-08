@@ -64,6 +64,8 @@ export async function action({ request }: ActionFunctionArgs) {
         const currency = formData.get("currency") as string;
         const balance = formData.get("balance") as string;
         const date = formData.get("date") as string;
+        const isPrivate = formData.get("is_private") === "on";
+        const currentUserId = formData.get("current_user_id") as string | null;
 
         const accRes = await ssrFetch("/accounts", {
             method: "POST",
@@ -76,6 +78,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 liquidity,
                 tax_status,
                 currency,
+                owner_user_id: isPrivate && currentUserId ? currentUserId : null,
             }),
         });
 

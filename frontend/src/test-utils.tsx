@@ -47,8 +47,9 @@ export const customRender = (
     const mockHousehold = {
         id: "mock-household-123",
         name: "Test Household",
-        currency: "USD",
-        owner_id: "user-123"
+        base_currency: "USD",
+        country_code: "US",
+        default_split_mode: "even" as const,
     };
 
     const ContextWrapper = () => (

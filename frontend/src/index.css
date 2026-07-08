@@ -21,6 +21,10 @@
 @theme {
     --dark-mode: selector(.dark);
 
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
     --color-primary-50: var(--primary-50);
     --color-primary-100: var(--primary-100);
     --color-primary-200: var(--primary-200);

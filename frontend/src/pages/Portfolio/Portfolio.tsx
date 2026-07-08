@@ -12,6 +12,7 @@ import api from "../../lib/api"
 import type { SubPortfolioResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
+import { TopBar } from "../../components/TopBar"
 
 export { portfolioLoader as loader } from "./portfolio.loader";
 
@@ -409,7 +410,17 @@ export default function Portfolio() {
         : metrics?.sub_portfolio_metrics?.find(m => m.sub_portfolio_id === activeSubportfolioObj?.id)?.metrics;
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+            <TopBar
+                title="Portfolio"
+                commandPlaceholder="buy 10 VOO…"
+                cta={
+                    <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                        <Button variant="cta">+ Add trade</Button>
+                    </Link>
+                }
+            />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
             {isLoading && (
                 <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
@@ -417,16 +428,13 @@ export default function Portfolio() {
                 </div>
             )}
             <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Portfolio</h2>
-                    <p className="text-base-500 mt-1">Track your performance and risk metrics.</p>
-                </div>
+                <p className="text-base-500">Track your performance and risk metrics.</p>
                 <div className="flex items-center gap-4">
                     <TimeframeSelector />
                     <div className="flex gap-2">
-                        <Button 
-                            variant="secondary" 
-                            onClick={handleSyncPortfolio} 
+                        <Button
+                            variant="secondary"
+                            onClick={handleSyncPortfolio}
                             disabled={isSyncing}
                             className="flex items-center gap-2"
                         >
@@ -438,9 +446,6 @@ export default function Portfolio() {
                             Sync
                         </Button>
                         <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
-                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                            <Button variant="primary">Trade</Button>
-                        </Link>
                         <Button variant="primary">Download Report</Button>
                     </div>
                 </div>
@@ -847,6 +852,7 @@ export default function Portfolio() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
         </div>
     )
 }

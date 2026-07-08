@@ -2,7 +2,7 @@ import * as React from "react"
 import { cn } from "../../lib/utils"
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
-    variant?: "success" | "warning" | "error" | "info" | "neutral" | "secondary"
+    variant?: "success" | "warning" | "error" | "info" | "neutral" | "secondary" | "outline" | "private" | "shared"
 }
 
 
@@ -18,6 +18,10 @@ function Badge({ className, variant = "neutral", ...props }: BadgeProps) {
                     "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400": variant === "info",
                     "bg-secondary-100 text-secondary-800 dark:bg-secondary-900/30 dark:text-secondary-400": variant === "secondary",
                     "bg-base-100 text-base-800 dark:bg-base-800 dark:text-base-300": variant === "neutral",
+                    "border border-base-300 text-base-700 dark:border-base-700 dark:text-base-300 bg-transparent": variant === "outline",
+                    // Ownership tags: private = fuchsia (secondary), shared = sky (primary) — matches the design's ownership color language.
+                    "bg-secondary-100 text-secondary-700 dark:bg-secondary-900/30 dark:text-secondary-400": variant === "private",
+                    "bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400": variant === "shared",
                 },
                 className
             )}

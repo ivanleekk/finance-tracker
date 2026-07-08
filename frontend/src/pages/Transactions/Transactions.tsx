@@ -9,6 +9,10 @@ import api from "../../lib/api"
 import type { HistoryLoaderData } from "./transactions.loader"
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/Dialog"
 import { Input } from "../../components/ui/Input"
+import { TopBar } from "../../components/TopBar"
+import { OwnershipTag } from "../../components/ui/OwnershipTag"
+import { useAuth } from "../../lib/AuthContext"
+import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
 
 export { transactionsLoader as loader } from "./transactions.loader";
 
@@ -30,10 +34,13 @@ type UnifiedHistoryItem = {
     subportfolioName: string | null;
     householdName: string;
     description: string | null;
+    ownerUserId: string | null;
 };
 
 export default function Transactions() {
     const { activeHousehold } = useHousehold()
+    const { user } = useAuth();
+    const { viewMode, hasHousehold } = useViewMode();
     const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
@@ -157,7 +164,6 @@ export default function Transactions() {
         // Maps for O(1) lookups
         const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
         const categoryMap = new Map(categories.map(c => [c.id, c.name]));
-        const accountMap = new Map(accounts.map(a => [a.id, a.name]));
         const subportfolioMap = new Map(subportfolios.map(sp => [sp.id, sp.name]));
 
         // 1. Process Trades
@@ -187,7 +193,8 @@ export default function Transactions() {
                 subportfolioId: t.sub_portfolio_id || null,
                 subportfolioName: spName,
                 householdName: activeHousehold.name,
-                description: t.description || null
+                description: t.description || null,
+                ownerUserId: account?.owner_user_id || null
             };
         });
 
@@ -227,7 +234,8 @@ export default function Transactions() {
                     subportfolioId: null,
                     subportfolioName: null,
                     householdName: activeHousehold.name,
-                    description: tx.description || null
+                    description: tx.description || null,
+                    ownerUserId: account?.owner_user_id || null
                 };
             });
 
@@ -237,6 +245,7 @@ export default function Transactions() {
 
     const filteredHistory = useMemo(() => {
         return combinedHistory.filter(item => {
+            if (!isVisibleInViewMode(item.ownerUserId, viewMode, user?.id)) return false;
             if (filterCategory !== "all" && item.categoryType !== filterCategory) return false;
             if (filterAccount !== "all" && item.accountId !== filterAccount) return false;
             if (filterSubportfolio !== "all") {
@@ -245,7 +254,7 @@ export default function Transactions() {
             }
             return true;
         });
-    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio]);
+    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, viewMode, user?.id]);
 
     const getIcon = (type: string) => {
         if (type === 'deposit' || type === 'income' || type === 'transfer_in') return <ArrowDownRight className="h-5 w-5 text-green-500" />
@@ -274,22 +283,26 @@ export default function Transactions() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+            <TopBar
+                title="Transactions"
+                commandPlaceholder="coffee 5.20…"
+                cta={
+                    <Button variant="cta" onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
+                        <PlusCircle className="h-4 w-4" />
+                        Log Transaction
+                    </Button>
+                }
+            />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
             {isLoading && (
                 <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
             )}
-            <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Transactions</h2>
-                <div className="flex gap-2">
-                    <Button onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
-                        <PlusCircle className="h-4 w-4" />
-                        Log Transaction
-                    </Button>
-                    <Button variant="secondary">Export CSV</Button>
-                </div>
+            <div className="flex justify-end">
+                <Button variant="secondary">Export CSV</Button>
             </div>
 
             {/* Log Transaction Modal */}
@@ -597,6 +610,7 @@ export default function Transactions() {
                                             {item.subportfolioName && (
                                                 <Badge variant="neutral">{item.subportfolioName}</Badge>
                                             )}
+                                            <OwnershipTag ownerUserId={item.ownerUserId} show={hasHousehold && viewMode === "blended"} />
                                         </div>
                                     </div>
                                 </div>
@@ -629,6 +643,7 @@ export default function Transactions() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
         </div>
     )
 }

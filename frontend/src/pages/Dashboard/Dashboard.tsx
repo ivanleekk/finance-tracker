@@ -9,6 +9,7 @@ import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
+import { TopBar } from "../../components/TopBar"
 
 export { dashboardLoader as loader } from "./dashboard.loader";
 
@@ -165,12 +166,11 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8">
+        <div className="flex-1 flex flex-col overflow-hidden">
+            <TopBar title="Dashboard" commandPlaceholder="Log or find…" />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8">
             <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Dashboard</h2>
-                    <p className="text-base-500 dark:text-base-400 mt-1">Overview of your household financial health.</p>
-                </div>
+                <p className="text-base-500 dark:text-base-400">Overview of your household financial health.</p>
                 <TimeframeSelector />
             </div>
 
@@ -398,6 +398,7 @@ export default function Dashboard() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
         </div>
     )
 }

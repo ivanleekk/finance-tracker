@@ -41,6 +41,23 @@ export const TradeType = {
 } as const;
 export type TradeType = typeof TradeType[keyof typeof TradeType];
 
+export const SplitMode = {
+  Even: "even",
+  ByIncome: "by_income",
+  Custom: "custom",
+} as const;
+export type SplitMode = typeof SplitMode[keyof typeof SplitMode];
+
+export const HouseholdInviteStatus = {
+  Pending: "pending",
+  Accepted: "accepted",
+  Revoked: "revoked",
+} as const;
+export type HouseholdInviteStatus = typeof HouseholdInviteStatus[keyof typeof HouseholdInviteStatus];
+
+// The three-way ownership view: private-only, household-only, or merged.
+export type ViewMode = "private" | "household" | "blended";
+
 
 // --- 1. USERS & HOUSEHOLDS ---
 
@@ -53,6 +70,9 @@ export type UserResponse = {
   primary_color: string;
   secondary_color: string;
   base_color: string;
+  hide_private_from_household: boolean;
+  require_face_id_for_vault: boolean;
+  default_new_items_private: boolean;
 };
 
 export type HouseholdResponse = {
@@ -62,6 +82,7 @@ export type HouseholdResponse = {
   country_code: string;
   default_funding_account_id?: string;
   default_sub_portfolio_id?: string;
+  default_split_mode: SplitMode;
 };
 
 
@@ -77,6 +98,23 @@ export type HouseholdMemberUserResponse = HouseholdMemberResponse & {
   email: string;
 };
 
+export type HouseholdInviteResponse = {
+  id: string;
+  household_id: string;
+  email: string;
+  role: HouseholdRoleType;
+  invited_by_user_id: string;
+  status: HouseholdInviteStatus;
+  created_at: string;
+};
+
+export type HouseholdSplitShareResponse = {
+  id: string;
+  household_id: string;
+  user_id: string;
+  share_percent: number;
+};
+
 // --- 2. FINANCIAL ACCOUNTS & BALANCES ---
 
 export type AccountResponse = {
@@ -86,6 +124,8 @@ export type AccountResponse = {
   liquidity: LiquidityStatus;
   tax_status: TaxTreatment;
   currency: string;
+  // NULL = shared with the household. Set = private to that user.
+  owner_user_id?: string | null;
 };
 
 export type BalanceResponse = {
@@ -152,6 +192,7 @@ export type SubPortfolioResponse = {
   risk_profile: string;
   target_date: string | null;
   target_amount: number | null;
+  owner_user_id?: string | null;
 };
 
 export type TradeResponse = {
