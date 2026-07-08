@@ -9,13 +9,20 @@ This document provides a high-level overview and instructions for AI agents work
 
 ## 2. Core Tech Stack
 - **Backend:** Python 3.14, FastAPI, SQLAlchemy, Alembic, Polars, uv.
-- **Frontend:** React 19, TypeScript, Vite 8, Tailwind CSS 4, pnpm.
+- **Frontend (web):** React 19, TypeScript, Vite 8, Tailwind CSS 4, pnpm.
+- **Mobile:** Expo / React Native, TypeScript.
 - **Database:** PostgreSQL 18.
 
 ## 3. Directory Structure
 - `backend/`: FastAPI application, database models, migrations, and tests.
-- `frontend/`: React application, UI components, and assets.
-- `docker-compose.yml`: Infrastructure orchestration.
+- `frontend/`: React (web) application, UI components, and assets.
+- `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change).
+- `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
+
+## 4a. Private vs. Shared Ownership
+- `FinancialAccount.owner_user_id` and `SubPortfolio.owner_user_id` are nullable: `NULL` means shared with the household, a user id means private to that user. This is enforced server-side (`verify_private_owner_visibility` in `backend/src/auth.py`) as well as filtered client-side (`isVisibleInViewMode` in both frontends' `lib/ViewModeContext.tsx`).
+- The Private/Household/Blended 3-way switch (or the mobile equivalent) only renders once a household has a real second person - a member beyond the owner, or a pending invite. Every user technically has their own household (created during onboarding), so household *count* alone is not the right signal; see `ViewModeContext`'s `hasSecondPerson` check.
+- Household invites (`HouseholdInvite` model) are email-based and auto-accept into a real `HouseholdMember` on signup or login for a matching email (`resolve_pending_invites` in `backend/src/routers/users.py`).
 
 ## 4. Cross-Cutting Concerns
 - **Authentication:** JWT-based authentication via HTTP-only cookies. The React Router v7 SSR frontend must manually extract and forward cookies from the incoming browser request to the backend during server-side `loader` and `action` execution.
