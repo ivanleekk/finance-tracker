@@ -14,6 +14,8 @@ from src.models import (
     HouseholdRoleType,
     TradeType,
     ThemeMode,
+    HouseholdInviteStatus,
+    SplitMode,
 )
 
 # ----------------------------------------
@@ -29,6 +31,9 @@ class UserBase(BaseModel):
     primary_color: str = "sky"
     secondary_color: str = "fuchsia"
     base_color: str = "mauve"
+    hide_private_from_household: bool = True
+    require_face_id_for_vault: bool = True
+    default_new_items_private: bool = True
 
 
 class UserCreate(UserBase):
@@ -44,6 +49,9 @@ class UserUpdate(BaseModel):
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
     base_color: Optional[str] = None
+    hide_private_from_household: Optional[bool] = None
+    require_face_id_for_vault: Optional[bool] = None
+    default_new_items_private: Optional[bool] = None
 
 
 class UserResponse(UserBase):
@@ -57,6 +65,7 @@ class HouseholdBase(BaseModel):
     country_code: str
     default_funding_account_id: Optional[uuid.UUID] = None
     default_sub_portfolio_id: Optional[uuid.UUID] = None
+    default_split_mode: SplitMode = SplitMode.even
 
 
 class HouseholdCreate(HouseholdBase):
@@ -69,6 +78,7 @@ class HouseholdUpdate(BaseModel):
     country_code: Optional[str] = None
     default_funding_account_id: Optional[uuid.UUID] = None
     default_sub_portfolio_id: Optional[uuid.UUID] = None
+    default_split_mode: Optional[SplitMode] = None
 
 
 class HouseholdResponse(HouseholdBase):
@@ -100,6 +110,35 @@ class HouseholdMemberUserResponse(HouseholdMemberResponse):
     email: str
 
 
+class HouseholdInviteCreate(BaseModel):
+    email: EmailStr
+    role: HouseholdRoleType = HouseholdRoleType.editor
+
+
+class HouseholdInviteResponse(BaseModel):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    email: str
+    role: HouseholdRoleType
+    invited_by_user_id: uuid.UUID
+    status: HouseholdInviteStatus
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HouseholdSplitShareCreate(BaseModel):
+    user_id: uuid.UUID
+    share_percent: Decimal
+
+
+class HouseholdSplitShareResponse(BaseModel):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    user_id: uuid.UUID
+    share_percent: Decimal
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ----------------------------------------
 # 2. FINANCIAL ACCOUNTS & BALANCES
 # ----------------------------------------
@@ -110,6 +149,7 @@ class AccountBase(BaseModel):
     liquidity: LiquidityStatus
     tax_status: TaxTreatment
     currency: str
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 class AccountCreate(AccountBase):
@@ -121,6 +161,7 @@ class AccountUpdate(BaseModel):
     liquidity: Optional[LiquidityStatus] = None
     tax_status: Optional[TaxTreatment] = None
     currency: Optional[str] = None
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 class AccountResponse(AccountBase):
@@ -293,6 +334,7 @@ class SubPortfolioBase(BaseModel):
     risk_profile: str
     target_date: Optional[date] = None
     target_amount: Optional[Decimal] = None
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 class SubPortfolioCreate(SubPortfolioBase):
@@ -304,6 +346,7 @@ class SubPortfolioUpdate(BaseModel):
     risk_profile: Optional[str] = None
     target_date: Optional[date] = None
     target_amount: Optional[Decimal] = None
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 class SubPortfolioResponse(SubPortfolioBase):

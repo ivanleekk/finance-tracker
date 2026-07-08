@@ -149,3 +149,13 @@ def verify_household_access(
         )
 
     return member
+
+
+def verify_private_owner_visibility(owner_user_id, current_user: models.User) -> None:
+    """Raises 403 if the resource is privately owned by someone other than the current user.
+    A NULL owner_user_id means the resource is shared with the whole household (always visible)."""
+    if owner_user_id is not None and owner_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This item is private to another household member",
+        )

@@ -17,6 +17,7 @@ from src.auth import (
     SECRET_KEY,
     ALGORITHM,
 )
+from src.routers.users import resolve_pending_invites
 import jwt
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -39,6 +40,7 @@ def login_for_access_token(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    resolve_pending_invites(db, user)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires

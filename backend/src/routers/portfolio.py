@@ -7,7 +7,7 @@ from datetime import datetime, date
 
 from src.database import get_db
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range
 from src.services.account_service import sync_transaction_to_balances
@@ -301,6 +301,7 @@ def create_subportfolio(
         risk_profile=subportfolio.risk_profile,
         target_date=subportfolio.target_date,
         target_amount=subportfolio.target_amount,
+        owner_user_id=subportfolio.owner_user_id,
     )
     db.add(db_subportfolio)
     db.commit()
@@ -317,7 +318,10 @@ def get_household_subportfolios(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    subportfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
+    subportfolios = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.household_id == household_id,
+        (models.SubPortfolio.owner_user_id.is_(None)) | (models.SubPortfolio.owner_user_id == current_user.id)
+    ).all()
     return subportfolios
 
 @router.get("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
@@ -330,6 +334,7 @@ def get_subportfolio(
     if not sp:
         raise HTTPException(status_code=404, detail="SubPortfolio not found")
     verify_household_access(sp.household_id, current_user, db)
+    verify_private_owner_visibility(sp.owner_user_id, current_user)
     return sp
 
 @router.patch("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
@@ -342,8 +347,9 @@ def update_subportfolio(
     db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
     if not db_sp:
         raise HTTPException(status_code=404, detail="SubPortfolio not found")
-    
+
     verify_household_access(db_sp.household_id, current_user, db)
+    verify_private_owner_visibility(db_sp.owner_user_id, current_user)
 
     update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -364,6 +370,7 @@ def delete_subportfolio(
         raise HTTPException(status_code=404, detail="Sub-portfolio not found")
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
+    verify_private_owner_visibility(db_subportfolio.owner_user_id, current_user)
 
     db.delete(db_subportfolio)
     db.commit()
