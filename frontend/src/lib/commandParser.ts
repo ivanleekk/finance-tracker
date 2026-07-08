@@ -27,6 +27,12 @@ export function guessCategory(low: string): { name: string; icon: string } {
     return { name: "General", icon: "💳" };
 }
 
+/** Presets for a category picker UI - the keyword-guessed categories plus the General fallback. */
+export const CATEGORY_OPTIONS: { name: string; icon: string }[] = [
+    ...CATEGORY_RULES.map(([, cat]) => cat),
+    { name: "General", icon: "💳" },
+];
+
 export function guessMerchant(raw: string): string {
     const words = raw.replace(/[\d,.]+/g, "").replace(/\b(from|to)\b/gi, "").trim().split(/\s+/).filter(Boolean);
     if (!words.length) return "Expense";
@@ -48,6 +54,40 @@ export function matchAccounts(low: string, accounts: AccountResponse[]): Account
     return hits.sort((a, b) => a.index - b.index).map(h => h.account);
 }
 
+/** First word of an account's name - the token the parser matches against typed text
+ * (see matchAccounts). Used by the form fields to serialize a picked account back into text. */
+export function accountKeyword(account: AccountResponse): string {
+    return account.name.split(/\s+/)[0];
+}
+
+// Serializers turn structured form-field values back into a command string using the exact
+// grammar parseCommand expects, so editing a GUI field keeps the text input in sync.
+export function serializeTrade(side: "buy" | "sell", qty: number, ticker: string, price: number | null): string {
+    const q = qty > 0 ? String(qty) : "";
+    const p = price != null && price > 0 ? ` ${price}` : "";
+    return `${side} ${q} ${ticker || ""}${p}`.replace(/\s+/g, " ").trim();
+}
+
+export function serializeDividend(ticker: string, amount: number): string {
+    return `div ${ticker || ""} ${amount > 0 ? amount : ""}`.replace(/\s+/g, " ").trim();
+}
+
+/** Serializes into the explicit "bal <full account name> <amount>" form rather than the bare
+ * first-word-keyword form, so round-tripping through the GUI form never collides with another
+ * account that happens to share the same first word (e.g. "Chase Checking" vs "Chase Savings"). */
+export function serializeBalance(accountNameQuery: string, balance: number): string {
+    return `bal ${accountNameQuery || ""} ${balance > 0 ? balance : ""}`.replace(/\s+/g, " ").trim();
+}
+
+export function serializeTransfer(amount: number, from: AccountResponse | null, to: AccountResponse | null): string {
+    if (!from || !to) return "";
+    return `transfer ${amount > 0 ? amount : ""} from ${accountKeyword(from)} to ${accountKeyword(to)}`.replace(/\s+/g, " ").trim();
+}
+
+export function serializeExpense(merchant: string, amount: number): string {
+    return `${merchant || ""} ${amount > 0 ? amount : ""}`.replace(/\s+/g, " ").trim();
+}
+
 export function assetInfo(ticker: string, known?: { ticker: string; name: string; currency: string }, livePrice?: number) {
     const fallback = FALLBACK_ASSETS[ticker] || { name: ticker, price: 100, icon: "📊" };
     return {
@@ -62,7 +102,7 @@ export type ParsedCommand =
     | { type: "transfer"; amount: number; fromCandidates: AccountResponse[]; toCandidates: AccountResponse[] }
     | { type: "trade"; side: "buy" | "sell"; qty: number; ticker: string; explicitPrice: number | null }
     | { type: "dividend"; ticker: string; amount: number }
-    | { type: "balance"; account: AccountResponse; newBalance: number }
+    | { type: "balance"; query: string; newBalance: number }
     | { type: "expense"; amount: number; merchant: string; category: { name: string; icon: string }; account: AccountResponse | null }
     | { type: "search"; term: string };
 
@@ -84,7 +124,7 @@ export function parseCommand(query: string, accounts: AccountResponse[]): Parsed
         };
     }
 
-    const tradeMatch = low.match(/^(buy|sell)\s+(\d+)\s+([a-z.]+)(?:\s+([\d,.]+))?/);
+    const tradeMatch = low.match(/^(buy|sell)\s+(\d+)\s+([a-z0-9.=-]+)(?:\s+([\d,.]+))?/);
     if (tradeMatch) {
         return {
             type: "trade",
@@ -95,14 +135,25 @@ export function parseCommand(query: string, accounts: AccountResponse[]): Parsed
         };
     }
 
-    const divMatch = low.match(/^div(?:idend)?\s+([a-z.]+)/);
+    const divMatch = low.match(/^div(?:idend)?\s+([a-z0-9.=-]+)/);
     if (divMatch) {
         return { type: "dividend", ticker: divMatch[1].toUpperCase(), amount: nums[0] || 0 };
     }
 
+    // Explicit "bal"/"balance" verb: forces balance type even with no account text yet, so a
+    // bare "bal" opens a browsable list of all accounts (like typing "buy" alone would for trade
+    // if tickers had a browse mode). The account-name portion is everything after the verb minus
+    // any trailing number, resolved/searched against the live account list in the command bar.
+    const balVerbMatch = low.match(/^bal(?:ance)?\b/);
+    if (balVerbMatch) {
+        const restRaw = raw.slice(balVerbMatch[0].length).trim();
+        const nameQuery = restRaw.replace(/[\d,]+(\.\d+)?/g, "").trim();
+        return { type: "balance", query: nameQuery, newBalance: nums[nums.length - 1] || 0 };
+    }
+
     const accountMatches = matchAccounts(low, accounts);
     if (accountMatches.length && nums.length) {
-        return { type: "balance", account: accountMatches[0], newBalance: nums[nums.length - 1] };
+        return { type: "balance", query: accountMatches[0].name, newBalance: nums[nums.length - 1] };
     }
 
     if (nums.length) {

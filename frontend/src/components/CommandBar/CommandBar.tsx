@@ -5,19 +5,39 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode } from "../../lib/ViewModeContext";
 import api from "../../lib/api";
-import { parseCommand, FALLBACK_ASSETS, type ParsedCommand } from "../../lib/commandParser";
+import {
+    parseCommand,
+    FALLBACK_ASSETS,
+    CATEGORY_OPTIONS,
+    accountKeyword,
+    serializeTrade,
+    serializeDividend,
+    serializeBalance,
+    serializeTransfer,
+    serializeExpense,
+    type ParsedCommand,
+} from "../../lib/commandParser";
 import { SCAN_RESULT, type ScanResult } from "./receiptScan";
-import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse } from "../../types/types";
+import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
 
 type Phase = "resting" | "typing" | "scanning" | "success";
 
-const EXAMPLE_CHIPS: { label: string; command: string }[] = [
-    { label: "☕ Coffee", command: "coffee 5.20" },
-    { label: "📈 Buy VOO", command: "buy 10 VOO" },
-    { label: "🏦 Balance", command: "DBS 51200" },
-    { label: "💵 Dividend", command: "div AAPL 48" },
-    { label: "⇄ Transfer", command: "transfer 500 from DBS to IBKR" },
-];
+/** Demo commands for the resting screen's quick-action tiles and "Try it" chips. Balance and
+ * transfer only parse correctly if the typed text contains a real account's keyword (see
+ * matchAccounts in commandParser.ts) - a hardcoded placeholder bank name would silently fail to
+ * match and fall through to the expense branch, so these are built from the household's actual
+ * accounts whenever any exist. */
+function getExampleChips(accounts: AccountResponse[]): { label: string; command: string }[] {
+    const kw1 = accounts[0] ? accountKeyword(accounts[0]) : "Cash";
+    const kw2 = accounts[1] ? accountKeyword(accounts[1]) : kw1;
+    return [
+        { label: "☕ Coffee", command: "coffee 5.20" },
+        { label: "📈 Buy VOO", command: "buy 10 VOO" },
+        { label: "🏦 Balance", command: accounts[0] ? `bal ${accounts[0].name} 51200` : "bal 51200" },
+        { label: "💵 Dividend", command: "div AAPL 48" },
+        { label: "⇄ Transfer", command: `transfer 500 from ${kw1} to ${kw2}` },
+    ];
+}
 
 const USD_SGD = 1.34;
 
@@ -28,6 +48,28 @@ function fmtA(n: number) {
     const dec = Number.isInteger(Number(n)) ? 0 : 2;
     return Number(n).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: 2 });
 }
+
+/** Two-way form field: mirrors `upstream` (the value parsed from the command text) while the
+ * field isn't focused, so typing in the main input updates the GUI form live. While the user
+ * is actively editing the field, local edits are preserved instead of being clobbered by the
+ * upstream value on every keystroke; the edit is only pushed back into the command text (via
+ * `onCommit`, which re-serializes it into the query string) on blur. */
+function useSyncedField<T>(upstream: T, onCommit: (v: T) => void) {
+    const [value, setValue] = useState(upstream);
+    const focused = useRef(false);
+    useEffect(() => {
+        if (!focused.current) setValue(upstream);
+    }, [upstream]);
+    return {
+        value,
+        setValue,
+        onFocus: () => { focused.current = true; },
+        onBlur: () => { focused.current = false; onCommit(value); },
+    };
+}
+
+const fieldClass = "w-full bg-base-50 dark:bg-base-950 border border-base-200 dark:border-base-800 rounded-lg px-2.5 py-1.5 text-sm text-base-900 dark:text-base-50 outline-none focus:border-secondary-400";
+const labelClass = "text-[10px] font-mono uppercase tracking-wider text-base-400 mb-1.5";
 
 export function CommandBar() {
     const { isOpen, close } = useCommandBar();
@@ -42,6 +84,9 @@ export function CommandBar() {
     const [scanPct, setScanPct] = useState(0);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [ownership, setOwnership] = useState<"private" | "household">("household");
+    const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string | null>(null);
+    const [categoryOverride, setCategoryOverride] = useState<{ name: string; icon: string } | null>(null);
+    const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
     const [successInfo, setSuccessInfo] = useState<{ big: string; sub: string } | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [undoData, setUndoData] = useState<{ path: string } | null>(null);
@@ -50,6 +95,10 @@ export function CommandBar() {
     const [subportfolios, setSubportfolios] = useState<SubPortfolioResponse[]>([]);
     const [categories, setCategories] = useState<CategoryResponse[]>([]);
     const [recent, setRecent] = useState<TransactionResponse[]>([]);
+    const [assetSuggestions, setAssetSuggestions] = useState<AssetResponse[]>([]);
+    const [livePrice, setLivePrice] = useState<{ ticker: string; price: number; currency: string } | null>(null);
+    const [priceLoading, setPriceLoading] = useState(false);
+    const [highlightIndex, setHighlightIndex] = useState(0);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const scanTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -62,7 +111,13 @@ export function CommandBar() {
         setPhase("resting");
         setScanResult(null);
         setOwnership("household");
+        setSelectedSubPortfolioId(null);
+        setCategoryOverride(null);
+        setExpenseAccountId(null);
         setSuccessInfo(null);
+        setAssetSuggestions([]);
+        setLivePrice(null);
+        setHighlightIndex(0);
         requestAnimationFrame(() => inputRef.current?.focus());
 
         if (activeHousehold) {
@@ -96,9 +151,96 @@ export function CommandBar() {
         return () => window.removeEventListener("keydown", onKey);
     }, [isOpen, handleClose]);
 
+    const parsed: ParsedCommand = scanResult ? { type: "expense", amount: scanResult.amount, merchant: scanResult.merchant, category: scanResult.category, account: accounts[0] || null } : parseCommand(query, accounts);
+    const activeTicker = parsed.type === "trade" || parsed.type === "dividend" ? parsed.ticker : null;
+
+    // Ticker autosuggest + live pricing: mirrors the Trade page's own lookups so the command
+    // bar isn't limited to the small hardcoded FALLBACK_ASSETS demo table. Asset search hits
+    // the cheap local DB (ILIKE) on every keystroke change; the live yfinance-backed price
+    // lookup is debounced longer since it's a slow external call.
+    useEffect(() => {
+        if (!isOpen || !activeTicker) {
+            setAssetSuggestions([]);
+            setLivePrice(null);
+            setPriceLoading(false);
+            return;
+        }
+        let cancelled = false;
+        const searchTimer = setTimeout(() => {
+            api.get(`/portfolio/assets?ticker=${activeTicker}`)
+                .then(r => { if (!cancelled) setAssetSuggestions(r.data); })
+                .catch(() => { if (!cancelled) setAssetSuggestions([]); });
+        }, 150);
+
+        let priceTimer: ReturnType<typeof setTimeout> | null = null;
+        if (parsed.type === "trade") {
+            setPriceLoading(true);
+            priceTimer = setTimeout(() => {
+                const today = new Date().toISOString().split("T")[0];
+                api.get(`/portfolio/price?ticker=${activeTicker}&date=${today}`)
+                    .then(r => { if (!cancelled) setLivePrice({ ticker: activeTicker, price: r.data.price, currency: r.data.currency }); })
+                    .catch(() => { if (!cancelled) setLivePrice(null); })
+                    .finally(() => { if (!cancelled) setPriceLoading(false); });
+            }, 600);
+        }
+
+        return () => {
+            cancelled = true;
+            clearTimeout(searchTimer);
+            if (priceTimer) clearTimeout(priceTimer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, activeTicker, parsed.type]);
+
     if (!isOpen) return null;
 
-    const parsed: ParsedCommand = scanResult ? { type: "expense", amount: scanResult.amount, merchant: scanResult.merchant, category: scanResult.category, account: accounts[0] || null } : parseCommand(query, accounts);
+    // Merges DB-known assets (same source the Trade page's submit resolves against) with the
+    // curated FALLBACK_ASSETS demo table so suggestions aren't limited to either alone.
+    const tradeResolution = parsed.type === "trade" ? (() => {
+        const prefix = parsed.ticker;
+        const fallback = FALLBACK_ASSETS[prefix];
+        const live = livePrice && livePrice.ticker === prefix ? livePrice : null;
+        const known = assetSuggestions.find(a => a.ticker.toUpperCase() === prefix);
+        const dbMatches = assetSuggestions.filter(a => a.ticker.toUpperCase() !== prefix);
+        const fallbackMatches = Object.entries(FALLBACK_ASSETS)
+            .filter(([t]) => t !== prefix && t.includes(prefix) && !dbMatches.some(a => a.ticker.toUpperCase() === t))
+            .map(([ticker, info]) => ({ id: ticker, ticker, name: info.name, type: "equity", currency: info.currency }));
+        const suggestions = [...dbMatches, ...fallbackMatches].slice(0, 5);
+        const price = parsed.explicitPrice ?? live?.price ?? fallback?.price;
+        const name = known?.name || fallback?.name;
+        const isReady = parsed.explicitPrice != null || live != null || fallback != null || known != null;
+        return { fallback, live, known, suggestions, price, name, isReady };
+    })() : null;
+
+    const selectTicker = (ticker: string) => {
+        if (parsed.type !== "trade") return;
+        const priceSuffix = parsed.explicitPrice != null ? ` ${parsed.explicitPrice}` : "";
+        setQuery(`${parsed.side} ${parsed.qty} ${ticker}${priceSuffix}`);
+        setHighlightIndex(0);
+    };
+
+    // Balance's account search is pure client-side substring matching over the already-loaded
+    // `accounts` list (no API needed, unlike ticker search). An exact name match is "ready" to
+    // submit immediately (preserves the old bare-keyword UX); a non-empty query with zero
+    // substring matches is also "ready" - it'll create a new account on submit, mirroring how
+    // the trade flow creates a new asset for an unrecognized ticker.
+    const balanceResolution = parsed.type === "balance" ? (() => {
+        const q = parsed.query.trim();
+        const ql = q.toLowerCase();
+        const known = q ? accounts.find(a => a.name.toLowerCase() === ql) : undefined;
+        const suggestions = accounts
+            .filter(a => a.id !== known?.id)
+            .filter(a => !q || a.name.toLowerCase().includes(ql))
+            .slice(0, 6);
+        const isReady = !!known || (!!q && suggestions.length === 0);
+        return { known, suggestions, isReady, query: q };
+    })() : null;
+
+    const selectAccountForBalance = (name: string) => {
+        if (parsed.type !== "balance") return;
+        setQuery(serializeBalance(name, parsed.newBalance));
+        setHighlightIndex(0);
+    };
 
     const runScan = () => {
         setScanResult(null);
@@ -123,6 +265,7 @@ export function CommandBar() {
         setScanResult(null);
         setQuery("");
         setPhase("typing");
+        setHighlightIndex(0);
         let i = 0;
         const timer = setInterval(() => {
             i++;
@@ -179,9 +322,10 @@ export function CommandBar() {
         setSubmitting(true);
         try {
             if (parsed.type === "expense") {
-                const account = routedAccount(parsed.account);
+                const account = expenseAccountId ? accounts.find(a => a.id === expenseAccountId) || null : routedAccount(parsed.account);
                 if (!account) return;
-                const categoryId = await resolveCategoryId(parsed.category.name, "expense");
+                const category = categoryOverride || parsed.category;
+                const categoryId = await resolveCategoryId(category.name, "expense");
                 if (!categoryId) return;
                 const res = await api.post("/cashflow/transactions", {
                     account_id: account.id,
@@ -191,54 +335,80 @@ export function CommandBar() {
                     transaction_type: "expense",
                     description: parsed.merchant,
                 });
-                finishSuccess(`−$${fmtA(parsed.amount)}`, `${parsed.category.name} · ${account.name}${hasHousehold ? (ownership === "private" ? " · Private" : " · Household") : ""}`, { path: `/cashflow/transactions/${res.data.id}` });
+                finishSuccess(`−$${fmtA(parsed.amount)}`, `${category.name} · ${account.name}${!expenseAccountId && hasHousehold ? (ownership === "private" ? " · Private" : " · Household") : ""}`, { path: `/cashflow/transactions/${res.data.id}` });
             } else if (parsed.type === "balance") {
+                const query = parsed.query.trim();
+                if (!query) return;
+                let account = accounts.find(a => a.name.toLowerCase() === query.toLowerCase());
+                if (!account) {
+                    const created = await api.post<AccountResponse>("/accounts", {
+                        household_id: activeHousehold.id,
+                        name: query,
+                        liquidity: "liquid",
+                        tax_status: "taxable",
+                        currency: activeHousehold.base_currency || "USD",
+                        owner_user_id: null,
+                    });
+                    account = created.data;
+                    setAccounts(prev => [...prev, account!]);
+                }
                 const res = await api.post("/accounts/balances", {
-                    account_id: parsed.account.id,
+                    account_id: account.id,
                     date: new Date().toISOString().split("T")[0],
                     balance: parsed.newBalance,
                 });
-                finishSuccess(`$${fmt(parsed.newBalance)}`, `${parsed.account.name} balance set`, { path: `/accounts/balances/${res.data.id}` });
+                finishSuccess(`$${fmt(parsed.newBalance)}`, `${account.name} balance set`, { path: `/accounts/balances/${res.data.id}` });
             } else if (parsed.type === "trade") {
                 const defaultSubPortfolio = subportfolios.find(sp => sp.id === activeHousehold.default_sub_portfolio_id) || subportfolios[0];
+                const chosenSubPortfolio = subportfolios.find(sp => sp.id === selectedSubPortfolioId) || defaultSubPortfolio;
                 const fundingAccount = accounts.find(a => a.id === activeHousehold.default_funding_account_id) || accounts[0];
-                if (!defaultSubPortfolio || !fundingAccount) return;
-                const info = FALLBACK_ASSETS[parsed.ticker];
-                const existingAssets = await api.get(`/portfolio/assets?ticker=${parsed.ticker}`);
-                let asset = existingAssets.data[0];
+                if (!chosenSubPortfolio || !fundingAccount) return;
+                const existingAssets = await api.get<AssetResponse[]>(`/portfolio/assets?ticker=${parsed.ticker}`);
+                let asset = existingAssets.data.find(a => a.ticker.toUpperCase() === parsed.ticker);
                 if (!asset) {
+                    // Name containing "Equity" triggers the backend's yfinance enrichment (real
+                    // name + currency) on creation - same convention the Trade page uses.
                     const created = await api.post("/portfolio/assets", {
                         id: crypto.randomUUID(),
                         ticker: parsed.ticker,
-                        name: info?.name || parsed.ticker,
+                        name: `${parsed.ticker} Equity`,
                         type: "equity",
-                        currency: info?.currency || "USD",
+                        currency: "USD",
                     });
                     asset = created.data;
                 }
-                const price = parsed.explicitPrice ?? info?.price ?? 100;
+                let price = parsed.explicitPrice ?? (livePrice?.ticker === parsed.ticker ? livePrice.price : undefined);
+                if (price === undefined) {
+                    try {
+                        const today = new Date().toISOString().split("T")[0];
+                        const priceRes = await api.get(`/portfolio/price?ticker=${parsed.ticker}&date=${today}`);
+                        price = priceRes.data.price;
+                    } catch {
+                        price = FALLBACK_ASSETS[parsed.ticker]?.price ?? 100;
+                    }
+                }
                 const tradeRes = await api.post("/portfolio/trades", {
                     household_id: activeHousehold.id,
-                    sub_portfolio_id: defaultSubPortfolio.id,
+                    sub_portfolio_id: chosenSubPortfolio.id,
                     asset_id: asset.id,
                     account_id: fundingAccount.id,
                     type: parsed.side,
                     date: new Date().toISOString(),
                     quantity: parsed.qty,
                     price,
+                    currency: (livePrice?.ticker === parsed.ticker ? livePrice.currency : null) || asset.currency,
                     exchange_rate: 1,
                 });
-                finishSuccess(`${parsed.side === "buy" ? "Bought" : "Sold"} ${parsed.qty} ${parsed.ticker}`, `@ $${fmtA(price)}`, { path: `/portfolio/trades/${tradeRes.data.id}` });
+                finishSuccess(`${parsed.side === "buy" ? "Bought" : "Sold"} ${parsed.qty} ${parsed.ticker}`, `@ $${fmtA(price)} · ${chosenSubPortfolio.name}`, { path: `/portfolio/trades/${tradeRes.data.id}` });
             } else if (parsed.type === "dividend") {
                 const defaultSubPortfolio = subportfolios.find(sp => sp.id === activeHousehold.default_sub_portfolio_id) || subportfolios[0];
                 const fundingAccount = accounts.find(a => a.id === activeHousehold.default_funding_account_id) || accounts[0];
                 if (!defaultSubPortfolio || !fundingAccount) return;
-                const info = FALLBACK_ASSETS[parsed.ticker];
-                const assetRes = await api.get(`/portfolio/assets?ticker=${parsed.ticker}`);
-                let asset = assetRes.data[0];
+                const assetRes = await api.get<AssetResponse[]>(`/portfolio/assets?ticker=${parsed.ticker}`);
+                let asset = assetRes.data.find(a => a.ticker.toUpperCase() === parsed.ticker);
                 if (!asset) {
                     const created = await api.post("/portfolio/assets", {
-                        id: crypto.randomUUID(), ticker: parsed.ticker, name: info?.name || parsed.ticker, type: "equity", currency: info?.currency || "USD",
+                        id: crypto.randomUUID(), ticker: parsed.ticker, name: `${parsed.ticker} Equity`, type: "equity", currency: "USD",
                     });
                     asset = created.data;
                 }
@@ -274,9 +444,32 @@ export function CommandBar() {
         }
     };
 
+    // Suggestions currently on screen for arrow-key navigation - only one of trade/balance can
+    // be active at a time (parsed.type is a discriminated union), so this is unambiguous.
+    const activeSuggestionCount = tradeResolution && !tradeResolution.isReady ? tradeResolution.suggestions.length
+        : balanceResolution && !balanceResolution.isReady ? balanceResolution.suggestions.length
+        : 0;
+
     const onKeyDown = (e: React.KeyboardEvent) => {
+        if (activeSuggestionCount > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            const max = activeSuggestionCount - 1;
+            setHighlightIndex(i => {
+                if (e.key === "ArrowDown") return i >= max ? 0 : i + 1;
+                return i <= 0 ? max : i - 1;
+            });
+            return;
+        }
         if (e.key === "Enter") {
             e.preventDefault();
+            if (tradeResolution && !tradeResolution.isReady && tradeResolution.suggestions[highlightIndex]) {
+                selectTicker(tradeResolution.suggestions[highlightIndex].ticker);
+                return;
+            }
+            if (balanceResolution && !balanceResolution.isReady && balanceResolution.suggestions[highlightIndex]) {
+                selectAccountForBalance(balanceResolution.suggestions[highlightIndex].name);
+                return;
+            }
             submit();
         }
     };
@@ -298,7 +491,7 @@ export function CommandBar() {
                     <input
                         ref={inputRef}
                         value={query}
-                        onChange={(e) => { setQuery(e.target.value); setScanResult(null); setPhase(e.target.value ? "typing" : "resting"); }}
+                        onChange={(e) => { setQuery(e.target.value); setScanResult(null); setPhase(e.target.value ? "typing" : "resting"); setHighlightIndex(0); }}
                         onKeyDown={onKeyDown}
                         placeholder="Log or find anything…"
                         disabled={phase === "scanning"}
@@ -333,28 +526,53 @@ export function CommandBar() {
                     {phase !== "scanning" && phase !== "success" && parsed.type === "expense" && (
                         <ExpenseView
                             parsed={parsed}
+                            defaultAccount={routedAccount(parsed.account)}
                             scanned={scanResult}
                             hasHousehold={hasHousehold}
                             ownership={ownership}
-                            setOwnership={setOwnership}
+                            setOwnership={(v) => { setOwnership(v); setExpenseAccountId(null); }}
                             accounts={accounts}
+                            setQuery={setQuery}
+                            categoryOverride={categoryOverride}
+                            setCategoryOverride={setCategoryOverride}
+                            expenseAccountId={expenseAccountId}
+                            setExpenseAccountId={setExpenseAccountId}
                         />
                     )}
 
-                    {phase !== "scanning" && phase !== "success" && parsed.type === "trade" && (
-                        <TradeView parsed={parsed} query={query} setQuery={setQuery} />
+                    {phase !== "scanning" && phase !== "success" && parsed.type === "trade" && tradeResolution && (
+                        <TradeView
+                            parsed={parsed}
+                            query={query}
+                            setQuery={setQuery}
+                            resolution={tradeResolution}
+                            priceLoading={priceLoading}
+                            onSelectTicker={selectTicker}
+                            subportfolios={subportfolios}
+                            selectedSubPortfolioId={selectedSubPortfolioId || activeHousehold?.default_sub_portfolio_id || subportfolios[0]?.id || null}
+                            onSelectSubPortfolio={setSelectedSubPortfolioId}
+                            highlightIndex={highlightIndex}
+                            onHoverSuggestion={setHighlightIndex}
+                        />
                     )}
 
-                    {phase !== "scanning" && phase !== "success" && parsed.type === "balance" && (
-                        <BalanceView parsed={parsed} />
+                    {phase !== "scanning" && phase !== "success" && parsed.type === "balance" && balanceResolution && (
+                        <BalanceView
+                            parsed={parsed}
+                            resolution={balanceResolution}
+                            setQuery={setQuery}
+                            onSelectAccount={selectAccountForBalance}
+                            highlightIndex={highlightIndex}
+                            onHoverSuggestion={setHighlightIndex}
+                        />
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "dividend" && (
-                        <DividendView parsed={parsed} />
+                        <DividendView parsed={parsed} setQuery={setQuery} knownName={assetSuggestions.find(a => a.ticker.toUpperCase() === parsed.ticker)?.name} />
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "transfer" && (
-                        <TransferView parsed={parsed} />
+                        <TransferView parsed={parsed} accounts={accounts} setQuery={setQuery} />
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "search" && (
@@ -398,6 +616,8 @@ function Chip({ children, tone = "neutral" }: { children: React.ReactNode; tone?
 
 function RestingView({ recent, accounts, onDemo }: { recent: TransactionResponse[]; accounts: AccountResponse[]; onDemo: (cmd: string) => void }) {
     const accountById = new Map(accounts.map(a => [a.id, a]));
+    const exampleChips = getExampleChips(accounts);
+    const balanceCmd = exampleChips.find(c => c.label === "🏦 Balance")!.command;
     return (
         <div className="p-4 space-y-4">
             <div>
@@ -405,7 +625,7 @@ function RestingView({ recent, accounts, onDemo }: { recent: TransactionResponse
                     {[
                         { label: "＋ Expense", color: "text-red-500", cmd: "coffee 5.20" },
                         { label: "＋ Trade", color: "text-emerald-500", cmd: "buy 10 VOO" },
-                        { label: "＋ Balance", color: "text-primary-500", cmd: "DBS 51200" },
+                        { label: "＋ Balance", color: "text-primary-500", cmd: balanceCmd },
                         { label: "＋ Dividend", color: "text-secondary-500", cmd: "div AAPL 48" },
                     ].map(qa => (
                         <button key={qa.label} onClick={() => onDemo(qa.cmd)} className={`text-[11px] font-semibold ${qa.color} border border-base-200 dark:border-base-800 rounded-lg py-2 hover:bg-base-50 dark:hover:bg-base-800 transition-colors`}>
@@ -432,7 +652,7 @@ function RestingView({ recent, accounts, onDemo }: { recent: TransactionResponse
             <div>
                 <div className="text-[10px] font-mono uppercase tracking-wider text-base-400 mb-2">Try it</div>
                 <div className="flex flex-wrap gap-1.5">
-                    {EXAMPLE_CHIPS.map(c => (
+                    {exampleChips.map(c => (
                         <button key={c.label} onClick={() => onDemo(c.command)} className="px-2.5 py-1 rounded-full text-xs font-medium bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-300 hover:bg-base-200 dark:hover:bg-base-700">
                             {c.label}
                         </button>
@@ -443,25 +663,67 @@ function RestingView({ recent, accounts, onDemo }: { recent: TransactionResponse
     );
 }
 
-function ExpenseView({ parsed, scanned, hasHousehold, ownership, setOwnership, accounts }: {
+function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, ownership, setOwnership, accounts, setQuery, categoryOverride, setCategoryOverride, expenseAccountId, setExpenseAccountId }: {
     parsed: Extract<ParsedCommand, { type: "expense" }>;
+    defaultAccount: AccountResponse | null;
     scanned: ScanResult | null;
     hasHousehold: boolean;
     ownership: "private" | "household";
     setOwnership: (v: "private" | "household") => void;
     accounts: AccountResponse[];
+    setQuery: (v: string) => void;
+    categoryOverride: { name: string; icon: string } | null;
+    setCategoryOverride: (v: { name: string; icon: string } | null) => void;
+    expenseAccountId: string | null;
+    setExpenseAccountId: (v: string | null) => void;
 }) {
+    const category = categoryOverride || parsed.category;
+    const effectiveAccount = expenseAccountId ? accounts.find(a => a.id === expenseAccountId) || null : defaultAccount;
+
+    const merchant = useSyncedField(parsed.merchant, (v) => setQuery(serializeExpense(v, amount.value)));
+    const amount = useSyncedField(parsed.amount, (v) => setQuery(serializeExpense(merchant.value, v)));
+
     return (
         <div className="p-4 space-y-3">
             <div className="text-xs font-semibold text-base-500 dark:text-base-400">{scanned ? "From receipt · expense" : "Will log an expense"}</div>
-            <div className="flex flex-wrap gap-1.5">
-                <Chip tone="red">Expense</Chip>
-                <Chip tone="red">−${fmtA(parsed.amount)}</Chip>
-                <Chip tone="fuchsia">{parsed.category.icon} {parsed.category.name}</Chip>
-                <Chip>{parsed.account?.name || "No account"} · {parsed.account?.currency || "SGD"}</Chip>
-                <Chip>Today</Chip>
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <div className={labelClass}>Merchant</div>
+                    <input
+                        className={fieldClass}
+                        value={merchant.value}
+                        onChange={(e) => merchant.setValue(e.target.value)}
+                        onFocus={merchant.onFocus}
+                        onBlur={merchant.onBlur}
+                    />
+                </div>
+                <div>
+                    <div className={labelClass}>Amount</div>
+                    <input
+                        type="number"
+                        step="0.01"
+                        className={`${fieldClass} font-mono`}
+                        value={amount.value}
+                        onChange={(e) => amount.setValue(parseFloat(e.target.value) || 0)}
+                        onFocus={amount.onFocus}
+                        onBlur={amount.onBlur}
+                    />
+                </div>
             </div>
-            <div className="text-sm text-base-700 dark:text-base-300">{parsed.merchant}</div>
+            <div>
+                <div className={labelClass}>Category</div>
+                <div className="flex flex-wrap gap-1.5">
+                    {CATEGORY_OPTIONS.map(c => (
+                        <button
+                            key={c.name}
+                            onClick={() => setCategoryOverride(c)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${c.name === category.name ? "bg-secondary-500 text-white" : "bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-300 hover:bg-base-200 dark:hover:bg-base-700"}`}
+                        >
+                            {c.icon} {c.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
             {scanned && (
                 <div className="rounded-lg border border-base-200 dark:border-base-800 bg-base-50 dark:bg-base-950 p-3">
                     <div className="text-xs font-semibold text-base-500 mb-2">{scanned.merchant} · {scanned.items.length} items</div>
@@ -474,15 +736,29 @@ function ExpenseView({ parsed, scanned, hasHousehold, ownership, setOwnership, a
                     </div>
                 </div>
             )}
+            <div>
+                <div className={labelClass}>Account</div>
+                {accounts.length > 0 ? (
+                    <select
+                        className={fieldClass}
+                        value={effectiveAccount?.id || ""}
+                        onChange={(e) => setExpenseAccountId(e.target.value || null)}
+                    >
+                        {accounts.map(a => <option key={a.id} value={a.id}>{a.name} · {a.currency}</option>)}
+                    </select>
+                ) : (
+                    <div className="text-xs text-red-500">No account available to charge yet.</div>
+                )}
+            </div>
             {hasHousehold && (
                 <div>
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-base-400 mb-1.5">Post this expense to</div>
+                    <div className={labelClass}>Post this expense to</div>
                     <div className="flex bg-base-100 dark:bg-base-800 rounded-lg p-1 w-fit">
                         {(["private", "household"] as const).map(o => (
                             <button
                                 key={o}
                                 onClick={() => setOwnership(o)}
-                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5 ${ownership === o ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm" : "text-base-500"}`}
+                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5 ${!expenseAccountId && ownership === o ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm" : "text-base-500"}`}
                             >
                                 {o === "private" ? "🔒 Private" : <><span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" /> Household</>}
                             </button>
@@ -490,100 +766,303 @@ function ExpenseView({ parsed, scanned, hasHousehold, ownership, setOwnership, a
                     </div>
                 </div>
             )}
-            {accounts.length === 0 && <div className="text-xs text-red-500">No account available to charge yet.</div>}
         </div>
     );
 }
 
-function TradeView({ parsed, query }: { parsed: Extract<ParsedCommand, { type: "trade" }>; query: string; setQuery: (v: string) => void }) {
+type TradeResolution = {
+    fallback: { name: string; price: number; icon: string; currency: string } | undefined;
+    live: { ticker: string; price: number; currency: string } | null;
+    known: AssetResponse | undefined;
+    suggestions: { id: string; ticker: string; name: string }[];
+    price: number | undefined;
+    name: string | undefined;
+    isReady: boolean;
+};
+
+function TradeView({ parsed, query, setQuery, resolution, priceLoading, onSelectTicker, subportfolios, selectedSubPortfolioId, onSelectSubPortfolio, highlightIndex, onHoverSuggestion }: {
+    parsed: Extract<ParsedCommand, { type: "trade" }>;
+    query: string;
+    setQuery: (v: string) => void;
+    resolution: TradeResolution;
+    priceLoading: boolean;
+    onSelectTicker: (ticker: string) => void;
+    subportfolios: SubPortfolioResponse[];
+    selectedSubPortfolioId: string | null;
+    onSelectSubPortfolio: (id: string) => void;
+    highlightIndex: number;
+    onHoverSuggestion: (i: number) => void;
+}) {
     const prefix = parsed.ticker;
-    const candidates = Object.entries(FALLBACK_ASSETS)
-        .filter(([ticker]) => ticker.startsWith(prefix))
-        .sort((a, b) => a[0].length - b[0].length)
-        .slice(0, 4);
-    const exact = FALLBACK_ASSETS[prefix];
+    const { live, suggestions, price, name, isReady } = resolution;
+
+    const qty = useSyncedField(parsed.qty, (v) => setQuery(serializeTrade(parsed.side, v, ticker.value, parsed.explicitPrice)));
+    const ticker = useSyncedField(parsed.ticker, (v) => setQuery(serializeTrade(parsed.side, qty.value, v.toUpperCase(), parsed.explicitPrice)));
+    const priceField = useSyncedField<number | null>(parsed.explicitPrice, (v) => setQuery(serializeTrade(parsed.side, qty.value, ticker.value, v)));
 
     return (
         <div className="p-4 space-y-3">
-            <div className="text-xs font-semibold text-base-500 dark:text-base-400">{exact ? "Ready to log" : "Pick an asset"}</div>
-            {exact ? (
-                <div className="flex flex-wrap gap-1.5">
-                    <Chip tone="green">{parsed.side === "buy" ? "Buy" : "Sell"}</Chip>
-                    <Chip>{parsed.qty} {parsed.ticker}</Chip>
-                    <Chip>@ ${fmtA(parsed.explicitPrice ?? exact.price)}</Chip>
-                    <Chip>{exact.name}</Chip>
-                </div>
-            ) : candidates.length > 0 ? (
-                <div className="space-y-1">
-                    {candidates.map(([ticker, info], i) => (
-                        <div key={ticker} className={`flex items-center justify-between rounded-lg px-3 py-2 ${i === 0 ? "bg-secondary-50 dark:bg-secondary-950/30 border border-secondary-200 dark:border-secondary-900" : ""}`}>
-                            <div className="text-sm">
-                                <span className="font-mono font-bold text-secondary-600 dark:text-secondary-400">{ticker.slice(0, prefix.length)}</span>
-                                <span className="font-mono font-bold text-base-900 dark:text-base-50">{ticker.slice(prefix.length)}</span>
-                                <span className="text-base-500 dark:text-base-400"> — {info.name}</span>
-                            </div>
-                            {i === 0 && <span className="text-xs text-secondary-500">↵</span>}
+            <div className="text-xs font-semibold text-base-500 dark:text-base-400">
+                {isReady ? "Ready to log" : priceLoading ? "Looking up ticker…" : "Pick an asset"}
+            </div>
+            {isReady ? (
+                <>
+                    <div className="flex gap-1.5">
+                        {(["buy", "sell"] as const).map(s => (
+                            <button
+                                key={s}
+                                onClick={() => setQuery(serializeTrade(s, qty.value, ticker.value, parsed.explicitPrice))}
+                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${parsed.side === s ? (s === "buy" ? "bg-emerald-500 text-white" : "bg-red-500 text-white") : "bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-300 hover:bg-base-200 dark:hover:bg-base-700"}`}
+                            >
+                                {s === "buy" ? "Buy" : "Sell"}
+                            </button>
+                        ))}
+                        {live && <span className="self-center"><Chip tone="fuchsia">Live</Chip></span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <div className={labelClass}>Quantity</div>
+                            <input
+                                type="number"
+                                step="any"
+                                className={`${fieldClass} font-mono`}
+                                value={qty.value}
+                                onChange={(e) => qty.setValue(parseFloat(e.target.value) || 0)}
+                                onFocus={qty.onFocus}
+                                onBlur={qty.onBlur}
+                            />
                         </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-sm text-base-500 italic">No matches for "{query}" yet — it'll be created when you log it.</div>
+                        <div>
+                            <div className={labelClass}>Ticker</div>
+                            <input
+                                className={`${fieldClass} font-mono uppercase`}
+                                value={ticker.value}
+                                onChange={(e) => ticker.setValue(e.target.value)}
+                                onFocus={ticker.onFocus}
+                                onBlur={ticker.onBlur}
+                            />
+                        </div>
+                        <div>
+                            <div className={labelClass}>Price</div>
+                            <input
+                                type="number"
+                                step="0.01"
+                                placeholder={price != null ? fmtA(price) : "—"}
+                                className={`${fieldClass} font-mono`}
+                                value={priceField.value ?? ""}
+                                onChange={(e) => priceField.setValue(e.target.value === "" ? null : parseFloat(e.target.value) || 0)}
+                                onFocus={priceField.onFocus}
+                                onBlur={priceField.onBlur}
+                            />
+                        </div>
+                    </div>
+                    {name && <div className="text-sm text-base-700 dark:text-base-300">{name}</div>}
+                </>
+            ) : null}
+            {isReady && (
+                subportfolios.length > 0 ? (
+                    <div>
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-base-400 mb-1.5">Into portfolio</div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {subportfolios.map(sp => (
+                                <button
+                                    key={sp.id}
+                                    onClick={() => onSelectSubPortfolio(sp.id)}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${sp.id === selectedSubPortfolioId ? "bg-secondary-500 text-white" : "bg-base-100 dark:bg-base-800 text-base-600 dark:text-base-300 hover:bg-base-200 dark:hover:bg-base-700"}`}
+                                >
+                                    {sp.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-xs text-red-500">No portfolio available yet — create one on the Portfolio page.</div>
+                )
+            )}
+            {!isReady && (
+                suggestions.length > 0 ? (
+                    <div className="space-y-1">
+                        {suggestions.map((a, i) => (
+                            <button
+                                key={a.id}
+                                onClick={() => onSelectTicker(a.ticker)}
+                                onMouseEnter={() => onHoverSuggestion(i)}
+                                className={`w-full flex items-center justify-between text-left rounded-lg px-3 py-2 hover:bg-base-50 dark:hover:bg-base-800 ${i === highlightIndex ? "bg-secondary-50 dark:bg-secondary-950/30 border border-secondary-200 dark:border-secondary-900" : ""}`}
+                            >
+                                <div className="text-sm">
+                                    <span className="font-mono font-bold text-secondary-600 dark:text-secondary-400">{a.ticker.slice(0, prefix.length)}</span>
+                                    <span className="font-mono font-bold text-base-900 dark:text-base-50">{a.ticker.slice(prefix.length)}</span>
+                                    <span className="text-base-500 dark:text-base-400"> — {a.name}</span>
+                                </div>
+                                {i === highlightIndex && <span className="text-xs text-secondary-500">↵</span>}
+                            </button>
+                        ))}
+                    </div>
+                ) : priceLoading ? (
+                    <div className="text-sm text-base-500 italic">Fetching live price for "{prefix}"…</div>
+                ) : (
+                    <div className="text-sm text-base-500 italic">No matches for "{query}" yet — it'll be created when you log it.</div>
+                )
             )}
         </div>
     );
 }
 
-function BalanceView({ parsed }: { parsed: Extract<ParsedCommand, { type: "balance" }> }) {
+type BalanceResolution = {
+    known: AccountResponse | undefined;
+    suggestions: AccountResponse[];
+    isReady: boolean;
+    query: string;
+};
+
+function BalanceView({ parsed, resolution, setQuery, onSelectAccount, highlightIndex, onHoverSuggestion }: {
+    parsed: Extract<ParsedCommand, { type: "balance" }>;
+    resolution: BalanceResolution;
+    setQuery: (v: string) => void;
+    onSelectAccount: (name: string) => void;
+    highlightIndex: number;
+    onHoverSuggestion: (i: number) => void;
+}) {
+    const { known, suggestions, isReady, query } = resolution;
+    const name = useSyncedField(parsed.query, (v) => setQuery(serializeBalance(v, balance.value)));
+    const balance = useSyncedField(parsed.newBalance, (v) => setQuery(serializeBalance(name.value, v)));
+
     return (
         <div className="p-4 space-y-3">
-            <div className="text-xs font-semibold text-base-500 dark:text-base-400">Update balance</div>
-            <div className="flex items-center justify-between rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5">
-                <div>
-                    <div className="text-sm font-medium text-base-900 dark:text-base-50">{parsed.account.name} · {parsed.account.currency}</div>
-                    <div className="text-xs text-base-500">today</div>
-                </div>
-                <div className="text-right">
-                    <div className="font-mono font-bold text-base-900 dark:text-base-50">${fmt(parsed.newBalance)}</div>
-                </div>
+            <div className="text-xs font-semibold text-base-500 dark:text-base-400">
+                {isReady ? (known ? "Update balance" : "New account · set balance") : "Pick an account"}
             </div>
-            <div className="text-xs text-base-400">Sets a new snapshot for today.</div>
+            {isReady ? (
+                <>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <div className={labelClass}>Account</div>
+                            <input
+                                className={fieldClass}
+                                value={name.value}
+                                onChange={(e) => name.setValue(e.target.value)}
+                                onFocus={name.onFocus}
+                                onBlur={name.onBlur}
+                            />
+                        </div>
+                        <div>
+                            <div className={labelClass}>New balance</div>
+                            <input
+                                type="number"
+                                step="0.01"
+                                className={`${fieldClass} font-mono`}
+                                value={balance.value}
+                                onChange={(e) => balance.setValue(parseFloat(e.target.value) || 0)}
+                                onFocus={balance.onFocus}
+                                onBlur={balance.onBlur}
+                            />
+                        </div>
+                    </div>
+                    {!known && <div className="text-xs text-amber-500">No account named "{name.value}" yet — it'll be created when you log it.</div>}
+                    <div className="text-xs text-base-400">Sets a new snapshot for today.</div>
+                </>
+            ) : suggestions.length > 0 ? (
+                <div className="space-y-1">
+                    {suggestions.map((a, i) => (
+                        <button
+                            key={a.id}
+                            onClick={() => onSelectAccount(a.name)}
+                            onMouseEnter={() => onHoverSuggestion(i)}
+                            className={`w-full flex items-center justify-between text-left rounded-lg px-3 py-2 hover:bg-base-50 dark:hover:bg-base-800 ${i === highlightIndex ? "bg-secondary-50 dark:bg-secondary-950/30 border border-secondary-200 dark:border-secondary-900" : ""}`}
+                        >
+                            <div className="text-sm">
+                                <span className="font-medium text-base-900 dark:text-base-50">{a.name}</span>
+                                <span className="text-base-500 dark:text-base-400"> · {a.currency}</span>
+                            </div>
+                            {i === highlightIndex && <span className="text-xs text-secondary-500">↵</span>}
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-sm text-base-500 italic">No account matches "{query}" — it'll be created when you log it.</div>
+            )}
         </div>
     );
 }
 
-function DividendView({ parsed }: { parsed: Extract<ParsedCommand, { type: "dividend" }> }) {
+function DividendView({ parsed, setQuery, knownName }: { parsed: Extract<ParsedCommand, { type: "dividend" }>; setQuery: (v: string) => void; knownName?: string }) {
     const info = FALLBACK_ASSETS[parsed.ticker];
+    const name = knownName || info?.name || parsed.ticker;
+    const ticker = useSyncedField(parsed.ticker, (v) => setQuery(serializeDividend(v.toUpperCase(), amount.value)));
+    const amount = useSyncedField(parsed.amount, (v) => setQuery(serializeDividend(ticker.value, v)));
     return (
         <div className="p-4 space-y-3">
             <div className="text-xs font-semibold text-base-500 dark:text-base-400">Log a dividend</div>
-            <div className="flex flex-wrap gap-1.5">
-                <Chip tone="green">Dividend</Chip>
-                <Chip tone="green">+${fmtA(parsed.amount)}</Chip>
-                <Chip>{info?.icon || "💵"} {info?.name || parsed.ticker} ({parsed.ticker})</Chip>
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <div className={labelClass}>Ticker</div>
+                    <input
+                        className={`${fieldClass} font-mono uppercase`}
+                        value={ticker.value}
+                        onChange={(e) => ticker.setValue(e.target.value)}
+                        onFocus={ticker.onFocus}
+                        onBlur={ticker.onBlur}
+                    />
+                </div>
+                <div>
+                    <div className={labelClass}>Amount</div>
+                    <input
+                        type="number"
+                        step="0.01"
+                        className={`${fieldClass} font-mono`}
+                        value={amount.value}
+                        onChange={(e) => amount.setValue(parseFloat(e.target.value) || 0)}
+                        onFocus={amount.onFocus}
+                        onBlur={amount.onBlur}
+                    />
+                </div>
             </div>
+            <div className="text-sm text-base-700 dark:text-base-300">{info?.icon || "💵"} {name}</div>
             <div className="text-xs text-base-500">≈ S${fmtA(parsed.amount * USD_SGD)} · adds to this year's dividend income &amp; yield</div>
         </div>
     );
 }
 
-function TransferView({ parsed }: { parsed: Extract<ParsedCommand, { type: "transfer" }> }) {
-    const from = parsed.fromCandidates[0];
-    const to = parsed.toCandidates[0];
+function TransferView({ parsed, accounts, setQuery }: { parsed: Extract<ParsedCommand, { type: "transfer" }>; accounts: AccountResponse[]; setQuery: (v: string) => void }) {
+    const from = parsed.fromCandidates[0] || null;
+    const to = parsed.toCandidates[0] || null;
+    const amount = useSyncedField(parsed.amount, (v) => setQuery(serializeTransfer(v, from, to)));
     return (
         <div className="p-4 space-y-3">
             <div className="text-xs font-semibold text-base-500 dark:text-base-400">Transfer between accounts</div>
             <div className="grid grid-cols-2 gap-3 items-center relative">
-                {[from, to].map((acc, i) => (
-                    <div key={i} className="rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5">
-                        <div className="text-xs font-mono font-bold text-base-500">{acc?.name || "—"}</div>
-                        <div className={`text-sm font-mono font-semibold ${i === 0 ? "text-red-500" : "text-emerald-500"}`}>{i === 0 ? "−" : "+"}${fmt(parsed.amount)}</div>
+                {[{ acc: from, label: "From", tone: "text-red-500", sign: "−" }, { acc: to, label: "To", tone: "text-emerald-500", sign: "+" }].map((slot, i) => (
+                    <div key={i} className="rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 space-y-1.5">
+                        <div className={labelClass + " mb-0"}>{slot.label}</div>
+                        <select
+                            className={`${fieldClass} text-xs font-mono font-bold`}
+                            value={slot.acc?.id || ""}
+                            onChange={(e) => {
+                                const acc = accounts.find(a => a.id === e.target.value) || null;
+                                setQuery(i === 0 ? serializeTransfer(amount.value, acc, to) : serializeTransfer(amount.value, from, acc));
+                            }}
+                        >
+                            <option value="" disabled>Select account</option>
+                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                        <div className={`text-sm font-mono font-semibold ${slot.tone}`}>{slot.sign}${fmt(amount.value)}</div>
                     </div>
                 ))}
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white dark:bg-base-800 border border-secondary-300 dark:border-secondary-800 flex items-center justify-center text-secondary-500 text-xs">⇄</div>
             </div>
+            <div>
+                <div className={labelClass}>Amount</div>
+                <input
+                    type="number"
+                    step="0.01"
+                    className={`${fieldClass} font-mono max-w-[160px]`}
+                    value={amount.value}
+                    onChange={(e) => amount.setValue(parseFloat(e.target.value) || 0)}
+                    onFocus={amount.onFocus}
+                    onBlur={amount.onBlur}
+                />
+            </div>
             <div className="flex flex-wrap gap-1.5">
-                <Chip tone="fuchsia">${fmt(parsed.amount)}</Chip>
-                <Chip>{from?.name} → {to?.name}</Chip>
                 <Chip>No net-worth change</Chip>
             </div>
         </div>
