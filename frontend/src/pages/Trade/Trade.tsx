@@ -18,6 +18,7 @@ export default function Trade() {
     const [subportfolios] = useState<SubPortfolioResponse[]>(loaderData.subportfolios || []);
     const [searchParams] = useSearchParams();
     const [isSaveDefault, setIsSaveDefault] = useState(false);
+    const [settleFromCash, setSettleFromCash] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
 
     const [selectedAccountId, setSelectedAccountId] = useState(() => {
@@ -168,7 +169,8 @@ export default function Trade() {
                 sub_portfolio_id: selectedSubportfolioId,
                 asset_id: assetId,
                 account_id: selectedAccountId,
-                description: description || null
+                description: description || null,
+                settle_from_cash: settleFromCash
             });
 
 
@@ -222,7 +224,9 @@ export default function Trade() {
                             </div>
                         )}
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Funding Account</label>
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                                {settleFromCash ? "Cash Currency Account" : "Funding Account"}
+                            </label>
                             <select
                                 className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                 value={selectedAccountId}
@@ -328,6 +332,19 @@ export default function Trade() {
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
                             />
+                        </div>
+
+                        <div className="flex items-center space-x-2 py-2">
+                            <input
+                                type="checkbox"
+                                id="settleFromCash"
+                                className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500"
+                                checked={settleFromCash}
+                                onChange={(e) => setSettleFromCash(e.target.checked)}
+                            />
+                            <label htmlFor="settleFromCash" className="text-sm text-base-600 dark:text-base-400">
+                                Settle from sub-portfolio cash instead of the funding account
+                            </label>
                         </div>
 
                         <div className="flex items-center space-x-2 py-2">

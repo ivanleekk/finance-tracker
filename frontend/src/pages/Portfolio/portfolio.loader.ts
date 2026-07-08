@@ -1,6 +1,6 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse, PortfolioMetricsResponse, DividendResponse } from "../../types/types";
+import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse, PortfolioMetricsResponse, DividendResponse, AccountResponse } from "../../types/types";
 
 export type PortfolioLoaderData = {
     subportfolios: SubPortfolioResponse[];
@@ -9,6 +9,7 @@ export type PortfolioLoaderData = {
     snapshots: PortfolioSnapshotResponse[];
     metrics: PortfolioMetricsResponse | null;
     dividends: DividendResponse[];
+    accounts: AccountResponse[];
 };
 
 export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<PortfolioLoaderData> {
@@ -25,22 +26,24 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [spRes, trRes, asRes, snRes, meRes, dvRes] = await Promise.all([
+        const [spRes, trRes, asRes, snRes, meRes, dvRes, accRes] = await Promise.all([
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/portfolio/trades/household/${householdId}`),
             ssrFetch(`/portfolio/assets`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
             ssrFetch(metricsUrl),
-            ssrFetch(`/portfolio/dividends/household/${householdId}`)
+            ssrFetch(`/portfolio/dividends/household/${householdId}`),
+            ssrFetch(`/accounts/household/${householdId}`)
         ]);
 
-        const [subportfolios, trades, assets, snapshots, metrics, dividends] = await Promise.all([
+        const [subportfolios, trades, assets, snapshots, metrics, dividends, accounts] = await Promise.all([
             spRes.ok ? spRes.json() : [],
             trRes.ok ? trRes.json() : [],
             asRes.ok ? asRes.json() : [],
             snRes.ok ? snRes.json() : [],
             meRes.ok ? meRes.json() : null,
-            dvRes.ok ? dvRes.json() : []
+            dvRes.ok ? dvRes.json() : [],
+            accRes.ok ? accRes.json() : []
         ]);
 
         return {
@@ -49,11 +52,12 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
             assets,
             snapshots,
             metrics,
-            dividends
+            dividends,
+            accounts
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load portfolio data", error);
-        return { subportfolios: [], trades: [], assets: [], snapshots: [], metrics: null, dividends: [] };
+        return { subportfolios: [], trades: [], assets: [], snapshots: [], metrics: null, dividends: [], accounts: [] };
     }
 }

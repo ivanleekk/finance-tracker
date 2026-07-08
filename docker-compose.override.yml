@@ -2,6 +2,11 @@ services:
     backend:
         volumes:
             - ./backend:/app
+            # /app/.venv is a fresh anonymous volume separate from the bind-mounted
+            # source, so the container's own `uv run` (on every start, via CMD) never
+            # writes a Linux venv into the host's backend/.venv - see the identical
+            # /app/node_modules pattern below for the frontend service.
+            - /app/.venv
         environment:
             - DEBUG=true
             # watchfiles (used by `fastapi dev` --reload) falls back to polling when

@@ -1,7 +1,7 @@
 # src/schemas.py
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 from datetime import date, datetime
 from decimal import Decimal
 import uuid
@@ -355,6 +355,18 @@ class SubPortfolioResponse(SubPortfolioBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SubPortfolioCashCreate(BaseModel):
+    """Deposit cash into (or withdraw it from) a sub-portfolio."""
+    household_id: uuid.UUID
+    account_id: uuid.UUID
+    direction: Literal["deposit", "withdraw"]
+    amount: Decimal = Field(gt=0)
+    currency: str
+    date: datetime
+    exchange_rate: float = 1.0  # Rate from cash currency to the funding account currency
+    description: Optional[str] = None
+
+
 class TradeBase(BaseModel):
     type: TradeType
     date: datetime
@@ -370,6 +382,9 @@ class TradeCreate(TradeBase):
     sub_portfolio_id: uuid.UUID
     asset_id: uuid.UUID
     account_id: uuid.UUID
+    # Settle against the sub-portfolio's own cash instead of debiting/crediting
+    # a real funding-account transaction. Buys fail if cash is insufficient.
+    settle_from_cash: bool = False
 
 
 class TradeUpdate(BaseModel):
@@ -393,6 +408,7 @@ class TradeResponse(TradeBase):
     asset_id: Optional[uuid.UUID] = None
     account_id: Optional[uuid.UUID] = None
     transaction_id: Optional[uuid.UUID] = None
+    settlement_trade_id: Optional[uuid.UUID] = None
     currency: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -466,6 +482,7 @@ class DividendResponse(DividendBase):
     sub_portfolio_id: uuid.UUID
     asset_id: uuid.UUID
     account_id: uuid.UUID
+    cash_trade_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
 

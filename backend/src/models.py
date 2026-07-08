@@ -268,6 +268,16 @@ class Transaction(Base):
 # --- 4. ASSETS, TRADES & PORTFOLIO ---
 
 
+# Assets with this type represent uninvested cash held inside a sub-portfolio.
+# They are always priced at 1.0 in their own currency and are excluded from
+# market-data lookups (prices, dividends).
+CASH_ASSET_TYPE = "cash"
+
+
+def cash_ticker(currency: str) -> str:
+    return f"CASH.{currency.upper()}"
+
+
 class Asset(Base):
     __tablename__ = "assets"
 
@@ -340,6 +350,9 @@ class Trade(Base):
     currency = Column(String, nullable=True) # If null, assume asset currency
     exchange_rate = Column(Float)
     description = Column(String, nullable=True)
+    # Points at the companion cash trade (or vice versa) when this trade was
+    # settled against sub-portfolio cash instead of a funding-account transaction.
+    settlement_trade_id = Column(UUID(as_uuid=True), ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
 
 
     household = relationship("Household", back_populates="trades")
@@ -392,6 +405,9 @@ class Dividend(Base):
     quantity = Column(Float, nullable=True)  # Shares held on the ex-dividend date
     exchange_rate = Column(Float)
     is_manual = Column(Boolean, default=True)  # False for auto-tracked dividends
+    # The buy trade of the sub-portfolio's cash pseudo-asset that credits this
+    # payout as cash (see services/dividend_engine.sync_dividend_cash_credit).
+    cash_trade_id = Column(UUID(as_uuid=True), ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
 
     household = relationship("Household", back_populates="dividends")
     sub_portfolio = relationship("SubPortfolio", back_populates="dividends")

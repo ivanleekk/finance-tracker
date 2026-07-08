@@ -9,9 +9,9 @@ from decimal import Decimal
 import pandas as pd
 
 from src.models import (
-    Trade, PortfolioSnapshot, Asset, TradeType, 
+    Trade, PortfolioSnapshot, Asset, TradeType,
     Household, SubPortfolio, MarketPrice, FinancialAccount,
-    ExchangeRate
+    ExchangeRate, CASH_ASSET_TYPE
 )
 from src.services.market_data import (
     fetch_and_cache_market_prices_range,
@@ -45,7 +45,9 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
     ).scalars().all()
     
     # C. Get all market prices for the range
-    tickers = list(set([a.ticker for a in assets.values()]))
+    # Cash pseudo-assets have no market ticker: they are always worth 1.0 in
+    # their own currency, so we exclude them from the yfinance fetch.
+    tickers = list(set([a.ticker for a in assets.values() if a.type != CASH_ASSET_TYPE]))
     fetch_and_cache_market_prices_range(db, tickers, start_date, end_date)
     
     # Build a lookup for prices: {(date, ticker): price}
@@ -186,7 +188,10 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
                     continue 
 
                 asset = assets[asset_id]
-                price = price_lookup.get((curr_date, asset.ticker), 0.0)
+                if asset.type == CASH_ASSET_TYPE:
+                    price = 1.0
+                else:
+                    price = price_lookup.get((curr_date, asset.ticker), 0.0)
                 rate = rate_lookup.get((curr_date, asset.currency or "USD", home_curr), 1.0)
                 
                 value_home = state["q"] * price * rate

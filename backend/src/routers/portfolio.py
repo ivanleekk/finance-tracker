@@ -13,6 +13,7 @@ from src.services.dividend_engine import sync_dividends_range
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
+from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -100,7 +101,11 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     asset = db.query(models.Asset).filter(models.Asset.id == db_trade.asset_id).first()
     ticker = asset.ticker if asset else "Unknown"
     trade_type_str = db_trade.trade_type.value if hasattr(db_trade.trade_type, "value") else str(db_trade.trade_type)
-    description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
+    if asset and asset.type == models.CASH_ASSET_TYPE:
+        verb = "deposit" if trans_type == models.TransactionType.expense else "withdrawal"
+        description = f"Cash {verb}: {db_trade.quantity:g} {asset.currency}"
+    else:
+        description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
 
     if db_trade.transaction_id:
         db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
@@ -376,6 +381,91 @@ def delete_subportfolio(
     db.commit()
     return
 
+# --- SUBPORTFOLIO CASH ---
+
+@router.post(
+    "/subportfolios/{subportfolio_id}/cash",
+    response_model=schemas.TradeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def move_subportfolio_cash(
+    subportfolio_id: uuid.UUID,
+    cash: schemas.SubPortfolioCashCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Deposit cash into or withdraw cash from a sub-portfolio. Recorded as a
+    buy/sell trade of the currency's cash pseudo-asset at a price of 1.0, so it
+    flows through the same transaction, balance, snapshot, and performance
+    pipelines as any other trade.
+    """
+    db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_sp:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    if db_sp.household_id != cash.household_id:
+        raise HTTPException(status_code=400, detail="Sub-portfolio does not belong to this household")
+
+    verify_household_access(cash.household_id, current_user, db)
+    verify_private_owner_visibility(db_sp.owner_user_id, current_user)
+
+    db_account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == cash.account_id,
+        models.FinancialAccount.household_id == cash.household_id,
+    ).first()
+    if not db_account:
+        raise HTTPException(status_code=404, detail="Funding account not found in this household")
+
+    asset = get_or_create_cash_asset(db, cash.currency)
+
+    amount = float(cash.amount)
+    if cash.direction == "withdraw":
+        balance = get_subportfolio_cash_balance(db, subportfolio_id, asset.id, cash.date.date())
+        if balance + 1e-6 < amount:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient cash: {balance:.2f} {asset.currency} available on {cash.date.date()}",
+            )
+
+    db_trade = models.Trade(
+        id=uuid.uuid7(),
+        household_id=cash.household_id,
+        sub_portfolio_id=subportfolio_id,
+        asset_id=asset.id,
+        account_id=cash.account_id,
+        trade_type=models.TradeType.buy if cash.direction == "deposit" else models.TradeType.sell,
+        date=cash.date,
+        quantity=amount,
+        price=Decimal("1"),
+        currency=asset.currency,
+        exchange_rate=cash.exchange_rate,
+        description=cash.description,
+    )
+    db.add(db_trade)
+    db.flush()
+    sync_trade_transaction(db, db_trade)
+    db.commit()
+    db.refresh(db_trade)
+
+    # Cash never changes share counts, so no dividend re-sync is needed.
+    run_snapshot_range(db, cash.household_id, cash.date.date(), date.today())
+
+    return schemas.TradeResponse(
+        id=db_trade.id,
+        household_id=db_trade.household_id,
+        sub_portfolio_id=db_trade.sub_portfolio_id,
+        asset_id=db_trade.asset_id,
+        account_id=db_trade.account_id,
+        type=db_trade.trade_type,
+        date=db_trade.date,
+        quantity=db_trade.quantity,
+        price=db_trade.price,
+        currency=db_trade.currency,
+        exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
+        description=db_trade.description,
+    )
+
 # --- TRADES ---
 
 @router.post("/trades", response_model=schemas.TradeResponse, status_code=status.HTTP_201_CREATED)
@@ -386,6 +476,24 @@ def execute_trade(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(trade.household_id, current_user, db)
+
+    if trade.settle_from_cash:
+        asset = db.query(models.Asset).filter(models.Asset.id == trade.asset_id).first()
+        if asset and asset.type == models.CASH_ASSET_TYPE:
+            raise HTTPException(status_code=400, detail="Cannot settle a cash movement from cash.")
+        if trade.type == models.TradeType.buy:
+            account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == trade.account_id).first()
+            if not account:
+                raise HTTPException(status_code=404, detail="Funding account not found")
+            acc_curr = account.currency or "USD"
+            cash_asset = get_or_create_cash_asset(db, acc_curr)
+            amount_in_acc = float(Decimal(str(trade.quantity)) * trade.price * Decimal(str(trade.exchange_rate)))
+            balance = get_subportfolio_cash_balance(db, trade.sub_portfolio_id, cash_asset.id, trade.date.date())
+            if balance + 1e-6 < amount_in_acc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient cash: {balance:.2f} {acc_curr} available on {trade.date.date()}",
+                )
 
     db_trade = models.Trade(
         id=uuid.uuid7(),
@@ -399,10 +507,16 @@ def execute_trade(
         price=trade.price,
         currency=trade.currency,
         exchange_rate=trade.exchange_rate,
+        description=trade.description,
     )
     db.add(db_trade)
     db.flush() # Ensure trade is available for sync
-    sync_trade_transaction(db, db_trade)
+
+    if trade.settle_from_cash:
+        settle_trade_from_cash(db, db_trade)
+    else:
+        sync_trade_transaction(db, db_trade)
+
     db.commit()
     db.refresh(db_trade)
 
@@ -424,6 +538,8 @@ def execute_trade(
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
         transaction_id=db_trade.transaction_id,
+        settlement_trade_id=db_trade.settlement_trade_id,
+        description=db_trade.description,
     )
     return response
 
@@ -452,6 +568,8 @@ def get_household_trades(
             currency=t.currency,
             exchange_rate=t.exchange_rate,
             transaction_id=t.transaction_id,
+            settlement_trade_id=t.settlement_trade_id,
+            description=t.description,
         ) for t in trades
     ]
 
@@ -481,7 +599,13 @@ def update_trade(
     for key, value in update_data.items():
         setattr(db_trade, key, value)
 
-    sync_trade_transaction(db, db_trade)
+    # A trade that was created cash-settled stays cash-settled; we keep its
+    # companion trade in sync rather than exposing settlement mode as editable.
+    if db_trade.settlement_trade_id:
+        settle_trade_from_cash(db, db_trade)
+    else:
+        sync_trade_transaction(db, db_trade)
+
     db.commit()
     db.refresh(db_trade)
 
@@ -503,6 +627,8 @@ def update_trade(
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
         transaction_id=db_trade.transaction_id,
+        settlement_trade_id=db_trade.settlement_trade_id,
+        description=db_trade.description,
     )
 
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -521,15 +647,30 @@ def delete_trade(
     household_id = db_trade.household_id
     trade_date = db_trade.date.date()
 
-    # Also delete the associated transaction and reverse its impact
-    if db_trade.transaction_id:
-        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
-        if db_transaction:
-            multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-            sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
-            db.delete(db_transaction)
+    # A cash-settled trade always has a companion leg; delete both together
+    # so the sub-portfolio's cash and holdings stay consistent.
+    trades_to_delete = [db_trade]
+    if db_trade.settlement_trade_id:
+        companion = db.query(models.Trade).filter(models.Trade.id == db_trade.settlement_trade_id).first()
+        if companion:
+            trade_date = min(trade_date, companion.date.date())
+            trades_to_delete.append(companion)
 
-    db.delete(db_trade)
+    # Break the mutual settlement link before deleting either row.
+    for t in trades_to_delete:
+        t.settlement_trade_id = None
+    db.flush()
+
+    for t in trades_to_delete:
+        # Also delete the associated transaction and reverse its impact
+        if t.transaction_id:
+            db_transaction = db.query(models.Transaction).filter(models.Transaction.id == t.transaction_id).first()
+            if db_transaction:
+                multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+                sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+                db.delete(db_transaction)
+        db.delete(t)
+
     db.commit()
 
     # Sync snapshots synchronously for serverless reliability

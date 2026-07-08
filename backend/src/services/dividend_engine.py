@@ -8,20 +8,19 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from src.models import (
+    CASH_ASSET_TYPE,
     Asset,
-    Category,
     Dividend,
     FinancialAccount,
     Household,
     PortfolioSnapshot,
     SubPortfolio,
     Trade,
-    Transaction,
     TradeType,
-    TransactionType,
 )
-from src.services.account_service import sync_transaction_to_balances
+from src.services.cash_service import get_or_create_cash_asset
 from src.services.market_data import fetch_and_cache_exchange_rates
+from src.services.snapshot_engine import run_snapshot_range
 
 logger = logging.getLogger(__name__)
 
@@ -29,39 +28,19 @@ logger = logging.getLogger(__name__)
 QTY_EPSILON = 1e-8
 
 
-def _get_or_create_dividend_category(db: Session, household_id: uuid.UUID) -> Category:
-    """Find or create the household's "Dividend Income" income category."""
-    category = db.query(Category).filter(
-        Category.household_id == household_id,
-        Category.name == "Dividend Income",
-    ).first()
-
-    if not category:
-        category = Category(
-            id=uuid.uuid7(),
-            household_id=household_id,
-            name="Dividend Income",
-            type=TransactionType.income.value,
-        )
-        db.add(category)
-        db.flush()
-
-    return category
-
-
-def sync_dividend_transaction(db: Session, db_dividend: Dividend) -> Transaction:
+def sync_dividend_cash_credit(db: Session, db_dividend: Dividend) -> Trade:
     """
-    Creates or updates the income Transaction that credits a dividend to its
-    cash account, and syncs the account balance. Mirrors ``sync_trade_transaction``
-    so that re-running the dividend sync never double-credits balances.
+    Credits a dividend as cash inside its sub-portfolio, mirroring a manual
+    cash deposit: creates (or, on re-sync, updates) a buy trade of the cash
+    pseudo-asset denominated in the funding account's currency. No real
+    household account is touched -- the payout stays inside the portfolio as
+    cash until the user invests or withdraws it, same as a brokerage sweep.
+    Idempotent via ``Dividend.cash_trade_id`` so re-running never duplicates.
     """
-    category = _get_or_create_dividend_category(db, db_dividend.household_id)
-
     account = db.query(FinancialAccount).filter(
         FinancialAccount.id == db_dividend.account_id
     ).first()
     acc_curr = (account.currency if account else None) or "USD"
-    home_curr = (account.household.base_currency if account and account.household else None) or "USD"
 
     asset = db.query(Asset).filter(Asset.id == db_dividend.asset_id).first()
     asset_curr = (asset.currency if asset else None) or "USD"
@@ -70,68 +49,43 @@ def sync_dividend_transaction(db: Session, db_dividend: Dividend) -> Transaction
     trans_date = db_dividend.date.date()
     amount = db_dividend.amount  # Total payout in asset currency (Decimal)
 
-    # Convert the payout into the cash account's currency to update its balance.
     rate_to_acc = fetch_and_cache_exchange_rates(db, asset_curr, acc_curr, trans_date)
-    amount_in_acc = amount * Decimal(str(rate_to_acc))
+    amount_in_acc = float(amount * Decimal(str(rate_to_acc)))
 
-    rate_to_home = fetch_and_cache_exchange_rates(db, asset_curr, home_curr, trans_date)
-    amount_home = amount * Decimal(str(rate_to_home))
-
+    cash_asset = get_or_create_cash_asset(db, acc_curr)
     description = f"Dividend: {ticker}"
 
-    # --- Update path: a transaction already exists for this dividend ---
-    if db_dividend.transaction_id:
-        db_transaction = db.query(Transaction).filter(
-            Transaction.id == db_dividend.transaction_id
-        ).first()
-        if db_transaction:
-            # Reverse the previous impact (dividends are always income => +).
-            old_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
-            old_impact = db_transaction.amount * Decimal(str(old_rate))
-            old_date = db_transaction.date.date()
-            old_account_id = db_transaction.account_id
+    cash_trade = None
+    if db_dividend.cash_trade_id:
+        cash_trade = db.query(Trade).filter(Trade.id == db_dividend.cash_trade_id).first()
 
-            db_transaction.account_id = db_dividend.account_id
-            db_transaction.category_id = category.id
-            db_transaction.date = db_dividend.date
-            db_transaction.amount = amount
-            db_transaction.amount_home_currency = amount_home
-            db_transaction.description = description
-            db_transaction.transaction_type = TransactionType.income
-            db_transaction.currency = asset_curr
-            db_transaction.exchange_rate = rate_to_acc
+    if cash_trade:
+        cash_trade.date = db_dividend.date
+        cash_trade.quantity = amount_in_acc
+        cash_trade.currency = acc_curr
+        cash_trade.account_id = db_dividend.account_id
+        cash_trade.asset_id = cash_asset.id
+        cash_trade.description = description
+        return cash_trade
 
-            new_impact = amount_in_acc
-            new_date = trans_date
-
-            if old_account_id == db_dividend.account_id and old_date == new_date:
-                sync_transaction_to_balances(db, db_dividend.account_id, new_date, new_impact - old_impact)
-            else:
-                sync_transaction_to_balances(db, old_account_id, old_date, -old_impact)
-                sync_transaction_to_balances(db, db_dividend.account_id, new_date, new_impact)
-
-            return db_transaction
-
-    # --- Create path: brand new dividend transaction ---
-    db_transaction = Transaction(
+    cash_trade = Trade(
         id=uuid.uuid7(),
+        household_id=db_dividend.household_id,
+        sub_portfolio_id=db_dividend.sub_portfolio_id,
+        asset_id=cash_asset.id,
         account_id=db_dividend.account_id,
-        category_id=category.id,
+        trade_type=TradeType.buy,
         date=db_dividend.date,
-        amount=amount,
-        amount_home_currency=amount_home,
-        currency=asset_curr,
-        exchange_rate=rate_to_acc,
+        quantity=amount_in_acc,
+        price=Decimal("1"),
+        currency=acc_curr,
+        exchange_rate=1.0,
         description=description,
-        transaction_type=TransactionType.income,
     )
-    db.add(db_transaction)
+    db.add(cash_trade)
     db.flush()
-    db_dividend.transaction_id = db_transaction.id
-
-    sync_transaction_to_balances(db, db_dividend.account_id, trans_date, amount_in_acc)
-
-    return db_transaction
+    db_dividend.cash_trade_id = cash_trade.id
+    return cash_trade
 
 
 def _shares_held_on(db: Session, sub_portfolio_id: uuid.UUID, asset_id: uuid.UUID, ex_date: date) -> float:
@@ -179,9 +133,10 @@ def sync_dividends_range(db: Session, household_id: uuid.UUID, start_date: date,
     ex-dividend date falls within ``[start_date, end_date]``.
 
     For each ex-date it multiplies the per-share dividend (from yfinance) by the
-    shares held in each sub-portfolio on that day, credits the cash account, and
-    upserts an idempotent auto-tracked ``Dividend`` row. Manual dividends at the
-    same (sub_portfolio, asset, date) key are always preserved.
+    shares held in each sub-portfolio on that day, credits it as cash inside
+    that sub-portfolio, and upserts an idempotent auto-tracked ``Dividend``
+    row. Manual dividends at the same (sub_portfolio, asset, date) key are
+    always preserved.
 
     Requires snapshots to already be materialized for the range; callers run
     ``run_snapshot_range`` first. Returns the number of dividend rows written.
@@ -206,7 +161,8 @@ def sync_dividends_range(db: Session, household_id: uuid.UUID, start_date: date,
     written = 0
 
     for asset_id, asset in assets.items():
-        if not asset.ticker:
+        # Cash pseudo-assets have no market ticker and never pay dividends.
+        if not asset.ticker or asset.type == CASH_ASSET_TYPE:
             continue
 
         # 1. Pull per-share dividend history from yfinance.
@@ -290,9 +246,15 @@ def sync_dividends_range(db: Session, household_id: uuid.UUID, start_date: date,
                     db.add(db_dividend)
                     db.flush()
 
-                # Credit the cash account (idempotent on re-run).
-                sync_dividend_transaction(db, db_dividend)
+                # Credit sub-portfolio cash (idempotent on re-run).
+                sync_dividend_cash_credit(db, db_dividend)
                 written += 1
 
     db.commit()
+
+    if written:
+        # Dividend payouts just landed as new cash trades; replay them into
+        # PortfolioSnapshot so equity curves/holdings reflect the cash immediately.
+        run_snapshot_range(db, household_id, start_date, end_date)
+
     return written

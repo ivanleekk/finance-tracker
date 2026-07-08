@@ -51,7 +51,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -83,6 +83,13 @@ export default function Portfolio() {
     const [editRisk, setEditRisk] = useState("Moderate")
     const [editTarget, setEditTarget] = useState("")
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+    const [isManagingCash, setIsManagingCash] = useState(false)
+    const [cashDirection, setCashDirection] = useState<"deposit" | "withdraw">("deposit")
+    const [cashAmount, setCashAmount] = useState("")
+    const [cashAccountId, setCashAccountId] = useState("")
+    const [cashDate, setCashDate] = useState(new Date().toISOString().split('T')[0])
+    const [isSubmittingCash, setIsSubmittingCash] = useState(false)
+    const [cashError, setCashError] = useState<string | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -140,6 +147,39 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to delete sub-portfolio. It might have associated trades.");
+        }
+    };
+
+    const handleCashMove = async () => {
+        const sp = subportfolios.find(s => s.name === activeTab);
+        const account = accounts.find(a => a.id === cashAccountId);
+        if (!sp || !activeHousehold || !account) return;
+        const amount = parseFloat(cashAmount);
+        if (!amount || amount <= 0) {
+            setCashError("Enter an amount greater than zero.");
+            return;
+        }
+        setIsSubmittingCash(true);
+        setCashError(null);
+        try {
+            // Cash inherits the funding account's currency, so no FX conversion is needed here.
+            await api.post(`/portfolio/subportfolios/${sp.id}/cash`, {
+                household_id: activeHousehold.id,
+                account_id: account.id,
+                direction: cashDirection,
+                amount,
+                currency: account.currency || activeHousehold.base_currency || "USD",
+                date: new Date(cashDate).toISOString(),
+                exchange_rate: 1.0
+            });
+            setCashAmount("");
+            setIsManagingCash(false);
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setCashError(e.response?.data?.detail || "Failed to record cash movement.");
+        } finally {
+            setIsSubmittingCash(false);
         }
     };
 
@@ -434,6 +474,11 @@ export default function Portfolio() {
             .sort((a, b) => b.pct - a.pct);
     })();
 
+    // Uninvested cash held inside the active tab's sub-portfolio(s), in home currency.
+    const cashValue = currentData.holdings
+        .filter(h => h.assetType === "cash")
+        .reduce((sum, h) => sum + h.shares * h.currentPrice, 0);
+
     // Metrics for the active tab (includes dividend_income / dividend_yield).
     const activeMetrics = activeTab === "Overall"
         ? metrics?.overall_metrics
@@ -553,6 +598,16 @@ export default function Portfolio() {
             {activeTab !== "Overall" && !isCreating && activeSubportfolioObj && (
                 <div className="flex justify-end gap-2">
                     <Button variant="secondary" onClick={() => {
+                        setIsManagingCash(!isManagingCash);
+                        setCashError(null);
+                        if (!cashAccountId && accounts.length > 0) {
+                            const defaultId = activeHousehold.default_funding_account_id;
+                            setCashAccountId(defaultId && accounts.some(a => a.id === defaultId) ? defaultId : accounts[0].id);
+                        }
+                    }}>
+                        {isManagingCash ? "Close Cash" : "Manage Cash"}
+                    </Button>
+                    <Button variant="secondary" onClick={() => {
                         setIsEditing(!isEditing);
                         setEditName(activeSubportfolioObj.name);
                         setEditRisk(activeSubportfolioObj.risk_profile);
@@ -564,6 +619,78 @@ export default function Portfolio() {
                         Delete {activeTab}
                     </Button>
                 </div>
+            )}
+
+            {isManagingCash && activeSubportfolioObj && (
+                <Card className="bg-emerald-50/30 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                        {cashError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {cashError}
+                            </div>
+                        )}
+                        <div className="flex items-end gap-4 flex-wrap">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Action</label>
+                                <select
+                                    className="rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                    value={cashDirection}
+                                    onChange={e => setCashDirection(e.target.value as "deposit" | "withdraw")}
+                                >
+                                    <option value="deposit">Deposit</option>
+                                    <option value="withdraw">Withdraw</option>
+                                </select>
+                            </div>
+                            <div className="flex-1 min-w-[160px] space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                                    {cashDirection === "deposit" ? "From Account" : "To Account"}
+                                </label>
+                                <select
+                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                    value={cashAccountId}
+                                    onChange={e => setCashAccountId(e.target.value)}
+                                >
+                                    {accounts.map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
+                                    ))}
+                                    {accounts.length === 0 && <option value="">No accounts available</option>}
+                                </select>
+                            </div>
+                            <div className="flex-1 min-w-[120px] space-y-2">
+                                <Input
+                                    label={`Amount (${accounts.find(a => a.id === cashAccountId)?.currency || activeHousehold.base_currency || "USD"})`}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="0.00"
+                                    value={cashAmount}
+                                    onChange={e => setCashAmount(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Input
+                                    label="Date"
+                                    type="date"
+                                    value={cashDate}
+                                    onChange={e => setCashDate(e.target.value)}
+                                />
+                            </div>
+                            <Button
+                                variant="primary"
+                                className="h-[42px]"
+                                onClick={handleCashMove}
+                                disabled={isSubmittingCash || accounts.length === 0}
+                            >
+                                {isSubmittingCash ? "Saving..." : (cashDirection === "deposit" ? "Deposit Cash" : "Withdraw Cash")}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {cashDirection === "deposit"
+                                ? `Moves cash from the selected account into ${activeTab}, where it counts toward the portfolio's value until you invest or withdraw it.`
+                                : `Moves uninvested cash out of ${activeTab} back into the selected account.`}
+                        </p>
+                    </CardContent>
+                </Card>
             )}
 
             {isEditing && activeSubportfolioObj && (
@@ -604,6 +731,9 @@ export default function Portfolio() {
             {/* Top Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                 <StatCard title="Total Equity" value={currentData.stats.equity} />
+                {cashValue > 0 && (
+                    <StatCard title="Cash" value={formatCurrency(cashValue)} trend="neutral" description="Uninvested cash" />
+                )}
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
@@ -849,14 +979,30 @@ export default function Portfolio() {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <Badge variant={isPositive ? "success" : "error"}>
-                                                    {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
-                                                </Badge>
+                                                {h.assetType === "cash" ? (
+                                                    <span className="text-base-400">—</span>
+                                                ) : (
+                                                    <Badge variant={isPositive ? "success" : "error"}>
+                                                        {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
+                                                    </Badge>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                                                    <Button variant="ghost" size="sm">Trade</Button>
-                                                </Link>
+                                                {h.assetType === "cash" ? (
+                                                    activeSubportfolioObj && (
+                                                        <Button variant="ghost" size="sm" onClick={() => {
+                                                            setIsManagingCash(true);
+                                                            setCashError(null);
+                                                            if (!cashAccountId && accounts.length > 0) setCashAccountId(accounts[0].id);
+                                                        }}>
+                                                            Manage
+                                                        </Button>
+                                                    )
+                                                ) : (
+                                                    <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                                                        <Button variant="ghost" size="sm">Trade</Button>
+                                                    </Link>
+                                                )}
                                             </td>
                                         </tr>
                                     )

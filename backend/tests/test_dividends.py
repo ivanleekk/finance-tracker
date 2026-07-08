@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.models import Dividend, AccountBalance, Transaction
+from src.models import Dividend, AccountBalance, Trade, PortfolioSnapshot
 from src.services.dividend_engine import sync_dividends_range
 
 
@@ -98,14 +98,28 @@ def test_auto_dividend_recorded_from_holdings(db_session: Session, no_network, d
     assert div.per_share_amount == Decimal("0.24")
     assert div.quantity == 10
     assert div.is_manual is False
-    assert div.transaction_id is not None
+    assert div.cash_trade_id is not None
 
-    # Cash account credited by the payout.
+    # Credited as cash inside the sub-portfolio, not the real bank account.
+    cash_trade = db_session.query(Trade).filter(Trade.id == div.cash_trade_id).first()
+    assert cash_trade is not None
+    assert cash_trade.sub_portfolio_id == ids["sp"]
+    assert cash_trade.quantity == 2.4
+    assert cash_trade.trade_type.value == "buy"
+
     balance = db_session.query(AccountBalance).filter(
         AccountBalance.account_id == ids["account"], AccountBalance.date == EX_DATE
     ).first()
-    assert balance is not None
-    assert balance.balance == Decimal("2.4")
+    assert balance is None  # real bank account is untouched
+
+    # The cash immediately shows up in the sub-portfolio's equity curve.
+    cash_snapshot = db_session.query(PortfolioSnapshot).filter(
+        PortfolioSnapshot.sub_portfolio_id == ids["sp"],
+        PortfolioSnapshot.asset_id == cash_trade.asset_id,
+        PortfolioSnapshot.date == EX_DATE,
+    ).first()
+    assert cash_snapshot is not None
+    assert cash_snapshot.quantity == 2.4
 
 
 def test_dividend_sync_is_idempotent(db_session: Session, no_network, dividend_series):
@@ -118,15 +132,10 @@ def test_dividend_sync_is_idempotent(db_session: Session, no_network, dividend_s
     dividends = db_session.query(Dividend).filter(Dividend.household_id == ids["household"]).all()
     assert len(dividends) == 1  # no duplicate
 
-    transactions = db_session.query(Transaction).filter(
-        Transaction.account_id == ids["account"]
-    ).all()
-    assert len(transactions) == 1  # no duplicate transaction
-
-    balance = db_session.query(AccountBalance).filter(
-        AccountBalance.account_id == ids["account"], AccountBalance.date == EX_DATE
-    ).first()
-    assert balance.balance == Decimal("2.4")  # not double-credited
+    div = dividends[0]
+    cash_trades = db_session.query(Trade).filter(Trade.id == div.cash_trade_id).all()
+    assert len(cash_trades) == 1  # no duplicate cash trade
+    assert cash_trades[0].quantity == 2.4  # not double-credited
 
 
 def test_manual_dividend_is_preserved(db_session: Session, no_network, dividend_series):

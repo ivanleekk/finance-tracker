@@ -208,6 +208,7 @@ export type TradeResponse = {
   currency?: string | null;
   exchange_rate: number;
   transaction_id?: string | null;
+  settlement_trade_id?: string | null;
   description?: string | null;
 };
 
@@ -239,6 +240,7 @@ export type DividendResponse = {
   quantity?: number | null;
   amount_home_currency?: number | null;
   is_manual?: boolean | null;
+  cash_trade_id?: string | null;
 };
 
 export type ExchangeRateResponse = {
