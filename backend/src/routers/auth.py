@@ -88,7 +88,12 @@ def refresh_token(
     response: Response,
     db: Session = Depends(get_db),
 ):
+    # Web uses the httponly cookie; mobile (no cookie jar) sends the refresh token as a bearer header.
     refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            refresh_token = auth_header[7:]
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
