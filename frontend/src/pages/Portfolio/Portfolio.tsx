@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
 import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
@@ -569,15 +570,16 @@ export default function Portfolio() {
                         </div>
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                            <Select
+                                className="h-[42px]"
                                 value={newPortfolioRisk}
-                                onChange={e => setNewPortfolioRisk(e.target.value)}
-                            >
-                                <option value="Conservative">Conservative</option>
-                                <option value="Moderate">Moderate</option>
-                                <option value="Aggressive">Aggressive</option>
-                            </select>
+                                onChange={setNewPortfolioRisk}
+                                options={[
+                                    { value: "Conservative", label: "Conservative" },
+                                    { value: "Moderate", label: "Moderate" },
+                                    { value: "Aggressive", label: "Aggressive" },
+                                ]}
+                            />
                         </div>
                         <div className="flex-1 space-y-2">
                             <Input
@@ -632,29 +634,27 @@ export default function Portfolio() {
                         <div className="flex items-end gap-4 flex-wrap">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-900 dark:text-base-50">Action</label>
-                                <select
-                                    className="rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                <Select
+                                    className="h-[42px] w-36"
                                     value={cashDirection}
-                                    onChange={e => setCashDirection(e.target.value as "deposit" | "withdraw")}
-                                >
-                                    <option value="deposit">Deposit</option>
-                                    <option value="withdraw">Withdraw</option>
-                                </select>
+                                    onChange={(v) => setCashDirection(v as "deposit" | "withdraw")}
+                                    options={[
+                                        { value: "deposit", label: "Deposit" },
+                                        { value: "withdraw", label: "Withdraw" },
+                                    ]}
+                                />
                             </div>
                             <div className="flex-1 min-w-[160px] space-y-2">
                                 <label className="text-sm font-medium text-base-900 dark:text-base-50">
                                     {cashDirection === "deposit" ? "From Account" : "To Account"}
                                 </label>
-                                <select
-                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                                <Select
+                                    className="h-[42px]"
                                     value={cashAccountId}
-                                    onChange={e => setCashAccountId(e.target.value)}
-                                >
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
-                                    ))}
-                                    {accounts.length === 0 && <option value="">No accounts available</option>}
-                                </select>
+                                    onChange={setCashAccountId}
+                                    placeholder="No accounts available"
+                                    options={accounts.map(acc => ({ value: acc.id, label: `${acc.name} (${acc.currency})` }))}
+                                />
                             </div>
                             <div className="flex-1 min-w-[120px] space-y-2">
                                 <Input
@@ -705,15 +705,16 @@ export default function Portfolio() {
                         </div>
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                            <Select
+                                className="h-[42px]"
                                 value={editRisk}
-                                onChange={e => setEditRisk(e.target.value)}
-                            >
-                                <option value="Conservative">Conservative</option>
-                                <option value="Moderate">Moderate</option>
-                                <option value="Aggressive">Aggressive</option>
-                            </select>
+                                onChange={setEditRisk}
+                                options={[
+                                    { value: "Conservative", label: "Conservative" },
+                                    { value: "Moderate", label: "Moderate" },
+                                    { value: "Aggressive", label: "Aggressive" },
+                                ]}
+                            />
                         </div>
                         <div className="flex-1 space-y-2">
                             <Input

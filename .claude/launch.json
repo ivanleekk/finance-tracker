@@ -8,6 +8,14 @@
       "cwd": "frontend",
       "port": 5173,
       "autoPort": false
+    },
+    {
+      "name": "frontend-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "INTERNAL_API_URL=http://localhost:8000 node_modules/.bin/react-router dev --port 5174"],
+      "cwd": "frontend",
+      "port": 5174,
+      "autoPort": false
     }
   ]
 }

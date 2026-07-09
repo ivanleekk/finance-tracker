@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { Select } from "../../components/ui/Select";
 import { StatCard } from "../../components/ui/StatCard";
 import { OwnershipTag } from "../../components/ui/OwnershipTag";
 import { TopBar } from "../../components/TopBar";
@@ -433,34 +434,26 @@ export default function Accounts() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-sm font-medium text-base-900 dark:text-base-50">Liquidity</label>
-                                                <select
+                                                <Select
                                                     name="liquidity"
-                                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                                     value={newAccount.liquidity}
-                                                    onChange={(e) => setNewAccount({ ...newAccount, liquidity: e.target.value as LiquidityStatus })}
-                                                >
-                                                    {Object.values(LiquidityStatus).map(status => (
-                                                        <option key={status} value={status}>{status.replace('_', ' ')}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={(liquidity) => setNewAccount({ ...newAccount, liquidity: liquidity as LiquidityStatus })}
+                                                    options={Object.values(LiquidityStatus).map(status => ({ value: status, label: status.replace('_', ' ') }))}
+                                                />
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-sm font-medium text-base-900">Tax Status</label>
-                                                <select
+                                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Tax Status</label>
+                                                <Select
                                                     name="tax_status"
-                                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                                     value={newAccount.tax_status}
-                                                    onChange={(e) => setNewAccount({ ...newAccount, tax_status: e.target.value as TaxTreatment })}
-                                                >
-                                                    {Object.values(TaxTreatment).map(status => (
-                                                        <option key={status} value={status}>{status.replace('_', ' ')}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={(tax_status) => setNewAccount({ ...newAccount, tax_status: tax_status as TaxTreatment })}
+                                                    options={Object.values(TaxTreatment).map(status => ({ value: status, label: status.replace('_', ' ') }))}
+                                                />
                                             </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
-                                                <label className="text-sm font-medium text-base-900">Initial Balance</label>
+                                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Initial Balance</label>
                                                 <Input
                                                     name="balance"
                                                     type="number"
@@ -472,7 +465,7 @@ export default function Accounts() {
                                                 />
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-sm font-medium text-base-900">As of Date</label>
+                                                <label className="text-sm font-medium text-base-900 dark:text-base-50">As of Date</label>
                                                 <Input
                                                     name="date"
                                                     type="date"
@@ -483,17 +476,13 @@ export default function Accounts() {
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-sm font-medium text-base-900">Currency</label>
-                                            <select
+                                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
+                                            <Select
                                                 name="currency"
-                                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                                 value={newAccount.currency}
-                                                onChange={(e) => setNewAccount({ ...newAccount, currency: e.target.value })}
-                                            >
-                                                {currencies.map(c => (
-                                                    <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
-                                                ))}
-                                            </select>
+                                                onChange={(currency) => setNewAccount({ ...newAccount, currency })}
+                                                options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                            />
                                         </div>
                                         {hasHousehold && (
                                             <label className="flex items-center gap-2.5 rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 cursor-pointer">
@@ -536,7 +525,7 @@ export default function Accounts() {
                                         <input type="hidden" name="_intent" value="updateBalance" />
                                         <input type="hidden" name="accountId" value={updateBalanceData.accountId} />
                                         <div className="space-y-2">
-                                            <label className="text-sm font-medium text-base-900">Date</label>
+                                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Date</label>
                                             <Input
                                                 name="date"
                                                 type="date"

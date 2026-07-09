@@ -334,7 +334,8 @@ def update_account_balance(
     if 'balance' in update_data:
         delta = Decimal(str(update_data['balance'])) - db_balance.balance
         propagate_balance_change(db, db_balance.account_id, db_balance.date, delta)
-        
+        db_balance.balance = Decimal(str(update_data['balance']))
+
         # Update home currency balance
         home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
         acc_curr = db_account.currency or "USD"

@@ -32,18 +32,23 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
     home_curr = household.base_currency or "USD"
 
     # 1. PREFETCH EVERYTHING
-    
-    # A. Get all assets involved
-    assets = {a.id: a for a in db.execute(select(Asset)).scalars().all()}
-    
-    # B. Get all trades for the household (ever) to maintain accurate quantity state
+
+    # A. Get all trades for the household (ever) to maintain accurate quantity state
     # We fetch ALL trades because we need the starting state at start_date
     all_trades = db.execute(
         select(Trade)
         .where(Trade.household_id == household_id)
         .order_by(Trade.date.asc())
     ).scalars().all()
-    
+
+    # B. Only the assets this household has actually traded — fetching every
+    # asset in the system would also fetch every other user's tickers below.
+    traded_asset_ids = {t.asset_id for t in all_trades}
+    assets = {
+        a.id: a
+        for a in db.execute(select(Asset).where(Asset.id.in_(traded_asset_ids))).scalars().all()
+    } if traded_asset_ids else {}
+
     # C. Get all market prices for the range
     # Cash pseudo-assets have no market ticker: they are always worth 1.0 in
     # their own currency, so we exclude them from the yfinance fetch.

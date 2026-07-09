@@ -169,7 +169,7 @@ export default function Dashboard() {
         <div className="flex-1 flex flex-col overflow-hidden">
             <TopBar title="Dashboard" commandPlaceholder="Log or find…" />
             <div className="flex-1 overflow-y-auto space-y-6 p-8">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-base-500 dark:text-base-400">Overview of your household financial health.</p>
                     <TimeframeSelector />
                 </div>

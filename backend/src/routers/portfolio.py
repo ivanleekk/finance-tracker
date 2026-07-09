@@ -100,6 +100,10 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     # 4. Get asset ticker for description
     asset = db.query(models.Asset).filter(models.Asset.id == db_trade.asset_id).first()
     ticker = asset.ticker if asset else "Unknown"
+
+    # Trades created without an explicit currency inherit the asset's currency
+    if not db_trade.currency:
+        db_trade.currency = (asset.currency if asset else None) or "USD"
     trade_type_str = db_trade.trade_type.value if hasattr(db_trade.trade_type, "value") else str(db_trade.trade_type)
     if asset and asset.type == models.CASH_ASSET_TYPE:
         verb = "deposit" if trans_type == models.TransactionType.expense else "withdrawal"
@@ -792,7 +796,14 @@ def create_portfolio_snapshot(
         current_price=snapshot.price,
         exchange_rate_used=snapshot.exchange_rate_used,
         current_value_home_currency=snapshot.current_value_home_currency,
-        average_cost_basis=snapshot.averge_cost_basis,
+        average_cost_basis=snapshot.average_cost_basis,
+        average_cost_basis_home_currency=snapshot.average_cost_basis_home_currency
+        if snapshot.average_cost_basis_home_currency is not None
+        else (
+            snapshot.average_cost_basis * Decimal(str(snapshot.exchange_rate_used))
+            if snapshot.average_cost_basis is not None
+            else None
+        ),
     )
     db.add(db_snapshot)
     db.commit()
@@ -808,7 +819,8 @@ def create_portfolio_snapshot(
         price=db_snapshot.current_price,
         exchange_rate_used=db_snapshot.exchange_rate_used,
         current_value_home_currency=db_snapshot.current_value_home_currency,
-        averge_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis_home_currency=db_snapshot.average_cost_basis_home_currency,
     )
 
 @router.get(
@@ -895,7 +907,6 @@ def update_portfolio_snapshot(
     # Map schema fields to db model fields
     field_mapping = {
         'price': 'current_price',
-        'averge_cost_basis': 'average_cost_basis'
     }
 
     for schema_key, value in update_data.items():
@@ -915,7 +926,8 @@ def update_portfolio_snapshot(
         price=db_snapshot.current_price,
         exchange_rate_used=db_snapshot.exchange_rate_used,
         current_value_home_currency=db_snapshot.current_value_home_currency,
-        averge_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis_home_currency=db_snapshot.average_cost_basis_home_currency,
     )
 
 @router.delete("/subportfolios/snapshot/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT)

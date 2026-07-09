@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
 import { Badge } from "../../components/ui/Badge"
 import { StatCard } from "../../components/ui/StatCard"
 import { UserCircle, Trash2, MailPlus, Plus, ChevronRight, Home, Shield, ShieldAlert, User, Settings, Clock } from "lucide-react"
@@ -545,31 +546,23 @@ export default function Households() {
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
-                                    <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    <Select
+                                        placeholder="Select Currency"
                                         value={createForm.base_currency}
-                                        onChange={(e) => setCreateForm({ ...createForm, base_currency: e.target.value })}
+                                        onChange={(base_currency) => setCreateForm({ ...createForm, base_currency })}
                                         required
-                                    >
-                                        <option value="">Select Currency</option>
-                                        {currencies.map(c => (
-                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
-                                        ))}
-                                    </select>
+                                        options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
-                                    <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    <Select
+                                        placeholder="Select Country"
                                         value={createForm.country_code}
-                                        onChange={(e) => setCreateForm({ ...createForm, country_code: e.target.value })}
+                                        onChange={(country_code) => setCreateForm({ ...createForm, country_code })}
                                         required
-                                    >
-                                        <option value="">Select Country</option>
-                                        {countries.map(c => (
-                                            <option key={c.code} value={c.code}>{c.name}</option>
-                                        ))}
-                                    </select>
+                                        options={countries.map(c => ({ value: c.code, label: c.name }))}
+                                    />
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
@@ -602,31 +595,23 @@ export default function Households() {
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Base Currency</label>
-                                    <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    <Select
+                                        placeholder="Select Currency"
                                         value={editForm.base_currency || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, base_currency: e.target.value })}
+                                        onChange={(base_currency) => setEditForm({ ...editForm, base_currency })}
                                         required
-                                    >
-                                        <option value="">Select Currency</option>
-                                        {currencies.map(c => (
-                                            <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
-                                        ))}
-                                    </select>
+                                        options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-900 dark:text-base-50">Country</label>
-                                    <select
-                                        className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    <Select
+                                        placeholder="Select Country"
                                         value={editForm.country_code || ""}
-                                        onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
+                                        onChange={(country_code) => setEditForm({ ...editForm, country_code })}
                                         required
-                                    >
-                                        <option value="">Select Country</option>
-                                        {countries.map(c => (
-                                            <option key={c.code} value={c.code}>{c.name}</option>
-                                        ))}
-                                    </select>
+                                        options={countries.map(c => ({ value: c.code, label: c.name }))}
+                                    />
                                 </div>
                                 <div className="flex gap-3 justify-end pt-4">
                                     <Button variant="ghost" type="button" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>

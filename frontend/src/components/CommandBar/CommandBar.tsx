@@ -18,6 +18,7 @@ import {
     type ParsedCommand,
 } from "../../lib/commandParser";
 import { SCAN_RESULT, type ScanResult } from "./receiptScan";
+import { Select } from "../ui/Select";
 import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
 
 type Phase = "resting" | "typing" | "scanning" | "success";
@@ -739,13 +740,13 @@ function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, ownership,
             <div>
                 <div className={labelClass}>Account</div>
                 {accounts.length > 0 ? (
-                    <select
-                        className={fieldClass}
+                    <Select
+                        size="sm"
+                        className="rounded-lg bg-base-50 dark:bg-base-950 focus-visible:ring-secondary-400"
                         value={effectiveAccount?.id || ""}
-                        onChange={(e) => setExpenseAccountId(e.target.value || null)}
-                    >
-                        {accounts.map(a => <option key={a.id} value={a.id}>{a.name} · {a.currency}</option>)}
-                    </select>
+                        onChange={(id) => setExpenseAccountId(id || null)}
+                        options={accounts.map(a => ({ value: a.id, label: `${a.name} · ${a.currency}` }))}
+                    />
                 ) : (
                     <div className="text-xs text-red-500">No account available to charge yet.</div>
                 )}
@@ -1034,17 +1035,17 @@ function TransferView({ parsed, accounts, setQuery }: { parsed: Extract<ParsedCo
                 {[{ acc: from, label: "From", tone: "text-red-500", sign: "−" }, { acc: to, label: "To", tone: "text-emerald-500", sign: "+" }].map((slot, i) => (
                     <div key={i} className="rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 space-y-1.5">
                         <div className={labelClass + " mb-0"}>{slot.label}</div>
-                        <select
-                            className={`${fieldClass} text-xs font-mono font-bold`}
+                        <Select
+                            size="sm"
+                            className="rounded-lg bg-base-50 dark:bg-base-950 text-xs font-mono font-bold focus-visible:ring-secondary-400"
+                            placeholder="Select account"
                             value={slot.acc?.id || ""}
-                            onChange={(e) => {
-                                const acc = accounts.find(a => a.id === e.target.value) || null;
+                            onChange={(id) => {
+                                const acc = accounts.find(a => a.id === id) || null;
                                 setQuery(i === 0 ? serializeTransfer(amount.value, acc, to) : serializeTransfer(amount.value, from, acc));
                             }}
-                        >
-                            <option value="" disabled>Select account</option>
-                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
+                            options={accounts.map(a => ({ value: a.id, label: a.name }))}
+                        />
                         <div className={`text-sm font-mono font-semibold ${slot.tone}`}>{slot.sign}${fmt(amount.value)}</div>
                     </div>
                 ))}

@@ -3,6 +3,7 @@ import { useLoaderData, useFetcher, useNavigate } from "react-router";
 import { Card, CardContent } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { Select } from "../../components/ui/Select";
 import { useAuth } from "../../lib/AuthContext";
 import { useHousehold } from "../../lib/HouseholdContext";
 import type { OnboardingLoaderData } from "./onboarding.loader";
@@ -85,14 +86,14 @@ export default function Onboarding() {
                                             {code}
                                         </button>
                                     ))}
-                                    <select
+                                    <Select
+                                        wrapperClassName="w-48"
+                                        className="h-[34px] rounded-lg text-base-600 dark:text-base-400"
+                                        placeholder="More…"
                                         value={currencies.some(c => c.code === baseCurrency) ? baseCurrency : ""}
-                                        onChange={(e) => e.target.value && setBaseCurrency(e.target.value)}
-                                        className="px-3 py-1.5 rounded-lg text-sm border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 text-base-600 dark:text-base-400"
-                                    >
-                                        <option value="">More…</option>
-                                        {currencies.map(c => <option key={c.code} value={c.code}>{c.code} - {c.name}</option>)}
-                                    </select>
+                                        onChange={(code) => code && setBaseCurrency(code)}
+                                        options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                    />
                                     <input type="hidden" name="base_currency" value={baseCurrency} />
                                     <input type="hidden" name="country_code" value="US" />
                                 </div>

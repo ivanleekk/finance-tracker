@@ -350,26 +350,24 @@ def get_all_household_members(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(household_id, current_user, db)
-    members = (
-        db.query(models.HouseholdMember)
+    rows = (
+        db.query(models.HouseholdMember, models.User)
+        .outerjoin(models.User, models.User.id == models.HouseholdMember.user_id)
         .filter(models.HouseholdMember.household_id == household_id)
         .all()
     )
 
-    result = []
-    for m in members:
-        user = db.query(models.User).filter(models.User.id == m.user_id).first()
-        result.append(
-            {
-                "id": m.id,
-                "user_id": m.user_id,
-                "household_id": m.household_id,
-                "role": m.role,
-                "name": user.name if user else "Unknown",
-                "email": user.email if user else "Unknown",
-            }
-        )
-    return result
+    return [
+        {
+            "id": m.id,
+            "user_id": m.user_id,
+            "household_id": m.household_id,
+            "role": m.role,
+            "name": user.name if user else "Unknown",
+            "email": user.email if user else "Unknown",
+        }
+        for m, user in rows
+    ]
 
 
 @router.get(

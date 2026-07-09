@@ -9,6 +9,7 @@ import api from "../../lib/api"
 import type { HistoryLoaderData } from "./transactions.loader"
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/Dialog"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
 import { TopBar } from "../../components/TopBar"
 import { OwnershipTag } from "../../components/ui/OwnershipTag"
 import { useAuth } from "../../lib/AuthContext"
@@ -69,6 +70,12 @@ export default function Transactions() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState<'transaction' | 'transfer'>('transaction');
 
+    // Inline "new category" mini-form inside the log-transaction dialog
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState("");
+    const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
+    const [isSavingCategory, setIsSavingCategory] = useState(false);
+
     // Form state for normal transactions
     const [formData, setFormData] = useState({
         accountId: "",
@@ -112,6 +119,27 @@ export default function Transactions() {
             alert("Failed to delete item. Please try again.");
         } finally {
             setIsDeleting(null);
+        }
+    };
+
+    const handleCreateCategory = async () => {
+        if (!newCategoryName.trim()) return;
+        setIsSavingCategory(true);
+        try {
+            const res = await api.post("/cashflow/categories", {
+                household_id: activeHousehold.id,
+                name: newCategoryName.trim(),
+                type: newCategoryType,
+            });
+            setFormData(f => ({ ...f, categoryId: res.data.id }));
+            setNewCategoryName("");
+            setIsCreatingCategory(false);
+            revalidator.revalidate();
+        } catch (error) {
+            console.error("Failed to create category", error);
+            alert("Failed to create category. Please try again.");
+        } finally {
+            setIsSavingCategory(false);
         }
     };
 
@@ -484,70 +512,80 @@ export default function Transactions() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Account</label>
-                                <select
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Account"
                                     value={formData.accountId}
-                                    onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
-                                >
-                                    <option value="">Select Account</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(accountId) => setFormData({ ...formData, accountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name }))}
+                                />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-base-700">Category</label>
+                                    <label className="text-sm font-medium text-base-700 dark:text-base-300">Category</label>
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            const name = prompt("Enter category name (e.g. Food, Salary):");
-                                            const type = prompt("Enter type (income/expense):") as "income" | "expense";
-                                            if (name && type) {
-                                                api.post("/cashflow/categories", {
-                                                    household_id: activeHousehold.id,
-                                                    name,
-                                                    type
-                                                }).then(() => revalidator.revalidate());
-                                            }
-                                        }}
+                                        onClick={() => setIsCreatingCategory(!isCreatingCategory)}
                                         className="text-xs text-primary-600 hover:underline"
                                     >
-                                        + New Category
+                                        {isCreatingCategory ? "Cancel" : "+ New Category"}
                                     </button>
                                 </div>
-                                <select
-                                    required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                                    value={formData.categoryId}
-                                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                                >
-                                    <option value="">Select Category</option>
-                                    {categories.map(cat => (
-                                        <option key={cat.id} value={cat.id}>{cat.name} ({cat.type})</option>
-                                    ))}
-                                </select>
+                                {isCreatingCategory ? (
+                                    <div className="space-y-2 rounded-lg border border-dashed border-base-300 dark:border-base-700 p-2">
+                                        <Input
+                                            placeholder="e.g. Food, Salary"
+                                            value={newCategoryName}
+                                            onChange={(e) => setNewCategoryName(e.target.value)}
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex flex-1 p-0.5 bg-base-100 dark:bg-base-900 rounded-md">
+                                                {(["expense", "income"] as const).map(t => (
+                                                    <button
+                                                        key={t}
+                                                        type="button"
+                                                        onClick={() => setNewCategoryType(t)}
+                                                        className={`flex-1 py-1 text-xs font-medium rounded transition-all capitalize ${newCategoryType === t ? 'bg-white dark:bg-base-700 shadow-sm text-base-900 dark:text-base-50' : 'text-base-500 dark:text-base-400'}`}
+                                                    >
+                                                        {t}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                disabled={!newCategoryName.trim() || isSavingCategory}
+                                                onClick={handleCreateCategory}
+                                            >
+                                                {isSavingCategory ? "Adding…" : "Add"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <Select
+                                        required
+                                        placeholder="Select Category"
+                                        value={formData.categoryId}
+                                        onChange={(categoryId) => setFormData({ ...formData, categoryId })}
+                                        options={categories.map(cat => ({ value: cat.id, label: `${cat.name} (${cat.type})` }))}
+                                    />
+                                )}
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Currency</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Currency</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Currency"
                                     value={formData.currency}
-                                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                                >
-                                    <option value="">Select Currency</option>
-                                    {currencies.map(curr => (
-                                        <option key={curr.code} value={curr.code}>{curr.code} - {curr.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(currency) => setFormData({ ...formData, currency })}
+                                    options={currencies.map(curr => ({ value: curr.code, label: `${curr.code} - ${curr.name}` }))}
+                                />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Amount</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
                                 <Input
                                     type="number"
                                     step="0.01"
@@ -561,7 +599,7 @@ export default function Transactions() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Date</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
                                 <Input
                                     type="date"
                                     required
@@ -572,7 +610,7 @@ export default function Transactions() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700">Description</label>
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
                             <Input
                                 placeholder="e.g. Groceries, Dinner, Salary..."
                                 value={formData.description}
@@ -593,38 +631,30 @@ export default function Transactions() {
                     <form onSubmit={handleTransfer} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">From Account</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">From Account</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Source"
                                     value={transferData.fromAccountId}
-                                    onChange={(e) => setTransferData({ ...transferData, fromAccountId: e.target.value })}
-                                >
-                                    <option value="">Select Source</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id} disabled={acc.id === transferData.toAccountId}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(fromAccountId) => setTransferData({ ...transferData, fromAccountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.toAccountId }))}
+                                />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">To Account</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">To Account</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Destination"
                                     value={transferData.toAccountId}
-                                    onChange={(e) => setTransferData({ ...transferData, toAccountId: e.target.value })}
-                                >
-                                    <option value="">Select Destination</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id} disabled={acc.id === transferData.fromAccountId}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(toAccountId) => setTransferData({ ...transferData, toAccountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.fromAccountId }))}
+                                />
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Amount</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
                                 <Input
                                     type="number"
                                     step="0.01"
@@ -635,7 +665,7 @@ export default function Transactions() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Date</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
                                 <Input
                                     type="date"
                                     required
@@ -646,7 +676,7 @@ export default function Transactions() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700">Description</label>
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
                             <Input
                                 placeholder="e.g. Savings transfer, Monthly rent..."
                                 value={transferData.description}
@@ -671,45 +701,44 @@ export default function Transactions() {
                 <CardContent className="pt-6 flex flex-wrap gap-4">
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-base-500 dark:text-base-400">Activity Type</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <Select
+                            className="min-w-40"
                             value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                        >
-                            <option value="all">All Activity</option>
-                            <option value="trade">Trades Only</option>
-                            <option value="transaction">Transactions Only</option>
-                        </select>
+                            onChange={setFilterCategory}
+                            options={[
+                                { value: "all", label: "All Activity" },
+                                { value: "trade", label: "Trades Only" },
+                                { value: "transaction", label: "Transactions Only" },
+                            ]}
+                        />
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-base-500">Account</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <label className="text-xs font-medium text-base-500 dark:text-base-400">Account</label>
+                        <Select
+                            className="min-w-40"
                             value={filterAccount}
-                            onChange={(e) => setFilterAccount(e.target.value)}
-                        >
-                            <option value="all">All Accounts</option>
-                            {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>{acc.name}</option>
-                            ))}
-                        </select>
+                            onChange={setFilterAccount}
+                            options={[
+                                { value: "all", label: "All Accounts" },
+                                ...accounts.map(acc => ({ value: acc.id, label: acc.name })),
+                            ]}
+                        />
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-base-500">Sub-Portfolio</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <label className="text-xs font-medium text-base-500 dark:text-base-400">Sub-Portfolio</label>
+                        <Select
+                            className="min-w-40"
                             value={filterSubportfolio}
-                            onChange={(e) => setFilterSubportfolio(e.target.value)}
+                            onChange={setFilterSubportfolio}
                             disabled={filterCategory === "transaction"}
-                        >
-                            <option value="all">All Sub-Portfolios</option>
-                            <option value="none">No Sub-Portfolio</option>
-                            {subportfolios.map(sp => (
-                                <option key={sp.id} value={sp.id}>{sp.name}</option>
-                            ))}
-                        </select>
+                            options={[
+                                { value: "all", label: "All Sub-Portfolios" },
+                                { value: "none", label: "No Sub-Portfolio" },
+                                ...subportfolios.map(sp => ({ value: sp.id, label: sp.name })),
+                            ]}
+                        />
                     </div>
                 </CardContent>
             </Card>

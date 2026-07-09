@@ -3,6 +3,7 @@ import { useLoaderData, useSearchParams } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
 import { Button } from "../../components/ui/Button"
+import { Select } from "../../components/ui/Select"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import type { AccountResponse, SubPortfolioResponse, AssetResponse, CurrencyResponse } from "../../types/types"
@@ -227,32 +228,24 @@ export default function Trade() {
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">
                                 {settleFromCash ? "Cash Currency Account" : "Funding Account"}
                             </label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            <Select
                                 value={selectedAccountId}
-                                onChange={(e) => setSelectedAccountId(e.target.value)}
+                                onChange={setSelectedAccountId}
                                 required
-                            >
-                                {accounts.map(acc => (
-                                    <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
-                                ))}
-                                {accounts.length === 0 && <option value="">No accounts available</option>}
-                            </select>
+                                placeholder="No accounts available"
+                                options={accounts.map(acc => ({ value: acc.id, label: `${acc.name} (${acc.currency})` }))}
+                            />
                         </div>
 
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Sub-Portfolio</label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            <Select
                                 value={selectedSubportfolioId}
-                                onChange={(e) => setSelectedSubportfolioId(e.target.value)}
+                                onChange={setSelectedSubportfolioId}
                                 required
-                            >
-                                {subportfolios.map(sp => (
-                                    <option key={sp.id} value={sp.id}>{sp.name}</option>
-                                ))}
-                                {subportfolios.length === 0 && <option value="">No sub-portfolios available</option>}
-                            </select>
+                                placeholder="No sub-portfolios available"
+                                options={subportfolios.map(sp => ({ value: sp.id, label: sp.name }))}
+                            />
                         </div>
 
                         <Input
@@ -266,15 +259,11 @@ export default function Trade() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
-                                <select
-                                    className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                <Select
                                     value={currency}
-                                    onChange={(e) => setCurrency(e.target.value)}
-                                >
-                                    {loaderData.currencies.map(c => (
-                                        <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={setCurrency}
+                                    options={loaderData.currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                />
                             </div>
                             <Input
                                 label="Exchange Rate"

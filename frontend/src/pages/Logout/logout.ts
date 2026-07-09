@@ -9,13 +9,15 @@ export async function action({ request }: ActionFunctionArgs) {
     try {
         // Call backend to invalidate session and clear cookie
         const response = await fetch(getApiUrl("/auth/logout"), { headers });
-        
-        // We must forward the Set-Cookie (which deletes the cookie) back to the browser
-        const authCookie = response.headers.get("Set-Cookie");
-        
-        return redirect("/login", {
-            headers: authCookie ? { "Set-Cookie": authCookie } : undefined,
-        });
+
+        // Forward every Set-Cookie deletion header back to the browser
+        // (both access_token and refresh_token must be cleared).
+        const outHeaders = new Headers();
+        for (const cookie of response.headers.getSetCookie()) {
+            outHeaders.append("Set-Cookie", cookie);
+        }
+
+        return redirect("/login", { headers: outHeaders });
     } catch (e) {
         console.error("Logout action failed", e);
         return redirect("/login");

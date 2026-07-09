@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useLoaderData, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
 import { Button } from "../../components/ui/Button"
 import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
@@ -230,15 +231,11 @@ export default function Profile() {
                                         </div>
                                         <div className="space-y-2 sm:col-span-2">
                                             <label className="text-sm font-medium text-base-700 dark:text-base-300">Preferred Timezone</label>
-                                            <select
+                                            <Select
                                                 value={userTimezone}
-                                                onChange={(e) => setUserTimezone(e.target.value)}
-                                                className="w-full flex h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
-                                            >
-                                                {timezones.map(tz => (
-                                                    <option key={tz.name} value={tz.name} className="dark:bg-base-900">{tz.label}</option>
-                                                ))}
-                                            </select>
+                                                onChange={setUserTimezone}
+                                                options={timezones.map(tz => ({ value: tz.name, label: tz.label }))}
+                                            />
                                         </div>
                                     </div>
                                     <div className="flex justify-end">
@@ -284,17 +281,11 @@ export default function Profile() {
                                             <div className="space-y-2 sm:col-span-2">
                                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Base Reporting Currency</label>
                                                 <CardDescription className="text-xs mb-2">This currency will be used for all aggregated charts and metrics.</CardDescription>
-                                                <select
+                                                <Select
                                                     value={householdCurrency}
-                                                    onChange={(e) => setHouseholdCurrency(e.target.value)}
-                                                    className="w-full flex h-10 rounded-md border border-base-200 dark:border-base-800 bg-base-50/50 dark:bg-base-900/50 px-3 py-2 text-sm text-base-900 dark:text-base-50 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all focus:bg-white dark:focus:bg-base-900"
-                                                >
-                                                    {currencies.map(c => (
-                                                        <option key={c.code} value={c.code} className="dark:bg-base-900">
-                                                            {c.code} - {c.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    onChange={setHouseholdCurrency}
+                                                    options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                                />
                                             </div>
                                         </div>
                                         <div className="flex justify-end">

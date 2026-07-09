@@ -63,7 +63,6 @@ export function summarizeDividends(
     });
 
     let receivedThisYear = 0;
-    let forwardAnnual = 0;
     let thisMonth = 0;
     let totalCostBasis = 0;
     let totalTrailingIncome = 0;
@@ -124,7 +123,7 @@ export function summarizeDividends(
         });
     });
 
-    forwardAnnual = totalTrailingIncome;
+    const forwardAnnual = totalTrailingIncome;
     upcoming.sort((a, b) => (a.date < b.date ? -1 : 1));
     holdings.sort((a, b) => b.receivedThisYear - a.receivedThisYear);
 

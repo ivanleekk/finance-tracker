@@ -73,14 +73,15 @@ def calculate_performance_metrics(
         pl.col("total_value").shift(1).alias("prev_value")
     ])
 
-    # Calculate Daily Returns for ALL historical data first
-    # return_t = (Value_t + CF_t) / Value_t-1
-    # Note: df_cf amount is negative for Buys (contributions), so we subtract it to get gain
-    # Actually, if amount is -100 (Buy), then Value_t includes that 100.
-    # To get performance: (Value_t - amount) / Value_t-1
-    # Example: prev=1000, buy=100, new_val=1110. Return = (1110 - 100) / 1000 = 1.01 (1%)
+    # Calculate Daily Returns for ALL historical data first.
+    # df_cf uses the MWR sign convention: buys (external contributions) are
+    # NEGATIVE, sells (withdrawals) are POSITIVE. The external flow into the
+    # tracked portfolio is therefore F_t = -amount, and the flow-adjusted daily
+    # return is (Value_t - F_t) / Value_t-1 - 1 = (Value_t + amount) / Value_t-1 - 1.
+    # Example: prev=1000, buy=100 (amount=-100), new_val=1110.
+    # Return = (1110 - 100) / 1000 - 1 = 1% — the deposit itself is not a gain.
     df_history = df_history.with_columns([
-        ((pl.col("total_value") - pl.col("amount")) / pl.col("prev_value") - 1.0)
+        ((pl.col("total_value") + pl.col("amount")) / pl.col("prev_value") - 1.0)
         .fill_null(0.0)
         .alias("daily_return")
     ])

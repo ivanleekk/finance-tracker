@@ -418,9 +418,10 @@ class PortfolioSnapshotBase(BaseModel):
     quantity: float
     price: Decimal
     exchange_rate_used: float
-    current_value_home_currency: Decimal
-    average_cost_basis: Decimal
-    average_cost_basis_home_currency: Decimal
+    # These mirror nullable DB columns; manual snapshots may omit them.
+    current_value_home_currency: Optional[Decimal] = None
+    average_cost_basis: Optional[Decimal] = None
+    average_cost_basis_home_currency: Optional[Decimal] = None
 
 
 class PortfolioSnapshotCreate(PortfolioSnapshotBase):

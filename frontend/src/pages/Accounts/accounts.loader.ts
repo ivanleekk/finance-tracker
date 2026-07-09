@@ -17,21 +17,22 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     if (!householdId) {
         throw redirect("/households");
     }
-    const [accountsRes, currenciesRes] = await Promise.all([
+    // All three are household-scoped and independent — fetch in one round-trip
+    // instead of fetching balances in a second wave after accounts+currencies.
+    const [accountsRes, currenciesRes, balancesRes] = await Promise.all([
         ssrFetch(`/accounts/household/${householdId}`),
-        ssrFetch(`/reference/currencies`)
+        ssrFetch(`/reference/currencies`),
+        ssrFetch(`/accounts/balances/household/${householdId}`)
     ]);
 
     if (!accountsRes.ok) {
         throw new Error(`Failed to fetch accounts: ${accountsRes.statusText}`);
     }
-    const accounts: AccountResponse[] = await accountsRes.json();
-    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
-
-    const balancesRes = await ssrFetch(`/accounts/balances/household/${householdId}`);
     if (!balancesRes.ok) {
         throw new Error(`Failed to fetch balances: ${balancesRes.statusText}`);
     }
+    const accounts: AccountResponse[] = await accountsRes.json();
+    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
     const allBalances: BalanceResponse[] = await balancesRes.json();
 
     const balanceMap: Record<string, BalanceResponse[]> = {};
