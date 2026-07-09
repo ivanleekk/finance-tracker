@@ -1,0 +1,21 @@
+# Caddy terminates TLS for both domains with automatic Let's Encrypt
+# certificates. Domains come from .env.production via docker-compose.prod.yml.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$FRONTEND_DOMAIN} {
+	encode gzip
+	reverse_proxy frontend:8080
+}
+
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy backend:8000
+
+	# The scheduler endpoint is only ever called from inside the compose
+	# network; don't expose it to the internet.
+	@internal path /internal/*
+	respond @internal 403
+}

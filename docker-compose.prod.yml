@@ -1,21 +1,122 @@
+# Production stack for a single VPS. See DEPLOYMENT.md for the full runbook.
+#
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#
+# Note: -f is passed explicitly so docker-compose.override.yml (dev-only
+# bind mounts / reload settings) is never merged in.
+
 services:
+    caddy:
+        image: caddy:2-alpine
+        restart: unless-stopped
+        ports:
+            - "80:80"
+            - "443:443"
+        environment:
+            - FRONTEND_DOMAIN=${FRONTEND_DOMAIN:?set in .env.production}
+            - API_DOMAIN=${API_DOMAIN:?set in .env.production}
+            - ACME_EMAIL=${ACME_EMAIL:?set in .env.production}
+        volumes:
+            - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        depends_on:
+            - frontend
+            - backend
+
     backend:
         build:
             context: ./backend
             target: production
-        ports:
-            - "8000:8000"
-        env_file:
-            - ./backend/.env.production
+        restart: unless-stopped
+        # Not exposed to the host: Caddy reaches it on the compose network.
+        expose:
+            - "8000"
         environment:
-            - DEBUG=false
-
+            - PORT=8000
+            - NODE_ENV=production
+            - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+            - SECRET_KEY=${SECRET_KEY:?set in .env.production}
+            - SCHEDULER_SECRET=${SCHEDULER_SECRET:?set in .env.production}
+            - API_URL=https://${API_DOMAIN}
+            - CORS_ORIGINS=https://${FRONTEND_DOMAIN}
+            - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:?set in .env.production}
+        depends_on:
+            db:
+                condition: service_healthy
 
     frontend:
         build:
             context: ./frontend
             target: production
-        ports:
-            - "3000:3000"
+            args:
+                # Baked into the client bundle at build time.
+                VITE_API_URL: https://${API_DOMAIN}
+        restart: unless-stopped
+        expose:
+            - "8080"
         environment:
             - NODE_ENV=production
+            - VITE_API_URL=https://${API_DOMAIN}
+            # SSR loaders/actions talk to the backend over the compose network.
+            - INTERNAL_API_URL=http://backend:8000
+
+    db:
+        image: postgres:18-alpine
+        restart: unless-stopped
+        # No host port mapping: only reachable from other containers.
+        # For psql access use: docker compose -f docker-compose.prod.yml exec db psql -U $POSTGRES_USER $POSTGRES_DB
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB:-fin}
+            POSTGRES_USER: ${POSTGRES_USER:-fin}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fin} -d ${POSTGRES_DB:-fin}"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+        volumes:
+            - finance_tracker_prod_db:/var/lib/postgresql
+
+    # Replaces Cloud Scheduler: fires the daily snapshot/dividend catch-up job.
+    # The endpoint is idempotent and catches up from the last snapshot date,
+    # so a missed run self-heals on the next one.
+    scheduler:
+        image: alpine:3.21
+        restart: unless-stopped
+        environment:
+            - SCHEDULER_SECRET=${SCHEDULER_SECRET}
+        # The crontab line is written with the secret expanded at container
+        # start (busybox crond gives jobs a minimal environment).
+        command: >
+            sh -c 'printf "0 1 * * * wget -q -O - --header \"X-Scheduler-Secret: $$SCHEDULER_SECRET\" --post-data= http://backend:8000/internal/tasks/daily-snapshot\n" | crontab - && crond -f -l 2'
+        depends_on:
+            db:
+                condition: service_healthy
+
+    # Nightly logical backups with 14-day retention. Files land in ./backup_data
+    # on the host (gitignored). Restore procedure is in DEPLOYMENT.md.
+    db-backup:
+        image: postgres:18-alpine
+        restart: unless-stopped
+        environment:
+            - PGHOST=db
+            - PGUSER=${POSTGRES_USER:-fin}
+            - PGPASSWORD=${POSTGRES_PASSWORD}
+            - PGDATABASE=${POSTGRES_DB:-fin}
+        volumes:
+            - ./backup_data:/backups
+        entrypoint: >
+            sh -c 'while true; do
+                pg_dump -Fc -f "/backups/fin-$$(date +%F).dump" &&
+                find /backups -name "fin-*.dump" -mtime +14 -delete;
+                sleep 86400;
+            done'
+        depends_on:
+            db:
+                condition: service_healthy
+
+volumes:
+    finance_tracker_prod_db:
+    caddy_data:
+    caddy_config:

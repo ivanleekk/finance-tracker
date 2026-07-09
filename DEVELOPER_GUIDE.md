@@ -52,64 +52,28 @@ If you prefer to run the services outside of Docker:
 ## 📊 Analytics
 We use **Microsoft Clarity** for behavior analytics. The Project ID is managed via `VITE_CLARITY_ID` in the frontend environment files.
 
-## ☁️ Cloud Deployment (GCP)
 
-This project is deployed using **Google Cloud Run** and orchestrated via **Cloud Build**.
+## 🚀 Production Deployment (VPS, Docker Compose)
 
-### Prerequisites
-1.  **gcloud CLI**: Installed and authenticated (`gcloud auth login`).
-2.  **Project ID**: Set your active project (`gcloud config set project [PROJECT_ID]`).
-3.  **Artifact Registry**: Ensure a repository named `finance-tracker` exists in your chosen region.
-4.  **Secret Manager**: `FINANCE_TRACKER_DB_URL` must be stored in Secret Manager.
+Production is fully dockerized on a VPS — no cloud-specific services. The
+stack (`docker-compose.prod.yml`) runs Caddy for automatic HTTPS, the frontend
+SSR server, the FastAPI backend (which applies Alembic migrations on boot),
+Postgres 18, a cron container that fires the daily snapshot job
+(`POST /internal/tasks/daily-snapshot`, replacing Cloud Scheduler), and a
+nightly `pg_dump` backup service.
 
-### Deployment Command
-Run the following from the project root to build and deploy both services:
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+# On the VPS, from the repo root:
+cp .env.production.example .env.production   # fill in domains + secrets
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-### Custom Substitutions
-You can override default variables during build:
-```bash
-gcloud builds submit --config cloudbuild.yaml \
-  --substitutions=_REGION=us-central1,_TAG=v1.0.0
-```
+Deploying an update is `git pull` followed by the same `up -d --build`.
 
-### CI/CD & Environments
+The complete runbook — VPS provisioning, DNS, migrating data off the old
+gcloud database, backups/restore, and decommissioning Cloud Run — lives in
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
-We use a single `cloudbuild.yaml` to manage multiple environments (e.g., `prod` and `dev`). This is achieved using **Cloud Build Substitutions**.
-
-#### 1. Deployment Environments
--   **Production**: Service names: `backend`, `frontend`.
--   **Development**: Service names: `backend-dev`, `frontend-dev`.
-
-#### 2. Setting up Triggers
-To automate this, set up two triggers in the [Google Cloud Build Console](https://console.cloud.google.com/cloud-build/triggers):
-
-**Trigger A: Production (Main Branch)**
--   **Event**: Push to branch
--   **Branch**: `^main$`
--   **Configuration**: `cloudbuild.yaml`
--   **Substitutions**: (Default values in `cloudbuild.yaml` are set for production).
-
-**Trigger B: Development (Dev Branch)**
--   **Event**: Push to branch
--   **Branch**: `^dev$`
--   **Configuration**: `cloudbuild.yaml`
--   **Substitutions**:
-    -   `_SERVICE_SUFFIX`: `-dev`
-    -   `_TAG`: `dev`
-    -   `_API_URL`: `https://dev-api.yourdomain.com` (Your dev URL)
-    -   `_ENV_CORS_ORIGIN`: `https://dev.yourdomain.com` (Your dev frontend URL)
-    -   `_DB_SECRET`: `FINANCE_TRACKER_DB_URL_DEV` (Your dev database secret)
-
-> [!TIP]
-> **Dev Database Setup**: Create a second secret in Google Secret Manager (e.g., `FINANCE_TRACKER_DB_URL_DEV`) containing the connection string for your dev database before setting up the trigger.
-
-#### 3. Manual Dev Deployment
-You can manually deploy the dev environment from your local machine:
-```bash
-gcloud builds submit --config cloudbuild.yaml \
-  --substitutions=_SERVICE_SUFFIX=-dev,_TAG=dev,_API_URL=https://dev-api.yourdomain.com,_ENV_CORS_ORIGIN=https://dev.yourdomain.com,_DB_SECRET=FINANCE_TRACKER_DB_URL_DEV
-```
-
+> **Deprecated**: the Cloud Run / Cloud Build flow (`cloudbuild.yaml`) is no
+> longer the production path; the file is kept for reference until the gcloud
+> project is wound down.

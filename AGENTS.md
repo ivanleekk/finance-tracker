@@ -21,6 +21,7 @@ This document provides a high-level overview and instructions for AI agents work
 - `frontend/`: React (web) application, UI components, and assets.
 - `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change).
 - `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
+- `docker-compose.prod.yml` + `deploy/` + `DEPLOYMENT.md`: Fully dockerized VPS production stack (Caddy auto-HTTPS proxy, Postgres, cron container for the daily snapshot job, nightly pg_dump backups). The old Cloud Run flow (`cloudbuild.yaml`) is deprecated.
 
 ## 4a. Private vs. Shared Ownership
 

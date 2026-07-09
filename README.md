@@ -61,21 +61,22 @@ FRONTEND_PORT=5174 BACKEND_PORT=8001 DB_PORT=5433 docker-compose up --build
 ```
 The backend's CORS also accepts any `http://localhost:<port>` origin in addition to `CORS_ORIGINS`, so a frontend dev server running on an unexpected port (a second worktree, another tool) still works without edits.
 
-## ☁️ Deployment (Cloud Run)
+## 🚀 Deployment (VPS, Docker Compose)
 
-The project is configured for automated deployment via Google Cloud Build.
+Production runs fully dockerized on a VPS via `docker-compose.prod.yml`:
+Caddy (auto-HTTPS) → frontend SSR + FastAPI backend → Postgres, plus a cron
+container for the daily snapshot job and nightly `pg_dump` backups.
 
-### Automated Deployment
-To trigger a full build and deployment of both services:
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+cp .env.production.example .env.production   # fill in domains + secrets
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-### Deployment Configuration
--   **Region**: `asia-southeast1` (Default)
--   **Services**: `frontend` and `backend`
--   **Container Registry**: Artifact Registry
--   **Secrets**: Uses Google Secret Manager for `DATABASE_URL`.
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full runbook (VPS setup, DNS,
+data migration, updates, backups/restore).
+
+> The previous Google Cloud Run deployment (`cloudbuild.yaml`) is deprecated
+> and kept only for reference during the transition.
 
 ## 📂 Project Structure
 
