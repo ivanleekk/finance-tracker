@@ -33,6 +33,11 @@ class TaxTreatment(enum.Enum):
     tax_free = "tax_free"
 
 
+class AccountKind(enum.Enum):
+    asset = "asset"
+    liability = "liability"
+
+
 class TransactionType(enum.Enum):
     income = "income"
     expense = "expense"
@@ -117,6 +122,7 @@ class Household(Base):
     sub_portfolios = relationship("SubPortfolio", back_populates="household", cascade="all, delete-orphan", foreign_keys="[SubPortfolio.household_id]")
     trades = relationship("Trade", back_populates="household", cascade="all, delete-orphan")
     dividends = relationship("Dividend", back_populates="household", cascade="all, delete-orphan")
+    scheduled_dividends = relationship("ScheduledDividend", back_populates="household", cascade="all, delete-orphan")
     portfolio_snapshots = relationship("PortfolioSnapshot", back_populates="household", cascade="all, delete-orphan")
     invites = relationship("HouseholdInvite", back_populates="household", cascade="all, delete-orphan")
     split_shares = relationship("HouseholdSplitShare", back_populates="household", cascade="all, delete-orphan")
@@ -205,6 +211,9 @@ class FinancialAccount(Base):
     name = Column(String)
     liquidity = Column(Enum(LiquidityStatus, name="liquidity_status", schema="finance_tracker"))
     tax_status = Column(Enum(TaxTreatment, name="tax_treatment", schema="finance_tracker"))
+    # Liability accounts (loans, mortgages, credit) store their outstanding balance
+    # as a positive number; aggregates subtract them instead of adding.
+    kind = Column(Enum(AccountKind, native_enum=False), nullable=False, default=AccountKind.asset, server_default="asset")
     currency = Column(String)
     # NULL = shared with the whole household (default). Non-null = private, visible only to that user.
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -273,6 +282,12 @@ class Transaction(Base):
 # market-data lookups (prices, dividends).
 CASH_ASSET_TYPE = "cash"
 
+# Asset.pricing_mode values. Market assets get prices from yfinance; manual
+# assets (unlisted bonds, SSBs) are valued from user-recorded prices in
+# market_prices, falling back to average cost when none is recorded.
+PRICING_MODE_MARKET = "market"
+PRICING_MODE_MANUAL = "manual"
+
 
 def cash_ticker(currency: str) -> str:
     return f"CASH.{currency.upper()}"
@@ -286,6 +301,7 @@ class Asset(Base):
     name = Column(String)
     type = Column(String)
     currency = Column(String)
+    pricing_mode = Column(String, nullable=False, default=PRICING_MODE_MARKET, server_default=PRICING_MODE_MARKET)
 
     trades = relationship("Trade", back_populates="asset")
     dividends = relationship("Dividend", back_populates="asset")
@@ -414,3 +430,32 @@ class Dividend(Base):
     asset = relationship("Asset", back_populates="dividends")
     account = relationship("FinancialAccount", back_populates="dividends")
     transaction = relationship("Transaction")
+
+
+class ScheduledDividend(Base):
+    """
+    A future dividend/coupon payment known in advance (bond coupons, SSB step-up
+    schedules). Rows are materialized into real manual Dividend rows once their
+    payment date arrives (services/dividend_engine.materialize_scheduled_dividends);
+    ``materialized_at`` is the idempotency marker so deleting the resulting
+    dividend never resurrects it.
+    """
+    __tablename__ = "scheduled_dividends"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
+    date = Column(Date)  # payment date
+    amount = Column(Numeric)  # total payout in asset currency
+    description = Column(String, nullable=True)
+    dividend_id = Column(UUID(as_uuid=True), ForeignKey("dividends.id", ondelete="SET NULL"), nullable=True)
+    materialized_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    household = relationship("Household", back_populates="scheduled_dividends")
+    sub_portfolio = relationship("SubPortfolio")
+    asset = relationship("Asset")
+    account = relationship("FinancialAccount")
+    dividend = relationship("Dividend")

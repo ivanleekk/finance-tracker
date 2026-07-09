@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import SidebarButton from "./sidebarButton";
 import { useAuth } from "../lib/AuthContext";
-import { HouseholdSelector } from "./HouseholdSelector";
 import { useNavigate } from "react-router";
 
 function Sidebar() {
@@ -34,7 +33,6 @@ function Sidebar() {
 
             <div className="flex flex-1 flex-col justify-between overflow-y-auto px-4 py-6">
                 <div className="flex flex-col gap-1">
-                    {isAuthenticated && <HouseholdSelector />}
                     <SidebarButton text="Dashboard" href="/dashboard" icon={<LayoutDashboard />} />
                     <SidebarButton text="Accounts" href="/accounts" icon={<Landmark />} />
                     <SidebarButton text="Portfolio" href="/portfolio" icon={<PieChart />} />

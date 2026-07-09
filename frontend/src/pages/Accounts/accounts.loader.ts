@@ -62,6 +62,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const name = formData.get("name") as string;
         const liquidity = formData.get("liquidity") as string;
         const tax_status = formData.get("tax_status") as string;
+        const kind = (formData.get("kind") as string) || "asset";
         const currency = formData.get("currency") as string;
         const balance = formData.get("balance") as string;
         const date = formData.get("date") as string;
@@ -78,6 +79,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 name,
                 liquidity,
                 tax_status,
+                kind,
                 currency,
                 owner_user_id: isPrivate && currentUserId ? currentUserId : null,
             }),

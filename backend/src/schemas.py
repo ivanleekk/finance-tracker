@@ -8,6 +8,7 @@ import uuid
 
 # Import our enums from models so Pydantic can validate them
 from src.models import (
+    AccountKind,
     LiquidityStatus,
     TaxTreatment,
     TransactionType,
@@ -148,6 +149,7 @@ class AccountBase(BaseModel):
     name: str
     liquidity: LiquidityStatus
     tax_status: TaxTreatment
+    kind: AccountKind = AccountKind.asset
     currency: str
     owner_user_id: Optional[uuid.UUID] = None
 
@@ -160,6 +162,7 @@ class AccountUpdate(BaseModel):
     name: Optional[str] = None
     liquidity: Optional[LiquidityStatus] = None
     tax_status: Optional[TaxTreatment] = None
+    kind: Optional[AccountKind] = None
     currency: Optional[str] = None
     owner_user_id: Optional[uuid.UUID] = None
 
@@ -311,6 +314,9 @@ class AssetBase(BaseModel):
     name: str
     type: str
     currency: str
+    # "market" = priced from yfinance; "manual" = priced from user-recorded
+    # prices (unlisted bonds, Singapore Savings Bonds, ...).
+    pricing_mode: Literal["market", "manual"] = "market"
 
 
 class AssetCreate(AssetBase):
@@ -322,11 +328,26 @@ class AssetUpdate(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
     currency: Optional[str] = None
+    pricing_mode: Optional[Literal["market", "manual"]] = None
 
 
 class AssetResponse(AssetBase):
     id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
+
+
+class ManualPriceCreate(BaseModel):
+    """Record a price observation for a manually-priced asset."""
+    household_id: uuid.UUID
+    date: date
+    price: Decimal = Field(gt=0)
+
+
+class ManualPriceResponse(BaseModel):
+    ticker: str
+    date: date
+    price: Decimal
+    currency: str
 
 
 class SubPortfolioBase(BaseModel):
@@ -492,6 +513,36 @@ class DividendSyncResponse(BaseModel):
     count: int
     from_date: Optional[date] = None
     to_date: Optional[date] = None
+
+
+class ScheduledDividendBase(BaseModel):
+    date: date
+    amount: Decimal = Field(gt=0)  # total payout in asset currency
+    description: Optional[str] = None
+
+
+class ScheduledDividendCreate(ScheduledDividendBase):
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
+
+
+class ScheduledDividendUpdate(BaseModel):
+    date: Optional[date] = None
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    description: Optional[str] = None
+
+
+class ScheduledDividendResponse(ScheduledDividendBase):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    sub_portfolio_id: uuid.UUID
+    asset_id: uuid.UUID
+    account_id: uuid.UUID
+    dividend_id: Optional[uuid.UUID] = None
+    materialized_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ExchangeRateBase(BaseModel):

@@ -28,6 +28,7 @@ type Holding = {
     avgCostNative: number;
     currentPriceNative: number;
     assetType: string;
+    pricingMode: "market" | "manual";
 };
 
 const ALLOCATION_COLORS = ["#38bdf8", "#4ade80", "#fbbf24", "#e879f9", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf"];
@@ -91,6 +92,12 @@ export default function Portfolio() {
     const [cashDate, setCashDate] = useState(new Date().toISOString().split('T')[0])
     const [isSubmittingCash, setIsSubmittingCash] = useState(false)
     const [cashError, setCashError] = useState<string | null>(null)
+    // Manual price recording for pricing_mode === "manual" assets (SSBs, unlisted bonds)
+    const [priceHolding, setPriceHolding] = useState<Holding | null>(null)
+    const [priceValue, setPriceValue] = useState("")
+    const [priceDate, setPriceDate] = useState(new Date().toISOString().split('T')[0])
+    const [isSubmittingPrice, setIsSubmittingPrice] = useState(false)
+    const [priceError, setPriceError] = useState<string | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -116,6 +123,32 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to create sub-portfolio");
+        }
+    };
+
+    const handleRecordPrice = async () => {
+        if (!priceHolding || !activeHousehold) return;
+        const parsed = parseFloat(priceValue);
+        if (!parsed || parsed <= 0) {
+            setPriceError("Enter a price greater than zero.");
+            return;
+        }
+        setIsSubmittingPrice(true);
+        setPriceError(null);
+        try {
+            await api.post(`/portfolio/assets/${priceHolding.assetId}/price`, {
+                household_id: activeHousehold.id,
+                date: priceDate,
+                price: parsed,
+            });
+            setPriceHolding(null);
+            setPriceValue("");
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setPriceError(e.response?.data?.detail || "Failed to record price.");
+        } finally {
+            setIsSubmittingPrice(false);
         }
     };
 
@@ -333,7 +366,8 @@ export default function Portfolio() {
                             currency: currency,
                             avgCostNative: costBasisNative,
                             currentPriceNative: currentPriceNative,
-                            assetType: asset?.type || "other"
+                            assetType: asset?.type || "other",
+                            pricingMode: asset?.pricing_mode || "market"
                         });
                     }
                 });
@@ -693,6 +727,51 @@ export default function Portfolio() {
                 </Card>
             )}
 
+            {priceHolding && (
+                <Card className="bg-secondary-50/30 dark:bg-secondary-900/10 border-secondary-200 dark:border-secondary-800 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                        {priceError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {priceError}
+                            </div>
+                        )}
+                        <div className="flex items-end gap-4 flex-wrap">
+                            <div className="flex-1 min-w-[120px] space-y-2">
+                                <Input
+                                    label={`${priceHolding.ticker} price (${priceHolding.currency})`}
+                                    type="number"
+                                    step="0.0001"
+                                    min="0"
+                                    placeholder="0.00"
+                                    value={priceValue}
+                                    onChange={e => setPriceValue(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Input
+                                    label="As of Date"
+                                    type="date"
+                                    value={priceDate}
+                                    onChange={e => setPriceDate(e.target.value)}
+                                />
+                            </div>
+                            <Button
+                                variant="primary"
+                                className="h-[42px]"
+                                onClick={handleRecordPrice}
+                                disabled={isSubmittingPrice}
+                            >
+                                {isSubmittingPrice ? "Saving..." : "Record Price"}
+                            </Button>
+                            <Button variant="ghost" className="h-[42px]" onClick={() => setPriceHolding(null)}>Cancel</Button>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {priceHolding.ticker} is priced manually. The recorded price applies from the chosen date forward until you record a newer one; valuations are recalculated immediately.
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
             {isEditing && activeSubportfolioObj && (
                 <Card className="bg-primary-50/30 border-primary-200 border-dashed">
                     <CardContent className="pt-6 flex items-end gap-4">
@@ -1000,9 +1079,21 @@ export default function Portfolio() {
                                                         </Button>
                                                     )
                                                 ) : (
-                                                    <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                                                        <Button variant="ghost" size="sm">Trade</Button>
-                                                    </Link>
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {h.pricingMode === "manual" && (
+                                                            <Button variant="ghost" size="sm" className="text-secondary-600 dark:text-secondary-400" onClick={() => {
+                                                                setPriceHolding(h);
+                                                                setPriceValue(h.currentPriceNative > 0 ? String(h.currentPriceNative) : "");
+                                                                setPriceDate(new Date().toISOString().split('T')[0]);
+                                                                setPriceError(null);
+                                                            }}>
+                                                                Price
+                                                            </Button>
+                                                        )}
+                                                        <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                                                            <Button variant="ghost" size="sm">Trade</Button>
+                                                        </Link>
+                                                    </div>
                                                 )}
                                             </td>
                                         </tr>

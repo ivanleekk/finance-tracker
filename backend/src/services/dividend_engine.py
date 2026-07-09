@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from src.models import (
     CASH_ASSET_TYPE,
+    PRICING_MODE_MANUAL,
     Asset,
     Dividend,
     FinancialAccount,
     Household,
     PortfolioSnapshot,
+    ScheduledDividend,
     SubPortfolio,
     Trade,
     TradeType,
@@ -162,7 +164,9 @@ def sync_dividends_range(db: Session, household_id: uuid.UUID, start_date: date,
 
     for asset_id, asset in assets.items():
         # Cash pseudo-assets have no market ticker and never pay dividends.
-        if not asset.ticker or asset.type == CASH_ASSET_TYPE:
+        # Manual-priced assets (unlisted bonds, SSBs) have no yfinance dividend
+        # feed either — their coupons are entered as manual dividends.
+        if not asset.ticker or asset.type == CASH_ASSET_TYPE or asset.pricing_mode == PRICING_MODE_MANUAL:
             continue
 
         # 1. Pull per-share dividend history from yfinance.
@@ -256,5 +260,80 @@ def sync_dividends_range(db: Session, household_id: uuid.UUID, start_date: date,
         # Dividend payouts just landed as new cash trades; replay them into
         # PortfolioSnapshot so equity curves/holdings reflect the cash immediately.
         run_snapshot_range(db, household_id, start_date, end_date)
+
+    return written
+
+
+def materialize_scheduled_dividends(db: Session, household_id: uuid.UUID, as_of: date | None = None) -> int:
+    """
+    Turn due ScheduledDividend rows (payment date reached, not yet materialized)
+    into real manual Dividend rows, credit each payout as sub-portfolio cash, and
+    refresh snapshots so valuations reflect the coupons immediately. Idempotent:
+    ``materialized_at`` marks a row as done, so re-running (or deleting the
+    resulting dividend) never duplicates or resurrects a payment. Returns the
+    number of dividends written.
+    """
+    as_of = as_of or date.today()
+    household = db.get(Household, household_id)
+    if not household:
+        return 0
+
+    due = db.query(ScheduledDividend).filter(
+        ScheduledDividend.household_id == household_id,
+        ScheduledDividend.materialized_at.is_(None),
+        ScheduledDividend.date <= as_of,
+    ).order_by(ScheduledDividend.date.asc()).all()
+    if not due:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    earliest = min(sd.date for sd in due)
+    written = 0
+
+    for sd in due:
+        asset = db.get(Asset, sd.asset_id)
+        pay_datetime = datetime.combine(sd.date, time.min, tzinfo=timezone.utc)
+
+        # Dividends are unique on (sub_portfolio, asset, date); if something already
+        # occupies this slot (e.g. the user logged the coupon by hand), link to it
+        # instead of failing so the schedule row still retires cleanly.
+        existing = db.query(Dividend).filter(
+            Dividend.sub_portfolio_id == sd.sub_portfolio_id,
+            Dividend.asset_id == sd.asset_id,
+            Dividend.date == pay_datetime,
+        ).first()
+        if existing:
+            sd.dividend_id = existing.id
+            sd.materialized_at = now
+            continue
+
+        rate_to_home = fetch_and_cache_exchange_rates(
+            db, (asset.currency if asset else None) or "USD", household.base_currency or "USD", sd.date
+        )
+        db_dividend = Dividend(
+            id=uuid.uuid7(),
+            household_id=household_id,
+            sub_portfolio_id=sd.sub_portfolio_id,
+            asset_id=sd.asset_id,
+            account_id=sd.account_id,
+            date=pay_datetime,
+            amount=sd.amount,
+            amount_home_currency=sd.amount * Decimal(str(rate_to_home)),
+            exchange_rate=rate_to_home,
+            is_manual=True,
+        )
+        db.add(db_dividend)
+        db.flush()
+
+        # Same brokerage-sweep behavior as auto-tracked dividends.
+        sync_dividend_cash_credit(db, db_dividend)
+        sd.dividend_id = db_dividend.id
+        sd.materialized_at = now
+        written += 1
+
+    db.commit()
+
+    if written:
+        run_snapshot_range(db, household_id, earliest, as_of)
 
     return written

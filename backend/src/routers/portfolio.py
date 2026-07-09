@@ -9,7 +9,7 @@ from src.database import get_db
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.snapshot_engine import run_snapshot_range
-from src.services.dividend_engine import sync_dividends_range
+from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
@@ -184,11 +184,12 @@ def create_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Try to enrich with yfinance data if name is default or currency is missing
+    # Try to enrich with yfinance data if name is default or currency is missing.
+    # Manual-priced assets (unlisted bonds, SSBs) have no market listing to enrich from.
     ticker_name = asset.name
     ticker_currency = asset.currency
 
-    if "Equity" in asset.name or not asset.currency:
+    if asset.pricing_mode != models.PRICING_MODE_MANUAL and ("Equity" in asset.name or not asset.currency):
         try:
             t = yf.Ticker(asset.ticker)
             info = t.info
@@ -205,6 +206,7 @@ def create_asset(
         name=ticker_name,
         type=asset.type,
         currency=ticker_currency.upper() if ticker_currency else "USD",
+        pricing_mode=asset.pricing_mode,
     )
     db.add(db_asset)
     db.commit()
@@ -222,6 +224,8 @@ def fix_all_asset_currencies(
     assets = db.query(models.Asset).all()
     updated_count = 0
     for asset in assets:
+        if asset.pricing_mode == models.PRICING_MODE_MANUAL:
+            continue
         try:
             t = yf.Ticker(asset.ticker)
             info = t.info
@@ -292,6 +296,58 @@ def delete_asset(
     db.delete(db_asset)
     db.commit()
     return
+
+
+@router.post("/assets/{asset_id}/price", response_model=schemas.ManualPriceResponse, status_code=status.HTTP_201_CREATED)
+def record_manual_price(
+    asset_id: uuid.UUID,
+    manual_price: schemas.ManualPriceCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Record a price observation for a manually-priced asset (unlisted bonds,
+    Singapore Savings Bonds, ...). Upserts into market_prices — the snapshot
+    engine forward-fills from the latest recorded price — then re-runs the
+    household's snapshots from that date so valuations update immediately.
+    """
+    verify_household_access(manual_price.household_id, current_user, db)
+
+    db_asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    if not db_asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if db_asset.pricing_mode != models.PRICING_MODE_MANUAL:
+        raise HTTPException(status_code=400, detail="Prices can only be recorded for manually-priced assets")
+    if manual_price.date > date.today():
+        raise HTTPException(status_code=400, detail="Price date cannot be in the future")
+
+    existing = db.query(models.MarketPrice).filter(
+        models.MarketPrice.ticker == db_asset.ticker,
+        models.MarketPrice.date == manual_price.date,
+    ).first()
+    if existing:
+        existing.close_price = manual_price.price
+        existing.currency = db_asset.currency
+    else:
+        db.add(models.MarketPrice(
+            id=uuid.uuid7(),
+            ticker=db_asset.ticker,
+            date=manual_price.date,
+            close_price=manual_price.price,
+            currency=db_asset.currency,
+        ))
+    db.commit()
+
+    # Re-run snapshots synchronously (same pattern as /household/{id}/sync) so
+    # valuations reflect the new price as soon as the response returns.
+    run_snapshot_range(db, manual_price.household_id, manual_price.date, date.today())
+
+    return schemas.ManualPriceResponse(
+        ticker=db_asset.ticker,
+        date=manual_price.date,
+        price=manual_price.price,
+        currency=db_asset.currency,
+    )
 
 # --- SUBPORTFOLIOS ---
 
@@ -1030,6 +1086,7 @@ def sync_household_dividends(
     # Ensure snapshot holdings are fresh before deriving dividends.
     run_snapshot_range(db, household_id, sync_start_date, today)
     count = sync_dividends_range(db, household_id, sync_start_date, today)
+    count += materialize_scheduled_dividends(db, household_id)
 
     return schemas.DividendSyncResponse(status="success", count=count, from_date=sync_start_date, to_date=today)
 
@@ -1043,6 +1100,10 @@ def get_household_dividends(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
+    # Materialize any coupon/scheduled payments that have come due, so the list
+    # is current whenever the Dividends or Portfolio page is opened. Cheap no-op
+    # (one indexed query) when nothing is due.
+    materialize_scheduled_dividends(db, household_id)
     dividends = db.query(models.Dividend).filter(models.Dividend.household_id == household_id).all()
     return dividends
 
@@ -1080,6 +1141,131 @@ def delete_dividend(
     verify_household_access(db_dividend.household_id, current_user, db)
 
     db.delete(db_dividend)
+    db.commit()
+    return
+
+# --- SCHEDULED DIVIDENDS (bond coupons, SSB step-up schedules) ---
+
+@router.post(
+    "/scheduled-dividends",
+    response_model=List[schemas.ScheduledDividendResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_scheduled_dividends(
+    items: List[schemas.ScheduledDividendCreate],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Create one or more scheduled dividend payments (a bond's whole coupon
+    calendar in one call — amounts may differ per row for step-up coupons).
+    Any rows whose payment date has already passed are materialized immediately.
+    """
+    if not items:
+        raise HTTPException(status_code=400, detail="No scheduled dividends provided")
+
+    household_ids = {item.household_id for item in items}
+    if len(household_ids) > 1:
+        raise HTTPException(status_code=400, detail="All scheduled dividends must belong to one household")
+    household_id = items[0].household_id
+    verify_household_access(household_id, current_user, db)
+
+    # Validate referenced entities once (all rows in a batch typically share them).
+    for sp_id in {item.sub_portfolio_id for item in items}:
+        sp = db.query(models.SubPortfolio).filter(
+            models.SubPortfolio.id == sp_id,
+            models.SubPortfolio.household_id == household_id,
+        ).first()
+        if not sp:
+            raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    for acc_id in {item.account_id for item in items}:
+        acc = db.query(models.FinancialAccount).filter(
+            models.FinancialAccount.id == acc_id,
+            models.FinancialAccount.household_id == household_id,
+        ).first()
+        if not acc:
+            raise HTTPException(status_code=404, detail="Account not found in this household")
+    for asset_id in {item.asset_id for item in items}:
+        if not db.get(models.Asset, asset_id):
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+    created = []
+    for item in items:
+        row = models.ScheduledDividend(
+            id=uuid.uuid7(),
+            household_id=item.household_id,
+            sub_portfolio_id=item.sub_portfolio_id,
+            asset_id=item.asset_id,
+            account_id=item.account_id,
+            date=item.date,
+            amount=item.amount,
+            description=item.description,
+        )
+        db.add(row)
+        created.append(row)
+    db.commit()
+    for row in created:
+        db.refresh(row)
+
+    # Back-dated rows (e.g. a bond bought years ago) become dividends right away.
+    materialize_scheduled_dividends(db, household_id)
+    for row in created:
+        db.refresh(row)
+    return created
+
+
+@router.get(
+    "/scheduled-dividends/household/{household_id}",
+    response_model=List[schemas.ScheduledDividendResponse],
+)
+def get_household_scheduled_dividends(
+    household_id: uuid.UUID,
+    include_materialized: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+    query = db.query(models.ScheduledDividend).filter(
+        models.ScheduledDividend.household_id == household_id
+    )
+    if not include_materialized:
+        query = query.filter(models.ScheduledDividend.materialized_at.is_(None))
+    return query.order_by(models.ScheduledDividend.date.asc()).all()
+
+
+@router.put("/scheduled-dividends/{scheduled_dividend_id}", response_model=schemas.ScheduledDividendResponse)
+def update_scheduled_dividend(
+    scheduled_dividend_id: uuid.UUID,
+    update: schemas.ScheduledDividendUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    row = db.query(models.ScheduledDividend).filter(models.ScheduledDividend.id == scheduled_dividend_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Scheduled dividend not found")
+    verify_household_access(row.household_id, current_user, db)
+    if row.materialized_at is not None:
+        raise HTTPException(status_code=400, detail="Already paid out — edit the dividend itself instead")
+
+    update_data = update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/scheduled-dividends/{scheduled_dividend_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_scheduled_dividend(
+    scheduled_dividend_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    row = db.query(models.ScheduledDividend).filter(models.ScheduledDividend.id == scheduled_dividend_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Scheduled dividend not found")
+    verify_household_access(row.household_id, current_user, db)
+    db.delete(row)
     db.commit()
     return
 

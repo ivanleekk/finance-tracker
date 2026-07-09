@@ -41,6 +41,10 @@ export default function Trade() {
     });
 
     const [ticker, setTicker] = useState(searchParams.get("ticker")?.toUpperCase() || "")
+    const [assetType, setAssetType] = useState("Stock")
+    // Manual pricing = no market feed (unlisted bonds, Singapore Savings Bonds);
+    // the asset is valued from user-recorded prices instead of yfinance.
+    const [manualPricing, setManualPricing] = useState(false)
 
     const [quantity, setQuantity] = useState("")
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
@@ -55,6 +59,7 @@ export default function Trade() {
 
     // Auto-prefill the price when ticker or date changes using real yfinance data from backend
     useEffect(() => {
+        if (manualPricing) return; // no market feed — the user enters the price
         if (ticker.trim().length >= 1 && date) {
             const fetchPrice = async () => {
                 setIsFetchingPrice(true);
@@ -77,7 +82,7 @@ export default function Trade() {
         } else {
             setPrice("");
         }
-    }, [ticker, date]);
+    }, [ticker, date, manualPricing]);
 
     // Auto-prefill the exchange rate when currency, account, or date changes
     useEffect(() => {
@@ -145,12 +150,15 @@ export default function Trade() {
             if (existingAsset) {
                 assetId = existingAsset.id;
             } else {
-                // Create a new asset
+                // Create a new asset. The "… Equity" placeholder name cues the
+                // backend to enrich name/currency from yfinance for market assets;
+                // manual assets have no listing, so they keep the plain ticker.
                 const newAssetRes = await api.post<AssetResponse>('/portfolio/assets', {
                     id: crypto.randomUUID(),
                     ticker: ticker.toUpperCase(),
-                    name: `${ticker.toUpperCase()} Equity`,
-                    type: "Stock",
+                    name: manualPricing ? ticker.toUpperCase() : `${ticker.toUpperCase()} Equity`,
+                    type: assetType,
+                    pricing_mode: manualPricing ? "manual" : "market",
                     currency: currency // Use the detected currency instead of household default
                 });
                 assetId = newAssetRes.data.id;
@@ -248,13 +256,35 @@ export default function Trade() {
                             />
                         </div>
 
-                        <Input
-                            label="Ticker Symbol"
-                            placeholder="e.g. AAPL"
-                            className="uppercase"
-                            value={ticker}
-                            onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                        />
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input
+                                label="Ticker Symbol"
+                                placeholder="e.g. AAPL"
+                                className="uppercase"
+                                value={ticker}
+                                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Asset Type</label>
+                                <Select
+                                    value={assetType}
+                                    onChange={setAssetType}
+                                    options={["Stock", "ETF", "Bond", "Other"].map(t => ({ value: t, label: t }))}
+                                />
+                            </div>
+                        </div>
+
+                        <label className="flex items-center gap-2.5 rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500"
+                                checked={manualPricing}
+                                onChange={(e) => setManualPricing(e.target.checked)}
+                            />
+                            <span className="text-sm text-base-600 dark:text-base-400">
+                                No market listing — I'll price this manually <span className="text-base-400 dark:text-base-500">(SSBs, unlisted bonds)</span>
+                            </span>
+                        </label>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">

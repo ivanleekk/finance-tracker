@@ -1,7 +1,7 @@
-import { type ReactNode, useState, useEffect } from "react";
-import { Link } from "react-router";
+import { type ReactNode } from "react";
 import { useViewMode } from "../lib/ViewModeContext";
 import { useCommandBar } from "../lib/CommandBarContext";
+import { HouseholdSelector } from "./HouseholdSelector";
 import type { ViewMode } from "../types/types";
 
 const MODES: { key: ViewMode; label: string }[] = [
@@ -38,40 +38,6 @@ function ViewModeSwitch() {
     );
 }
 
-function HouseholdDiscoverabilityPill() {
-    const { hasSeenHouseholdTooltip, dismissHouseholdTooltip } = useViewMode();
-    // Capture "was this unseen at mount" once, so the tooltip finishes showing on THIS page
-    // even though we immediately persist "seen" - future page loads won't show it again.
-    const [showOnce] = useState(!hasSeenHouseholdTooltip);
-    const [hovered, setHovered] = useState(false);
-    const showTooltip = showOnce || hovered;
-
-    useEffect(() => {
-        if (!hasSeenHouseholdTooltip) dismissHouseholdTooltip();
-    }, []);
-
-    return (
-        <div className="relative">
-            <Link
-                to="/households"
-                onMouseEnter={() => setHovered(true)}
-                onMouseLeave={() => setHovered(false)}
-                className="flex items-center gap-1.5 border border-dashed border-base-300 dark:border-base-700 text-base-500 dark:text-base-400 rounded-lg px-3 py-1.5 text-[12px] font-semibold hover:text-secondary-600 dark:hover:text-secondary-400 hover:border-secondary-400 transition-colors"
-            >
-                <span className="text-secondary-500">＋</span> Household
-            </Link>
-            {showTooltip && (
-                <div className="absolute top-11 left-0 z-40 w-60 bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-xl p-3.5 shadow-xl">
-                    <div className="text-[12px] font-bold text-secondary-600 dark:text-secondary-400 mb-1">Share finances with someone?</div>
-                    <p className="text-[11px] leading-relaxed text-base-500 dark:text-base-400">
-                        Create a household to track shared money with a partner or family — kept separate from your private accounts. You can do this anytime.
-                    </p>
-                </div>
-            )}
-        </div>
-    );
-}
-
 function CommandBarTrigger({ placeholder }: { placeholder: string }) {
     const { open } = useCommandBar();
     return (
@@ -101,7 +67,8 @@ export function TopBar({
             <h1 className="font-display text-lg font-extrabold tracking-tight text-base-900 dark:text-base-50 whitespace-nowrap">
                 {title}
             </h1>
-            {hasHousehold ? <ViewModeSwitch /> : <HouseholdDiscoverabilityPill />}
+            <HouseholdSelector />
+            {hasHousehold && <ViewModeSwitch />}
             <div className="ml-auto flex items-center gap-3">
                 <CommandBarTrigger placeholder={commandPlaceholder} />
                 {cta}

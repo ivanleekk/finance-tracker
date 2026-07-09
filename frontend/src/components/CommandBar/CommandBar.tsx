@@ -213,10 +213,33 @@ export function CommandBar() {
         return { fallback, live, known, suggestions, price, name, isReady };
     })() : null;
 
+    // Dividend ticker search reuses the same DB lookup as the trade flow (the effect above
+    // already runs for both types). A dividend is almost always logged against an asset you
+    // already hold, so an exact match is "ready"; an unrecognized ticker with zero matches is
+    // also "ready" — submit will create the asset, mirroring the trade flow.
+    const dividendResolution = parsed.type === "dividend" ? (() => {
+        const prefix = parsed.ticker;
+        const fallback = FALLBACK_ASSETS[prefix];
+        const known = assetSuggestions.find(a => a.ticker.toUpperCase() === prefix);
+        const dbMatches = assetSuggestions.filter(a => a.ticker.toUpperCase() !== prefix);
+        const fallbackMatches = Object.entries(FALLBACK_ASSETS)
+            .filter(([t]) => t !== prefix && t.includes(prefix) && !dbMatches.some(a => a.ticker.toUpperCase() === t))
+            .map(([ticker, info]) => ({ id: ticker, ticker, name: info.name, type: "equity", currency: info.currency }));
+        const suggestions = [...dbMatches, ...fallbackMatches].slice(0, 5);
+        const name = known?.name || fallback?.name;
+        const isReady = known != null || fallback != null || (!!prefix && suggestions.length === 0);
+        return { known, suggestions, name, isReady };
+    })() : null;
+
     const selectTicker = (ticker: string) => {
-        if (parsed.type !== "trade") return;
-        const priceSuffix = parsed.explicitPrice != null ? ` ${parsed.explicitPrice}` : "";
-        setQuery(`${parsed.side} ${parsed.qty} ${ticker}${priceSuffix}`);
+        if (parsed.type === "trade") {
+            const priceSuffix = parsed.explicitPrice != null ? ` ${parsed.explicitPrice}` : "";
+            setQuery(`${parsed.side} ${parsed.qty} ${ticker}${priceSuffix}`);
+        } else if (parsed.type === "dividend") {
+            setQuery(serializeDividend(ticker, parsed.amount));
+        } else {
+            return;
+        }
         setHighlightIndex(0);
     };
 
@@ -445,10 +468,11 @@ export function CommandBar() {
         }
     };
 
-    // Suggestions currently on screen for arrow-key navigation - only one of trade/balance can
-    // be active at a time (parsed.type is a discriminated union), so this is unambiguous.
+    // Suggestions currently on screen for arrow-key navigation - only one of trade/balance/
+    // dividend can be active at a time (parsed.type is a discriminated union), so this is unambiguous.
     const activeSuggestionCount = tradeResolution && !tradeResolution.isReady ? tradeResolution.suggestions.length
         : balanceResolution && !balanceResolution.isReady ? balanceResolution.suggestions.length
+        : dividendResolution && !dividendResolution.isReady ? dividendResolution.suggestions.length
         : 0;
 
     const onKeyDown = (e: React.KeyboardEvent) => {
@@ -469,6 +493,10 @@ export function CommandBar() {
             }
             if (balanceResolution && !balanceResolution.isReady && balanceResolution.suggestions[highlightIndex]) {
                 selectAccountForBalance(balanceResolution.suggestions[highlightIndex].name);
+                return;
+            }
+            if (dividendResolution && !dividendResolution.isReady && dividendResolution.suggestions[highlightIndex]) {
+                selectTicker(dividendResolution.suggestions[highlightIndex].ticker);
                 return;
             }
             submit();
@@ -568,8 +596,15 @@ export function CommandBar() {
                         />
                     )}
 
-                    {phase !== "scanning" && phase !== "success" && parsed.type === "dividend" && (
-                        <DividendView parsed={parsed} setQuery={setQuery} knownName={assetSuggestions.find(a => a.ticker.toUpperCase() === parsed.ticker)?.name} />
+                    {phase !== "scanning" && phase !== "success" && parsed.type === "dividend" && dividendResolution && (
+                        <DividendView
+                            parsed={parsed}
+                            setQuery={setQuery}
+                            resolution={dividendResolution}
+                            onSelectTicker={selectTicker}
+                            highlightIndex={highlightIndex}
+                            onHoverSuggestion={setHighlightIndex}
+                        />
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "transfer" && (
@@ -986,14 +1021,32 @@ function BalanceView({ parsed, resolution, setQuery, onSelectAccount, highlightI
     );
 }
 
-function DividendView({ parsed, setQuery, knownName }: { parsed: Extract<ParsedCommand, { type: "dividend" }>; setQuery: (v: string) => void; knownName?: string }) {
+type DividendResolution = {
+    known: AssetResponse | undefined;
+    suggestions: { id: string; ticker: string; name: string }[];
+    name: string | undefined;
+    isReady: boolean;
+};
+
+function DividendView({ parsed, setQuery, resolution, onSelectTicker, highlightIndex, onHoverSuggestion }: {
+    parsed: Extract<ParsedCommand, { type: "dividend" }>;
+    setQuery: (v: string) => void;
+    resolution: DividendResolution;
+    onSelectTicker: (ticker: string) => void;
+    highlightIndex: number;
+    onHoverSuggestion: (i: number) => void;
+}) {
+    const prefix = parsed.ticker;
+    const { suggestions, isReady } = resolution;
     const info = FALLBACK_ASSETS[parsed.ticker];
-    const name = knownName || info?.name || parsed.ticker;
+    const name = resolution.name || parsed.ticker;
     const ticker = useSyncedField(parsed.ticker, (v) => setQuery(serializeDividend(v.toUpperCase(), amount.value)));
     const amount = useSyncedField(parsed.amount, (v) => setQuery(serializeDividend(ticker.value, v)));
     return (
         <div className="p-4 space-y-3">
-            <div className="text-xs font-semibold text-base-500 dark:text-base-400">Log a dividend</div>
+            <div className="text-xs font-semibold text-base-500 dark:text-base-400">
+                {isReady ? "Log a dividend" : "Pick an asset"}
+            </div>
             <div className="grid grid-cols-2 gap-3">
                 <div>
                     <div className={labelClass}>Ticker</div>
@@ -1018,8 +1071,30 @@ function DividendView({ parsed, setQuery, knownName }: { parsed: Extract<ParsedC
                     />
                 </div>
             </div>
-            <div className="text-sm text-base-700 dark:text-base-300">{info?.icon || "💵"} {name}</div>
-            <div className="text-xs text-base-500">≈ S${fmtA(parsed.amount * USD_SGD)} · adds to this year's dividend income &amp; yield</div>
+            {!isReady && suggestions.length > 0 ? (
+                <div className="space-y-1">
+                    {suggestions.map((a, i) => (
+                        <button
+                            key={a.id}
+                            onClick={() => onSelectTicker(a.ticker)}
+                            onMouseEnter={() => onHoverSuggestion(i)}
+                            className={`w-full flex items-center justify-between text-left rounded-lg px-3 py-2 hover:bg-base-50 dark:hover:bg-base-800 ${i === highlightIndex ? "bg-secondary-50 dark:bg-secondary-950/30 border border-secondary-200 dark:border-secondary-900" : ""}`}
+                        >
+                            <div className="text-sm">
+                                <span className="font-mono font-bold text-secondary-600 dark:text-secondary-400">{a.ticker.slice(0, prefix.length)}</span>
+                                <span className="font-mono font-bold text-base-900 dark:text-base-50">{a.ticker.slice(prefix.length)}</span>
+                                <span className="text-base-500 dark:text-base-400"> — {a.name}</span>
+                            </div>
+                            {i === highlightIndex && <span className="text-xs text-secondary-500">↵</span>}
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <>
+                    <div className="text-sm text-base-700 dark:text-base-300">{info?.icon || "💵"} {name}</div>
+                    <div className="text-xs text-base-500">≈ S${fmtA(parsed.amount * USD_SGD)} · adds to this year's dividend income &amp; yield</div>
+                </>
+            )}
         </div>
     );
 }

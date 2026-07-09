@@ -29,6 +29,7 @@ def create_account(
         name=account.name,
         liquidity=account.liquidity,
         tax_status=account.tax_status,
+        kind=account.kind,
         currency=account.currency,
         owner_user_id=account.owner_user_id,
     )

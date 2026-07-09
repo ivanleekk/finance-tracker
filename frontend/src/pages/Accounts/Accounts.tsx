@@ -12,7 +12,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
-import { LiquidityStatus, TaxTreatment } from "../../types/types";
+import { AccountKind, LiquidityStatus, TaxTreatment } from "../../types/types";
 import type { AccountsLoaderData } from "./accounts.loader";
 import type { BalanceResponse } from "../../types/types";
 
@@ -62,6 +62,9 @@ export default function Accounts() {
         () => allAccounts.filter(a => isVisibleInViewMode(a.owner_user_id, viewMode, user?.id)),
         [allAccounts, viewMode, user?.id]
     );
+    // Liabilities (loans, mortgages) are excluded from the cash chart and
+    // subtracted — not added — in the summary aggregates.
+    const assetAccounts = useMemo(() => accounts.filter(a => a.kind !== AccountKind.Liability), [accounts]);
 
     // We use fetchers for mutations to avoid full page navigations and to easily keep modals open/closed based on state
     const addAccountFetcher = useFetcher();
@@ -74,6 +77,7 @@ export default function Accounts() {
         name: string;
         liquidity: LiquidityStatus;
         tax_status: TaxTreatment;
+        kind: AccountKind;
         balance: string;
         currency: string;
         date: string;
@@ -82,6 +86,7 @@ export default function Accounts() {
         name: "",
         liquidity: LiquidityStatus.Liquid,
         tax_status: TaxTreatment.Taxable,
+        kind: AccountKind.Asset,
         balance: "",
         currency: "USD",
         date: new Date().toISOString().split('T')[0],
@@ -106,6 +111,7 @@ export default function Accounts() {
                 name: "",
                 liquidity: LiquidityStatus.Liquid,
                 tax_status: TaxTreatment.Taxable,
+                kind: AccountKind.Asset,
                 balance: "",
                 currency: "USD",
                 date: new Date().toISOString().split('T')[0],
@@ -158,7 +164,7 @@ export default function Accounts() {
         const allDatesSet = new Set<string>();
         const balancesByDate = new Map<string, Array<{ id: string, name: string, bal: number }>>();
 
-        accounts.forEach(acc => {
+        assetAccounts.forEach(acc => {
             acc.history.forEach(h => {
                 allDatesSet.add(h.date);
                 const list = balancesByDate.get(h.date) || [];
@@ -170,7 +176,7 @@ export default function Accounts() {
         const sortedDates = Array.from(allDatesSet).sort((a, b) => (a < b ? -1 : (a > b ? 1 : 0)));
 
         const accountLatestBalances = new Map<string, number>();
-        const allAccountNames = Array.from(new Set(accounts.map(acc => acc.name)));
+        const allAccountNames = Array.from(new Set(assetAccounts.map(acc => acc.name)));
 
         return sortedDates.map(date => {
             const dataPoint: any = { date };
@@ -186,7 +192,7 @@ export default function Accounts() {
 
             return dataPoint;
         });
-    }, [accounts]);
+    }, [assetAccounts]);
 
     const historyAccount = useMemo(() => {
         if (!historyAccountId) return null;
@@ -194,27 +200,43 @@ export default function Accounts() {
     }, [accounts, historyAccountId]);
 
     const summaryStats = useMemo(() => {
-        let totalAssets = 0, liquidNow = 0, retirement = 0;
+        let totalAssets = 0, liabilities = 0, liquidNow = 0, retirement = 0;
         const currencySet = new Set<string>();
         accounts.forEach(acc => {
             const bal = getCurrentBalanceDetails(acc.history).balanceHome;
-            totalAssets += bal;
             currencySet.add(acc.currency);
+            if (acc.kind === AccountKind.Liability) {
+                liabilities += bal;
+                return;
+            }
+            totalAssets += bal;
             if (acc.liquidity === LiquidityStatus.Liquid) liquidNow += bal;
             if (acc.liquidity === LiquidityStatus.TimeLocked || acc.liquidity === LiquidityStatus.Retirement) retirement += bal;
         });
-        return { totalAssets, liquidNow, retirement, currencies: Array.from(currencySet).sort() };
+        return { totalAssets, liabilities, net: totalAssets - liabilities, liquidNow, retirement, currencies: Array.from(currencySet).sort() };
     }, [accounts]);
 
     const accountGroups = useMemo(() => {
-        return ACCOUNT_GROUPS.map(group => {
-            const groupAccounts = accounts
+        const groups = ACCOUNT_GROUPS.map(group => {
+            const groupAccounts = assetAccounts
                 .filter(acc => group.liquidities.includes(acc.liquidity))
                 .sort((a, b) => getCurrentBalanceDetails(b.history).balanceHome - getCurrentBalanceDetails(a.history).balanceHome);
             const groupTotal = groupAccounts.reduce((sum, acc) => sum + getCurrentBalanceDetails(acc.history).balanceHome, 0);
-            return { ...group, accounts: groupAccounts, total: groupTotal };
-        }).filter(group => group.accounts.length > 0);
-    }, [accounts]);
+            return { ...group, accounts: groupAccounts, total: groupTotal, isLiability: false };
+        });
+        const liabilityAccounts = accounts
+            .filter(acc => acc.kind === AccountKind.Liability)
+            .sort((a, b) => getCurrentBalanceDetails(b.history).balanceHome - getCurrentBalanceDetails(a.history).balanceHome);
+        groups.push({
+            key: "liabilities",
+            label: "Loans & liabilities",
+            liquidities: [],
+            accounts: liabilityAccounts,
+            total: -liabilityAccounts.reduce((sum, acc) => sum + getCurrentBalanceDetails(acc.history).balanceHome, 0),
+            isLiability: true,
+        });
+        return groups.filter(group => group.accounts.length > 0);
+    }, [accounts, assetAccounts]);
 
     const openUpdateModal = (accountId: string) => {
         setUpdateBalanceData({ accountId, date: new Date().toISOString().split('T')[0], balance: "" });
@@ -241,7 +263,13 @@ export default function Accounts() {
 
                 {/* Summary stats */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatCard title="Total assets" value={formatCurrency(summaryStats.totalAssets)} />
+                    <StatCard
+                        title={summaryStats.liabilities > 0 ? "Net in accounts" : "In accounts"}
+                        value={formatCurrency(summaryStats.net)}
+                        description={summaryStats.liabilities > 0
+                            ? `${formatCurrency(summaryStats.totalAssets)} assets − ${formatCurrency(summaryStats.liabilities)} debt`
+                            : undefined}
+                    />
                     <StatCard title="Liquid now" value={formatCurrency(summaryStats.liquidNow)} />
                     <StatCard title="Retirement" value={formatCurrency(summaryStats.retirement)} />
                     <StatCard title="Currencies" value={summaryStats.currencies.join(" · ") || "—"} />
@@ -260,7 +288,7 @@ export default function Accounts() {
                                     <AreaChart data={aggregatedChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                         <defs>
                                             {/* UPDATED: Map over accounts to generate a gradient for each */}
-                                            {accounts.map((acc, index) => (
+                                            {assetAccounts.map((acc, index) => (
                                                 <linearGradient key={`color-${acc.id}`} id={`color-${acc.id}`} x1="0" y1="0" x2="0" y2="1">
                                                     <stop offset="5%" stopColor={CHART_COLORS[index % CHART_COLORS.length]} stopOpacity={0.4} />
                                                     <stop offset="95%" stopColor={CHART_COLORS[index % CHART_COLORS.length]} stopOpacity={0} />
@@ -317,7 +345,7 @@ export default function Accounts() {
                                             }}
                                         />
                                         {/* UPDATED: Map over accounts to render a stacked area for each */}
-                                        {accounts.map((acc, index) => (
+                                        {assetAccounts.map((acc, index) => (
                                             <Area
                                                 key={acc.id}
                                                 type="monotone"
@@ -346,17 +374,18 @@ export default function Accounts() {
                         <div key={group.key}>
                             <div className="flex items-baseline gap-2 mb-2 px-1">
                                 <h3 className="font-display font-bold text-sm text-base-900 dark:text-base-50">{group.label}</h3>
-                                <span className="font-mono text-xs text-base-500 dark:text-base-400">{formatCurrency(group.total)}</span>
+                                <span className={`font-mono text-xs ${group.isLiability ? "text-red-600 dark:text-red-400" : "text-base-500 dark:text-base-400"}`}>{formatCurrency(group.total)}</span>
                             </div>
                             <Card className="overflow-hidden">
                                 <CardContent className="p-0">
                                     {group.accounts.map(acc => {
                                         const { balance, balanceHome } = getCurrentBalanceDetails(acc.history);
+                                        const isLiability = acc.kind === AccountKind.Liability;
                                         const liquidityMeta = LIQUIDITY_META[acc.liquidity];
                                         const taxMeta = TAX_META[acc.tax_status];
                                         return (
                                             <div key={acc.id} className="flex flex-wrap items-center gap-3 px-4 py-3 border-b last:border-b-0 border-base-100 dark:border-base-800/70 hover:bg-base-50/50 dark:hover:bg-base-900/40 transition-colors">
-                                                <div className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[10px] font-bold shrink-0 bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[10px] font-bold shrink-0 ${isLiability ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-primary-500/10 text-primary-600 dark:text-primary-400"}`}>
                                                     {initialsFor(acc.name)}
                                                 </div>
                                                 <div className="flex-1 min-w-[140px]">
@@ -366,16 +395,18 @@ export default function Accounts() {
                                                     </div>
                                                     <div className="text-[10px] font-mono uppercase tracking-wide text-base-400 dark:text-base-500">{acc.currency}</div>
                                                 </div>
-                                                {liquidityMeta && (
+                                                {isLiability ? (
+                                                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold text-red-600 dark:text-red-400 bg-red-500/10">LIABILITY</span>
+                                                ) : liquidityMeta && (
                                                     <span className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${liquidityMeta.className}`}>{liquidityMeta.label}</span>
                                                 )}
                                                 {taxMeta && (
                                                     <span className={`hidden md:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${taxMeta.className}`}>{taxMeta.label}</span>
                                                 )}
                                                 <div className="text-right min-w-32 shrink-0">
-                                                    <div className="font-mono font-semibold text-base-900 dark:text-base-50 whitespace-nowrap">{formatCurrency(balanceHome)}</div>
+                                                    <div className={`font-mono font-semibold whitespace-nowrap ${isLiability ? "text-red-600 dark:text-red-400" : "text-base-900 dark:text-base-50"}`}>{formatCurrency(isLiability ? -balanceHome : balanceHome)}</div>
                                                     {acc.currency !== activeHousehold?.base_currency && (
-                                                        <div className="text-[10px] text-base-400 dark:text-base-500 font-mono whitespace-nowrap">{formatCurrency(balance, acc.currency)}</div>
+                                                        <div className="text-[10px] text-base-400 dark:text-base-500 font-mono whitespace-nowrap">{formatCurrency(isLiability ? -balance : balance, acc.currency)}</div>
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-1 shrink-0 ml-auto">
@@ -430,6 +461,21 @@ export default function Accounts() {
                                                 onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
                                                 required
                                             />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Account Type</label>
+                                            <Select
+                                                name="kind"
+                                                value={newAccount.kind}
+                                                onChange={(kind) => setNewAccount({ ...newAccount, kind: kind as AccountKind })}
+                                                options={[
+                                                    { value: AccountKind.Asset, label: "Asset — cash, savings, investments" },
+                                                    { value: AccountKind.Liability, label: "Liability — loan, mortgage, credit" },
+                                                ]}
+                                            />
+                                            {newAccount.kind === AccountKind.Liability && (
+                                                <p className="text-xs text-base-500 dark:text-base-400">Enter the outstanding balance as a positive number — it will be subtracted from your net worth.</p>
+                                            )}
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">

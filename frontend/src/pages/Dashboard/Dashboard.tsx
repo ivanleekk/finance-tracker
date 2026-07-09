@@ -53,17 +53,25 @@ export default function Dashboard() {
         }).format(value)
     }
 
+    // Liability accounts (loans, mortgages) store outstanding balances as
+    // positive numbers; they count against net worth.
+    const liabilityIds = useMemo(
+        () => new Set(accounts.filter(a => a.kind === "liability").map(a => a.id)),
+        [accounts]
+    );
+
     const currentCash = useMemo(() => {
         let total = 0;
-        Object.values(balances).forEach(history => {
+        Object.entries(balances).forEach(([accId, history]) => {
             if (history.length > 0) {
                 // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
                 const last = history.reduce((max, current) => current.date > max.date ? current : max, history[0]);
-                total += Number(last.balance_home_currency ?? last.balance);
+                const bal = Number(last.balance_home_currency ?? last.balance);
+                total += liabilityIds.has(accId) ? -bal : bal;
             }
         });
         return total;
-    }, [balances]);
+    }, [balances, liabilityIds]);
 
     const currentPortfolioValue = useMemo(() => {
         if (!snapshots || snapshots.length === 0) return 0;
@@ -100,10 +108,11 @@ export default function Dashboard() {
         // Pre-compute daily balance updates
         const balancesByDate = new Map<string, Array<{ id: string, bal: number }>>();
         Object.entries(balances).forEach(([accId, history]) => {
+            const sign = liabilityIds.has(accId) ? -1 : 1;
             history.forEach(b => {
                 allDatesSet.add(b.date);
                 const list = balancesByDate.get(b.date) || [];
-                list.push({ id: accId, bal: Number(b.balance_home_currency ?? b.balance) });
+                list.push({ id: accId, bal: sign * Number(b.balance_home_currency ?? b.balance) });
                 balancesByDate.set(b.date, list);
             });
         });
@@ -155,7 +164,7 @@ export default function Dashboard() {
         });
 
         return Array.from(binned.values()).sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)));
-    }, [balances, snapshots, timeframe, startDate]);
+    }, [balances, snapshots, timeframe, startDate, liabilityIds]);
 
     if (!activeHousehold) {
         return (

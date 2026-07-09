@@ -11,7 +11,7 @@ import pandas as pd
 from src.models import (
     Trade, PortfolioSnapshot, Asset, TradeType,
     Household, SubPortfolio, MarketPrice, FinancialAccount,
-    ExchangeRate, CASH_ASSET_TYPE
+    ExchangeRate, CASH_ASSET_TYPE, PRICING_MODE_MANUAL
 )
 from src.services.market_data import (
     fetch_and_cache_market_prices_range,
@@ -51,9 +51,15 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
 
     # C. Get all market prices for the range
     # Cash pseudo-assets have no market ticker: they are always worth 1.0 in
-    # their own currency, so we exclude them from the yfinance fetch.
+    # their own currency, so we exclude them from the yfinance fetch. Manual
+    # assets (unlisted bonds, SSBs) are excluded from the fetch too, but their
+    # user-recorded rows in market_prices still feed the price lookup below.
     tickers = list(set([a.ticker for a in assets.values() if a.type != CASH_ASSET_TYPE]))
-    fetch_and_cache_market_prices_range(db, tickers, start_date, end_date)
+    market_tickers = list(set([
+        a.ticker for a in assets.values()
+        if a.type != CASH_ASSET_TYPE and a.pricing_mode != PRICING_MODE_MANUAL
+    ]))
+    fetch_and_cache_market_prices_range(db, market_tickers, start_date, end_date)
     
     # Build a lookup for prices: {(date, ticker): price}
     # We include prices before start_date as well for fallback
@@ -197,6 +203,11 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
                     price = 1.0
                 else:
                     price = price_lookup.get((curr_date, asset.ticker), 0.0)
+                    # Manual assets with no recorded price yet are valued at
+                    # average cost (an SSB bought at par stays at par until the
+                    # user records a different price).
+                    if not price and asset.pricing_mode == PRICING_MODE_MANUAL:
+                        price = state["avg"]
                 rate = rate_lookup.get((curr_date, asset.currency or "USD", home_curr), 1.0)
                 
                 value_home = state["q"] * price * rate

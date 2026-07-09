@@ -1,5 +1,6 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
-import type { LoaderFunctionArgs } from "react-router";
+import { redirect } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import type { SubPortfolioResponse, PortfolioSnapshotResponse, TradeResponse, AccountResponse, HouseholdMemberUserResponse } from "../../types/types";
 
 export type GoalDetailLoaderData = {
@@ -37,5 +38,34 @@ export async function goalDetailLoader({ request, params }: LoaderFunctionArgs):
         console.error("Failed to load goal detail", error);
         return { goal: null, snapshots: [], trades: [], accounts: [], members: [] };
     }
+}
+
+export async function goalDetailAction({ request, params }: ActionFunctionArgs) {
+    const { ssrFetch } = await getSSRContext(request);
+    const goalId = params.id as string;
+    const formData = await request.formData();
+    const intent = formData.get("_intent");
+
+    if (intent === "updateGoal") {
+        const res = await ssrFetch(`/portfolio/subportfolios/${goalId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: formData.get("name"),
+                target_amount: parseFloat(formData.get("target_amount") as string) || null,
+                target_date: formData.get("target_date") || null,
+            }),
+        });
+        if (!res.ok) return { error: "Failed to update goal" };
+        return { success: true };
+    }
+
+    if (intent === "deleteGoal") {
+        const res = await ssrFetch(`/portfolio/subportfolios/${goalId}`, { method: "DELETE" });
+        if (!res.ok) return { error: "Failed to delete goal. Goals with trades or funding activity can't be deleted." };
+        throw redirect("/goals");
+    }
+
+    return { error: "Invalid intent" };
 }
 

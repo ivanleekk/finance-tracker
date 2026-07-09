@@ -135,9 +135,15 @@ export function parseCommand(query: string, accounts: AccountResponse[]): Parsed
         };
     }
 
-    const divMatch = low.match(/^div(?:idend)?\s+([a-z0-9.=-]+)/);
+    // The amount must be captured after the ticker token (like the trade regex does for price)
+    // rather than taken from nums[0] — tickers can embed digits (e.g. SSB-GX25010E).
+    const divMatch = low.match(/^div(?:idend)?\s+([a-z0-9.=-]+)(?:\s+([\d,.]+))?/);
     if (divMatch) {
-        return { type: "dividend", ticker: divMatch[1].toUpperCase(), amount: nums[0] || 0 };
+        return {
+            type: "dividend",
+            ticker: divMatch[1].toUpperCase(),
+            amount: divMatch[2] ? parseFloat(divMatch[2].replace(/,/g, "")) : 0,
+        };
     }
 
     // Explicit "bal"/"balance" verb: forces balance type even with no account text yet, so a

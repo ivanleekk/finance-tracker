@@ -8,7 +8,7 @@ import { TopBar } from "../../components/TopBar";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
-import { valueHistoryForGoal, projectGoal } from "../../lib/goals";
+import { valueHistoryForGoal, projectGoal, formatDueDate } from "../../lib/goals";
 import type { GoalsLoaderData } from "./goals.loader";
 
 export { goalsLoader as loader, goalsAction as action } from "./goals.loader";
@@ -59,7 +59,7 @@ export default function Goals() {
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {goals.map(g => {
                         const history = valueHistoryForGoal(snapshots, g.id);
-                        const proj = projectGoal(history, g.target_amount);
+                        const proj = projectGoal(history, g.target_amount, g.target_date);
                         const pct = Math.round(proj.percentComplete);
                         return (
                             <Link key={g.id} to={`/goals/${g.id}`}>
@@ -69,6 +69,9 @@ export default function Goals() {
                                             <CardTitle className="text-base">{g.name}</CardTitle>
                                             <div className="flex items-center gap-1.5">
                                                 <OwnershipTag ownerUserId={g.owner_user_id} show={hasHousehold && viewMode === "blended"} className="text-[9px] px-1.5 py-0 h-4" />
+                                                {proj.onTrack === false && (
+                                                    <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">Behind</span>
+                                                )}
                                                 <span className="text-xs font-semibold text-secondary-600 dark:text-secondary-400">{pct}%</span>
                                             </div>
                                         </div>
@@ -81,8 +84,11 @@ export default function Goals() {
                                         <div className="h-2 w-full overflow-hidden rounded-full bg-base-100 dark:bg-base-800">
                                             <div className="h-full bg-secondary-500 transition-all duration-500 ease-in-out" style={{ width: `${pct}%` }} />
                                         </div>
-                                        {proj.etaLabel && (
-                                            <div className="mt-2 text-xs text-base-500 dark:text-base-400">ETA {proj.etaLabel}</div>
+                                        {(proj.etaLabel || g.target_date) && (
+                                            <div className="mt-2 flex items-center justify-between text-xs text-base-500 dark:text-base-400">
+                                                <span>{proj.etaLabel ? `ETA ${proj.etaLabel}` : ""}</span>
+                                                {g.target_date && <span>Due {formatDueDate(g.target_date)}</span>}
+                                            </div>
                                         )}
                                     </CardContent>
                                 </Card>

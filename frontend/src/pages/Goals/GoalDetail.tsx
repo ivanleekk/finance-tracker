@@ -1,25 +1,51 @@
-import { useMemo } from "react";
-import { useLoaderData, Link, useParams } from "react-router";
+import { useMemo, useState, useEffect } from "react";
+import { useLoaderData, Link, useParams, useFetcher } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts";
 import { useHousehold } from "../../lib/HouseholdContext";
-import { valueHistoryForGoal, projectGoal } from "../../lib/goals";
+import { valueHistoryForGoal, projectGoal, formatDueDate } from "../../lib/goals";
 import type { GoalDetailLoaderData } from "./goalDetail.loader";
 
-export { goalDetailLoader as loader } from "./goalDetail.loader";
+export { goalDetailLoader as loader, goalDetailAction as action } from "./goalDetail.loader";
 
 export default function GoalDetail() {
     const { activeHousehold } = useHousehold();
     const params = useParams();
     const { goal, snapshots = [], trades = [], accounts = [], members = [] } = (useLoaderData() as GoalDetailLoaderData) || {};
+    const editFetcher = useFetcher();
+
+    const [isEditOpen, setIsEditOpen] = useState(false);
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
+    const [editForm, setEditForm] = useState({ name: "", target_amount: "", target_date: "" });
+
+    useEffect(() => {
+        if (goal) {
+            setEditForm({
+                name: goal.name,
+                target_amount: goal.target_amount != null ? String(goal.target_amount) : "",
+                target_date: goal.target_date || "",
+            });
+        }
+    }, [goal]);
+
+    useEffect(() => {
+        if (editFetcher.state === "idle" && editFetcher.data?.success) {
+            setIsEditOpen(false);
+            setConfirmingDelete(false);
+        }
+    }, [editFetcher.state, editFetcher.data]);
 
     const formatCurrency = (v: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v);
 
     const history = useMemo(() => valueHistoryForGoal(snapshots, params.id as string), [snapshots, params.id]);
-    const proj = useMemo(() => projectGoal(history, goal?.target_amount ?? null), [history, goal?.target_amount]);
+    const proj = useMemo(
+        () => projectGoal(history, goal?.target_amount ?? null, goal?.target_date ?? null),
+        [history, goal?.target_amount, goal?.target_date]
+    );
 
     const accountMap = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
 
@@ -96,7 +122,8 @@ export default function GoalDetail() {
                     <span className="text-base-300 dark:text-base-700 mx-1.5">/</span>
                     {goal.name}
                 </div>
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                    <Button variant="ghost" onClick={() => { setConfirmingDelete(false); setIsEditOpen(true); }}>Edit</Button>
                     <Link to={`/trade?sub_portfolio_id=${goal.id}`}>
                         <Button variant="cta">+ Add funds</Button>
                     </Link>
@@ -132,6 +159,28 @@ export default function GoalDetail() {
                                     <div className="font-semibold text-emerald-600 dark:text-emerald-400">{proj.etaLabel || "—"}</div>
                                 </div>
                             </div>
+                            {goal.target_date && (
+                                <div className="grid grid-cols-3 gap-4 w-full pt-4 mt-4 border-t border-base-200/60 dark:border-base-800">
+                                    <div>
+                                        <div className="text-[10px] uppercase tracking-wider text-base-500 font-mono">Due</div>
+                                        <div className="font-semibold text-base-900 dark:text-base-50">{formatDueDate(goal.target_date)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] uppercase tracking-wider text-secondary-500 font-mono">Needed / mo</div>
+                                        <div className="font-semibold text-secondary-600 dark:text-secondary-400">
+                                            {proj.requiredPace != null && proj.requiredPace > 0 ? formatCurrency(proj.requiredPace) : "—"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className={`text-[10px] uppercase tracking-wider font-mono ${proj.shortfallAtTarget ? "text-amber-500" : "text-emerald-500"}`}>
+                                            {proj.shortfallAtTarget ? "Shortfall" : "On target"}
+                                        </div>
+                                        <div className={`font-semibold ${proj.shortfallAtTarget ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                            {proj.shortfallAtTarget != null ? (proj.shortfallAtTarget > 0 ? formatCurrency(proj.shortfallAtTarget) : "✓") : "—"}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
 
@@ -147,6 +196,13 @@ export default function GoalDetail() {
                                 {proj.monthlyPace > 0 && proj.etaLabel
                                     ? `At ${formatCurrency(proj.monthlyPace)}/mo you reach ${goal.target_amount ? formatCurrency(Number(goal.target_amount)) : "your target"} by ${proj.etaLabel}.`
                                     : "Not enough contribution history yet to project a completion date."}
+                                {proj.etaVsTargetMonths != null && goal.target_date && (
+                                    proj.etaVsTargetMonths > 0
+                                        ? ` That's ~${proj.etaVsTargetMonths} month${proj.etaVsTargetMonths === 1 ? "" : "s"} past your ${formatDueDate(goal.target_date)} target${proj.requiredPace ? ` — you'd need ${formatCurrency(proj.requiredPace)}/mo to land on time` : ""}.`
+                                        : proj.etaVsTargetMonths < 0
+                                            ? ` That's ~${-proj.etaVsTargetMonths} month${proj.etaVsTargetMonths === -1 ? "" : "s"} ahead of your ${formatDueDate(goal.target_date)} target.`
+                                            : ` That lands right on your ${formatDueDate(goal.target_date)} target.`
+                                )}
                             </p>
                             <div className="h-[160px] w-full">
                                 <ResponsiveContainer width="100%" height="100%" minHeight={160}>
@@ -231,6 +287,59 @@ export default function GoalDetail() {
                     </Card>
                 </div>
             </div>
+
+            {isEditOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <Card className="w-full max-w-md bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800">
+                        <CardHeader>
+                            <CardTitle>Edit Goal</CardTitle>
+                            <CardDescription>Change the name, target amount, or target date.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <editFetcher.Form method="post" className="space-y-4">
+                                <input type="hidden" name="_intent" value="updateGoal" />
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Goal Name</label>
+                                    <Input name="name" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} required />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Target Amount</label>
+                                        <Input name="target_amount" type="number" step="0.01" value={editForm.target_amount} onChange={e => setEditForm({ ...editForm, target_amount: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Target Date</label>
+                                        <Input name="target_date" type="date" value={editForm.target_date} onChange={e => setEditForm({ ...editForm, target_date: e.target.value })} />
+                                    </div>
+                                </div>
+                                {editFetcher.data?.error && (
+                                    <p className="text-sm text-red-600 dark:text-red-400">{editFetcher.data.error}</p>
+                                )}
+                                <div className="flex items-center gap-3 pt-2">
+                                    <Button
+                                        variant="ghost"
+                                        type="button"
+                                        className="text-red-600 dark:text-red-400"
+                                        onClick={() => {
+                                            if (!confirmingDelete) { setConfirmingDelete(true); return; }
+                                            editFetcher.submit({ _intent: "deleteGoal" }, { method: "post" });
+                                        }}
+                                        disabled={editFetcher.state !== "idle"}
+                                    >
+                                        {confirmingDelete ? "Confirm delete?" : "Delete goal"}
+                                    </Button>
+                                    <div className="flex gap-3 ml-auto">
+                                        <Button variant="ghost" type="button" onClick={() => { setIsEditOpen(false); setConfirmingDelete(false); }}>Cancel</Button>
+                                        <Button variant="primary" type="submit" disabled={editFetcher.state !== "idle"}>
+                                            {editFetcher.state !== "idle" ? "Saving..." : "Save changes"}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </editFetcher.Form>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </div>
     )
 }

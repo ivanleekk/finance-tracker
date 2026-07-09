@@ -15,6 +15,12 @@ export const TaxTreatment = {
 } as const;
 export type TaxTreatment = typeof TaxTreatment[keyof typeof TaxTreatment];
 
+export const AccountKind = {
+  Asset: "asset",
+  Liability: "liability",
+} as const;
+export type AccountKind = typeof AccountKind[keyof typeof AccountKind];
+
 export const TransactionType = {
   Income: "income",
   Expense: "expense",
@@ -123,6 +129,9 @@ export type AccountResponse = {
   name: string;
   liquidity: LiquidityStatus;
   tax_status: TaxTreatment;
+  // Liabilities (loans, mortgages) store outstanding balance as a positive
+  // number; aggregates subtract them.
+  kind: AccountKind;
   currency: string;
   // NULL = shared with the household. Set = private to that user.
   owner_user_id?: string | null;
@@ -183,6 +192,8 @@ export type AssetResponse = {
   name: string;
   type: string;
   currency: string;
+  // "market" = priced via yfinance; "manual" = user-recorded prices (unlisted bonds, SSBs)
+  pricing_mode: "market" | "manual";
 };
 
 export type SubPortfolioResponse = {
@@ -241,6 +252,21 @@ export type DividendResponse = {
   amount_home_currency?: number | null;
   is_manual?: boolean | null;
   cash_trade_id?: string | null;
+};
+
+// A future coupon/dividend payment known in advance (bond coupons, SSB step-up
+// schedules). Materializes into a real DividendResponse once the date arrives.
+export type ScheduledDividendResponse = {
+  id: string;
+  household_id: string;
+  sub_portfolio_id: string;
+  asset_id: string;
+  account_id: string;
+  date: string;
+  amount: number;
+  description?: string | null;
+  dividend_id?: string | null;
+  materialized_at?: string | null;
 };
 
 export type ExchangeRateResponse = {

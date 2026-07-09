@@ -1,20 +1,36 @@
-import { useMemo } from "react";
-import { useLoaderData } from "react-router";
+import { useMemo, useState } from "react";
+import { useLoaderData, useRevalidator } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
+import { Button } from "../../components/ui/Button";
+import { Input } from "../../components/ui/Input";
+import { Select } from "../../components/ui/Select";
 import { TopBar } from "../../components/TopBar";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { summarizeDividends } from "../../lib/dividends";
+import api from "../../lib/api";
+import type { ScheduledDividendResponse } from "../../types/types";
 import type { DividendsLoaderData } from "./dividends.loader";
 
 export { dividendsLoader as loader } from "./dividends.loader";
 
 const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
+function addMonths(iso: string, months: number): string {
+    const [y, m, d] = iso.split("-").map(Number);
+    const total = (m - 1) + months;
+    const year = y + Math.floor(total / 12);
+    const month = (total % 12) + 1;
+    // Clamp the day so e.g. Jan 31 + 1mo lands on the last day of Feb.
+    const lastDay = new Date(year, month, 0).getDate();
+    const day = Math.min(d, lastDay);
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 export default function Dividends() {
     const { activeHousehold } = useHousehold();
-    const { dividends = [], assets = [], snapshots = [] } = (useLoaderData() as DividendsLoaderData) || {};
+    const { dividends = [], assets = [], snapshots = [], scheduled = [], subportfolios = [], accounts = [] } = (useLoaderData() as DividendsLoaderData) || {};
 
     const formatCurrency = (value: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(value);
@@ -26,6 +42,84 @@ export default function Dividends() {
         received: m.received,
         projected: m.projected,
     })), [summary.calendar]);
+
+    const revalidator = useRevalidator();
+    const assetById = useMemo(() => new Map(assets.map(a => [a.id, a])), [assets]);
+    // Only assets the household actually holds can pay a coupon.
+    const schedulableAssets = useMemo(() => {
+        const held = new Set(snapshots.map(s => s.asset_id));
+        return assets.filter(a => held.has(a.id) && a.type !== "cash");
+    }, [assets, snapshots]);
+
+    const [schedForm, setSchedForm] = useState(() => ({
+        assetId: "",
+        subPortfolioId: "",
+        accountId: "",
+        amount: "",
+        firstDate: new Date().toISOString().split("T")[0],
+        everyMonths: "6",
+        count: "10",
+    }));
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [schedError, setSchedError] = useState<string | null>(null);
+
+    const handleSchedule = async () => {
+        if (!activeHousehold) return;
+        const assetId = schedForm.assetId || schedulableAssets[0]?.id;
+        const subPortfolioId = schedForm.subPortfolioId || subportfolios[0]?.id;
+        const accountId = schedForm.accountId || accounts[0]?.id;
+        const amount = parseFloat(schedForm.amount);
+        const count = parseInt(schedForm.count, 10);
+        const every = parseInt(schedForm.everyMonths, 10);
+        if (!assetId || !subPortfolioId || !accountId) {
+            setSchedError("You need a held asset, a portfolio, and an account first.");
+            return;
+        }
+        if (!amount || amount <= 0 || !count || count <= 0 || !schedForm.firstDate) {
+            setSchedError("Enter a positive amount, a payment count, and a first payment date.");
+            return;
+        }
+        setIsScheduling(true);
+        setSchedError(null);
+        try {
+            const items = Array.from({ length: count }, (_, i) => ({
+                household_id: activeHousehold.id,
+                sub_portfolio_id: subPortfolioId,
+                asset_id: assetId,
+                account_id: accountId,
+                date: addMonths(schedForm.firstDate, i * every),
+                amount,
+                description: "Coupon",
+            }));
+            await api.post("/portfolio/scheduled-dividends", items);
+            setSchedForm(f => ({ ...f, amount: "" }));
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setSchedError(e.response?.data?.detail || "Failed to schedule payments.");
+        } finally {
+            setIsScheduling(false);
+        }
+    };
+
+    const handleDeleteScheduled = async (id: string) => {
+        try {
+            await api.delete(`/portfolio/scheduled-dividends/${id}`);
+            revalidator.revalidate();
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleAmendScheduled = async (row: ScheduledDividendResponse, newAmount: number) => {
+        if (!newAmount || newAmount <= 0 || newAmount === Number(row.amount)) return;
+        try {
+            await api.put(`/portfolio/scheduled-dividends/${row.id}`, { amount: newAmount });
+            revalidator.revalidate();
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
     if (!activeHousehold) {
         return (
@@ -142,6 +236,140 @@ export default function Dividends() {
                         </CardContent>
                     </Card>
                 </div>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Coupon schedule</CardTitle>
+                        <CardDescription>
+                            Pre-plan known payments — bond coupons, SSB semi-annual interest. Each payment becomes a dividend automatically on its date; edit individual amounts below for step-up coupons.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                        {schedError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">{schedError}</div>
+                        )}
+                        <div className="flex items-end gap-3 flex-wrap">
+                            <div className="min-w-[160px] flex-1 space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Asset</label>
+                                <Select
+                                    value={schedForm.assetId || schedulableAssets[0]?.id || ""}
+                                    onChange={(assetId) => setSchedForm({ ...schedForm, assetId })}
+                                    placeholder="No held assets"
+                                    options={schedulableAssets.map(a => ({ value: a.id, label: `${a.ticker} (${a.currency})` }))}
+                                />
+                            </div>
+                            <div className="min-w-[140px] space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Portfolio</label>
+                                <Select
+                                    value={schedForm.subPortfolioId || subportfolios[0]?.id || ""}
+                                    onChange={(subPortfolioId) => setSchedForm({ ...schedForm, subPortfolioId })}
+                                    placeholder="No portfolios"
+                                    options={subportfolios.map(sp => ({ value: sp.id, label: sp.name }))}
+                                />
+                            </div>
+                            <div className="min-w-[140px] space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Account</label>
+                                <Select
+                                    value={schedForm.accountId || accounts[0]?.id || ""}
+                                    onChange={(accountId) => setSchedForm({ ...schedForm, accountId })}
+                                    placeholder="No accounts"
+                                    options={accounts.map(a => ({ value: a.id, label: a.name }))}
+                                />
+                            </div>
+                            <div className="w-28 space-y-2">
+                                <Input
+                                    label="Amount"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="43.50"
+                                    value={schedForm.amount}
+                                    onChange={e => setSchedForm({ ...schedForm, amount: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Input
+                                    label="First payment"
+                                    type="date"
+                                    value={schedForm.firstDate}
+                                    onChange={e => setSchedForm({ ...schedForm, firstDate: e.target.value })}
+                                />
+                            </div>
+                            <div className="min-w-[130px] space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Frequency</label>
+                                <Select
+                                    value={schedForm.everyMonths}
+                                    onChange={(everyMonths) => setSchedForm({ ...schedForm, everyMonths })}
+                                    options={[
+                                        { value: "1", label: "Monthly" },
+                                        { value: "3", label: "Quarterly" },
+                                        { value: "6", label: "Semi-annual" },
+                                        { value: "12", label: "Annual" },
+                                    ]}
+                                />
+                            </div>
+                            <div className="w-24 space-y-2">
+                                <Input
+                                    label="Payments"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={schedForm.count}
+                                    onChange={e => setSchedForm({ ...schedForm, count: e.target.value })}
+                                />
+                            </div>
+                            <Button variant="primary" className="h-[42px]" onClick={handleSchedule} disabled={isScheduling || schedulableAssets.length === 0}>
+                                {isScheduling ? "Scheduling..." : "Schedule"}
+                            </Button>
+                        </div>
+
+                        {scheduled.length > 0 ? (
+                            <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-base-100 dark:border-base-800">
+                                <table className="w-full min-w-[480px] text-left text-sm">
+                                    <thead className="text-base-500 dark:text-base-400 uppercase text-[10px] font-bold tracking-wider border-b border-base-100 dark:border-base-800 sticky top-0 bg-white dark:bg-base-900">
+                                        <tr>
+                                            <th className="px-4 py-2">Date</th>
+                                            <th className="px-4 py-2">Asset</th>
+                                            <th className="px-4 py-2">Note</th>
+                                            <th className="px-4 py-2 text-right">Amount</th>
+                                            <th className="px-4 py-2" />
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-base-100 dark:divide-base-800">
+                                        {scheduled.map(row => {
+                                            const asset = assetById.get(row.asset_id);
+                                            return (
+                                                <tr key={row.id}>
+                                                    <td className="px-4 py-2 font-mono text-xs text-base-600 dark:text-base-300 whitespace-nowrap">
+                                                        {new Date(row.date).toLocaleDateString('default', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                    </td>
+                                                    <td className="px-4 py-2 font-medium text-base-900 dark:text-base-50">{asset?.ticker || "—"}</td>
+                                                    <td className="px-4 py-2 text-base-500 dark:text-base-400">{row.description || ""}</td>
+                                                    <td className="px-4 py-2 text-right">
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            defaultValue={Number(row.amount)}
+                                                            onBlur={e => handleAmendScheduled(row, parseFloat(e.target.value))}
+                                                            className="w-24 rounded-md border border-transparent hover:border-base-200 dark:hover:border-base-700 focus:border-secondary-400 bg-transparent px-2 py-1 text-right font-mono text-sm text-base-900 dark:text-base-50 outline-none"
+                                                        />
+                                                        <span className="ml-1 font-mono text-[10px] text-base-400">{asset?.currency}</span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right">
+                                                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => handleDeleteScheduled(row.id)}>✕</Button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="text-center py-4 text-base-500 italic text-sm">No scheduled payments yet. Schedule a bond's coupon calendar above.</div>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
         </div>
     )

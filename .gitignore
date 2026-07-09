@@ -3,3 +3,4 @@ __pycache__/
 .idea/
 .react-router/
 .DS_Store
+backup_data/
