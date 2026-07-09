@@ -14,6 +14,9 @@ global.ResizeObserver = class ResizeObserver {
   disconnect() {}
 };
 
+// Mock scrollIntoView which is not implemented in jsdom (used by Select)
+HTMLElement.prototype.scrollIntoView = vi.fn();
+
 // Mock window.matchMedia if needed
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

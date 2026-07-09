@@ -71,7 +71,10 @@ def test_metrics_simple_growth_no_flows(db_session, seeded):
     # annualized TWR must be positive and large (10% in 10 days)
     assert metrics.time_weighted_return > 0.5
     assert metrics.volatility >= 0.0
-    assert metrics.beta == 1.0
+    # No benchmark (SPY) data seeded, so benchmark-relative metrics are unknown
+    assert metrics.beta is None
+    assert metrics.alpha is None
+    assert metrics.treynor_ratio is None
 
 
 def test_metrics_deposit_not_counted_as_gain(db_session, seeded):

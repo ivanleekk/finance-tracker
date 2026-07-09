@@ -41,6 +41,9 @@ type PortfolioData = {
         realized: string;
         sharpe: string;
         sortino: string;
+        treynor: string;
+        alpha: string;
+        beta: string;
         drawdown: string;
         twr: string;
         irr: string;
@@ -290,6 +293,9 @@ export default function Portfolio() {
                     realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
                     sharpe: m?.sharpe_ratio !== undefined && m?.sharpe_ratio !== null ? m.sharpe_ratio.toFixed(2) : "N/A",
                     sortino: m?.sortino_ratio !== undefined && m?.sortino_ratio !== null ? m.sortino_ratio.toFixed(2) : "N/A",
+                    treynor: m?.treynor_ratio !== undefined && m?.treynor_ratio !== null ? m.treynor_ratio.toFixed(2) : "N/A",
+                    alpha: m?.alpha !== undefined && m?.alpha !== null ? formatPercent(m.alpha) : "N/A",
+                    beta: m?.beta !== undefined && m?.beta !== null ? m.beta.toFixed(2) : "N/A",
                     drawdown: m?.volatility !== undefined && m?.volatility !== null ? formatPercent(m.volatility) : "N/A",
                     twr: m?.time_weighted_return !== undefined && m?.time_weighted_return !== null ? formatPercent(m.time_weighted_return) : "N/A",
                     irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A"
@@ -827,6 +833,9 @@ export default function Portfolio() {
                     />
                 )}
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
+                <StatCard title="Sortino Ratio" value={currentData.stats.sortino} trend="neutral" />
+                <StatCard title="Treynor Ratio" value={currentData.stats.treynor} trend="neutral" description={`Beta: ${currentData.stats.beta}`} />
+                <StatCard title="Jensen's Alpha" value={currentData.stats.alpha} trend={currentData.stats.alpha.startsWith('-') ? 'down' : currentData.stats.alpha === 'N/A' ? 'neutral' : 'up'} description="vs SPY benchmark" />
             </div>
 
             {/* Equity Curve Chart */}

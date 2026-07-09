@@ -12,7 +12,7 @@ from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
-from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
+from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
 from datetime import date
 import yfinance as yf
@@ -1339,26 +1339,45 @@ def delete_exchange_rate(
     return
 
 
+METRICS_BENCHMARK_TICKER = "SPY"
+
+def _refresh_metrics_market_data(db: Session, household_id: uuid.UUID):
+    """Best-effort refresh of the risk-free rate (^IRX) and benchmark (SPY)
+    series used by performance metrics. Never blocks metrics calculation."""
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            print(f"Failed to fetch treasury rates: {e}")
+
+    last_bench = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == METRICS_BENCHMARK_TICKER).order_by(models.MarketPrice.date.desc()).first()
+    if not last_bench or last_bench.date < date.today() - timedelta(days=2):
+        try:
+            earliest_snapshot = db.query(func.min(models.PortfolioSnapshot.date)).filter(
+                models.PortfolioSnapshot.household_id == household_id
+            ).scalar()
+            if earliest_snapshot:
+                fetch_and_cache_market_prices_range(
+                    db, [METRICS_BENCHMARK_TICKER], earliest_snapshot, date.today()
+                )
+        except Exception as e:
+            print(f"Failed to fetch benchmark prices: {e}")
+
+
 # Note: This is where we will eventually put the Polars math endpoints!
 @router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
 def get_portfolio_metrics(
-    household_id: uuid.UUID, 
+    household_id: uuid.UUID,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    
-    # Ensure fresh risk-free rate data (^IRX)
-    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
-    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
-        try:
-            fetch_and_cache_treasury_rates(db)
-        except Exception as e:
-            # Don't block metrics calculation if yfinance fails
-            print(f"Failed to fetch treasury rates: {e}")
-    
+
+    _refresh_metrics_market_data(db, household_id)
+
     # 1. Calculate overall metrics
     overall = calculate_performance_metrics(db, household_id, start_date=start_date, end_date=end_date)
     
@@ -1393,14 +1412,8 @@ def get_subportfolio_metrics(
         raise HTTPException(status_code=404, detail="Sub-portfolio not found")
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
-    
-    # Ensure fresh risk-free rate data (^IRX)
-    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
-    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
-        try:
-            fetch_and_cache_treasury_rates(db)
-        except Exception as e:
-            print(f"Failed to fetch treasury rates: {e}")
+
+    _refresh_metrics_market_data(db, db_subportfolio.household_id)
 
     metrics = calculate_performance_metrics(
         db, 

@@ -284,9 +284,9 @@ export type PerformanceMetrics = {
   volatility: number;
   sharpe_ratio: number;
   sortino_ratio: number;
-  treynor_ratio: number;
-  alpha?: number;
-  beta?: number;
+  treynor_ratio?: number | null; // null when no benchmark data (beta unknown)
+  alpha?: number | null; // Jensen's alpha vs benchmark
+  beta?: number | null;
   dividend_income?: number;
   dividend_yield?: number;
 };

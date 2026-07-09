@@ -582,8 +582,8 @@ class PerformanceMetrics(BaseModel):
     volatility: float
     sharpe_ratio: float
     sortino_ratio: float
-    treynor_ratio: float
-    alpha: Optional[float] = None
+    treynor_ratio: Optional[float] = None  # None when no benchmark data (beta unknown)
+    alpha: Optional[float] = None  # Jensen's alpha vs benchmark; None when no benchmark data
     beta: Optional[float] = None
     dividend_income: float = 0.0  # Total dividends received in window (home currency)
     dividend_yield: float = 0.0  # dividend_income / current portfolio value

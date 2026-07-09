@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Check, ChevronDown } from "lucide-react"
+import { Check, ChevronDown, Search } from "lucide-react"
 import { cn } from "../../lib/utils"
 
 export interface SelectOption {
@@ -23,6 +23,8 @@ export interface SelectProps {
     wrapperClassName?: string
     size?: "sm" | "md"
     id?: string
+    /** Show a search input in the dropdown to filter options. Defaults to auto (on when there are 8+ options). */
+    searchable?: boolean
 }
 
 function optionText(label: React.ReactNode): string {
@@ -30,6 +32,8 @@ function optionText(label: React.ReactNode): string {
     if (typeof label === "number") return String(label)
     return ""
 }
+
+const SEARCHABLE_AUTO_THRESHOLD = 8
 
 const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
     (
@@ -48,6 +52,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             wrapperClassName,
             size = "md",
             id,
+            searchable,
         },
         forwardedRef
     ) => {
@@ -58,30 +63,47 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
         const [open, setOpen] = React.useState(false)
         const [highlighted, setHighlighted] = React.useState<number>(-1)
         const [openUpward, setOpenUpward] = React.useState(false)
+        const [query, setQuery] = React.useState("")
 
         const rootRef = React.useRef<HTMLDivElement>(null)
         const triggerRef = React.useRef<HTMLButtonElement>(null)
         const listRef = React.useRef<HTMLUListElement>(null)
+        const searchRef = React.useRef<HTMLInputElement>(null)
         const typeahead = React.useRef({ query: "", last: 0 })
 
         React.useImperativeHandle(forwardedRef, () => triggerRef.current as HTMLButtonElement)
 
+        const isSearchable = searchable ?? options.length >= SEARCHABLE_AUTO_THRESHOLD
+
         const selectedIndex = options.findIndex(o => o.value === value)
         const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
 
-        const openList = React.useCallback(() => {
-            if (disabled) return
-            const rect = triggerRef.current?.getBoundingClientRect()
-            if (rect) {
-                const spaceBelow = window.innerHeight - rect.bottom
-                setOpenUpward(spaceBelow < 272 && rect.top > spaceBelow)
-            }
-            setHighlighted(selectedIndex >= 0 ? selectedIndex : options.findIndex(o => !o.disabled))
-            setOpen(true)
-        }, [disabled, selectedIndex, options])
+        // Indices into `options` that match the current search query
+        const visibleIndices = React.useMemo(() => {
+            const all = [...options.keys()]
+            const q = query.trim().toLowerCase()
+            if (!isSearchable || !q) return all
+            return all.filter(i => optionText(options[i].label).toLowerCase().includes(q))
+        }, [options, query, isSearchable])
+
+        const openList = React.useCallback(
+            (initialQuery = "") => {
+                if (disabled) return
+                const rect = triggerRef.current?.getBoundingClientRect()
+                if (rect) {
+                    const spaceBelow = window.innerHeight - rect.bottom
+                    setOpenUpward(spaceBelow < 272 && rect.top > spaceBelow)
+                }
+                setQuery(initialQuery)
+                setHighlighted(selectedIndex >= 0 ? selectedIndex : options.findIndex(o => !o.disabled))
+                setOpen(true)
+            },
+            [disabled, selectedIndex, options]
+        )
 
         const close = React.useCallback((focusTrigger = true) => {
             setOpen(false)
+            setQuery("")
             if (focusTrigger) triggerRef.current?.focus()
         }, [])
 
@@ -91,6 +113,19 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             onChange(opt.value)
             close()
         }
+
+        // Focus the search input when the list opens
+        React.useEffect(() => {
+            if (open && isSearchable) searchRef.current?.focus()
+        }, [open, isSearchable])
+
+        // Keep the highlighted option valid as the filter changes
+        React.useEffect(() => {
+            if (!open) return
+            if (highlighted >= 0 && visibleIndices.includes(highlighted) && !options[highlighted]?.disabled) return
+            setHighlighted(visibleIndices.find(i => !options[i].disabled) ?? -1)
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [visibleIndices, open])
 
         // Close on outside pointer-down
         React.useEffect(() => {
@@ -112,11 +147,14 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                 ?.scrollIntoView({ block: "nearest" })
         }, [open, highlighted])
 
+        // Move the highlight through the *visible* options only
         const moveHighlight = (from: number, delta: number) => {
-            let i = from
-            for (let step = 0; step < options.length; step++) {
-                i += delta
-                if (i < 0 || i >= options.length) return
+            let pos = visibleIndices.indexOf(from)
+            if (pos < 0) pos = delta > 0 ? -1 : visibleIndices.length
+            for (let step = 0; step < visibleIndices.length; step++) {
+                pos += delta
+                if (pos < 0 || pos >= visibleIndices.length) return
+                const i = visibleIndices[pos]
                 if (!options[i].disabled) {
                     setHighlighted(i)
                     return
@@ -141,24 +179,50 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             }
         }
 
-        const onKeyDown = (e: React.KeyboardEvent) => {
-            if (disabled) return
+        // Shared list-navigation keys, used by both the trigger and the search input
+        const handleListKeys = (e: React.KeyboardEvent): boolean => {
             switch (e.key) {
                 case "Enter":
-                case " ":
                     e.preventDefault()
                     if (open) commit(highlighted)
                     else openList()
-                    break
+                    return true
                 case "ArrowDown":
                     e.preventDefault()
                     if (!open) openList()
                     else moveHighlight(highlighted, 1)
-                    break
+                    return true
                 case "ArrowUp":
                     e.preventDefault()
                     if (!open) openList()
                     else moveHighlight(highlighted, -1)
+                    return true
+                case "Escape":
+                    if (open) {
+                        e.preventDefault()
+                        close()
+                    }
+                    return true
+                case "Tab":
+                    if (open) close(false)
+                    return true
+                default:
+                    return false
+            }
+        }
+
+        const onTriggerKeyDown = (e: React.KeyboardEvent) => {
+            if (disabled) return
+            if (e.key === " " && !open) {
+                e.preventDefault()
+                openList()
+                return
+            }
+            if (handleListKeys(e)) return
+            switch (e.key) {
+                case " ":
+                    e.preventDefault()
+                    commit(highlighted)
                     break
                 case "Home":
                     if (open) {
@@ -172,20 +236,26 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                         moveHighlight(options.length, -1)
                     }
                     break
-                case "Escape":
-                    if (open) {
-                        e.preventDefault()
-                        close()
-                    }
-                    break
-                case "Tab":
-                    if (open) close(false)
-                    break
                 default:
                     if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                        handleTypeahead(e.key)
+                        if (isSearchable) {
+                            // Open and seed the search with the typed character
+                            if (!open) openList(e.key)
+                            e.preventDefault()
+                        } else {
+                            handleTypeahead(e.key)
+                        }
                     }
             }
+        }
+
+        const onSearchKeyDown = (e: React.KeyboardEvent) => {
+            if (handleListKeys(e)) return
+            if (e.key === "Home" || e.key === "End") {
+                // Let the input caret handle Home/End; list nav stays on arrows
+                return
+            }
+            e.stopPropagation()
         }
 
         return (
@@ -212,7 +282,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                         aria-haspopup="listbox"
                         aria-controls={open ? listboxId : undefined}
                         onClick={() => (open ? close() : openList())}
-                        onKeyDown={onKeyDown}
+                        onKeyDown={onTriggerKeyDown}
                         className={cn(
                             "flex w-full items-center justify-between gap-2 rounded-md border border-base-200 bg-white px-3 text-left text-sm text-base-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:bg-base-100 disabled:text-base-500 dark:border-base-800 dark:bg-base-950 dark:text-base-50 dark:disabled:bg-base-900 dark:disabled:text-base-600",
                             size === "md" ? "h-10" : "h-8",
@@ -234,41 +304,72 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                     </button>
 
                     {open && (
-                        <ul
-                            ref={listRef}
-                            id={listboxId}
-                            role="listbox"
-                            aria-labelledby={triggerId}
+                        <div
                             className={cn(
-                                "absolute z-50 max-h-60 w-full min-w-fit max-w-[min(24rem,calc(100vw-2rem))] overflow-auto rounded-lg border border-base-200 bg-white p-1 shadow-lg animate-in fade-in zoom-in-95 duration-100 dark:border-base-800 dark:bg-base-900",
+                                "absolute z-50 w-full min-w-fit max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-base-200 bg-white shadow-lg animate-in fade-in zoom-in-95 duration-100 dark:border-base-800 dark:bg-base-900",
                                 openUpward ? "bottom-full mb-1" : "top-full mt-1"
                             )}
                         >
-                            {options.length === 0 && (
-                                <li className="px-3 py-2 text-sm text-base-400 dark:text-base-600">No options</li>
+                            {isSearchable && (
+                                <div className="flex items-center gap-2 border-b border-base-200 px-3 dark:border-base-800">
+                                    <Search className="h-4 w-4 shrink-0 text-base-400 dark:text-base-500" />
+                                    <input
+                                        ref={searchRef}
+                                        type="text"
+                                        role="searchbox"
+                                        aria-label="Search options"
+                                        aria-controls={listboxId}
+                                        aria-activedescendant={
+                                            highlighted >= 0 ? `${listboxId}-opt-${highlighted}` : undefined
+                                        }
+                                        autoComplete="off"
+                                        placeholder="Search…"
+                                        value={query}
+                                        onChange={e => setQuery(e.target.value)}
+                                        onKeyDown={onSearchKeyDown}
+                                        className="h-9 w-full bg-transparent text-sm text-base-900 placeholder:text-base-400 focus:outline-none dark:text-base-50 dark:placeholder:text-base-600"
+                                    />
+                                </div>
                             )}
-                            {options.map((opt, i) => (
-                                <li
-                                    key={opt.value === "" ? `__empty-${i}` : opt.value}
-                                    data-index={i}
-                                    role="option"
-                                    aria-selected={opt.value === value}
-                                    aria-disabled={opt.disabled || undefined}
-                                    onPointerMove={() => !opt.disabled && setHighlighted(i)}
-                                    onClick={() => commit(i)}
-                                    className={cn(
-                                        "flex cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm text-base-900 dark:text-base-50",
-                                        highlighted === i && "bg-base-100 dark:bg-base-800",
-                                        opt.disabled && "cursor-not-allowed text-base-300 dark:text-base-700"
-                                    )}
-                                >
-                                    <span className="truncate">{opt.label}</span>
-                                    {opt.value === value && (
-                                        <Check className="h-4 w-4 shrink-0 text-primary-500" />
-                                    )}
-                                </li>
-                            ))}
-                        </ul>
+                            <ul
+                                ref={listRef}
+                                id={listboxId}
+                                role="listbox"
+                                aria-labelledby={triggerId}
+                                className="max-h-60 overflow-auto p-1"
+                            >
+                                {visibleIndices.length === 0 && (
+                                    <li className="px-3 py-2 text-sm text-base-400 dark:text-base-600">
+                                        {query ? "No matches" : "No options"}
+                                    </li>
+                                )}
+                                {visibleIndices.map(i => {
+                                    const opt = options[i]
+                                    return (
+                                        <li
+                                            key={opt.value === "" ? `__empty-${i}` : opt.value}
+                                            id={`${listboxId}-opt-${i}`}
+                                            data-index={i}
+                                            role="option"
+                                            aria-selected={opt.value === value}
+                                            aria-disabled={opt.disabled || undefined}
+                                            onPointerMove={() => !opt.disabled && setHighlighted(i)}
+                                            onClick={() => commit(i)}
+                                            className={cn(
+                                                "flex cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm text-base-900 dark:text-base-50",
+                                                highlighted === i && "bg-base-100 dark:bg-base-800",
+                                                opt.disabled && "cursor-not-allowed text-base-300 dark:text-base-700"
+                                            )}
+                                        >
+                                            <span className="truncate">{opt.label}</span>
+                                            {opt.value === value && (
+                                                <Check className="h-4 w-4 shrink-0 text-primary-500" />
+                                            )}
+                                        </li>
+                                    )
+                                })}
+                            </ul>
+                        </div>
                     )}
 
                     {/* Mirror native select: keeps name-based form submission and `required` constraint validation working */}
