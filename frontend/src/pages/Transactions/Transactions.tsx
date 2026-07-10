@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button"
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle } from "lucide-react"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
+import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/Dialog"
 import { Input } from "../../components/ui/Input"
@@ -412,7 +413,12 @@ export default function Transactions() {
                 </div>
             )}
             <div className="flex justify-end">
-                <Button variant="secondary">Export CSV</Button>
+                <Button
+                    variant="secondary"
+                    onClick={() => activeHousehold && downloadFromApi(`/exports/household/${activeHousehold.id}/csv/transactions`)}
+                >
+                    Export CSV
+                </Button>
             </div>
 
             {/* Cashflow + Top categories */}

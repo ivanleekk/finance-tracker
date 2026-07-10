@@ -302,6 +302,77 @@ export type PortfolioMetricsResponse = {
   overall_metrics: PerformanceMetrics;
   sub_portfolio_metrics: SubPortfolioMetricsResponse[];
 };
+
+// --- DATA EXPORT & REPORTS ---
+
+export type ReportAccountRow = {
+  id: string;
+  name: string;
+  kind: AccountKind;
+  currency?: string | null;
+  liquidity?: LiquidityStatus | null;
+  is_private: boolean;
+  balance?: number | null;
+  balance_home_currency?: number | null;
+  balance_as_of?: string | null;
+};
+
+export type ReportHoldingRow = {
+  sub_portfolio: string;
+  ticker: string;
+  asset_name?: string | null;
+  asset_type?: string | null;
+  quantity: number;
+  price?: number | null;
+  currency?: string | null;
+  value_home_currency?: number | null;
+  cost_basis_home_currency?: number | null;
+  unrealized_gain_home_currency?: number | null;
+  as_of: string;
+};
+
+export type ReportCategoryFlow = {
+  category: string;
+  type: TransactionType;
+  total_home_currency: number;
+  transaction_count: number;
+};
+
+export type ReportGoalRow = {
+  id: string;
+  name: string;
+  is_private: boolean;
+  target_amount?: number | null;
+  target_date?: string | null;
+  current_value_home_currency: number;
+  progress_percent?: number | null;
+};
+
+export type HouseholdReportResponse = {
+  household_id: string;
+  household_name?: string | null;
+  base_currency?: string | null;
+  generated_at: string;
+  prepared_for: string;
+  period_start: string;
+  period_end: string;
+  total_assets: number;
+  total_liabilities: number;
+  net_worth: number;
+  accounts: ReportAccountRow[];
+  portfolio_value: number;
+  portfolio_cost_basis: number;
+  portfolio_unrealized_gain: number;
+  holdings: ReportHoldingRow[];
+  income_total: number;
+  expense_total: number;
+  net_cashflow: number;
+  cashflow_by_category: ReportCategoryFlow[];
+  dividends_period_total: number;
+  dividends_all_time_total: number;
+  goals: ReportGoalRow[];
+};
+
 // --- 5. REFERENCE DATA ---
 
 export type CurrencyResponse = {

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal
+from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal, exports
 
 # 1. Grab the current API URL from the environment (default to localhost for dev)
 api_url = os.getenv("API_URL", "http://localhost:8000")
@@ -59,6 +59,7 @@ app.include_router(cashflow.router)
 app.include_router(portfolio.router)
 app.include_router(reference.router)
 app.include_router(internal.router)
+app.include_router(exports.router)
 
 
 @app.get("/")

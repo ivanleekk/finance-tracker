@@ -126,3 +126,26 @@ main {
     flex-grow: 1;
     height: 100%;
 }
+
+/* Print styles for the /reports page (and anything else that gets printed):
+   drop the app-shell scroll clamping so the full report paginates, and force a
+   light page regardless of theme. */
+@media print {
+    @page {
+        margin: 12mm;
+    }
+
+    :root {
+        color-scheme: light !important;
+    }
+
+    body {
+        background: white;
+        overscroll-behavior: auto;
+    }
+
+    main {
+        overflow-y: visible;
+        height: auto;
+    }
+}

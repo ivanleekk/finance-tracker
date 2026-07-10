@@ -599,3 +599,81 @@ class PortfolioMetricsResponse(BaseModel):
     household_id: uuid.UUID
     overall_metrics: PerformanceMetrics
     sub_portfolio_metrics: List[SubPortfolioMetricsResponse]
+
+
+# ----------------------------------------
+# DATA EXPORT & REPORTS
+# ----------------------------------------
+
+
+class ReportAccountRow(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: AccountKind
+    currency: Optional[str] = None
+    liquidity: Optional[LiquidityStatus] = None
+    is_private: bool
+    balance: Optional[Decimal] = None  # Native currency
+    balance_home_currency: Optional[Decimal] = None
+    balance_as_of: Optional[date] = None
+
+
+class ReportHoldingRow(BaseModel):
+    sub_portfolio: str
+    ticker: str
+    asset_name: Optional[str] = None
+    asset_type: Optional[str] = None
+    quantity: float
+    price: Optional[Decimal] = None  # Asset currency
+    currency: Optional[str] = None
+    value_home_currency: Optional[Decimal] = None
+    cost_basis_home_currency: Optional[Decimal] = None  # Total cost, not per share
+    unrealized_gain_home_currency: Optional[Decimal] = None
+    as_of: date
+
+
+class ReportCategoryFlow(BaseModel):
+    category: str
+    type: TransactionType
+    total_home_currency: Decimal
+    transaction_count: int
+
+
+class ReportGoalRow(BaseModel):
+    id: uuid.UUID
+    name: str
+    is_private: bool
+    target_amount: Optional[Decimal] = None
+    target_date: Optional[date] = None
+    current_value_home_currency: Decimal
+    progress_percent: Optional[float] = None  # None when no target amount set
+
+
+class HouseholdReportResponse(BaseModel):
+    household_id: uuid.UUID
+    household_name: Optional[str] = None
+    base_currency: Optional[str] = None
+    generated_at: datetime
+    prepared_for: str
+    period_start: date
+    period_end: date
+    # Net worth (home currency, from latest balance per account)
+    total_assets: Decimal
+    total_liabilities: Decimal
+    net_worth: Decimal
+    accounts: List[ReportAccountRow]
+    # Portfolio (latest snapshot per sub-portfolio/asset)
+    portfolio_value: Decimal
+    portfolio_cost_basis: Decimal
+    portfolio_unrealized_gain: Decimal
+    holdings: List[ReportHoldingRow]
+    # Cash flow within [period_start, period_end]
+    income_total: Decimal
+    expense_total: Decimal
+    net_cashflow: Decimal
+    cashflow_by_category: List[ReportCategoryFlow]
+    # Dividends (home currency)
+    dividends_period_total: Decimal
+    dividends_all_time_total: Decimal
+    # Goals
+    goals: List[ReportGoalRow]

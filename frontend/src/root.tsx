@@ -88,9 +88,9 @@ export function Layout({
                         <HouseholdProvider initialHouseholds={households}>
                             <ViewModeProvider>
                                 <CommandBarProvider>
-                                    <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300">
+                                    <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300 print:block print:h-auto print:overflow-visible print:bg-white">
                                         <Sidebar />
-                                        <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300">
+                                        <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
                                             {children}
                                         </main>
                                     </div>

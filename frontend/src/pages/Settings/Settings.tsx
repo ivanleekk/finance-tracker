@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { TopBar } from "../../components/TopBar";
 import { useHousehold } from "../../lib/HouseholdContext";
 import api from "../../lib/api";
+import { downloadFromApi } from "../../lib/download";
 import type { SettingsLoaderData } from "./settings.loader";
 
 export { settingsLoader as loader } from "./settings.loader";
@@ -23,26 +24,9 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     );
 }
 
-function toCsv(rows: Record<string, unknown>[]): string {
-    if (rows.length === 0) return "";
-    const headers = Object.keys(rows[0]);
-    const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    return [headers.join(","), ...rows.map(r => headers.map(h => escape(r[h])).join(","))].join("\n");
-}
-
-function downloadFile(content: string, filename: string, mime: string) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-}
-
 export default function Settings() {
     const { activeHousehold } = useHousehold();
-    const { user, currencies, transactions = [], trades = [] } = (useLoaderData() as SettingsLoaderData) || {};
+    const { user, currencies } = (useLoaderData() as SettingsLoaderData) || {};
     const revalidator = useRevalidator();
 
     const [hidePrivate, setHidePrivate] = useState(user.hide_private_from_household);
@@ -77,10 +61,15 @@ export default function Settings() {
         }
     };
 
-    const exportCsv = () => {
-        const txRows = transactions.map(t => ({ type: "transaction", date: t.date, amount: t.amount, currency: t.currency, description: t.description }));
-        const trRows = trades.map(t => ({ type: "trade", date: t.date, amount: Number(t.quantity) * Number(t.price), currency: t.currency, description: t.description }));
-        downloadFile(toCsv([...txRows, ...trRows]), `fintracker-export-${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
+    const [exporting, setExporting] = useState(false);
+    const exportCsv = async () => {
+        if (!activeHousehold) return;
+        setExporting(true);
+        try {
+            await downloadFromApi(`/exports/household/${activeHousehold.id}/csv`);
+        } finally {
+            setExporting(false);
+        }
     };
 
     return (
@@ -184,8 +173,18 @@ export default function Settings() {
                                 <Badge variant="neutral">Not connected</Badge>
                             </div>
                             <div className="flex items-center justify-between py-3 border-t border-base-100 dark:border-base-800">
-                                <span className="text-sm font-medium text-base-900 dark:text-base-50">Export data</span>
-                                <Button variant="secondary" size="sm" onClick={exportCsv}>Export CSV</Button>
+                                <div>
+                                    <div className="text-sm font-medium text-base-900 dark:text-base-50">Export data</div>
+                                    <div className="text-xs text-base-500 dark:text-base-400">All accounts, balances, transactions, trades, dividends &amp; goals as CSV</div>
+                                </div>
+                                <Button variant="secondary" size="sm" onClick={exportCsv} disabled={exporting}>{exporting ? "Exporting…" : "Export CSV (.zip)"}</Button>
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-t border-base-100 dark:border-base-800">
+                                <div>
+                                    <div className="text-sm font-medium text-base-900 dark:text-base-50">Financial report</div>
+                                    <div className="text-xs text-base-500 dark:text-base-400">Printable summary you can save as a PDF</div>
+                                </div>
+                                <Link to="/reports"><Button variant="secondary" size="sm">Open report</Button></Link>
                             </div>
                             <p className="text-xs text-base-400">Bank/broker connections aren't wired up yet — balances and trades are entered manually or via ⌘K for now.</p>
                         </CardContent>

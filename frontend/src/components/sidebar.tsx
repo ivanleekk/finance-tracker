@@ -23,7 +23,7 @@ function Sidebar() {
     const { isAuthenticated } = useAuth();
 
     return (
-        <div className="flex h-screen w-64 flex-col border-r border-base-200 bg-white dark:border-base-800 dark:bg-base-950">
+        <div className="flex h-screen w-64 flex-col border-r border-base-200 bg-white dark:border-base-800 dark:bg-base-950 print:hidden">
             <div className="flex h-16 items-center px-6 border-b border-base-100 dark:border-base-800">
                 <Link to="/" className="flex items-center gap-2 text-xl font-bold tracking-tight text-primary-600 dark:text-primary-500">
                     <Wallet className="h-6 w-6" />
