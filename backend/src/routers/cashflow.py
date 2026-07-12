@@ -6,7 +6,7 @@ import uuid
 
 from src.database import get_db
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 
@@ -32,6 +32,7 @@ def log_transaction(
         raise HTTPException(status_code=400, detail="Account and Category must belong to the same household")
 
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     # 4. Handle Currency Conversion
     acc_curr = db_account.currency or "USD"
@@ -83,9 +84,14 @@ def create_transfer(
     
     verify_household_access(from_account.household_id, current_user, db)
     verify_household_access(to_account.household_id, current_user, db)
-    
+    verify_private_owner_visibility(from_account.owner_user_id, current_user)
+    verify_private_owner_visibility(to_account.owner_user_id, current_user)
+
     if from_account.household_id != to_account.household_id:
         raise HTTPException(status_code=400, detail="Transfer must be within the same household")
+
+    if from_account.id == to_account.id:
+        raise HTTPException(status_code=400, detail="Cannot transfer to the same account")
 
     # 2. Find/Create "Transfer" category
     transfer_cat = db.query(models.Category).filter(
@@ -199,6 +205,7 @@ def update_transaction(
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_transaction.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     # Capture old impact for sync before any modifications
     # Capture old impact for sync before any modifications
@@ -266,6 +273,7 @@ def delete_transaction(
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_transaction.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     # Reverse impact
     # Reverse impact

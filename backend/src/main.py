@@ -1,11 +1,16 @@
 # src/main.py
 
+import json
+import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal, exports
 
 # 1. Grab the current API URL from the environment (default to localhost for dev)
@@ -50,6 +55,62 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def _sanitize_non_finite(obj):
+    """Recursively replace NaN/Infinity floats with a placeholder string so an
+    error/response body can always be JSON-serialized. Pydantic validation
+    errors echo the offending input, which for a rejected Infinity would
+    otherwise make the *error response itself* un-encodable and 500."""
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return f"<non-finite:{obj}>"
+    if isinstance(obj, dict):
+        return {k: _sanitize_non_finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_non_finite(v) for v in obj]
+    return obj
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # jsonable_encoder turns exceptions/objects in the error context into plain
+    # data; _sanitize_non_finite then scrubs any non-finite floats (e.g. a value
+    # that overflowed to inf during JSON parsing) before serialization.
+    errors = _sanitize_non_finite(jsonable_encoder(exc.errors()))
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": errors},
+    )
+
+
+class _NonFiniteJSONToken(ValueError):
+    pass
+
+
+def _reject_non_finite_token(_value):
+    # json.loads calls parse_constant for the bare tokens NaN / Infinity /
+    # -Infinity. Reject them outright so poison numbers never enter the app,
+    # regardless of whether the target field happens to be finite-guarded.
+    raise _NonFiniteJSONToken()
+
+
+@app.middleware("http")
+async def reject_non_finite_json(request: Request, call_next):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type.lower():
+        body = await request.body()
+        if body:
+            try:
+                json.loads(body, parse_constant=_reject_non_finite_token)
+            except _NonFiniteJSONToken:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"detail": "Non-finite numbers (NaN/Infinity) are not allowed"},
+                )
+            except ValueError:
+                # Malformed JSON -- let the normal request handling surface it.
+                pass
+    return await call_next(request)
+
 
 # Connect the modular routers
 app.include_router(auth.router)

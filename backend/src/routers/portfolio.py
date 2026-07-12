@@ -537,6 +537,30 @@ def execute_trade(
 ):
     verify_household_access(trade.household_id, current_user, db)
 
+    # Prevent cross-household stitching: a trade may only reference a sub-portfolio
+    # and funding account that live in the same household, and the sub-portfolio
+    # must be visible to the caller (not another member's private goal). Without
+    # this, a user could post a trade whose account_id/sub_portfolio_id belong to
+    # a household they can't see, writing transactions into someone else's books.
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == trade.sub_portfolio_id,
+        models.SubPortfolio.household_id == trade.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    funding_account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == trade.account_id,
+        models.FinancialAccount.household_id == trade.household_id,
+    ).first()
+    if not funding_account:
+        raise HTTPException(status_code=404, detail="Funding account not found in this household")
+    verify_private_owner_visibility(funding_account.owner_user_id, current_user)
+
+    if not db.get(models.Asset, trade.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     if trade.settle_from_cash:
         asset = db.query(models.Asset).filter(models.Asset.id == trade.asset_id).first()
         if asset and asset.type == models.CASH_ASSET_TYPE:
@@ -842,6 +866,17 @@ def create_portfolio_snapshot(
 ):
     verify_household_access(snapshot.household_id, current_user, db)
 
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == subportfolio_id,
+        models.SubPortfolio.household_id == snapshot.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    if not db.get(models.Asset, snapshot.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     db_snapshot = models.PortfolioSnapshot(
         id=uuid.uuid7(),
         household_id=snapshot.household_id,
@@ -1043,6 +1078,24 @@ def log_dividend(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(dividend.household_id, current_user, db)
+
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == dividend.sub_portfolio_id,
+        models.SubPortfolio.household_id == dividend.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == dividend.account_id,
+        models.FinancialAccount.household_id == dividend.household_id,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found in this household")
+
+    if not db.get(models.Asset, dividend.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
 
     db_dividend = models.Dividend(
         id=uuid.uuid7(),

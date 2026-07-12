@@ -15,6 +15,46 @@ import uuid
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+def _is_household_owner(db: Session, household_id: uuid.UUID, user: models.User) -> bool:
+    """True if the user is the household's real owner (owners_id on the household)."""
+    household = (
+        db.query(models.Household).filter(models.Household.id == household_id).first()
+    )
+    return bool(household and household.owner_id == user.id)
+
+
+def _guard_owner_role_change(
+    db: Session,
+    household_id: uuid.UUID,
+    current_user: models.User,
+    *,
+    target_role=None,
+    target_user_id=None,
+) -> None:
+    """Blocks privilege escalation around the ``owner`` role.
+
+    Only the household's real owner may hand out the ``owner`` role or touch the
+    owner's own membership row. Without this, any editor (who passes the
+    owner/editor role gate on these endpoints) could promote themselves to owner
+    or demote the real owner.
+    """
+    caller_is_owner = _is_household_owner(db, household_id, current_user)
+    if target_role is not None and target_role == models.HouseholdRoleType.owner and not caller_is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the household owner can assign the owner role",
+        )
+    if target_user_id is not None and not caller_is_owner:
+        household = (
+            db.query(models.Household).filter(models.Household.id == household_id).first()
+        )
+        if household and household.owner_id == target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the household owner can modify the owner's membership",
+            )
+
+
 def resolve_pending_invites(db: Session, user: models.User) -> None:
     """Auto-accepts any pending household invites matching this user's email
     (e.g. someone was invited before they had an account, or before they logged in)."""
@@ -314,6 +354,7 @@ def add_household_member(
     verify_household_access(
         member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    _guard_owner_role_change(db, member.household_id, current_user, target_role=member.role)
 
     # check if user already exists in this specific household
     existing_member = (
@@ -418,6 +459,13 @@ def update_household_member(
     verify_household_access(
         existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    _guard_owner_role_change(
+        db,
+        existing_member.household_id,
+        current_user,
+        target_role=member_update.role,
+        target_user_id=existing_member.user_id,
+    )
 
     existing_member.role = member_update.role
     db.commit()
@@ -442,6 +490,14 @@ def remove_household_member(
     verify_household_access(
         existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    # The household owner's own membership can't be deleted out from under them
+    # by another member (that would orphan the household).
+    _guard_owner_role_change(
+        db,
+        existing_member.household_id,
+        current_user,
+        target_user_id=existing_member.user_id,
+    )
 
     db.delete(existing_member)
     db.commit()
@@ -465,6 +521,7 @@ def invite_household_member(
     verify_household_access(
         household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    _guard_owner_role_change(db, household_id, current_user, target_role=invite.role)
 
     existing_user = db.query(models.User).filter(models.User.email == invite.email).first()
     if existing_user:

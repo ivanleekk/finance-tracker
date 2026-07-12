@@ -44,7 +44,10 @@ export function matchAccounts(low: string, accounts: AccountResponse[]): Account
     const hits: { account: AccountResponse; index: number }[] = [];
     const seen = new Set<string>();
     accounts.forEach(a => {
-        const kw = a.name.split(/\s+/)[0].toLowerCase();
+        const kw = a.name.trim().split(/\s+/)[0].toLowerCase();
+        // An empty keyword (blank/whitespace-only account name) would match at
+        // index 0 of every query and hijack the parse; skip those.
+        if (!kw) return;
         const idx = low.indexOf(kw);
         if (idx >= 0 && !seen.has(a.id)) {
             hits.push({ account: a, index: idx });

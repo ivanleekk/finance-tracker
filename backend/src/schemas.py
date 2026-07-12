@@ -1,10 +1,37 @@
 # src/schemas.py
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime
 from decimal import Decimal
 import uuid
+
+# ----------------------------------------
+# Reusable hardened numeric types
+#
+# Money and quantities enter the system as untrusted JSON. Python's json parser
+# accepts the non-standard tokens ``NaN``/``Infinity``/``-Infinity`` and Pydantic
+# floats accept them by default, so an attacker can otherwise poison every
+# downstream aggregate (net worth, balances, performance) with a single request.
+# ``allow_inf_nan=False`` rejects those; ``gt``/``ge``/``le`` pin the sign and
+# range where a value is semantically constrained (a price/quantity/rate is
+# always positive, a share of an expense split is 0-100%).
+# ----------------------------------------
+
+# Floats
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+NonNegativeFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+
+# Decimals (Pydantic already rejects inf/nan Decimals, but be explicit)
+FiniteDecimal = Annotated[Decimal, Field(allow_inf_nan=False)]
+PositiveDecimal = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
+NonNegativeDecimal = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+PercentDecimal = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
+
+# A password long enough to be meaningfully hashed. Empty/1-char passwords are
+# a red flag for automated account creation.
+Password = Annotated[str, Field(min_length=8, max_length=256)]
 
 # Import our enums from models so Pydantic can validate them
 from src.models import (
@@ -38,13 +65,13 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    password: Password
 
 
 class UserUpdate(BaseModel):
     preferred_timezone: Optional[str] = None
     name: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[Password] = None
     email: Optional[EmailStr] = None
     theme_mode: Optional[ThemeMode] = None
     primary_color: Optional[str] = None
@@ -129,7 +156,7 @@ class HouseholdInviteResponse(BaseModel):
 
 class HouseholdSplitShareCreate(BaseModel):
     user_id: uuid.UUID
-    share_percent: Decimal
+    share_percent: PercentDecimal
 
 
 class HouseholdSplitShareResponse(BaseModel):
@@ -175,7 +202,9 @@ class AccountResponse(AccountBase):
 
 class BalanceBase(BaseModel):
     date: date
-    balance: Decimal
+    # Balances may be negative (liabilities, overdrawn accounts) but never
+    # non-finite.
+    balance: FiniteDecimal
     is_manual: bool = True
 
 
@@ -185,8 +214,8 @@ class BalanceCreate(BalanceBase):
 
 class BalanceUpdate(BaseModel):
     date: Optional[date] = None
-    balance: Optional[Decimal] = None
-    balance_home_currency: Optional[Decimal] = None
+    balance: Optional[FiniteDecimal] = None
+    balance_home_currency: Optional[FiniteDecimal] = None
 
 
 class BalanceResponse(BalanceBase):
@@ -261,10 +290,13 @@ class CategoryResponse(CategoryBase):
 
 class TransactionBase(BaseModel):
     date: datetime
-    amount: Decimal
-    amount_home_currency: Optional[Decimal] = None
+    # Income/expense sign is derived from the category, so the amount is a
+    # positive magnitude. A negative amount would silently flip a logged expense
+    # into income against the account balance.
+    amount: PositiveDecimal
+    amount_home_currency: Optional[FiniteDecimal] = None
     currency: Optional[str] = None
-    exchange_rate: Optional[float] = None
+    exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
 
 
@@ -275,10 +307,10 @@ class TransactionCreate(TransactionBase):
 
 class TransactionUpdate(BaseModel):
     date: Optional[datetime] = None
-    amount: Optional[Decimal] = None
-    amount_home_currency: Optional[Decimal] = None
+    amount: Optional[PositiveDecimal] = None
+    amount_home_currency: Optional[FiniteDecimal] = None
     currency: Optional[str] = None
-    exchange_rate: Optional[float] = None
+    exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -298,7 +330,7 @@ class TransactionResponse(TransactionBase):
 class TransferCreate(BaseModel):
     from_account_id: uuid.UUID
     to_account_id: uuid.UUID
-    amount: Decimal
+    amount: PositiveDecimal
     date: datetime
     currency: Optional[str] = None
     description: Optional[str] = None
@@ -381,20 +413,20 @@ class SubPortfolioCashCreate(BaseModel):
     household_id: uuid.UUID
     account_id: uuid.UUID
     direction: Literal["deposit", "withdraw"]
-    amount: Decimal = Field(gt=0)
+    amount: PositiveDecimal
     currency: str
     date: datetime
-    exchange_rate: float = 1.0  # Rate from cash currency to the funding account currency
+    exchange_rate: PositiveFloat = 1.0  # Rate from cash currency to the funding account currency
     description: Optional[str] = None
 
 
 class TradeBase(BaseModel):
     type: TradeType
     date: datetime
-    quantity: float
-    price: Decimal
+    quantity: PositiveFloat
+    price: PositiveDecimal
     currency: Optional[str] = None
-    exchange_rate: float
+    exchange_rate: PositiveFloat
     description: Optional[str] = None
 
 
@@ -411,10 +443,10 @@ class TradeCreate(TradeBase):
 class TradeUpdate(BaseModel):
     type: Optional[TradeType] = None
     date: Optional[datetime] = None
-    quantity: Optional[float] = None
-    price: Optional[Decimal] = None
+    quantity: Optional[PositiveFloat] = None
+    price: Optional[PositiveDecimal] = None
     currency: Optional[str] = None
-    exchange_rate: Optional[float] = None
+    exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
@@ -436,13 +468,13 @@ class TradeResponse(TradeBase):
 
 class PortfolioSnapshotBase(BaseModel):
     date: date
-    quantity: float
-    price: Decimal
-    exchange_rate_used: float
+    quantity: NonNegativeFloat
+    price: NonNegativeDecimal
+    exchange_rate_used: PositiveFloat
     # These mirror nullable DB columns; manual snapshots may omit them.
-    current_value_home_currency: Optional[Decimal] = None
-    average_cost_basis: Optional[Decimal] = None
-    average_cost_basis_home_currency: Optional[Decimal] = None
+    current_value_home_currency: Optional[FiniteDecimal] = None
+    average_cost_basis: Optional[FiniteDecimal] = None
+    average_cost_basis_home_currency: Optional[FiniteDecimal] = None
 
 
 class PortfolioSnapshotCreate(PortfolioSnapshotBase):
@@ -453,11 +485,11 @@ class PortfolioSnapshotCreate(PortfolioSnapshotBase):
 
 class PortfolioSnapshotUpdate(BaseModel):
     date: Optional[date] = None
-    quantity: Optional[float] = None
-    price: Optional[Decimal] = None
-    exchange_rate_used: Optional[float] = None
-    current_value_home_currency: Optional[Decimal] = None
-    average_cost_basis: Optional[Decimal] = None
+    quantity: Optional[NonNegativeFloat] = None
+    price: Optional[NonNegativeDecimal] = None
+    exchange_rate_used: Optional[PositiveFloat] = None
+    current_value_home_currency: Optional[FiniteDecimal] = None
+    average_cost_basis: Optional[FiniteDecimal] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -473,11 +505,11 @@ class PortfolioSnapshotResponse(PortfolioSnapshotBase):
 
 class DividendBase(BaseModel):
     date: datetime
-    amount: Decimal
-    exchange_rate: float
-    per_share_amount: Optional[Decimal] = None
-    quantity: Optional[float] = None
-    amount_home_currency: Optional[Decimal] = None
+    amount: PositiveDecimal
+    exchange_rate: PositiveFloat
+    per_share_amount: Optional[NonNegativeDecimal] = None
+    quantity: Optional[NonNegativeFloat] = None
+    amount_home_currency: Optional[FiniteDecimal] = None
     is_manual: Optional[bool] = None
 
 
@@ -490,8 +522,8 @@ class DividendCreate(DividendBase):
 
 class DividendUpdate(BaseModel):
     date: Optional[datetime] = None
-    amount: Optional[Decimal] = None
-    exchange_rate: Optional[float] = None
+    amount: Optional[PositiveDecimal] = None
+    exchange_rate: Optional[PositiveFloat] = None
     household_id: Optional[int] = None
     sub_portfolio_id: Optional[int] = None
     asset_id: Optional[int] = None
@@ -549,7 +581,7 @@ class ExchangeRateBase(BaseModel):
     date: date
     base_currency: str
     target_currency: str
-    rate: float
+    rate: PositiveFloat
 
 
 class ExchangeRateCreate(ExchangeRateBase):
@@ -560,7 +592,7 @@ class ExchangeRateUpdate(BaseModel):
     date: Optional[date] = None
     base_currency: Optional[str] = None
     target_currency: Optional[str] = None
-    rate: Optional[float] = None
+    rate: Optional[PositiveFloat] = None
 
 
 class ExchangeRateResponse(ExchangeRateBase):

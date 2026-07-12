@@ -24,7 +24,13 @@ export function valueHistoryForGoal(snapshots: PortfolioSnapshotResponse[], subP
     snapshots
         .filter(s => s.sub_portfolio_id === subPortfolioId)
         .forEach(s => {
-            byDate.set(s.date, (byDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+            // A snapshot's home-currency value can be null/undefined (manual
+            // snapshots) or otherwise non-numeric; Number(null) is 0 but
+            // Number(undefined) is NaN, which would poison the running sum and
+            // every downstream goal projection. Coerce non-finite to 0.
+            const raw = Number(s.current_value_home_currency);
+            const value = Number.isFinite(raw) ? raw : 0;
+            byDate.set(s.date, (byDate.get(s.date) || 0) + value);
         });
     return Array.from(byDate.entries())
         .map(([date, value]) => ({ date, value }))
@@ -41,7 +47,15 @@ export function projectGoal(
     targetAmount: number | null,
     targetDate?: string | null,
 ): GoalProjection {
-    const currentValue = history.length > 0 ? history[history.length - 1].value : 0;
+    const rawCurrent = history.length > 0 ? history[history.length - 1].value : 0;
+    // Defend the projection against a non-finite value slipping in from history,
+    // so nothing downstream (percentages, pace, ETA) can become NaN/Infinity.
+    const currentValue = Number.isFinite(rawCurrent) ? rawCurrent : 0;
+    // A non-finite or non-positive target isn't a usable goal target; treat it
+    // as "no target" so we never emit NaN/Infinity percentages.
+    if (targetAmount != null && (!Number.isFinite(targetAmount) || targetAmount <= 0)) {
+        targetAmount = null;
+    }
     const percentComplete = targetAmount ? Math.min(100, Math.max(0, (currentValue / targetAmount) * 100)) : 0;
     const remaining = targetAmount ? Math.max(0, targetAmount - currentValue) : 0;
 
