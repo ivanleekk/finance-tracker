@@ -3,17 +3,14 @@ import { Button } from "./components/ui/Button"
 import {
     Wallet,
     ArrowRight,
-    PieChart,
     Globe,
     Users,
     TrendingUp,
     ShieldCheck,
     Activity,
     LineChart,
-    Layers,
     ChevronRight,
-    Zap,
-    BarChart3
+    Zap
 } from "lucide-react"
 import { cn } from "./lib/utils"
 
@@ -94,15 +91,6 @@ export default function LandingPage() {
                             </Button>
                         </div>
 
-                        {/* Social Proof / Trust */}
-                        <div className="mt-20 flex flex-col items-center gap-6 opacity-60 grayscale transition-all hover:grayscale-0 animate-in fade-in duration-1000">
-                            <p className="text-sm font-medium text-base-500">TRUSTED BY INVESTORS ACROSS THE GLOBE</p>
-                            <div className="flex flex-wrap justify-center gap-12">
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><BarChart3 className="h-6 w-6 text-primary-600" /> CapitalView</div>
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><LineChart className="h-6 w-6 text-indigo-600" /> GrowthFlow</div>
-                                <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50"><Layers className="h-6 w-6 text-violet-600" /> StackWise</div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </section>

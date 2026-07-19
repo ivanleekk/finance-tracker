@@ -20,6 +20,6 @@ export default [
     route("/households", "pages/Household/Households.tsx"),
     route("/settings", "pages/Settings/Settings.tsx"),
     route("/reports", "pages/Reports/Reports.tsx"),
-    route("/profile", "pages/Profile/Profile.tsx"),
+    route("/profile", "pages/Profile/profile.redirect.ts"),
     route("*?", "catchall.tsx"),
 ] satisfies RouteConfig;
