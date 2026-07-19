@@ -17,21 +17,22 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     if (!householdId) {
         throw redirect("/households");
     }
-    const [accountsRes, currenciesRes] = await Promise.all([
+    // All three are household-scoped and independent — fetch in one round-trip
+    // instead of fetching balances in a second wave after accounts+currencies.
+    const [accountsRes, currenciesRes, balancesRes] = await Promise.all([
         ssrFetch(`/accounts/household/${householdId}`),
-        ssrFetch(`/reference/currencies`)
+        ssrFetch(`/reference/currencies`),
+        ssrFetch(`/accounts/balances/household/${householdId}`)
     ]);
 
     if (!accountsRes.ok) {
         throw new Error(`Failed to fetch accounts: ${accountsRes.statusText}`);
     }
-    const accounts: AccountResponse[] = await accountsRes.json();
-    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
-
-    const balancesRes = await ssrFetch(`/accounts/balances/household/${householdId}`);
     if (!balancesRes.ok) {
         throw new Error(`Failed to fetch balances: ${balancesRes.statusText}`);
     }
+    const accounts: AccountResponse[] = await accountsRes.json();
+    const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
     const allBalances: BalanceResponse[] = await balancesRes.json();
 
     const balanceMap: Record<string, BalanceResponse[]> = {};
@@ -61,9 +62,12 @@ export async function action({ request }: ActionFunctionArgs) {
         const name = formData.get("name") as string;
         const liquidity = formData.get("liquidity") as string;
         const tax_status = formData.get("tax_status") as string;
+        const kind = (formData.get("kind") as string) || "asset";
         const currency = formData.get("currency") as string;
         const balance = formData.get("balance") as string;
         const date = formData.get("date") as string;
+        const isPrivate = formData.get("is_private") === "on";
+        const currentUserId = formData.get("current_user_id") as string | null;
 
         const accRes = await ssrFetch("/accounts", {
             method: "POST",
@@ -75,7 +79,9 @@ export async function action({ request }: ActionFunctionArgs) {
                 name,
                 liquidity,
                 tax_status,
+                kind,
                 currency,
+                owner_user_id: isPrivate && currentUserId ? currentUserId : null,
             }),
         });
 

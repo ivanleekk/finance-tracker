@@ -12,7 +12,10 @@ import type { LoaderFunctionArgs } from "react-router";
 import { AuthProvider } from "./lib/AuthContext";
 import { ThemeProvider } from "./lib/ThemeContext";
 import { HouseholdProvider } from "./lib/HouseholdContext";
+import { ViewModeProvider } from "./lib/ViewModeContext";
+import { CommandBarProvider } from "./lib/CommandBarContext";
 import Sidebar from "./components/sidebar";
+import { CommandBar } from "./components/CommandBar/CommandBar";
 import { getSSRContext } from "./lib/ssr-helpers";
 import type { HouseholdResponse, UserResponse } from "./types/types";
 
@@ -36,8 +39,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
         }
         if (isAuthenticated && households.length === 0) {
             const url = new URL(request.url);
-            if (url.pathname !== "/households" && url.pathname !== "/logout" && url.pathname !== "/login" && url.pathname !== "/signup") {
-                return redirect("/households?setup=true");
+            if (!["/households", "/onboarding", "/logout", "/login", "/signup"].includes(url.pathname)) {
+                return redirect("/onboarding");
             }
         }
 
@@ -70,6 +73,12 @@ export function Layout({
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
                 <title>Finance-Tracker</title>
+                <link rel="preconnect" href="https://fonts.googleapis.com" />
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+                <link
+                    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+                    rel="stylesheet"
+                />
                 <Meta />
                 <Links />
             </head>
@@ -77,12 +86,17 @@ export function Layout({
                 <AuthProvider initialIsAuthenticated={isAuthenticated} initialUser={user}>
                     <ThemeProvider>
                         <HouseholdProvider initialHouseholds={households}>
-                            <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300">
-                                <Sidebar />
-                                <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300">
-                                    {children}
-                                </main>
-                            </div>
+                            <ViewModeProvider>
+                                <CommandBarProvider>
+                                    <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300 print:block print:h-auto print:overflow-visible print:bg-white">
+                                        <Sidebar />
+                                        <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
+                                            {children}
+                                        </main>
+                                    </div>
+                                    <CommandBar />
+                                </CommandBarProvider>
+                            </ViewModeProvider>
                         </HouseholdProvider>
                     </ThemeProvider>
                 </AuthProvider>

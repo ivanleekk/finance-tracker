@@ -21,6 +21,10 @@
 @theme {
     --dark-mode: selector(.dark);
 
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
     --color-primary-50: var(--primary-50);
     --color-primary-100: var(--primary-100);
     --color-primary-200: var(--primary-200);
@@ -121,4 +125,27 @@ main {
     overflow-y: auto;
     flex-grow: 1;
     height: 100%;
+}
+
+/* Print styles for the /reports page (and anything else that gets printed):
+   drop the app-shell scroll clamping so the full report paginates, and force a
+   light page regardless of theme. */
+@media print {
+    @page {
+        margin: 12mm;
+    }
+
+    :root {
+        color-scheme: light !important;
+    }
+
+    body {
+        background: white;
+        overscroll-behavior: auto;
+    }
+
+    main {
+        overflow-y: visible;
+        height: auto;
+    }
 }

@@ -25,17 +25,30 @@ export async function action({ request }: ActionFunctionArgs) {
             return { error: `Server error (${response.status}). Please check backend logs.` };
         }
 
-        // After signup, we might want to log the user in automatically
-        // or just redirect to login page. The current implementation 
-        // in Signup.tsx redirected to dashboard, but that requires 
-        // a session which we don't have yet (unless the backend returns one).
-
-        // If backend returns a Set-Cookie on signup, we should forward it.
-        const setCookieHeader = response.headers.get("Set-Cookie");
-
-        return redirect("/dashboard", {
-            headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
+        // Signup itself doesn't create a session — log the new user in
+        // so they land on onboarding already authenticated.
+        const urlEncoded = new URLSearchParams();
+        urlEncoded.append("username", data.email as string);
+        urlEncoded.append("password", data.password as string);
+        const loginResponse = await fetch(getApiUrl("/auth/token"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: urlEncoded,
         });
+
+        if (!loginResponse.ok) {
+            // Account exists but auto-login failed; let them log in manually.
+            return redirect("/login");
+        }
+
+        // Forward every cookie (access + refresh) individually — merging them
+        // into one header would make the browser drop the refresh token.
+        const headers = new Headers();
+        for (const cookie of loginResponse.headers.getSetCookie()) {
+            headers.append("Set-Cookie", cookie);
+        }
+
+        return redirect("/dashboard", { headers });
 
     } catch (err) {
         console.error("Signup fetch failed:", err);

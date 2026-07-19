@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from src.database import get_db
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from sqlalchemy import desc, func
@@ -29,7 +29,9 @@ def create_account(
         name=account.name,
         liquidity=account.liquidity,
         tax_status=account.tax_status,
+        kind=account.kind,
         currency=account.currency,
+        owner_user_id=account.owner_user_id,
     )
     db.add(db_account)
     db.commit()
@@ -44,7 +46,12 @@ def get_household_accounts(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    accounts = db.query(models.FinancialAccount).filter(models.FinancialAccount.household_id == household_id).all()
+    # Shared accounts (owner_user_id is NULL) are visible to the whole household;
+    # private accounts are only visible to their owner.
+    accounts = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.household_id == household_id,
+        (models.FinancialAccount.owner_user_id.is_(None)) | (models.FinancialAccount.owner_user_id == current_user.id)
+    ).all()
     return accounts
 
 
@@ -60,6 +67,7 @@ def update_account(
         raise HTTPException(status_code=404, detail="Account not found")
 
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     update_data = account_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -81,6 +89,7 @@ def delete_account(
         raise HTTPException(status_code=404, detail="Account not found")
 
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     db.delete(db_account)
     db.commit()
@@ -180,6 +189,7 @@ def add_account_balance(
         raise HTTPException(status_code=404, detail="Account not found")
 
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     # Check if a balance already exists for this date
     db_balance = db.query(models.AccountBalance).filter(
@@ -273,7 +283,10 @@ def get_household_balances(
 ):
     verify_household_access(household_id, current_user, db)
 
-    accounts = db.query(models.FinancialAccount).filter(models.FinancialAccount.household_id == household_id).all()
+    accounts = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.household_id == household_id,
+        (models.FinancialAccount.owner_user_id.is_(None)) | (models.FinancialAccount.owner_user_id == current_user.id)
+    ).all()
     account_ids = [account.id for account in accounts]
 
     if not account_ids:
@@ -296,6 +309,7 @@ def get_account_balances(
         raise HTTPException(status_code=404, detail="Account not found")
 
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     balances = db.query(models.AccountBalance).filter(models.AccountBalance.account_id == account_id).all()
     return balances
@@ -314,13 +328,15 @@ def update_account_balance(
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_balance.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     update_data = balance_update.model_dump(exclude_unset=True)
     
     if 'balance' in update_data:
         delta = Decimal(str(update_data['balance'])) - db_balance.balance
         propagate_balance_change(db, db_balance.account_id, db_balance.date, delta)
-        
+        db_balance.balance = Decimal(str(update_data['balance']))
+
         # Update home currency balance
         home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
         acc_curr = db_account.currency or "USD"
@@ -348,6 +364,7 @@ def delete_account_balance(
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_balance.account_id).first()
     verify_household_access(db_account.household_id, current_user, db)
+    verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
     if db_balance.is_manual:
         # 1. Find the reconciliation transaction

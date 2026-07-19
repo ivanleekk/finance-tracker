@@ -9,9 +9,9 @@ from decimal import Decimal
 import pandas as pd
 
 from src.models import (
-    Trade, PortfolioSnapshot, Asset, TradeType, 
+    Trade, PortfolioSnapshot, Asset, TradeType,
     Household, SubPortfolio, MarketPrice, FinancialAccount,
-    ExchangeRate
+    ExchangeRate, CASH_ASSET_TYPE, PRICING_MODE_MANUAL
 )
 from src.services.market_data import (
     fetch_and_cache_market_prices_range,
@@ -32,21 +32,34 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
     home_curr = household.base_currency or "USD"
 
     # 1. PREFETCH EVERYTHING
-    
-    # A. Get all assets involved
-    assets = {a.id: a for a in db.execute(select(Asset)).scalars().all()}
-    
-    # B. Get all trades for the household (ever) to maintain accurate quantity state
+
+    # A. Get all trades for the household (ever) to maintain accurate quantity state
     # We fetch ALL trades because we need the starting state at start_date
     all_trades = db.execute(
         select(Trade)
         .where(Trade.household_id == household_id)
         .order_by(Trade.date.asc())
     ).scalars().all()
-    
+
+    # B. Only the assets this household has actually traded — fetching every
+    # asset in the system would also fetch every other user's tickers below.
+    traded_asset_ids = {t.asset_id for t in all_trades}
+    assets = {
+        a.id: a
+        for a in db.execute(select(Asset).where(Asset.id.in_(traded_asset_ids))).scalars().all()
+    } if traded_asset_ids else {}
+
     # C. Get all market prices for the range
-    tickers = list(set([a.ticker for a in assets.values()]))
-    fetch_and_cache_market_prices_range(db, tickers, start_date, end_date)
+    # Cash pseudo-assets have no market ticker: they are always worth 1.0 in
+    # their own currency, so we exclude them from the yfinance fetch. Manual
+    # assets (unlisted bonds, SSBs) are excluded from the fetch too, but their
+    # user-recorded rows in market_prices still feed the price lookup below.
+    tickers = list(set([a.ticker for a in assets.values() if a.type != CASH_ASSET_TYPE]))
+    market_tickers = list(set([
+        a.ticker for a in assets.values()
+        if a.type != CASH_ASSET_TYPE and a.pricing_mode != PRICING_MODE_MANUAL
+    ]))
+    fetch_and_cache_market_prices_range(db, market_tickers, start_date, end_date)
     
     # Build a lookup for prices: {(date, ticker): price}
     # We include prices before start_date as well for fallback
@@ -186,7 +199,15 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
                     continue 
 
                 asset = assets[asset_id]
-                price = price_lookup.get((curr_date, asset.ticker), 0.0)
+                if asset.type == CASH_ASSET_TYPE:
+                    price = 1.0
+                else:
+                    price = price_lookup.get((curr_date, asset.ticker), 0.0)
+                    # Manual assets with no recorded price yet are valued at
+                    # average cost (an SSB bought at par stays at par until the
+                    # user records a different price).
+                    if not price and asset.pricing_mode == PRICING_MODE_MANUAL:
+                        price = state["avg"]
                 rate = rate_lookup.get((curr_date, asset.currency or "USD", home_curr), 1.0)
                 
                 value_home = state["q"] * price * rate

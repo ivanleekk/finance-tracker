@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
 import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
@@ -12,6 +13,7 @@ import api from "../../lib/api"
 import type { SubPortfolioResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
+import { TopBar } from "../../components/TopBar"
 
 export { portfolioLoader as loader } from "./portfolio.loader";
 
@@ -25,7 +27,11 @@ type Holding = {
     currency: string; // Ticker's base currency
     avgCostNative: number;
     currentPriceNative: number;
+    assetType: string;
+    pricingMode: "market" | "manual";
 };
+
+const ALLOCATION_COLORS = ["#38bdf8", "#4ade80", "#fbbf24", "#e879f9", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf"];
 
 type PortfolioData = {
     stats: {
@@ -35,6 +41,9 @@ type PortfolioData = {
         realized: string;
         sharpe: string;
         sortino: string;
+        treynor: string;
+        alpha: string;
+        beta: string;
         drawdown: string;
         twr: string;
         irr: string;
@@ -47,7 +56,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -79,6 +88,19 @@ export default function Portfolio() {
     const [editRisk, setEditRisk] = useState("Moderate")
     const [editTarget, setEditTarget] = useState("")
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+    const [isManagingCash, setIsManagingCash] = useState(false)
+    const [cashDirection, setCashDirection] = useState<"deposit" | "withdraw">("deposit")
+    const [cashAmount, setCashAmount] = useState("")
+    const [cashAccountId, setCashAccountId] = useState("")
+    const [cashDate, setCashDate] = useState(new Date().toISOString().split('T')[0])
+    const [isSubmittingCash, setIsSubmittingCash] = useState(false)
+    const [cashError, setCashError] = useState<string | null>(null)
+    // Manual price recording for pricing_mode === "manual" assets (SSBs, unlisted bonds)
+    const [priceHolding, setPriceHolding] = useState<Holding | null>(null)
+    const [priceValue, setPriceValue] = useState("")
+    const [priceDate, setPriceDate] = useState(new Date().toISOString().split('T')[0])
+    const [isSubmittingPrice, setIsSubmittingPrice] = useState(false)
+    const [priceError, setPriceError] = useState<string | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -104,6 +126,32 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to create sub-portfolio");
+        }
+    };
+
+    const handleRecordPrice = async () => {
+        if (!priceHolding || !activeHousehold) return;
+        const parsed = parseFloat(priceValue);
+        if (!parsed || parsed <= 0) {
+            setPriceError("Enter a price greater than zero.");
+            return;
+        }
+        setIsSubmittingPrice(true);
+        setPriceError(null);
+        try {
+            await api.post(`/portfolio/assets/${priceHolding.assetId}/price`, {
+                household_id: activeHousehold.id,
+                date: priceDate,
+                price: parsed,
+            });
+            setPriceHolding(null);
+            setPriceValue("");
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setPriceError(e.response?.data?.detail || "Failed to record price.");
+        } finally {
+            setIsSubmittingPrice(false);
         }
     };
 
@@ -136,6 +184,39 @@ export default function Portfolio() {
         } catch (e) {
             console.error(e);
             alert("Failed to delete sub-portfolio. It might have associated trades.");
+        }
+    };
+
+    const handleCashMove = async () => {
+        const sp = subportfolios.find(s => s.name === activeTab);
+        const account = accounts.find(a => a.id === cashAccountId);
+        if (!sp || !activeHousehold || !account) return;
+        const amount = parseFloat(cashAmount);
+        if (!amount || amount <= 0) {
+            setCashError("Enter an amount greater than zero.");
+            return;
+        }
+        setIsSubmittingCash(true);
+        setCashError(null);
+        try {
+            // Cash inherits the funding account's currency, so no FX conversion is needed here.
+            await api.post(`/portfolio/subportfolios/${sp.id}/cash`, {
+                household_id: activeHousehold.id,
+                account_id: account.id,
+                direction: cashDirection,
+                amount,
+                currency: account.currency || activeHousehold.base_currency || "USD",
+                date: new Date(cashDate).toISOString(),
+                exchange_rate: 1.0
+            });
+            setCashAmount("");
+            setIsManagingCash(false);
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setCashError(e.response?.data?.detail || "Failed to record cash movement.");
+        } finally {
+            setIsSubmittingCash(false);
         }
     };
 
@@ -212,6 +293,9 @@ export default function Portfolio() {
                     realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
                     sharpe: m?.sharpe_ratio !== undefined && m?.sharpe_ratio !== null ? m.sharpe_ratio.toFixed(2) : "N/A",
                     sortino: m?.sortino_ratio !== undefined && m?.sortino_ratio !== null ? m.sortino_ratio.toFixed(2) : "N/A",
+                    treynor: m?.treynor_ratio !== undefined && m?.treynor_ratio !== null ? m.treynor_ratio.toFixed(2) : "N/A",
+                    alpha: m?.alpha !== undefined && m?.alpha !== null ? formatPercent(m.alpha) : "N/A",
+                    beta: m?.beta !== undefined && m?.beta !== null ? m.beta.toFixed(2) : "N/A",
                     drawdown: m?.volatility !== undefined && m?.volatility !== null ? formatPercent(m.volatility) : "N/A",
                     twr: m?.time_weighted_return !== undefined && m?.time_weighted_return !== null ? formatPercent(m.time_weighted_return) : "N/A",
                     irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A"
@@ -287,7 +371,9 @@ export default function Portfolio() {
                             currentPrice: currentPriceHome,
                             currency: currency,
                             avgCostNative: costBasisNative,
-                            currentPriceNative: currentPriceNative
+                            currentPriceNative: currentPriceNative,
+                            assetType: asset?.type || "other",
+                            pricingMode: asset?.pricing_mode || "market"
                         });
                     }
                 });
@@ -403,13 +489,54 @@ export default function Portfolio() {
     const currentData = { ...rawData, holdings: sortedHoldings };
     const activeSubportfolioObj = subportfolios.find(sp => sp.name === activeTab);
 
+    const allocationSlices = (() => {
+        const byType = new Map<string, number>();
+        let totalValue = 0;
+        currentData.holdings.forEach(h => {
+            const value = h.shares * h.currentPrice;
+            totalValue += value;
+            byType.set(h.assetType, (byType.get(h.assetType) || 0) + value);
+        });
+        return Array.from(byType.entries())
+            .map(([type, value]) => ({ type, value, pct: totalValue > 0 ? (value / totalValue) * 100 : 0 }))
+            .sort((a, b) => b.value - a.value);
+    })();
+
+    const fxExposure = (() => {
+        const byCurrency = new Map<string, number>();
+        let totalValue = 0;
+        currentData.holdings.forEach(h => {
+            const value = h.shares * h.currentPrice;
+            totalValue += value;
+            byCurrency.set(h.currency, (byCurrency.get(h.currency) || 0) + value);
+        });
+        return Array.from(byCurrency.entries())
+            .map(([currency, value]) => ({ currency, pct: totalValue > 0 ? (value / totalValue) * 100 : 0 }))
+            .sort((a, b) => b.pct - a.pct);
+    })();
+
+    // Uninvested cash held inside the active tab's sub-portfolio(s), in home currency.
+    const cashValue = currentData.holdings
+        .filter(h => h.assetType === "cash")
+        .reduce((sum, h) => sum + h.shares * h.currentPrice, 0);
+
     // Metrics for the active tab (includes dividend_income / dividend_yield).
     const activeMetrics = activeTab === "Overall"
         ? metrics?.overall_metrics
         : metrics?.sub_portfolio_metrics?.find(m => m.sub_portfolio_id === activeSubportfolioObj?.id)?.metrics;
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+            <TopBar
+                title="Portfolio"
+                commandPlaceholder="buy 10 VOO…"
+                cta={
+                    <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                        <Button variant="cta">+ Add trade</Button>
+                    </Link>
+                }
+            />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
             {isLoading && (
                 <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
@@ -417,16 +544,13 @@ export default function Portfolio() {
                 </div>
             )}
             <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Portfolio</h2>
-                    <p className="text-base-500 mt-1">Track your performance and risk metrics.</p>
-                </div>
+                <p className="text-base-500">Track your performance and risk metrics.</p>
                 <div className="flex items-center gap-4">
                     <TimeframeSelector />
                     <div className="flex gap-2">
-                        <Button 
-                            variant="secondary" 
-                            onClick={handleSyncPortfolio} 
+                        <Button
+                            variant="secondary"
+                            onClick={handleSyncPortfolio}
                             disabled={isSyncing}
                             className="flex items-center gap-2"
                         >
@@ -438,9 +562,6 @@ export default function Portfolio() {
                             Sync
                         </Button>
                         <Button variant="secondary" onClick={() => revalidator.revalidate()}>Refresh</Button>
-                        <Link to={`/trade${activeSubportfolioObj ? `?sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                            <Button variant="primary">Trade</Button>
-                        </Link>
                         <Button variant="primary">Download Report</Button>
                     </div>
                 </div>
@@ -489,15 +610,16 @@ export default function Portfolio() {
                         </div>
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                            <Select
+                                className="h-[42px]"
                                 value={newPortfolioRisk}
-                                onChange={e => setNewPortfolioRisk(e.target.value)}
-                            >
-                                <option value="Conservative">Conservative</option>
-                                <option value="Moderate">Moderate</option>
-                                <option value="Aggressive">Aggressive</option>
-                            </select>
+                                onChange={setNewPortfolioRisk}
+                                options={[
+                                    { value: "Conservative", label: "Conservative" },
+                                    { value: "Moderate", label: "Moderate" },
+                                    { value: "Aggressive", label: "Aggressive" },
+                                ]}
+                            />
                         </div>
                         <div className="flex-1 space-y-2">
                             <Input
@@ -518,6 +640,16 @@ export default function Portfolio() {
             {activeTab !== "Overall" && !isCreating && activeSubportfolioObj && (
                 <div className="flex justify-end gap-2">
                     <Button variant="secondary" onClick={() => {
+                        setIsManagingCash(!isManagingCash);
+                        setCashError(null);
+                        if (!cashAccountId && accounts.length > 0) {
+                            const defaultId = activeHousehold.default_funding_account_id;
+                            setCashAccountId(defaultId && accounts.some(a => a.id === defaultId) ? defaultId : accounts[0].id);
+                        }
+                    }}>
+                        {isManagingCash ? "Close Cash" : "Manage Cash"}
+                    </Button>
+                    <Button variant="secondary" onClick={() => {
                         setIsEditing(!isEditing);
                         setEditName(activeSubportfolioObj.name);
                         setEditRisk(activeSubportfolioObj.risk_profile);
@@ -529,6 +661,121 @@ export default function Portfolio() {
                         Delete {activeTab}
                     </Button>
                 </div>
+            )}
+
+            {isManagingCash && activeSubportfolioObj && (
+                <Card className="bg-emerald-50/30 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                        {cashError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {cashError}
+                            </div>
+                        )}
+                        <div className="flex items-end gap-4 flex-wrap">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Action</label>
+                                <Select
+                                    className="h-[42px] w-36"
+                                    value={cashDirection}
+                                    onChange={(v) => setCashDirection(v as "deposit" | "withdraw")}
+                                    options={[
+                                        { value: "deposit", label: "Deposit" },
+                                        { value: "withdraw", label: "Withdraw" },
+                                    ]}
+                                />
+                            </div>
+                            <div className="flex-1 min-w-[160px] space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                                    {cashDirection === "deposit" ? "From Account" : "To Account"}
+                                </label>
+                                <Select
+                                    className="h-[42px]"
+                                    value={cashAccountId}
+                                    onChange={setCashAccountId}
+                                    placeholder="No accounts available"
+                                    options={accounts.map(acc => ({ value: acc.id, label: `${acc.name} (${acc.currency})` }))}
+                                />
+                            </div>
+                            <div className="flex-1 min-w-[120px] space-y-2">
+                                <Input
+                                    label={`Amount (${accounts.find(a => a.id === cashAccountId)?.currency || activeHousehold.base_currency || "USD"})`}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="0.00"
+                                    value={cashAmount}
+                                    onChange={e => setCashAmount(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Input
+                                    label="Date"
+                                    type="date"
+                                    value={cashDate}
+                                    onChange={e => setCashDate(e.target.value)}
+                                />
+                            </div>
+                            <Button
+                                variant="primary"
+                                className="h-[42px]"
+                                onClick={handleCashMove}
+                                disabled={isSubmittingCash || accounts.length === 0}
+                            >
+                                {isSubmittingCash ? "Saving..." : (cashDirection === "deposit" ? "Deposit Cash" : "Withdraw Cash")}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {cashDirection === "deposit"
+                                ? `Moves cash from the selected account into ${activeTab}, where it counts toward the portfolio's value until you invest or withdraw it.`
+                                : `Moves uninvested cash out of ${activeTab} back into the selected account.`}
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {priceHolding && (
+                <Card className="bg-secondary-50/30 dark:bg-secondary-900/10 border-secondary-200 dark:border-secondary-800 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                        {priceError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {priceError}
+                            </div>
+                        )}
+                        <div className="flex items-end gap-4 flex-wrap">
+                            <div className="flex-1 min-w-[120px] space-y-2">
+                                <Input
+                                    label={`${priceHolding.ticker} price (${priceHolding.currency})`}
+                                    type="number"
+                                    step="0.0001"
+                                    min="0"
+                                    placeholder="0.00"
+                                    value={priceValue}
+                                    onChange={e => setPriceValue(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Input
+                                    label="As of Date"
+                                    type="date"
+                                    value={priceDate}
+                                    onChange={e => setPriceDate(e.target.value)}
+                                />
+                            </div>
+                            <Button
+                                variant="primary"
+                                className="h-[42px]"
+                                onClick={handleRecordPrice}
+                                disabled={isSubmittingPrice}
+                            >
+                                {isSubmittingPrice ? "Saving..." : "Record Price"}
+                            </Button>
+                            <Button variant="ghost" className="h-[42px]" onClick={() => setPriceHolding(null)}>Cancel</Button>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {priceHolding.ticker} is priced manually. The recorded price applies from the chosen date forward until you record a newer one; valuations are recalculated immediately.
+                        </p>
+                    </CardContent>
+                </Card>
             )}
 
             {isEditing && activeSubportfolioObj && (
@@ -543,15 +790,16 @@ export default function Portfolio() {
                         </div>
                         <div className="flex-1 space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
-                            <select
-                                className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 h-[42px]"
+                            <Select
+                                className="h-[42px]"
                                 value={editRisk}
-                                onChange={e => setEditRisk(e.target.value)}
-                            >
-                                <option value="Conservative">Conservative</option>
-                                <option value="Moderate">Moderate</option>
-                                <option value="Aggressive">Aggressive</option>
-                            </select>
+                                onChange={setEditRisk}
+                                options={[
+                                    { value: "Conservative", label: "Conservative" },
+                                    { value: "Moderate", label: "Moderate" },
+                                    { value: "Aggressive", label: "Aggressive" },
+                                ]}
+                            />
                         </div>
                         <div className="flex-1 space-y-2">
                             <Input
@@ -569,9 +817,13 @@ export default function Portfolio() {
             {/* Top Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                 <StatCard title="Total Equity" value={currentData.stats.equity} />
+                {cashValue > 0 && (
+                    <StatCard title="Cash" value={formatCurrency(cashValue)} trend="neutral" description="Uninvested cash" />
+                )}
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
                 <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title="Div Yield" value={activeMetrics?.dividend_yield != null ? `${(activeMetrics.dividend_yield * 100).toFixed(1)}%` : "—"} />
                 {activeSubportfolioObj?.target_amount && (
                     <StatCard 
                         title="Goal Progress" 
@@ -581,6 +833,9 @@ export default function Portfolio() {
                     />
                 )}
                 <StatCard title="Sharpe Ratio" value={currentData.stats.sharpe} trend="neutral" />
+                <StatCard title="Sortino Ratio" value={currentData.stats.sortino} trend="neutral" />
+                <StatCard title="Treynor Ratio" value={currentData.stats.treynor} trend="neutral" description={`Beta: ${currentData.stats.beta}`} />
+                <StatCard title="Jensen's Alpha" value={currentData.stats.alpha} trend={currentData.stats.alpha.startsWith('-') ? 'down' : currentData.stats.alpha === 'N/A' ? 'neutral' : 'up'} description="vs SPY benchmark" />
             </div>
 
             {/* Equity Curve Chart */}
@@ -680,7 +935,60 @@ export default function Portfolio() {
                 </CardContent>
             </Card>
 
-            {/* Holdings Table */}
+            {/* Allocation + Holdings */}
+            <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6 items-start">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Allocation</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {allocationSlices.length > 0 ? (
+                        <>
+                            <div className="flex justify-center mb-4">
+                                <div
+                                    className="w-[130px] h-[130px] rounded-full flex items-center justify-center"
+                                    style={{
+                                        background: `conic-gradient(${(() => {
+                                            let acc = 0;
+                                            return allocationSlices.map((s, i) => {
+                                                const start = acc;
+                                                acc += s.pct;
+                                                return `${ALLOCATION_COLORS[i % ALLOCATION_COLORS.length]} ${start}% ${acc}%`;
+                                            }).join(", ");
+                                        })()})`,
+                                    }}
+                                >
+                                    <div className="w-20 h-20 rounded-full bg-white dark:bg-base-900 flex flex-col items-center justify-center">
+                                        <div className="font-mono font-bold text-base-900 dark:text-base-50">{currentData.holdings.length}</div>
+                                        <div className="font-mono text-[8px] text-base-500">holdings</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-2 mb-4">
+                                {allocationSlices.map((s, i) => (
+                                    <div key={s.type} className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: ALLOCATION_COLORS[i % ALLOCATION_COLORS.length] }} />
+                                        <span className="flex-1 text-xs text-base-700 dark:text-base-300 capitalize">{s.type.replace('_', ' ')}</span>
+                                        <span className="font-mono text-xs text-base-500">{s.pct.toFixed(0)}%</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="border-t border-base-100 dark:border-base-800 pt-3">
+                                <div className="text-[10px] font-mono uppercase tracking-wider text-base-400 mb-2">FX exposure</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {fxExposure.map(fx => (
+                                        <span key={fx.currency} className="flex-1 text-center bg-base-100 dark:bg-base-800 rounded-lg py-1.5 font-mono text-xs font-semibold text-base-700 dark:text-base-300">
+                                            {fx.currency} {fx.pct.toFixed(0)}%
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-sm text-base-500 text-center py-8">No holdings yet.</div>
+                    )}
+                </CardContent>
+            </Card>
             <Card>
                 <CardHeader>
                     <CardTitle>{activeTab} Holdings</CardTitle>
@@ -760,14 +1068,42 @@ export default function Portfolio() {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <Badge variant={isPositive ? "success" : "error"}>
-                                                    {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
-                                                </Badge>
+                                                {h.assetType === "cash" ? (
+                                                    <span className="text-base-400">—</span>
+                                                ) : (
+                                                    <Badge variant={isPositive ? "success" : "error"}>
+                                                        {isPositive ? "+" : ""}{formatCurrency(totalReturnHome)} ({returnPercent.toFixed(2)}%)
+                                                    </Badge>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
-                                                    <Button variant="ghost" size="sm">Trade</Button>
-                                                </Link>
+                                                {h.assetType === "cash" ? (
+                                                    activeSubportfolioObj && (
+                                                        <Button variant="ghost" size="sm" onClick={() => {
+                                                            setIsManagingCash(true);
+                                                            setCashError(null);
+                                                            if (!cashAccountId && accounts.length > 0) setCashAccountId(accounts[0].id);
+                                                        }}>
+                                                            Manage
+                                                        </Button>
+                                                    )
+                                                ) : (
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {h.pricingMode === "manual" && (
+                                                            <Button variant="ghost" size="sm" className="text-secondary-600 dark:text-secondary-400" onClick={() => {
+                                                                setPriceHolding(h);
+                                                                setPriceValue(h.currentPriceNative > 0 ? String(h.currentPriceNative) : "");
+                                                                setPriceDate(new Date().toISOString().split('T')[0]);
+                                                                setPriceError(null);
+                                                            }}>
+                                                                Price
+                                                            </Button>
+                                                        )}
+                                                        <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
+                                                            <Button variant="ghost" size="sm">Trade</Button>
+                                                        </Link>
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     )
@@ -777,6 +1113,7 @@ export default function Portfolio() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
 
             {/* Dividend Income */}
             <Card>
@@ -847,6 +1184,7 @@ export default function Portfolio() {
                     </div>
                 </CardContent>
             </Card>
+            </div>
         </div>
     )
 }

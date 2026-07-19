@@ -6,11 +6,31 @@ import { Button } from "../../components/ui/Button"
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle } from "lucide-react"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
+import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/Dialog"
 import { Input } from "../../components/ui/Input"
+import { Select } from "../../components/ui/Select"
+import { TopBar } from "../../components/TopBar"
+import { OwnershipTag } from "../../components/ui/OwnershipTag"
+import { useAuth } from "../../lib/AuthContext"
+import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
+import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
+
+function categoryIcon(name: string): string {
+    const low = name.toLowerCase();
+    if (/(food|dining|restaurant|cafe|coffee|lunch|dinner)/.test(low)) return "☕";
+    if (/(transport|taxi|grab|uber|mrt|bus|fuel|petrol)/.test(low)) return "🚕";
+    if (/(grocery|groceries|supermarket|fairprice)/.test(low)) return "🛒";
+    if (/(entertain|movie|netflix|game)/.test(low)) return "🎬";
+    if (/(shop|retail)/.test(low)) return "🛍️";
+    if (/(hous|rent|mortgage)/.test(low)) return "🏠";
+    if (/(salary|income|payroll)/.test(low)) return "💰";
+    if (/(invest|dividend)/.test(low)) return "💵";
+    return "💳";
+}
 
 type UnifiedHistoryItem = {
     id: string;
@@ -30,10 +50,13 @@ type UnifiedHistoryItem = {
     subportfolioName: string | null;
     householdName: string;
     description: string | null;
+    ownerUserId: string | null;
 };
 
 export default function Transactions() {
     const { activeHousehold } = useHousehold()
+    const { user } = useAuth();
+    const { viewMode, hasHousehold } = useViewMode();
     const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
@@ -41,11 +64,18 @@ export default function Transactions() {
     const [filterCategory, setFilterCategory] = useState<string>("all")
     const [filterAccount, setFilterAccount] = useState<string>("all")
     const [filterSubportfolio, setFilterSubportfolio] = useState<string>("all")
+    const [filterFlow, setFilterFlow] = useState<"all" | "income" | "expense">("all")
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState<'transaction' | 'transfer'>('transaction');
+
+    // Inline "new category" mini-form inside the log-transaction dialog
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState("");
+    const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
+    const [isSavingCategory, setIsSavingCategory] = useState(false);
 
     // Form state for normal transactions
     const [formData, setFormData] = useState({
@@ -90,6 +120,27 @@ export default function Transactions() {
             alert("Failed to delete item. Please try again.");
         } finally {
             setIsDeleting(null);
+        }
+    };
+
+    const handleCreateCategory = async () => {
+        if (!newCategoryName.trim()) return;
+        setIsSavingCategory(true);
+        try {
+            const res = await api.post("/cashflow/categories", {
+                household_id: activeHousehold.id,
+                name: newCategoryName.trim(),
+                type: newCategoryType,
+            });
+            setFormData(f => ({ ...f, categoryId: res.data.id }));
+            setNewCategoryName("");
+            setIsCreatingCategory(false);
+            revalidator.revalidate();
+        } catch (error) {
+            console.error("Failed to create category", error);
+            alert("Failed to create category. Please try again.");
+        } finally {
+            setIsSavingCategory(false);
         }
     };
 
@@ -153,11 +204,15 @@ export default function Transactions() {
 
     const isLoading = navigation.state === "loading";
 
+    const tradeTransactionIds = useMemo(
+        () => new Set(trades.map(t => t.transaction_id).filter(Boolean)),
+        [trades]
+    );
+
     const combinedHistory = useMemo(() => {
         // Maps for O(1) lookups
         const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
         const categoryMap = new Map(categories.map(c => [c.id, c.name]));
-        const accountMap = new Map(accounts.map(a => [a.id, a.name]));
         const subportfolioMap = new Map(subportfolios.map(sp => [sp.id, sp.name]));
 
         // 1. Process Trades
@@ -187,13 +242,12 @@ export default function Transactions() {
                 subportfolioId: t.sub_portfolio_id || null,
                 subportfolioName: spName,
                 householdName: activeHousehold.name,
-                description: t.description || null
+                description: t.description || null,
+                ownerUserId: account?.owner_user_id || null
             };
         });
 
         // 2. Process Transactions (Filtering out those linked to trades)
-        const tradeTransactionIds = new Set(trades.map(t => t.transaction_id).filter(Boolean));
-
         const txItems: UnifiedHistoryItem[] = transactions
             .filter(tx => !tradeTransactionIds.has(tx.id))
             .map(tx => {
@@ -227,25 +281,91 @@ export default function Transactions() {
                     subportfolioId: null,
                     subportfolioName: null,
                     householdName: activeHousehold.name,
-                    description: tx.description || null
+                    description: tx.description || null,
+                    ownerUserId: account?.owner_user_id || null
                 };
             });
 
         // 3. Unify and Sort
         return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name]);
+    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds]);
+
+    const isInflow = (type: string) => ['deposit', 'income', 'sell', 'transfer_in'].includes(type);
 
     const filteredHistory = useMemo(() => {
         return combinedHistory.filter(item => {
+            if (!isVisibleInViewMode(item.ownerUserId, viewMode, user?.id)) return false;
             if (filterCategory !== "all" && item.categoryType !== filterCategory) return false;
             if (filterAccount !== "all" && item.accountId !== filterAccount) return false;
             if (filterSubportfolio !== "all") {
                 if (filterSubportfolio === "none" && item.subportfolioId !== null) return false;
                 if (filterSubportfolio !== "none" && item.subportfolioId !== filterSubportfolio) return false;
             }
+            if (filterFlow !== "all" && (filterFlow === "income") !== isInflow(item.type)) return false;
             return true;
         });
-    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio]);
+    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, filterFlow, viewMode, user?.id]);
+
+    const groupedHistory = useMemo(() => {
+        const groups = new Map<string, UnifiedHistoryItem[]>();
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+        filteredHistory.forEach(item => {
+            const d = new Date(item.date); d.setHours(0, 0, 0, 0);
+            const dayLabel = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+            let label: string;
+            if (d.getTime() === today.getTime()) label = `Today · ${dayLabel}`;
+            else if (d.getTime() === yesterday.getTime()) label = `Yesterday · ${dayLabel}`;
+            else label = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+            if (!groups.has(label)) groups.set(label, []);
+            groups.get(label)!.push(item);
+        });
+        return Array.from(groups.entries());
+    }, [filteredHistory]);
+
+    const cashflowData = useMemo(() => {
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const weeks = [0, 1, 2, 3, 4].map(() => ({ in: 0, out: 0 }));
+        let totalIn = 0, totalOut = 0;
+        transactions.forEach(tx => {
+            if (tradeTransactionIds.has(tx.id)) return;
+            const d = new Date(tx.date);
+            if (d < monthStart) return;
+            const account = accounts.find(a => a.id === tx.account_id);
+            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
+            const weekIdx = Math.min(4, Math.floor((d.getDate() - 1) / 7));
+            if (tx.transaction_type === 'income') {
+                weeks[weekIdx].in += homeAmount;
+                totalIn += homeAmount;
+            } else {
+                weeks[weekIdx].out += homeAmount;
+                totalOut += homeAmount;
+            }
+        });
+        const max = Math.max(1, ...weeks.map(w => Math.max(w.in, w.out)));
+        return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
+    }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
+
+    const topCategories = useMemo(() => {
+        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+        const byCategory = new Map<string, number>();
+        transactions.forEach(tx => {
+            if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            const account = accounts.find(a => a.id === tx.account_id);
+            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const name = categoryMap.get(tx.category_id) || "Uncategorized";
+            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
+            byCategory.set(name, (byCategory.get(name) || 0) + homeAmount);
+        });
+        const items = Array.from(byCategory.entries())
+            .map(([name, amount]) => ({ name, amount, icon: categoryIcon(name) }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 4);
+        const max = Math.max(1, ...items.map(c => c.amount));
+        return { items, max };
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
 
     const getIcon = (type: string) => {
         if (type === 'deposit' || type === 'income' || type === 'transfer_in') return <ArrowDownRight className="h-5 w-5 text-green-500" />
@@ -274,22 +394,94 @@ export default function Transactions() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+            <TopBar
+                title="Transactions"
+                commandPlaceholder="coffee 5.20…"
+                cta={
+                    <Button variant="cta" onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
+                        <PlusCircle className="h-4 w-4" />
+                        Log Transaction
+                    </Button>
+                }
+            />
+            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
             {isLoading && (
                 <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />
                     Updating...
                 </div>
             )}
-            <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Transactions</h2>
-                <div className="flex gap-2">
-                    <Button onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
-                        <PlusCircle className="h-4 w-4" />
-                        Log Transaction
-                    </Button>
-                    <Button variant="secondary">Export CSV</Button>
-                </div>
+            <div className="flex justify-end">
+                <Button
+                    variant="secondary"
+                    onClick={() => activeHousehold && downloadFromApi(`/exports/household/${activeHousehold.id}/csv/transactions`)}
+                >
+                    Export CSV
+                </Button>
+            </div>
+
+            {/* Cashflow + Top categories */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                            <CardTitle className="text-sm">Cashflow · {cashflowData.monthLabel}</CardTitle>
+                            <div className="flex items-center gap-4 font-mono text-xs font-semibold">
+                                <span className="text-emerald-600 dark:text-emerald-400">+{cashflowData.totalIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} in</span>
+                                <span className="text-red-500">−{cashflowData.totalOut.toLocaleString(undefined, { maximumFractionDigits: 0 })} out</span>
+                            </div>
+                        </div>
+                        <div className="flex items-end gap-4 h-28">
+                            {cashflowData.weeks.map((w, i) => (
+                                <div key={i} className="flex-1 flex items-end justify-center gap-1 h-full">
+                                    <div className="w-3 rounded-t bg-emerald-500" style={{ height: `${(w.in / cashflowData.max) * 100}%` }} title={`+${w.in.toFixed(0)}`} />
+                                    <div className="w-3 rounded-t bg-red-400" style={{ height: `${(w.out / cashflowData.max) * 100}%` }} title={`-${w.out.toFixed(0)}`} />
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-6">
+                        <CardTitle className="text-sm mb-4">Top categories</CardTitle>
+                        {topCategories.items.length === 0 ? (
+                            <div className="text-sm text-base-500 py-4 text-center">No expenses yet.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {topCategories.items.map(cat => (
+                                    <div key={cat.name}>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
+                                            <span className="font-mono text-xs text-base-500">{cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                        </div>
+                                        <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
+                                            <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / topCategories.max) * 100}%` }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Flow filter chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+                {(["all", "income", "expense"] as const).map(f => (
+                    <button
+                        key={f}
+                        onClick={() => setFilterFlow(f)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors",
+                            filterFlow === f
+                                ? "bg-gradient-to-br from-secondary-500 to-secondary-700 text-white"
+                                : "bg-base-100 dark:bg-base-900 border border-base-200 dark:border-base-800 text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                        )}
+                    >
+                        {f}
+                    </button>
+                ))}
             </div>
 
             {/* Log Transaction Modal */}
@@ -326,70 +518,80 @@ export default function Transactions() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-base-700 dark:text-base-300">Account</label>
-                                <select
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Account"
                                     value={formData.accountId}
-                                    onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
-                                >
-                                    <option value="">Select Account</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(accountId) => setFormData({ ...formData, accountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name }))}
+                                />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-base-700">Category</label>
+                                    <label className="text-sm font-medium text-base-700 dark:text-base-300">Category</label>
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            const name = prompt("Enter category name (e.g. Food, Salary):");
-                                            const type = prompt("Enter type (income/expense):") as "income" | "expense";
-                                            if (name && type) {
-                                                api.post("/cashflow/categories", {
-                                                    household_id: activeHousehold.id,
-                                                    name,
-                                                    type
-                                                }).then(() => revalidator.revalidate());
-                                            }
-                                        }}
+                                        onClick={() => setIsCreatingCategory(!isCreatingCategory)}
                                         className="text-xs text-primary-600 hover:underline"
                                     >
-                                        + New Category
+                                        {isCreatingCategory ? "Cancel" : "+ New Category"}
                                     </button>
                                 </div>
-                                <select
-                                    required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                                    value={formData.categoryId}
-                                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                                >
-                                    <option value="">Select Category</option>
-                                    {categories.map(cat => (
-                                        <option key={cat.id} value={cat.id}>{cat.name} ({cat.type})</option>
-                                    ))}
-                                </select>
+                                {isCreatingCategory ? (
+                                    <div className="space-y-2 rounded-lg border border-dashed border-base-300 dark:border-base-700 p-2">
+                                        <Input
+                                            placeholder="e.g. Food, Salary"
+                                            value={newCategoryName}
+                                            onChange={(e) => setNewCategoryName(e.target.value)}
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex flex-1 p-0.5 bg-base-100 dark:bg-base-900 rounded-md">
+                                                {(["expense", "income"] as const).map(t => (
+                                                    <button
+                                                        key={t}
+                                                        type="button"
+                                                        onClick={() => setNewCategoryType(t)}
+                                                        className={`flex-1 py-1 text-xs font-medium rounded transition-all capitalize ${newCategoryType === t ? 'bg-white dark:bg-base-700 shadow-sm text-base-900 dark:text-base-50' : 'text-base-500 dark:text-base-400'}`}
+                                                    >
+                                                        {t}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                disabled={!newCategoryName.trim() || isSavingCategory}
+                                                onClick={handleCreateCategory}
+                                            >
+                                                {isSavingCategory ? "Adding…" : "Add"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <Select
+                                        required
+                                        placeholder="Select Category"
+                                        value={formData.categoryId}
+                                        onChange={(categoryId) => setFormData({ ...formData, categoryId })}
+                                        options={categories.map(cat => ({ value: cat.id, label: `${cat.name} (${cat.type})` }))}
+                                    />
+                                )}
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Currency</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Currency</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Currency"
                                     value={formData.currency}
-                                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                                >
-                                    <option value="">Select Currency</option>
-                                    {currencies.map(curr => (
-                                        <option key={curr.code} value={curr.code}>{curr.code} - {curr.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(currency) => setFormData({ ...formData, currency })}
+                                    options={currencies.map(curr => ({ value: curr.code, label: `${curr.code} - ${curr.name}` }))}
+                                />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Amount</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
                                 <Input
                                     type="number"
                                     step="0.01"
@@ -403,7 +605,7 @@ export default function Transactions() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Date</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
                                 <Input
                                     type="date"
                                     required
@@ -414,7 +616,7 @@ export default function Transactions() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700">Description</label>
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
                             <Input
                                 placeholder="e.g. Groceries, Dinner, Salary..."
                                 value={formData.description}
@@ -435,38 +637,30 @@ export default function Transactions() {
                     <form onSubmit={handleTransfer} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">From Account</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">From Account</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Source"
                                     value={transferData.fromAccountId}
-                                    onChange={(e) => setTransferData({ ...transferData, fromAccountId: e.target.value })}
-                                >
-                                    <option value="">Select Source</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id} disabled={acc.id === transferData.toAccountId}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(fromAccountId) => setTransferData({ ...transferData, fromAccountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.toAccountId }))}
+                                />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">To Account</label>
-                                <select
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">To Account</label>
+                                <Select
                                     required
-                                    className="w-full rounded-lg border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                    placeholder="Select Destination"
                                     value={transferData.toAccountId}
-                                    onChange={(e) => setTransferData({ ...transferData, toAccountId: e.target.value })}
-                                >
-                                    <option value="">Select Destination</option>
-                                    {accounts.map(acc => (
-                                        <option key={acc.id} value={acc.id} disabled={acc.id === transferData.fromAccountId}>{acc.name}</option>
-                                    ))}
-                                </select>
+                                    onChange={(toAccountId) => setTransferData({ ...transferData, toAccountId })}
+                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.fromAccountId }))}
+                                />
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Amount</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
                                 <Input
                                     type="number"
                                     step="0.01"
@@ -477,7 +671,7 @@ export default function Transactions() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700">Date</label>
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
                                 <Input
                                     type="date"
                                     required
@@ -488,7 +682,7 @@ export default function Transactions() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700">Description</label>
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
                             <Input
                                 placeholder="e.g. Savings transfer, Monthly rent..."
                                 value={transferData.description}
@@ -513,122 +707,132 @@ export default function Transactions() {
                 <CardContent className="pt-6 flex flex-wrap gap-4">
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-base-500 dark:text-base-400">Activity Type</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <Select
+                            className="min-w-40"
                             value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                        >
-                            <option value="all">All Activity</option>
-                            <option value="trade">Trades Only</option>
-                            <option value="transaction">Transactions Only</option>
-                        </select>
+                            onChange={setFilterCategory}
+                            options={[
+                                { value: "all", label: "All Activity" },
+                                { value: "trade", label: "Trades Only" },
+                                { value: "transaction", label: "Transactions Only" },
+                            ]}
+                        />
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-base-500">Account</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <label className="text-xs font-medium text-base-500 dark:text-base-400">Account</label>
+                        <Select
+                            className="min-w-40"
                             value={filterAccount}
-                            onChange={(e) => setFilterAccount(e.target.value)}
-                        >
-                            <option value="all">All Accounts</option>
-                            {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>{acc.name}</option>
-                            ))}
-                        </select>
+                            onChange={setFilterAccount}
+                            options={[
+                                { value: "all", label: "All Accounts" },
+                                ...accounts.map(acc => ({ value: acc.id, label: acc.name })),
+                            ]}
+                        />
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-base-500">Sub-Portfolio</label>
-                        <select
-                            className="w-full rounded-md border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 px-3 py-2 text-sm text-base-900 dark:text-base-50 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        <label className="text-xs font-medium text-base-500 dark:text-base-400">Sub-Portfolio</label>
+                        <Select
+                            className="min-w-40"
                             value={filterSubportfolio}
-                            onChange={(e) => setFilterSubportfolio(e.target.value)}
+                            onChange={setFilterSubportfolio}
                             disabled={filterCategory === "transaction"}
-                        >
-                            <option value="all">All Sub-Portfolios</option>
-                            <option value="none">No Sub-Portfolio</option>
-                            {subportfolios.map(sp => (
-                                <option key={sp.id} value={sp.id}>{sp.name}</option>
-                            ))}
-                        </select>
+                            options={[
+                                { value: "all", label: "All Sub-Portfolios" },
+                                { value: "none", label: "No Sub-Portfolio" },
+                                ...subportfolios.map(sp => ({ value: sp.id, label: sp.name })),
+                            ]}
+                        />
                     </div>
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="overflow-hidden">
                 <CardHeader>
                     <CardTitle>All Activity</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="space-y-4">
-                        {filteredHistory.length === 0 && (
-                            <div className="py-8 text-center text-base-500">
-                                No historical activity found matching these filters.
+                <CardContent className="p-0">
+                    {groupedHistory.length === 0 && (
+                        <div className="py-8 text-center text-base-500">
+                            No historical activity found matching these filters.
+                        </div>
+                    )}
+                    {groupedHistory.map(([label, items]) => (
+                        <div key={label}>
+                            <div className="px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
+                                {label}
                             </div>
-                        )}
-                        {filteredHistory.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between border-b border-base-100 dark:border-base-800 pb-4 last:border-0 last:pb-0">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0">
-                                        {getIcon(item.type)}
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-base-900 dark:text-base-50 capitalize">
-                                            {item.type.startsWith('transfer') ? 'Transfer' : item.type} {item.assetOrCategory !== "UNKNOWN" ? item.assetOrCategory : ""}
-                                        </p>
-                                        {item.description && (
-                                            <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
-                                                {item.description}
-                                            </p>
-                                        )}
-                                        <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">
-                                            <span>{formatDate(item.date)}</span>
-                                            {item.shares && (
-                                                <>
-                                                    <span>•</span>
-                                                    <span>{item.shares} shares</span>
-                                                </>
-                                            )}
+                            <div className="divide-y divide-base-100 dark:divide-base-800">
+                                {items.map((item) => (
+                                    <div key={item.id} className="flex items-center justify-between px-6 py-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-base-50 dark:bg-base-800 shrink-0 text-lg">
+                                                {item.categoryType === 'transaction' && !item.type.startsWith('transfer')
+                                                    ? categoryIcon(item.assetOrCategory)
+                                                    : getIcon(item.type)}
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="font-medium text-base-900 dark:text-base-50 capitalize">
+                                                    {item.type.startsWith('transfer') ? 'Transfer' : item.type} {item.assetOrCategory !== "UNKNOWN" ? item.assetOrCategory : ""}
+                                                </p>
+                                                {item.description && (
+                                                    <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
+                                                        {item.description}
+                                                    </p>
+                                                )}
+                                                <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">
+                                                    <span>{formatDate(item.date)}</span>
+                                                    {item.shares && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span>{item.shares} shares</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                    <Badge variant="neutral">{item.householdName}</Badge>
+                                                    <Badge variant="neutral">{item.accountName}</Badge>
+                                                    {item.subportfolioName && (
+                                                        <Badge variant="neutral">{item.subportfolioName}</Badge>
+                                                    )}
+                                                    <OwnershipTag ownerUserId={item.ownerUserId} show={hasHousehold && viewMode === "blended"} />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            <Badge variant="neutral">{item.householdName}</Badge>
-                                            <Badge variant="neutral">{item.accountName}</Badge>
-                                            {item.subportfolioName && (
-                                                <Badge variant="neutral">{item.subportfolioName}</Badge>
+                                        <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-semibold ${getAmountColor(item.type)}`}>
+                                                    {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
+                                                </span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                                    onClick={() => handleDelete(item)}
+                                                    disabled={isDeleting === item.id}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                            {item.currencyNative !== item.currencyAccount && (
+                                                <span className="text-xs font-medium text-base-500 dark:text-base-400">
+                                                    {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
+                                                </span>
                                             )}
+                                            <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
+                                                {item.status}
+                                            </Badge>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-0.5 shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`font-semibold ${getAmountColor(item.type)}`}>
-                                            {formatAmount(item.type, item.amountAccount, item.currencyAccount)}
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-base-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
-                                            onClick={() => handleDelete(item)}
-                                            disabled={isDeleting === item.id}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {item.currencyNative !== item.currencyAccount && (
-                                        <span className="text-xs font-medium text-base-500 dark:text-base-400">
-                                            {formatAmount(item.type, item.amountNative, item.currencyNative)} {item.currencyNative}
-                                        </span>
-                                    )}
-                                    <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
-                                        {item.status}
-                                    </Badge>
-                                </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    ))}
                 </CardContent>
             </Card>
+            </div>
         </div>
     )
 }

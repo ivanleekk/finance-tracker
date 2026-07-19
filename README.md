@@ -8,18 +8,22 @@ A modern, premium finance management platform designed for young adults to track
 
 -   **Multi-Currency Support**: Automated conversion using historical exchange rates (via yfinance).
 -   **Portfolio Analytics**: Advanced performance metrics including TWR, MWR/IRR, and risk-adjusted ratios (Sharpe, Sortino, Treynor).
--   **Household Management**: Collaborate on finances with family or partners.
+-   **Private vs. Shared Finances**: Every account and goal is either private to you or shared with your household. The Private/Household/Blended switch only appears once a household actually has a second member or pending invite — solo users never see it.
+-   **Household Management**: Collaborate on finances with family or partners, with email-based invites, default expense splits, and per-account sharing controls.
+-   **⌘K Command Bar**: Log an expense, trade, balance update, dividend, or transfer from a single parsed input (`coffee 5.20`, `buy 10 VOO`, `transfer 500 from DBS to IBKR`) — on web via `⌘K`, on mobile via a quick-add sheet. Includes receipt scanning and ticker autocomplete.
+-   **Dividends & Goals**: Dividend income calendar with yield-on-cost, and goal tracking with projected completion dates.
 -   **Real-time Insights**: Dynamic charting for net worth, equity curves, and historical balances.
 -   **Automated Snapshots**: Daily financial snapshots for long-term progress visualization.
 
 ## 🏗 Architecture
 
-The project is built as a monorepo with a decoupled frontend and backend:
+The project is built as a monorepo with a decoupled backend and two frontends:
 
 -   **Backend**: FastAPI (Python 3.14) with SQLAlchemy, Polars for high-performance analytics, and Alembic for migrations.
--   **Frontend**: React 19 + Vite 8, utilizing React Router v7 SSR, Tailwind CSS 4, and Framer Motion for a premium UX.
+-   **Frontend (web)**: React 19 + Vite 8, utilizing React Router v7 SSR, Tailwind CSS 4, and Framer Motion for a premium UX.
+-   **Mobile**: Expo / React Native (TypeScript), covering the same screens and backend as the web app — see [mobile/](./mobile).
 -   **Database**: PostgreSQL 18.
--   **Orchestration**: Docker Compose for local development and containerized deployment.
+-   **Orchestration**: Docker Compose for local development and containerized deployment (backend + web frontend; the mobile app runs via Expo separately, see below).
 
 ## 🛠 Prerequisites
 
@@ -44,26 +48,35 @@ Create `.env` files in both `frontend/` and `backend/` directories. Refer to the
 ```bash
 docker-compose up --build
 ```
+`docker-compose.override.yml` is picked up automatically (no `-f` flags needed) and gives both services live-reload: source is bind-mounted, so edits on the host show up without rebuilding.
+
 The application will be available at:
 -   **Frontend**: `http://localhost:5173`
 -   **Backend API**: `http://localhost:8000`
 -   **API Docs**: `http://localhost:8000/docs`
 
-## ☁️ Deployment (Cloud Run)
-
-The project is configured for automated deployment via Google Cloud Build.
-
-### Automated Deployment
-To trigger a full build and deployment of both services:
+If any of those ports are already taken on your machine, override them without touching the compose files:
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+FRONTEND_PORT=5174 BACKEND_PORT=8001 DB_PORT=5433 docker-compose up --build
+```
+The backend's CORS also accepts any `http://localhost:<port>` origin in addition to `CORS_ORIGINS`, so a frontend dev server running on an unexpected port (a second worktree, another tool) still works without edits.
+
+## 🚀 Deployment (VPS, Docker Compose)
+
+Production runs fully dockerized on a VPS via `docker-compose.prod.yml`:
+Caddy (auto-HTTPS) → frontend SSR + FastAPI backend → Postgres, plus a cron
+container for the daily snapshot job and nightly `pg_dump` backups.
+
+```bash
+cp .env.production.example .env.production   # fill in domains + secrets
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-### Deployment Configuration
--   **Region**: `asia-southeast1` (Default)
--   **Services**: `frontend` and `backend`
--   **Container Registry**: Artifact Registry
--   **Secrets**: Uses Google Secret Manager for `DATABASE_URL`.
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full runbook (VPS setup, DNS,
+data migration, updates, backups/restore).
+
+> The previous Google Cloud Run deployment (`cloudbuild.yaml`) is deprecated
+> and kept only for reference during the transition.
 
 ## 📂 Project Structure
 
@@ -73,13 +86,28 @@ gcloud builds submit --config cloudbuild.yaml
 │   ├── src/            # Source code (routers, models, services)
 │   ├── alembic/        # Database migrations
 │   └── tests/          # Pytest suite
-├── frontend/           # React application
+├── frontend/           # React (web) application
 │   ├── src/            # Source code (pages, components, lib)
 │   ├── public/         # Static assets
 │   └── tailwind.config.ts
-├── docker-compose.yml  # Local infrastructure
+├── mobile/              # Expo / React Native application
+│   └── src/             # Screens, navigation, lib (mirrors frontend/src where practical)
+├── docker-compose.yml  # Local infrastructure (backend + web frontend)
 └── README.md           # This file
 ```
+
+## 📱 Running the mobile app
+
+The mobile app is a separate Expo project and isn't part of `docker-compose`:
+
+```bash
+cd mobile
+npm install
+echo "EXPO_PUBLIC_API_URL=http://localhost:8000" > .env   # or your LAN IP for a physical device
+npx expo start
+```
+
+Note: `expo-secure-store` (used for auth tokens) has no web implementation; on `expo start --web` the app falls back to `localStorage` for local testing (see `mobile/src/lib/storage.ts`). On iOS/Android it uses the real secure keychain/keystore.
 
 ## 📖 Documentation
 

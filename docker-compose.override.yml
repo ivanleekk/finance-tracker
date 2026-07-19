@@ -1,0 +1,41 @@
+services:
+    backend:
+        volumes:
+            - ./backend:/app
+            # /app/.venv is a fresh anonymous volume separate from the bind-mounted
+            # source, so the container's own `uv run` (on every start, via CMD) never
+            # writes a Linux venv into the host's backend/.venv - see the identical
+            # /app/node_modules pattern below for the frontend service.
+            - /app/.venv
+        environment:
+            - DEBUG=true
+            # watchfiles (used by `fastapi dev` --reload) falls back to polling when
+            # native filesystem events don't propagate through the bind mount.
+            - WATCHFILES_FORCE_POLLING=true
+
+    frontend:
+        environment:
+            # Chokidar 3 (bundled inside Vite) reads CHOKIDAR_USEPOLLING itself and it
+            # overrides even explicit watcher options, so EVERY chokidar instance in the
+            # container polls - including @react-router/dev's child Vite compiler, which
+            # discards server.watch from vite.config.ts and would otherwise poll the
+            # whole project every 100ms (chokidar's default). CHOKIDAR_INTERVAL is the
+            # only knob that reaches that watcher; 1s keeps HMR usable while capping the
+            # background stat load.
+            - CHOKIDAR_USEPOLLING=true
+            - CHOKIDAR_INTERVAL=1000
+            # Keep pnpm's content-addressable store off the bind-mounted /app root:
+            # an in-container `pnpm install` otherwise drops ~26k files into
+            # /app/.pnpm-store, which the polling watchers then stat continuously
+            # (this pinned the container at ~100% CPU while idle). node_modules is
+            # already ignored by every watcher and lives on the same volume, so
+            # hardlinking still works.
+            - npm_config_store_dir=/app/node_modules/.pnpm-store
+            # /app/node_modules is a fresh named volume (see below) separate from the
+            # bind-mounted source, so pnpm's dependency-status check always sees it as
+            # out of sync on a clean volume and wants to interactively confirm purging
+            # it - there's no TTY in a detached container, so that prompt just hangs.
+            - CI=true
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules

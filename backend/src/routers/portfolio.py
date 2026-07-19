@@ -7,12 +7,13 @@ from datetime import datetime, date
 
 from src.database import get_db
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.snapshot_engine import run_snapshot_range
-from src.services.dividend_engine import sync_dividends_range
+from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics
-from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates
+from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
+from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -99,8 +100,16 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     # 4. Get asset ticker for description
     asset = db.query(models.Asset).filter(models.Asset.id == db_trade.asset_id).first()
     ticker = asset.ticker if asset else "Unknown"
+
+    # Trades created without an explicit currency inherit the asset's currency
+    if not db_trade.currency:
+        db_trade.currency = (asset.currency if asset else None) or "USD"
     trade_type_str = db_trade.trade_type.value if hasattr(db_trade.trade_type, "value") else str(db_trade.trade_type)
-    description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
+    if asset and asset.type == models.CASH_ASSET_TYPE:
+        verb = "deposit" if trans_type == models.TransactionType.expense else "withdrawal"
+        description = f"Cash {verb}: {db_trade.quantity:g} {asset.currency}"
+    else:
+        description = f"Trade: {trade_type_str.capitalize()} {db_trade.quantity} {ticker}"
 
     if db_trade.transaction_id:
         db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
@@ -175,11 +184,12 @@ def create_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Try to enrich with yfinance data if name is default or currency is missing
+    # Try to enrich with yfinance data if name is default or currency is missing.
+    # Manual-priced assets (unlisted bonds, SSBs) have no market listing to enrich from.
     ticker_name = asset.name
     ticker_currency = asset.currency
 
-    if "Equity" in asset.name or not asset.currency:
+    if asset.pricing_mode != models.PRICING_MODE_MANUAL and ("Equity" in asset.name or not asset.currency):
         try:
             t = yf.Ticker(asset.ticker)
             info = t.info
@@ -196,6 +206,7 @@ def create_asset(
         name=ticker_name,
         type=asset.type,
         currency=ticker_currency.upper() if ticker_currency else "USD",
+        pricing_mode=asset.pricing_mode,
     )
     db.add(db_asset)
     db.commit()
@@ -213,6 +224,8 @@ def fix_all_asset_currencies(
     assets = db.query(models.Asset).all()
     updated_count = 0
     for asset in assets:
+        if asset.pricing_mode == models.PRICING_MODE_MANUAL:
+            continue
         try:
             t = yf.Ticker(asset.ticker)
             info = t.info
@@ -284,6 +297,58 @@ def delete_asset(
     db.commit()
     return
 
+
+@router.post("/assets/{asset_id}/price", response_model=schemas.ManualPriceResponse, status_code=status.HTTP_201_CREATED)
+def record_manual_price(
+    asset_id: uuid.UUID,
+    manual_price: schemas.ManualPriceCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Record a price observation for a manually-priced asset (unlisted bonds,
+    Singapore Savings Bonds, ...). Upserts into market_prices — the snapshot
+    engine forward-fills from the latest recorded price — then re-runs the
+    household's snapshots from that date so valuations update immediately.
+    """
+    verify_household_access(manual_price.household_id, current_user, db)
+
+    db_asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    if not db_asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if db_asset.pricing_mode != models.PRICING_MODE_MANUAL:
+        raise HTTPException(status_code=400, detail="Prices can only be recorded for manually-priced assets")
+    if manual_price.date > date.today():
+        raise HTTPException(status_code=400, detail="Price date cannot be in the future")
+
+    existing = db.query(models.MarketPrice).filter(
+        models.MarketPrice.ticker == db_asset.ticker,
+        models.MarketPrice.date == manual_price.date,
+    ).first()
+    if existing:
+        existing.close_price = manual_price.price
+        existing.currency = db_asset.currency
+    else:
+        db.add(models.MarketPrice(
+            id=uuid.uuid7(),
+            ticker=db_asset.ticker,
+            date=manual_price.date,
+            close_price=manual_price.price,
+            currency=db_asset.currency,
+        ))
+    db.commit()
+
+    # Re-run snapshots synchronously (same pattern as /household/{id}/sync) so
+    # valuations reflect the new price as soon as the response returns.
+    run_snapshot_range(db, manual_price.household_id, manual_price.date, date.today())
+
+    return schemas.ManualPriceResponse(
+        ticker=db_asset.ticker,
+        date=manual_price.date,
+        price=manual_price.price,
+        currency=db_asset.currency,
+    )
+
 # --- SUBPORTFOLIOS ---
 
 @router.post("/subportfolios", response_model=schemas.SubPortfolioResponse, status_code=status.HTTP_201_CREATED)
@@ -301,6 +366,7 @@ def create_subportfolio(
         risk_profile=subportfolio.risk_profile,
         target_date=subportfolio.target_date,
         target_amount=subportfolio.target_amount,
+        owner_user_id=subportfolio.owner_user_id,
     )
     db.add(db_subportfolio)
     db.commit()
@@ -317,7 +383,10 @@ def get_household_subportfolios(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    subportfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
+    subportfolios = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.household_id == household_id,
+        (models.SubPortfolio.owner_user_id.is_(None)) | (models.SubPortfolio.owner_user_id == current_user.id)
+    ).all()
     return subportfolios
 
 @router.get("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
@@ -330,6 +399,7 @@ def get_subportfolio(
     if not sp:
         raise HTTPException(status_code=404, detail="SubPortfolio not found")
     verify_household_access(sp.household_id, current_user, db)
+    verify_private_owner_visibility(sp.owner_user_id, current_user)
     return sp
 
 @router.patch("/subportfolios/{subportfolio_id}", response_model=schemas.SubPortfolioResponse)
@@ -342,8 +412,9 @@ def update_subportfolio(
     db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
     if not db_sp:
         raise HTTPException(status_code=404, detail="SubPortfolio not found")
-    
+
     verify_household_access(db_sp.household_id, current_user, db)
+    verify_private_owner_visibility(db_sp.owner_user_id, current_user)
 
     update_data = update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -364,10 +435,96 @@ def delete_subportfolio(
         raise HTTPException(status_code=404, detail="Sub-portfolio not found")
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
+    verify_private_owner_visibility(db_subportfolio.owner_user_id, current_user)
 
     db.delete(db_subportfolio)
     db.commit()
     return
+
+# --- SUBPORTFOLIO CASH ---
+
+@router.post(
+    "/subportfolios/{subportfolio_id}/cash",
+    response_model=schemas.TradeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def move_subportfolio_cash(
+    subportfolio_id: uuid.UUID,
+    cash: schemas.SubPortfolioCashCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Deposit cash into or withdraw cash from a sub-portfolio. Recorded as a
+    buy/sell trade of the currency's cash pseudo-asset at a price of 1.0, so it
+    flows through the same transaction, balance, snapshot, and performance
+    pipelines as any other trade.
+    """
+    db_sp = db.query(models.SubPortfolio).filter(models.SubPortfolio.id == subportfolio_id).first()
+    if not db_sp:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    if db_sp.household_id != cash.household_id:
+        raise HTTPException(status_code=400, detail="Sub-portfolio does not belong to this household")
+
+    verify_household_access(cash.household_id, current_user, db)
+    verify_private_owner_visibility(db_sp.owner_user_id, current_user)
+
+    db_account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == cash.account_id,
+        models.FinancialAccount.household_id == cash.household_id,
+    ).first()
+    if not db_account:
+        raise HTTPException(status_code=404, detail="Funding account not found in this household")
+
+    asset = get_or_create_cash_asset(db, cash.currency)
+
+    amount = float(cash.amount)
+    if cash.direction == "withdraw":
+        balance = get_subportfolio_cash_balance(db, subportfolio_id, asset.id, cash.date.date())
+        if balance + 1e-6 < amount:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient cash: {balance:.2f} {asset.currency} available on {cash.date.date()}",
+            )
+
+    db_trade = models.Trade(
+        id=uuid.uuid7(),
+        household_id=cash.household_id,
+        sub_portfolio_id=subportfolio_id,
+        asset_id=asset.id,
+        account_id=cash.account_id,
+        trade_type=models.TradeType.buy if cash.direction == "deposit" else models.TradeType.sell,
+        date=cash.date,
+        quantity=amount,
+        price=Decimal("1"),
+        currency=asset.currency,
+        exchange_rate=cash.exchange_rate,
+        description=cash.description,
+    )
+    db.add(db_trade)
+    db.flush()
+    sync_trade_transaction(db, db_trade)
+    db.commit()
+    db.refresh(db_trade)
+
+    # Cash never changes share counts, so no dividend re-sync is needed.
+    run_snapshot_range(db, cash.household_id, cash.date.date(), date.today())
+
+    return schemas.TradeResponse(
+        id=db_trade.id,
+        household_id=db_trade.household_id,
+        sub_portfolio_id=db_trade.sub_portfolio_id,
+        asset_id=db_trade.asset_id,
+        account_id=db_trade.account_id,
+        type=db_trade.trade_type,
+        date=db_trade.date,
+        quantity=db_trade.quantity,
+        price=db_trade.price,
+        currency=db_trade.currency,
+        exchange_rate=db_trade.exchange_rate,
+        transaction_id=db_trade.transaction_id,
+        description=db_trade.description,
+    )
 
 # --- TRADES ---
 
@@ -379,6 +536,48 @@ def execute_trade(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(trade.household_id, current_user, db)
+
+    # Prevent cross-household stitching: a trade may only reference a sub-portfolio
+    # and funding account that live in the same household, and the sub-portfolio
+    # must be visible to the caller (not another member's private goal). Without
+    # this, a user could post a trade whose account_id/sub_portfolio_id belong to
+    # a household they can't see, writing transactions into someone else's books.
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == trade.sub_portfolio_id,
+        models.SubPortfolio.household_id == trade.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    funding_account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == trade.account_id,
+        models.FinancialAccount.household_id == trade.household_id,
+    ).first()
+    if not funding_account:
+        raise HTTPException(status_code=404, detail="Funding account not found in this household")
+    verify_private_owner_visibility(funding_account.owner_user_id, current_user)
+
+    if not db.get(models.Asset, trade.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    if trade.settle_from_cash:
+        asset = db.query(models.Asset).filter(models.Asset.id == trade.asset_id).first()
+        if asset and asset.type == models.CASH_ASSET_TYPE:
+            raise HTTPException(status_code=400, detail="Cannot settle a cash movement from cash.")
+        if trade.type == models.TradeType.buy:
+            account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == trade.account_id).first()
+            if not account:
+                raise HTTPException(status_code=404, detail="Funding account not found")
+            acc_curr = account.currency or "USD"
+            cash_asset = get_or_create_cash_asset(db, acc_curr)
+            amount_in_acc = float(Decimal(str(trade.quantity)) * trade.price * Decimal(str(trade.exchange_rate)))
+            balance = get_subportfolio_cash_balance(db, trade.sub_portfolio_id, cash_asset.id, trade.date.date())
+            if balance + 1e-6 < amount_in_acc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient cash: {balance:.2f} {acc_curr} available on {trade.date.date()}",
+                )
 
     db_trade = models.Trade(
         id=uuid.uuid7(),
@@ -392,10 +591,16 @@ def execute_trade(
         price=trade.price,
         currency=trade.currency,
         exchange_rate=trade.exchange_rate,
+        description=trade.description,
     )
     db.add(db_trade)
     db.flush() # Ensure trade is available for sync
-    sync_trade_transaction(db, db_trade)
+
+    if trade.settle_from_cash:
+        settle_trade_from_cash(db, db_trade)
+    else:
+        sync_trade_transaction(db, db_trade)
+
     db.commit()
     db.refresh(db_trade)
 
@@ -417,6 +622,8 @@ def execute_trade(
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
         transaction_id=db_trade.transaction_id,
+        settlement_trade_id=db_trade.settlement_trade_id,
+        description=db_trade.description,
     )
     return response
 
@@ -445,6 +652,8 @@ def get_household_trades(
             currency=t.currency,
             exchange_rate=t.exchange_rate,
             transaction_id=t.transaction_id,
+            settlement_trade_id=t.settlement_trade_id,
+            description=t.description,
         ) for t in trades
     ]
 
@@ -474,7 +683,13 @@ def update_trade(
     for key, value in update_data.items():
         setattr(db_trade, key, value)
 
-    sync_trade_transaction(db, db_trade)
+    # A trade that was created cash-settled stays cash-settled; we keep its
+    # companion trade in sync rather than exposing settlement mode as editable.
+    if db_trade.settlement_trade_id:
+        settle_trade_from_cash(db, db_trade)
+    else:
+        sync_trade_transaction(db, db_trade)
+
     db.commit()
     db.refresh(db_trade)
 
@@ -496,6 +711,8 @@ def update_trade(
         currency=db_trade.currency,
         exchange_rate=db_trade.exchange_rate,
         transaction_id=db_trade.transaction_id,
+        settlement_trade_id=db_trade.settlement_trade_id,
+        description=db_trade.description,
     )
 
 @router.delete("/trades/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -514,15 +731,30 @@ def delete_trade(
     household_id = db_trade.household_id
     trade_date = db_trade.date.date()
 
-    # Also delete the associated transaction and reverse its impact
-    if db_trade.transaction_id:
-        db_transaction = db.query(models.Transaction).filter(models.Transaction.id == db_trade.transaction_id).first()
-        if db_transaction:
-            multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
-            sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
-            db.delete(db_transaction)
+    # A cash-settled trade always has a companion leg; delete both together
+    # so the sub-portfolio's cash and holdings stay consistent.
+    trades_to_delete = [db_trade]
+    if db_trade.settlement_trade_id:
+        companion = db.query(models.Trade).filter(models.Trade.id == db_trade.settlement_trade_id).first()
+        if companion:
+            trade_date = min(trade_date, companion.date.date())
+            trades_to_delete.append(companion)
 
-    db.delete(db_trade)
+    # Break the mutual settlement link before deleting either row.
+    for t in trades_to_delete:
+        t.settlement_trade_id = None
+    db.flush()
+
+    for t in trades_to_delete:
+        # Also delete the associated transaction and reverse its impact
+        if t.transaction_id:
+            db_transaction = db.query(models.Transaction).filter(models.Transaction.id == t.transaction_id).first()
+            if db_transaction:
+                multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
+                sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+                db.delete(db_transaction)
+        db.delete(t)
+
     db.commit()
 
     # Sync snapshots synchronously for serverless reliability
@@ -634,6 +866,17 @@ def create_portfolio_snapshot(
 ):
     verify_household_access(snapshot.household_id, current_user, db)
 
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == subportfolio_id,
+        models.SubPortfolio.household_id == snapshot.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    if not db.get(models.Asset, snapshot.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     db_snapshot = models.PortfolioSnapshot(
         id=uuid.uuid7(),
         household_id=snapshot.household_id,
@@ -644,7 +887,14 @@ def create_portfolio_snapshot(
         current_price=snapshot.price,
         exchange_rate_used=snapshot.exchange_rate_used,
         current_value_home_currency=snapshot.current_value_home_currency,
-        average_cost_basis=snapshot.averge_cost_basis,
+        average_cost_basis=snapshot.average_cost_basis,
+        average_cost_basis_home_currency=snapshot.average_cost_basis_home_currency
+        if snapshot.average_cost_basis_home_currency is not None
+        else (
+            snapshot.average_cost_basis * Decimal(str(snapshot.exchange_rate_used))
+            if snapshot.average_cost_basis is not None
+            else None
+        ),
     )
     db.add(db_snapshot)
     db.commit()
@@ -660,7 +910,8 @@ def create_portfolio_snapshot(
         price=db_snapshot.current_price,
         exchange_rate_used=db_snapshot.exchange_rate_used,
         current_value_home_currency=db_snapshot.current_value_home_currency,
-        averge_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis_home_currency=db_snapshot.average_cost_basis_home_currency,
     )
 
 @router.get(
@@ -747,7 +998,6 @@ def update_portfolio_snapshot(
     # Map schema fields to db model fields
     field_mapping = {
         'price': 'current_price',
-        'averge_cost_basis': 'average_cost_basis'
     }
 
     for schema_key, value in update_data.items():
@@ -767,7 +1017,8 @@ def update_portfolio_snapshot(
         price=db_snapshot.current_price,
         exchange_rate_used=db_snapshot.exchange_rate_used,
         current_value_home_currency=db_snapshot.current_value_home_currency,
-        averge_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis=db_snapshot.average_cost_basis,
+        average_cost_basis_home_currency=db_snapshot.average_cost_basis_home_currency,
     )
 
 @router.delete("/subportfolios/snapshot/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -828,6 +1079,24 @@ def log_dividend(
 ):
     verify_household_access(dividend.household_id, current_user, db)
 
+    sub_portfolio = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == dividend.sub_portfolio_id,
+        models.SubPortfolio.household_id == dividend.household_id,
+    ).first()
+    if not sub_portfolio:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    verify_private_owner_visibility(sub_portfolio.owner_user_id, current_user)
+
+    account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == dividend.account_id,
+        models.FinancialAccount.household_id == dividend.household_id,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found in this household")
+
+    if not db.get(models.Asset, dividend.asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     db_dividend = models.Dividend(
         id=uuid.uuid7(),
         household_id=dividend.household_id,
@@ -870,6 +1139,7 @@ def sync_household_dividends(
     # Ensure snapshot holdings are fresh before deriving dividends.
     run_snapshot_range(db, household_id, sync_start_date, today)
     count = sync_dividends_range(db, household_id, sync_start_date, today)
+    count += materialize_scheduled_dividends(db, household_id)
 
     return schemas.DividendSyncResponse(status="success", count=count, from_date=sync_start_date, to_date=today)
 
@@ -883,6 +1153,10 @@ def get_household_dividends(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
+    # Materialize any coupon/scheduled payments that have come due, so the list
+    # is current whenever the Dividends or Portfolio page is opened. Cheap no-op
+    # (one indexed query) when nothing is due.
+    materialize_scheduled_dividends(db, household_id)
     dividends = db.query(models.Dividend).filter(models.Dividend.household_id == household_id).all()
     return dividends
 
@@ -920,6 +1194,131 @@ def delete_dividend(
     verify_household_access(db_dividend.household_id, current_user, db)
 
     db.delete(db_dividend)
+    db.commit()
+    return
+
+# --- SCHEDULED DIVIDENDS (bond coupons, SSB step-up schedules) ---
+
+@router.post(
+    "/scheduled-dividends",
+    response_model=List[schemas.ScheduledDividendResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_scheduled_dividends(
+    items: List[schemas.ScheduledDividendCreate],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Create one or more scheduled dividend payments (a bond's whole coupon
+    calendar in one call — amounts may differ per row for step-up coupons).
+    Any rows whose payment date has already passed are materialized immediately.
+    """
+    if not items:
+        raise HTTPException(status_code=400, detail="No scheduled dividends provided")
+
+    household_ids = {item.household_id for item in items}
+    if len(household_ids) > 1:
+        raise HTTPException(status_code=400, detail="All scheduled dividends must belong to one household")
+    household_id = items[0].household_id
+    verify_household_access(household_id, current_user, db)
+
+    # Validate referenced entities once (all rows in a batch typically share them).
+    for sp_id in {item.sub_portfolio_id for item in items}:
+        sp = db.query(models.SubPortfolio).filter(
+            models.SubPortfolio.id == sp_id,
+            models.SubPortfolio.household_id == household_id,
+        ).first()
+        if not sp:
+            raise HTTPException(status_code=404, detail="Sub-portfolio not found in this household")
+    for acc_id in {item.account_id for item in items}:
+        acc = db.query(models.FinancialAccount).filter(
+            models.FinancialAccount.id == acc_id,
+            models.FinancialAccount.household_id == household_id,
+        ).first()
+        if not acc:
+            raise HTTPException(status_code=404, detail="Account not found in this household")
+    for asset_id in {item.asset_id for item in items}:
+        if not db.get(models.Asset, asset_id):
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+    created = []
+    for item in items:
+        row = models.ScheduledDividend(
+            id=uuid.uuid7(),
+            household_id=item.household_id,
+            sub_portfolio_id=item.sub_portfolio_id,
+            asset_id=item.asset_id,
+            account_id=item.account_id,
+            date=item.date,
+            amount=item.amount,
+            description=item.description,
+        )
+        db.add(row)
+        created.append(row)
+    db.commit()
+    for row in created:
+        db.refresh(row)
+
+    # Back-dated rows (e.g. a bond bought years ago) become dividends right away.
+    materialize_scheduled_dividends(db, household_id)
+    for row in created:
+        db.refresh(row)
+    return created
+
+
+@router.get(
+    "/scheduled-dividends/household/{household_id}",
+    response_model=List[schemas.ScheduledDividendResponse],
+)
+def get_household_scheduled_dividends(
+    household_id: uuid.UUID,
+    include_materialized: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    verify_household_access(household_id, current_user, db)
+    query = db.query(models.ScheduledDividend).filter(
+        models.ScheduledDividend.household_id == household_id
+    )
+    if not include_materialized:
+        query = query.filter(models.ScheduledDividend.materialized_at.is_(None))
+    return query.order_by(models.ScheduledDividend.date.asc()).all()
+
+
+@router.put("/scheduled-dividends/{scheduled_dividend_id}", response_model=schemas.ScheduledDividendResponse)
+def update_scheduled_dividend(
+    scheduled_dividend_id: uuid.UUID,
+    update: schemas.ScheduledDividendUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    row = db.query(models.ScheduledDividend).filter(models.ScheduledDividend.id == scheduled_dividend_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Scheduled dividend not found")
+    verify_household_access(row.household_id, current_user, db)
+    if row.materialized_at is not None:
+        raise HTTPException(status_code=400, detail="Already paid out — edit the dividend itself instead")
+
+    update_data = update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/scheduled-dividends/{scheduled_dividend_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_scheduled_dividend(
+    scheduled_dividend_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    row = db.query(models.ScheduledDividend).filter(models.ScheduledDividend.id == scheduled_dividend_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Scheduled dividend not found")
+    verify_household_access(row.household_id, current_user, db)
+    db.delete(row)
     db.commit()
     return
 
@@ -993,26 +1392,45 @@ def delete_exchange_rate(
     return
 
 
+METRICS_BENCHMARK_TICKER = "SPY"
+
+def _refresh_metrics_market_data(db: Session, household_id: uuid.UUID):
+    """Best-effort refresh of the risk-free rate (^IRX) and benchmark (SPY)
+    series used by performance metrics. Never blocks metrics calculation."""
+    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
+    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
+        try:
+            fetch_and_cache_treasury_rates(db)
+        except Exception as e:
+            print(f"Failed to fetch treasury rates: {e}")
+
+    last_bench = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == METRICS_BENCHMARK_TICKER).order_by(models.MarketPrice.date.desc()).first()
+    if not last_bench or last_bench.date < date.today() - timedelta(days=2):
+        try:
+            earliest_snapshot = db.query(func.min(models.PortfolioSnapshot.date)).filter(
+                models.PortfolioSnapshot.household_id == household_id
+            ).scalar()
+            if earliest_snapshot:
+                fetch_and_cache_market_prices_range(
+                    db, [METRICS_BENCHMARK_TICKER], earliest_snapshot, date.today()
+                )
+        except Exception as e:
+            print(f"Failed to fetch benchmark prices: {e}")
+
+
 # Note: This is where we will eventually put the Polars math endpoints!
 @router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
 def get_portfolio_metrics(
-    household_id: uuid.UUID, 
+    household_id: uuid.UUID,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    
-    # Ensure fresh risk-free rate data (^IRX)
-    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
-    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
-        try:
-            fetch_and_cache_treasury_rates(db)
-        except Exception as e:
-            # Don't block metrics calculation if yfinance fails
-            print(f"Failed to fetch treasury rates: {e}")
-    
+
+    _refresh_metrics_market_data(db, household_id)
+
     # 1. Calculate overall metrics
     overall = calculate_performance_metrics(db, household_id, start_date=start_date, end_date=end_date)
     
@@ -1047,14 +1465,8 @@ def get_subportfolio_metrics(
         raise HTTPException(status_code=404, detail="Sub-portfolio not found")
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
-    
-    # Ensure fresh risk-free rate data (^IRX)
-    last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
-    if not last_rf or last_rf.date < date.today() - timedelta(days=2):
-        try:
-            fetch_and_cache_treasury_rates(db)
-        except Exception as e:
-            print(f"Failed to fetch treasury rates: {e}")
+
+    _refresh_metrics_market_data(db, db_subportfolio.household_id)
 
     metrics = calculate_performance_metrics(
         db, 

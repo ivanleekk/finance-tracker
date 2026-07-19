@@ -32,13 +32,16 @@ export async function action({ request }: ActionFunctionArgs) {
             return { error: `Server error (${response.status}). Please check backend logs.` };
         }
 
-        // CRITICAL: Grab the cookie the backend just set
-        const setCookieHeader = response.headers.get("Set-Cookie");
+        // CRITICAL: Forward every cookie the backend just set (access + refresh).
+        // headers.get("Set-Cookie") would merge them into one comma-joined header,
+        // and the browser would silently drop the refresh token.
+        const headers = new Headers();
+        for (const cookie of response.headers.getSetCookie()) {
+            headers.append("Set-Cookie", cookie);
+        }
 
-        // Redirect to dashboard and forward the cookie to the browser
-        return redirect("/dashboard", {
-            headers: setCookieHeader ? { "Set-Cookie": setCookieHeader } : undefined,
-        });
+        // Redirect to dashboard and forward the cookies to the browser
+        return redirect("/dashboard", { headers });
 
     } catch (err) {
         console.error("Login fetch failed:", err);
@@ -96,7 +99,7 @@ export default function Login() {
                 </div>
 
                 {/* Button Container */}
-                <div className="flex justify-between items-center gap-4">
+                <div className="grid grid-cols-2 items-center gap-4">
                     <Button
                         type="submit"
                         disabled={isLoading}

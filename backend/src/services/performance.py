@@ -73,14 +73,15 @@ def calculate_performance_metrics(
         pl.col("total_value").shift(1).alias("prev_value")
     ])
 
-    # Calculate Daily Returns for ALL historical data first
-    # return_t = (Value_t + CF_t) / Value_t-1
-    # Note: df_cf amount is negative for Buys (contributions), so we subtract it to get gain
-    # Actually, if amount is -100 (Buy), then Value_t includes that 100.
-    # To get performance: (Value_t - amount) / Value_t-1
-    # Example: prev=1000, buy=100, new_val=1110. Return = (1110 - 100) / 1000 = 1.01 (1%)
+    # Calculate Daily Returns for ALL historical data first.
+    # df_cf uses the MWR sign convention: buys (external contributions) are
+    # NEGATIVE, sells (withdrawals) are POSITIVE. The external flow into the
+    # tracked portfolio is therefore F_t = -amount, and the flow-adjusted daily
+    # return is (Value_t - F_t) / Value_t-1 - 1 = (Value_t + amount) / Value_t-1 - 1.
+    # Example: prev=1000, buy=100 (amount=-100), new_val=1110.
+    # Return = (1110 - 100) / 1000 - 1 = 1% — the deposit itself is not a gain.
     df_history = df_history.with_columns([
-        ((pl.col("total_value") - pl.col("amount")) / pl.col("prev_value") - 1.0)
+        ((pl.col("total_value") + pl.col("amount")) / pl.col("prev_value") - 1.0)
         .fill_null(0.0)
         .alias("daily_return")
     ])
@@ -113,13 +114,18 @@ def calculate_performance_metrics(
     # Total Value / Total Contributions (within window, starting from base value)
     start_val = df_filtered["total_value"].head(1).item()
     end_val = df_filtered["total_value"].tail(1).item()
-    # Net contributions in the window (excluding the starting balance)
-    # Filter cf to the window
+    window_start = df_filtered["date"].head(1).item()
+    window_end = df_filtered["date"].tail(1).item()
+    # Net contributions in the window (excluding the starting balance).
+    # Flows on or before the first snapshot date are already embedded in
+    # start_val, so only flows strictly after it count — even when no
+    # start_date filter was requested (otherwise the initial investment
+    # would be double-counted against the starting balance).
     df_cf_window = df_cf
-    if start_date:
-        df_cf_window = df_cf_window.filter(pl.col("date") > start_date) # Only CFs *after* the start date
-    if end_date:
-        df_cf_window = df_cf_window.filter(pl.col("date") <= end_date)
+    if not df_cf.is_empty():
+        df_cf_window = df_cf.filter(
+            (pl.col("date") > window_start) & (pl.col("date") <= window_end)
+        )
     
     net_cf_window = -df_cf_window["amount"].sum() if not df_cf_window.is_empty() else 0.0
     denominator = start_val + net_cf_window
@@ -156,11 +162,67 @@ def calculate_performance_metrics(
 
     sharpe = (ann_twr - effective_rf) / annualized_vol if annualized_vol > 0 else 0.0
 
-    # Sortino
-    downside_returns = df_filtered.filter(pl.col("daily_return") < 0)["daily_return"]
-    ds_std = downside_returns.std()
-    downside_vol = float(ds_std) * np.sqrt(252) if ds_std is not None else 0.0
-    sortino = (ann_twr - effective_rf) / downside_vol if downside_vol > 0 else (0.0 if (ann_twr - effective_rf) <= 0 else 100.0)
+    # Sortino: downside deviation is the root-mean-square of returns below the
+    # 0% daily target, taken over ALL observations (not the std-dev of only the
+    # negative returns — that would be 0 for a portfolio losing a steady 1%/day).
+    daily_returns_np = df_filtered["daily_return"].to_numpy()
+    downside_sq = np.square(np.minimum(daily_returns_np, 0.0))
+    downside_vol = float(np.sqrt(downside_sq.mean()) * np.sqrt(252)) if downside_sq.size > 0 else 0.0
+    excess_return = ann_twr - effective_rf
+    if downside_vol > 0:
+        sortino = excess_return / downside_vol
+    else:
+        # No losing days in the window: cap rather than divide by zero
+        sortino = 100.0 if excess_return > 0 else 0.0
+
+    # --- E2. Benchmark-relative metrics: beta, Treynor ratio, Jensen's alpha ---
+    beta: Optional[float] = None
+    alpha: Optional[float] = None
+    treynor: Optional[float] = None
+    bench_query = (
+        select(MarketPrice.date, MarketPrice.close_price)
+        .where(MarketPrice.ticker == benchmark_ticker)
+        .order_by(MarketPrice.date)
+    )
+    bench_rows = db.execute(bench_query).all()
+    if bench_rows:
+        df_bench_prices = pl.DataFrame([
+            {"date": r.date, "bench_price": float(r.close_price)} for r in bench_rows
+        ]).with_columns(pl.col("date").cast(pl.Date)).sort("date")
+        df_bench = df_bench_prices.with_columns(
+            (pl.col("bench_price") / pl.col("bench_price").shift(1) - 1.0).alias("bench_return")
+        ).drop_nulls("bench_return")
+
+        # Pair portfolio and benchmark returns on their common dates
+        df_joined = df_filtered.select(["date", "daily_return"]).join(
+            df_bench.select(["date", "bench_return"]), on="date", how="inner"
+        ).sort("date")
+
+        if df_joined.height >= 2:
+            port_r = df_joined["daily_return"].to_numpy()
+            bench_r = df_joined["bench_return"].to_numpy()
+            bench_var = float(np.var(bench_r, ddof=1))
+            if bench_var > 0:
+                beta = float(np.cov(port_r, bench_r, ddof=1)[0, 1] / bench_var)
+
+                # Annualized benchmark return over the overlapping window.
+                # The return on the first joined date measures growth from the
+                # PREVIOUS benchmark close, so the covered period starts there.
+                bench_cum = float(np.prod(1.0 + bench_r)) - 1.0
+                first_ret_date = df_joined["date"].min()
+                prior_dates = df_bench_prices.filter(pl.col("date") < first_ret_date)["date"]
+                period_start = prior_dates.max() if prior_dates.len() > 0 else first_ret_date
+                bench_days = (df_joined["date"].max() - period_start).days
+                bench_years = bench_days / 365.25 if bench_days > 0 else 0
+                if bench_years > 0 and bench_cum > -1:
+                    bench_ann = (1 + bench_cum) ** (1 / bench_years) - 1
+                else:
+                    bench_ann = bench_cum
+
+                # Jensen's alpha: actual return minus the CAPM-expected return
+                alpha = ann_twr - (effective_rf + beta * (bench_ann - effective_rf))
+                # Treynor: excess return per unit of systematic (market) risk
+                treynor = excess_return / beta if abs(beta) > 1e-9 else None
 
     # --- F. Dividend Income & Trailing Yield ---
     # Dividends are credited to cash accounts and are NOT part of the asset
@@ -186,8 +248,9 @@ def calculate_performance_metrics(
         volatility=annualized_vol,
         sharpe_ratio=sharpe,
         sortino_ratio=sortino,
-        treynor_ratio=(ann_twr - effective_rf) / 1.0, # Default beta=1
-        beta=1.0,
+        treynor_ratio=treynor,
+        alpha=alpha,
+        beta=beta,
         dividend_income=dividend_income,
         dividend_yield=dividend_yield
     )
@@ -200,8 +263,9 @@ def _empty_metrics() -> schemas.PerformanceMetrics:
         volatility=0.0,
         sharpe_ratio=0.0,
         sortino_ratio=0.0,
-        treynor_ratio=0.0,
-        beta=1.0
+        treynor_ratio=None,
+        alpha=None,
+        beta=None
     )
 
 def _calculate_xirr(cash_flows: List[Dict], guess: float = 0.1) -> float:

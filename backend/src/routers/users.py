@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime, timezone
 from src.database import get_db
 from src import schemas, models
 from src.auth import (
@@ -12,6 +13,78 @@ from src.auth import (
 import uuid
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+def _is_household_owner(db: Session, household_id: uuid.UUID, user: models.User) -> bool:
+    """True if the user is the household's real owner (owners_id on the household)."""
+    household = (
+        db.query(models.Household).filter(models.Household.id == household_id).first()
+    )
+    return bool(household and household.owner_id == user.id)
+
+
+def _guard_owner_role_change(
+    db: Session,
+    household_id: uuid.UUID,
+    current_user: models.User,
+    *,
+    target_role=None,
+    target_user_id=None,
+) -> None:
+    """Blocks privilege escalation around the ``owner`` role.
+
+    Only the household's real owner may hand out the ``owner`` role or touch the
+    owner's own membership row. Without this, any editor (who passes the
+    owner/editor role gate on these endpoints) could promote themselves to owner
+    or demote the real owner.
+    """
+    caller_is_owner = _is_household_owner(db, household_id, current_user)
+    if target_role is not None and target_role == models.HouseholdRoleType.owner and not caller_is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the household owner can assign the owner role",
+        )
+    if target_user_id is not None and not caller_is_owner:
+        household = (
+            db.query(models.Household).filter(models.Household.id == household_id).first()
+        )
+        if household and household.owner_id == target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the household owner can modify the owner's membership",
+            )
+
+
+def resolve_pending_invites(db: Session, user: models.User) -> None:
+    """Auto-accepts any pending household invites matching this user's email
+    (e.g. someone was invited before they had an account, or before they logged in)."""
+    pending = (
+        db.query(models.HouseholdInvite)
+        .filter(
+            models.HouseholdInvite.email == user.email,
+            models.HouseholdInvite.status == models.HouseholdInviteStatus.pending,
+        )
+        .all()
+    )
+    for invite in pending:
+        already_member = (
+            db.query(models.HouseholdMember)
+            .filter(
+                models.HouseholdMember.user_id == user.id,
+                models.HouseholdMember.household_id == invite.household_id,
+            )
+            .first()
+        )
+        if not already_member:
+            db.add(models.HouseholdMember(
+                id=uuid.uuid7(),
+                household_id=invite.household_id,
+                user_id=user.id,
+                role=invite.role,
+            ))
+        invite.status = models.HouseholdInviteStatus.accepted
+    if pending:
+        db.commit()
 
 
 @router.post(
@@ -44,6 +117,9 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+
+    # 5. Auto-join any household this email was already invited to
+    resolve_pending_invites(db, db_user)
 
     return db_user
 
@@ -101,6 +177,12 @@ def update_user(
         existing_user.secondary_color = user_update.secondary_color
     if user_update.base_color is not None:
         existing_user.base_color = user_update.base_color
+    if user_update.hide_private_from_household is not None:
+        existing_user.hide_private_from_household = user_update.hide_private_from_household
+    if user_update.require_face_id_for_vault is not None:
+        existing_user.require_face_id_for_vault = user_update.require_face_id_for_vault
+    if user_update.default_new_items_private is not None:
+        existing_user.default_new_items_private = user_update.default_new_items_private
 
     if user_update.email is not None:
         # Check if the new email is already taken by another user
@@ -118,14 +200,9 @@ def update_user(
 def delete_user(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
 ):
-    existing_user = db.query(models.User).filter(models.User.id == user_id).first()
+    existing_user = db.query(models.User).filter(models.User.id == current_user.id).first()
     if not existing_user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    if existing_user.id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not authorized to delete this user"
-        )
 
     db.delete(existing_user)
     db.commit()
@@ -148,6 +225,7 @@ def create_household(
         base_currency=household.base_currency,
         country_code=household.country_code,
         owner_id=current_user.id,
+        default_split_mode=household.default_split_mode,
     )
     db.add(new_household)
     db.commit()
@@ -235,6 +313,8 @@ def update_household(
         existing_household.default_funding_account_id = household_update.default_funding_account_id
     if household_update.default_sub_portfolio_id is not None:
         existing_household.default_sub_portfolio_id = household_update.default_sub_portfolio_id
+    if household_update.default_split_mode is not None:
+        existing_household.default_split_mode = household_update.default_split_mode
 
     db.commit()
     db.refresh(existing_household)
@@ -274,6 +354,7 @@ def add_household_member(
     verify_household_access(
         member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    _guard_owner_role_change(db, member.household_id, current_user, target_role=member.role)
 
     # check if user already exists in this specific household
     existing_member = (
@@ -310,26 +391,24 @@ def get_all_household_members(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(household_id, current_user, db)
-    members = (
-        db.query(models.HouseholdMember)
+    rows = (
+        db.query(models.HouseholdMember, models.User)
+        .outerjoin(models.User, models.User.id == models.HouseholdMember.user_id)
         .filter(models.HouseholdMember.household_id == household_id)
         .all()
     )
 
-    result = []
-    for m in members:
-        user = db.query(models.User).filter(models.User.id == m.user_id).first()
-        result.append(
-            {
-                "id": m.id,
-                "user_id": m.user_id,
-                "household_id": m.household_id,
-                "role": m.role,
-                "name": user.name if user else "Unknown",
-                "email": user.email if user else "Unknown",
-            }
-        )
-    return result
+    return [
+        {
+            "id": m.id,
+            "user_id": m.user_id,
+            "household_id": m.household_id,
+            "role": m.role,
+            "name": user.name if user else "Unknown",
+            "email": user.email if user else "Unknown",
+        }
+        for m, user in rows
+    ]
 
 
 @router.get(
@@ -380,6 +459,13 @@ def update_household_member(
     verify_household_access(
         existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    _guard_owner_role_change(
+        db,
+        existing_member.household_id,
+        current_user,
+        target_role=member_update.role,
+        target_user_id=existing_member.user_id,
+    )
 
     existing_member.role = member_update.role
     db.commit()
@@ -404,7 +490,195 @@ def remove_household_member(
     verify_household_access(
         existing_member.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
     )
+    # The household owner's own membership can't be deleted out from under them
+    # by another member (that would orphan the household).
+    _guard_owner_role_change(
+        db,
+        existing_member.household_id,
+        current_user,
+        target_user_id=existing_member.user_id,
+    )
 
     db.delete(existing_member)
     db.commit()
     return {"detail": "Household member removed successfully"}
+
+
+# --- HOUSEHOLD INVITES ---
+
+
+@router.post(
+    "/households/{household_id}/invites",
+    response_model=schemas.HouseholdInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def invite_household_member(
+    household_id: uuid.UUID,
+    invite: schemas.HouseholdInviteCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(
+        household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+    _guard_owner_role_change(db, household_id, current_user, target_role=invite.role)
+
+    existing_user = db.query(models.User).filter(models.User.email == invite.email).first()
+    if existing_user:
+        already_member = (
+            db.query(models.HouseholdMember)
+            .filter(
+                models.HouseholdMember.user_id == existing_user.id,
+                models.HouseholdMember.household_id == household_id,
+            )
+            .first()
+        )
+        if already_member:
+            raise HTTPException(status_code=400, detail="User already in household")
+
+    existing_invite = (
+        db.query(models.HouseholdInvite)
+        .filter(
+            models.HouseholdInvite.household_id == household_id,
+            models.HouseholdInvite.email == invite.email,
+            models.HouseholdInvite.status == models.HouseholdInviteStatus.pending,
+        )
+        .first()
+    )
+    if existing_invite:
+        raise HTTPException(status_code=400, detail="An invite is already pending for this email")
+
+    new_invite = models.HouseholdInvite(
+        id=uuid.uuid7(),
+        household_id=household_id,
+        email=invite.email,
+        role=invite.role,
+        invited_by_user_id=current_user.id,
+        status=models.HouseholdInviteStatus.pending,
+    )
+    db.add(new_invite)
+    db.commit()
+    db.refresh(new_invite)
+
+    # If the invited email already belongs to a user, join them immediately.
+    if existing_user:
+        resolve_pending_invites(db, existing_user)
+        db.refresh(new_invite)
+
+    return new_invite
+
+
+@router.get(
+    "/households/{household_id}/invites",
+    response_model=List[schemas.HouseholdInviteResponse],
+    status_code=status.HTTP_200_OK,
+)
+def get_household_invites(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(household_id, current_user, db)
+    return (
+        db.query(models.HouseholdInvite)
+        .filter(
+            models.HouseholdInvite.household_id == household_id,
+            models.HouseholdInvite.status == models.HouseholdInviteStatus.pending,
+        )
+        .all()
+    )
+
+
+@router.post(
+    "/invites/{invite_id}/resend",
+    response_model=schemas.HouseholdInviteResponse,
+    status_code=status.HTTP_200_OK,
+)
+def resend_household_invite(
+    invite_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    invite = db.query(models.HouseholdInvite).filter(models.HouseholdInvite.id == invite_id).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    verify_household_access(
+        invite.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+    invite.created_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(invite)
+    return invite
+
+
+@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_household_invite(
+    invite_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    invite = db.query(models.HouseholdInvite).filter(models.HouseholdInvite.id == invite_id).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    verify_household_access(
+        invite.household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+    db.delete(invite)
+    db.commit()
+    return
+
+
+# --- DEFAULT EXPENSE SPLIT ---
+
+
+@router.put(
+    "/households/{household_id}/split-shares",
+    response_model=List[schemas.HouseholdSplitShareResponse],
+    status_code=status.HTTP_200_OK,
+)
+def set_household_split_shares(
+    household_id: uuid.UUID,
+    shares: List[schemas.HouseholdSplitShareCreate],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(
+        household_id, current_user, db, required_roles=[models.HouseholdRoleType.owner, models.HouseholdRoleType.editor]
+    )
+    db.query(models.HouseholdSplitShare).filter(
+        models.HouseholdSplitShare.household_id == household_id
+    ).delete()
+    new_rows = [
+        models.HouseholdSplitShare(
+            id=uuid.uuid7(),
+            household_id=household_id,
+            user_id=share.user_id,
+            share_percent=share.share_percent,
+        )
+        for share in shares
+    ]
+    db.add_all(new_rows)
+    db.commit()
+    return (
+        db.query(models.HouseholdSplitShare)
+        .filter(models.HouseholdSplitShare.household_id == household_id)
+        .all()
+    )
+
+
+@router.get(
+    "/households/{household_id}/split-shares",
+    response_model=List[schemas.HouseholdSplitShareResponse],
+    status_code=status.HTTP_200_OK,
+)
+def get_household_split_shares(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(household_id, current_user, db)
+    return (
+        db.query(models.HouseholdSplitShare)
+        .filter(models.HouseholdSplitShare.household_id == household_id)
+        .all()
+    )

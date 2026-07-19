@@ -1,5 +1,7 @@
 .env*
+!.env.production.example
 __pycache__/
 .idea/
 .react-router/
 .DS_Store
+backup_data/

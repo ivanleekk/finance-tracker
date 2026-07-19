@@ -233,7 +233,7 @@ def test_get_household_subportfolios_unauthorized(client, other_auth_headers, te
     assert response.status_code == 403
 
 def test_update_subportfolio(client, auth_headers, test_subportfolio):
-    response = client.put(
+    response = client.patch(
         f"/portfolio/subportfolios/{test_subportfolio.id}",
         headers=auth_headers,
         json={"risk_profile": "medium"}
@@ -242,7 +242,7 @@ def test_update_subportfolio(client, auth_headers, test_subportfolio):
     assert response.json()["risk_profile"] == "medium"
 
 def test_update_subportfolio_not_found(client, auth_headers):
-    response = client.put(
+    response = client.patch(
         f"/portfolio/subportfolios/{uuid.uuid7()}",
         headers=auth_headers,
         json={"risk_profile": "medium"}
@@ -250,7 +250,7 @@ def test_update_subportfolio_not_found(client, auth_headers):
     assert response.status_code == 404
 
 def test_update_subportfolio_unauthorized(client, other_auth_headers, test_subportfolio):
-    response = client.put(
+    response = client.patch(
         f"/portfolio/subportfolios/{test_subportfolio.id}",
         headers=other_auth_headers,
         json={"risk_profile": "medium"}
@@ -384,7 +384,7 @@ def test_create_snapshot(client, auth_headers, test_household, test_subportfolio
             "price": "150.00",
             "exchange_rate_used": 1.0,
             "current_value_home_currency": "15000.00",
-            "averge_cost_basis": "140.00"
+            "average_cost_basis": "140.00"
         }
     )
     assert response.status_code == 201
