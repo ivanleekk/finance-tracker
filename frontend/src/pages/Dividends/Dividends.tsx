@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { TopBar } from "../../components/TopBar";
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { summarizeDividends } from "../../lib/dividends";
 import api from "../../lib/api";
@@ -15,7 +15,8 @@ import type { DividendsLoaderData } from "./dividends.loader";
 
 export { dividendsLoader as loader } from "./dividends.loader";
 
-const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_LABELS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function addMonths(iso: string, months: number): string {
     const [y, m, d] = iso.split("-").map(Number);
@@ -35,10 +36,18 @@ export default function Dividends() {
     const formatCurrency = (value: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(value);
 
+    // Dividend amounts are often small (e.g. $43.50), so the chart keeps cents.
+    const formatCurrencyPrecise = (value: number) =>
+        new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 2 }).format(value);
+
+    const formatCompactCurrency = (value: number) =>
+        new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(value);
+
     const summary = useMemo(() => summarizeDividends(dividends, assets, snapshots), [dividends, assets, snapshots]);
 
     const chartData = useMemo(() => summary.calendar.map(m => ({
         month: MONTH_LABELS[m.month],
+        monthFull: MONTH_LABELS_FULL[m.month],
         received: m.received,
         projected: m.projected,
     })), [summary.calendar]);
@@ -152,22 +161,83 @@ export default function Dividends() {
                         </div>
                         <div className="flex items-center gap-4 text-xs text-base-500 dark:text-base-400">
                             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-secondary-500 inline-block" /> Received</span>
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-secondary-900 inline-block" /> Projected</span>
+                            <span
+                                className="flex items-center gap-1.5"
+                            >
+                                <span
+                                    className="w-2.5 h-2.5 rounded-sm inline-block"
+                                    style={{ background: "repeating-linear-gradient(45deg, var(--color-secondary-500) 0 1.5px, transparent 1.5px 4px)" }}
+                                />
+                                Projected
+                            </span>
                         </div>
                     </CardHeader>
                     <CardContent>
                         <div className="h-[220px] w-full">
                             <ResponsiveContainer width="100%" height="100%" minHeight={220}>
-                                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <defs>
+                                        {/* Diagonal stripes mark projected (not-yet-received) income. */}
+                                        <pattern id="dividendProjectedStripes" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+                                            <line x1="0" y1="0" x2="0" y2="5" stroke="var(--color-secondary-500)" strokeWidth="2.5" />
+                                        </pattern>
+                                    </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
-                                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: 'var(--color-base-400)', fontSize: 12 }} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--color-base-400)', fontSize: 12 }} tickFormatter={(v) => `$${v}`} />
+                                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: 'var(--color-base-400)', fontSize: 12 }} dy={6} interval={0} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--color-base-400)', fontSize: 12 }} tickFormatter={(v) => formatCompactCurrency(Number(v))} />
                                     <Tooltip
-                                        formatter={(value) => formatCurrency(Number(value))}
-                                        contentStyle={{ background: 'var(--color-base-50)', border: '1px solid var(--color-base-200)', borderRadius: 8 }}
+                                        cursor={{ fill: 'var(--color-base-400)', fillOpacity: 0.08 }}
+                                        content={({ active, payload }) => {
+                                            if (!active || !payload || payload.length === 0) return null;
+                                            const row = payload[0].payload as { monthFull: string; received: number; projected: number };
+                                            const total = row.received + row.projected;
+                                            return (
+                                                <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl">
+                                                    <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                        {row.monthFull} {new Date().getFullYear()}
+                                                    </p>
+                                                    {total === 0 ? (
+                                                        <p className="text-sm text-base-500 dark:text-base-400 italic">No dividend income</p>
+                                                    ) : (
+                                                        <div className="space-y-1.5">
+                                                            {row.received > 0 && (
+                                                                <div className="flex items-center justify-between gap-6">
+                                                                    <span className="flex items-center gap-1.5 text-sm text-base-500 dark:text-base-400">
+                                                                        <span className="w-2.5 h-2.5 rounded-sm bg-secondary-500 inline-block" /> Received
+                                                                    </span>
+                                                                    <span className="text-sm font-bold font-mono text-base-900 dark:text-base-50">{formatCurrencyPrecise(row.received)}</span>
+                                                                </div>
+                                                            )}
+                                                            {row.projected > 0 && (
+                                                                <div className="flex items-center justify-between gap-6">
+                                                                    <span className="flex items-center gap-1.5 text-sm text-base-500 dark:text-base-400">
+                                                                        <span
+                                                                            className="w-2.5 h-2.5 rounded-sm inline-block"
+                                                                            style={{ background: "repeating-linear-gradient(45deg, var(--color-secondary-500) 0 1.5px, transparent 1.5px 4px)" }}
+                                                                        /> Projected
+                                                                    </span>
+                                                                    <span className="text-sm font-bold font-mono text-base-900 dark:text-base-50">{formatCurrencyPrecise(row.projected)}</span>
+                                                                </div>
+                                                            )}
+                                                            {row.received > 0 && row.projected > 0 && (
+                                                                <div className="pt-1.5 mt-1.5 border-t border-base-200 dark:border-base-800 flex items-center justify-between gap-6">
+                                                                    <span className="text-sm font-medium text-base-900 dark:text-base-50">Total</span>
+                                                                    <span className="text-sm font-bold font-mono text-base-900 dark:text-base-50">{formatCurrencyPrecise(total)}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        }}
                                     />
-                                    <Bar dataKey="received" stackId="a" fill="var(--color-secondary-500)" radius={[3, 3, 0, 0]} />
-                                    <Bar dataKey="projected" stackId="a" fill="var(--color-secondary-900)" radius={[3, 3, 0, 0]} />
+                                    <Bar dataKey="received" stackId="a" fill="var(--color-secondary-500)" maxBarSize={24}>
+                                        {/* Round the top only when this segment IS the top of the stack. */}
+                                        {chartData.map((d, i) => (
+                                            <Cell key={i} radius={(d.projected > 0 ? [0, 0, 0, 0] : [4, 4, 0, 0]) as unknown as number} />
+                                        ))}
+                                    </Bar>
+                                    <Bar dataKey="projected" stackId="a" fill="url(#dividendProjectedStripes)" radius={[4, 4, 0, 0]} maxBarSize={24} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
