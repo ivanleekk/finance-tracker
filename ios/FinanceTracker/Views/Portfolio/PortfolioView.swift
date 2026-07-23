@@ -11,6 +11,7 @@ struct PortfolioView: View {
     @State private var metrics: PortfolioMetricsResponse?
     @State private var isLoading = true
     @State private var showingAddTrade = false
+    @State private var showingMoveCash = false
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -110,12 +111,20 @@ struct PortfolioView: View {
             .navigationTitle("Portfolio")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddTrade = true
+                    Menu {
+                        Button {
+                            showingAddTrade = true
+                        } label: {
+                            Label("Log Trade", systemImage: "arrow.left.arrow.right")
+                        }
+                        Button {
+                            showingMoveCash = true
+                        } label: {
+                            Label("Move Cash", systemImage: "banknote")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Log Trade")
                     .disabled(subPortfolios.isEmpty)
                 }
             }
@@ -125,6 +134,17 @@ struct PortfolioView: View {
                         householdId: household.id,
                         subPortfolios: subPortfolios,
                         assets: assets,
+                        accounts: accounts
+                    ) {
+                        await load()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingMoveCash) {
+                if let household = session.activeHousehold {
+                    CashMoveFormView(
+                        householdId: household.id,
+                        subPortfolios: subPortfolios,
                         accounts: accounts
                     ) {
                         await load()

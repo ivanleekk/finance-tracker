@@ -191,6 +191,136 @@ struct TradeFormView: View {
     }
 }
 
+/// Deposit cash into (or withdraw it from) a sub-portfolio, moving money to/from a
+/// funding account. Buys settled from cash draw on this balance.
+struct CashMoveFormView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let householdId: String
+    let subPortfolios: [SubPortfolioResponse]
+    let accounts: [AccountResponse]
+    let onSaved: () async -> Void
+
+    private enum Direction: String, CaseIterable, Identifiable {
+        case deposit, withdraw
+        var id: String { rawValue }
+        var label: String { self == .deposit ? "Deposit" : "Withdraw" }
+    }
+
+    @State private var subPortfolioId: String?
+    @State private var accountId: String?
+    @State private var direction: Direction = .deposit
+    @State private var amountText = ""
+    @State private var date = Date()
+    @State private var description = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private var amount: Double? { Double(amountText.replacingOccurrences(of: ",", with: "")) }
+
+    private var fundingCurrency: String {
+        accounts.first { $0.id == accountId }?.currency ?? "USD"
+    }
+
+    private var canSave: Bool {
+        amount ?? 0 > 0 && subPortfolioId != nil && accountId != nil && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Direction", selection: $direction) {
+                        ForEach(Direction.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                }
+
+                Section {
+                    Picker("Sub-Portfolio", selection: $subPortfolioId) {
+                        Text("Select").tag(String?.none)
+                        ForEach(subPortfolios) { sp in
+                            Text(sp.name).tag(String?.some(sp.id))
+                        }
+                    }
+                    Picker("Account", selection: $accountId) {
+                        Text("Select").tag(String?.none)
+                        ForEach(accounts) { account in
+                            Text(account.name).tag(String?.some(account.id))
+                        }
+                    }
+                } footer: {
+                    Text(direction == .deposit
+                         ? "Moves cash from the account into the sub-portfolio."
+                         : "Returns cash from the sub-portfolio to the account.")
+                }
+
+                Section {
+                    HStack {
+                        Text("Amount (\(fundingCurrency))")
+                        TextField("0.00", text: $amountText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    TextField("Description (optional)", text: $description)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Move Cash")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(!canSave)
+                }
+            }
+            .onAppear {
+                if subPortfolioId == nil { subPortfolioId = subPortfolios.first?.id }
+                if accountId == nil { accountId = accounts.first?.id }
+            }
+        }
+    }
+
+    private func save() {
+        guard let amount, let subPortfolioId, let accountId else { return }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            defer { isSaving = false }
+            do {
+                let body = SubPortfolioCashCreate(
+                    householdId: householdId,
+                    accountId: accountId,
+                    direction: direction.rawValue,
+                    amount: amount,
+                    currency: fundingCurrency,
+                    date: date,
+                    exchangeRate: 1.0,
+                    description: description.isEmpty ? nil : description
+                )
+                let _: TradeResponse = try await APIClient.shared.post(
+                    "/portfolio/subportfolios/\(subPortfolioId)/cash", body: body
+                )
+                await onSaved()
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
 /// Create a tradable asset (ticker/name/type/currency/pricing mode).
 struct AssetCreateView: View {
     @Environment(\.dismiss) private var dismiss

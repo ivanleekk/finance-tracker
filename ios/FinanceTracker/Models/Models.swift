@@ -318,6 +318,19 @@ struct TradeCreate: Encodable {
     let settleFromCash: Bool
 }
 
+/// POST /portfolio/subportfolios/{id}/cash (schemas.SubPortfolioCashCreate).
+/// Moves cash between a funding account and a sub-portfolio's cash pseudo-asset.
+struct SubPortfolioCashCreate: Encodable {
+    let householdId: String
+    let accountId: String
+    let direction: String  // "deposit" | "withdraw"
+    let amount: Double
+    let currency: String
+    let date: Date
+    let exchangeRate: Double
+    let description: String?
+}
+
 /// Minimal decode of POST /portfolio/trades (schemas.TradeResponse).
 struct TradeResponse: Codable, Identifiable {
     let id: String
