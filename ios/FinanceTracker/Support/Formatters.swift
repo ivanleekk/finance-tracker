@@ -38,4 +38,16 @@ extension Date {
     var monthYear: String {
         formatted(.dateTime.month(.wide).year())
     }
+
+    /// "yyyy-MM-dd" in UTC, for backend `date`-typed fields. Pydantic's `date`
+    /// rejects a datetime with a non-zero time, and DatePicker carries the current
+    /// time-of-day — so date-only bodies must send a bare date string. UTC matches
+    /// how DateParser reads date-only values back, so seeded dates round-trip.
+    var apiDateOnly: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: self)
+    }
 }

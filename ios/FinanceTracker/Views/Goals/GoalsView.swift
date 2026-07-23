@@ -251,7 +251,7 @@ struct GoalTargetEditView: View {
                     body: SubPortfolioUpdate(
                         name: cleanName,
                         targetAmount: targetAmount,
-                        targetDate: hasTargetDate ? targetDate : nil
+                        targetDate: hasTargetDate ? targetDate.apiDateOnly : nil
                     )
                 )
                 await onSaved()

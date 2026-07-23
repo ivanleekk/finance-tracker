@@ -12,6 +12,7 @@ struct PortfolioView: View {
     @State private var isLoading = true
     @State private var showingAddTrade = false
     @State private var showingMoveCash = false
+    @State private var pricingAsset: AssetResponse?
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -89,11 +90,15 @@ struct PortfolioView: View {
                 ForEach(holdingsBySubPortfolio, id: \.subPortfolio.id) { group in
                     Section {
                         ForEach(group.holdings) { holding in
-                            HoldingRow(
-                                holding: holding,
-                                asset: assets.first { $0.id == holding.assetId },
-                                baseCurrency: baseCurrency
-                            )
+                            let asset = assets.first { $0.id == holding.assetId }
+                            let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
+                            // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
+                            if let asset, asset.isManualPriced {
+                                Button { pricingAsset = asset } label: { row }
+                                    .buttonStyle(.plain)
+                            } else {
+                                row
+                            }
                         }
                     } header: {
                         HStack {
@@ -105,6 +110,14 @@ struct PortfolioView: View {
                             Text(group.holdings.reduce(0) { $0 + $1.currentValueHomeCurrency }
                                 .compactCurrency(baseCurrency))
                         }
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        DividendsView()
+                    } label: {
+                        Label("Dividends", systemImage: "dollarsign.circle")
                     }
                 }
             }
@@ -147,6 +160,13 @@ struct PortfolioView: View {
                         subPortfolios: subPortfolios,
                         accounts: accounts
                     ) {
+                        await load()
+                    }
+                }
+            }
+            .sheet(item: $pricingAsset) { asset in
+                if let household = session.activeHousehold {
+                    RecordPriceView(asset: asset, householdId: household.id) {
                         await load()
                     }
                 }

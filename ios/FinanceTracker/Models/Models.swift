@@ -209,9 +209,10 @@ struct BalanceResponse: Codable, Identifiable {
 
 /// POST /accounts/balances (schemas.BalanceCreate). Records/overwrites the manual
 /// balance on `date`; the backend creates a reconciliation transaction for the delta.
+/// `date` is a bare "yyyy-MM-dd" string (a `date` field — see Date.apiDateOnly).
 struct BalanceCreate: Encodable {
     let accountId: String
-    let date: Date
+    let date: String
     let balance: Double
     let isManual: Bool
 }
@@ -287,8 +288,26 @@ struct AssetResponse: Codable, Identifiable, Hashable {
     let name: String
     let type: String
     let currency: String
+    let pricingMode: String?
 
     var isCash: Bool { type == "cash" }
+    var isManualPriced: Bool { pricingMode == "manual" }
+}
+
+/// POST /portfolio/assets/{id}/price (schemas.ManualPriceCreate). Only valid for
+/// manually-priced assets; re-runs snapshots so valuations update immediately.
+/// `date` is a bare "yyyy-MM-dd" string (a `date` field — see Date.apiDateOnly).
+struct ManualPriceCreate: Encodable {
+    let householdId: String
+    let date: String
+    let price: Double
+}
+
+struct ManualPriceResponse: Codable {
+    let ticker: String
+    let date: Date
+    @MoneyAmount var price: Double
+    let currency: String
 }
 
 /// POST /portfolio/assets (schemas.AssetCreate). The id is client-generated.
@@ -352,10 +371,11 @@ struct SubPortfolioResponse: Codable, Identifiable, Hashable {
 
 /// PATCH /portfolio/subportfolios/{id} (schemas.SubPortfolioUpdate). Used to set a
 /// goal's name and target. Only sent fields change; nil target fields are left as-is.
+/// `targetDate` is a bare "yyyy-MM-dd" string (a `date` field — see Date.apiDateOnly).
 struct SubPortfolioUpdate: Encodable {
     let name: String
     let targetAmount: Double?
-    let targetDate: Date?
+    let targetDate: String?
 }
 
 struct PortfolioSnapshotResponse: Codable, Identifiable {

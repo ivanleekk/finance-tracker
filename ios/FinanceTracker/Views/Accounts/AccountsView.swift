@@ -387,7 +387,7 @@ struct AddBalanceView: View {
             do {
                 let _: BalanceResponse = try await APIClient.shared.post(
                     "/accounts/balances",
-                    body: BalanceCreate(accountId: account.id, date: date, balance: amount, isManual: true)
+                    body: BalanceCreate(accountId: account.id, date: date.apiDateOnly, balance: amount, isManual: true)
                 )
                 await onSaved()
                 dismiss()
