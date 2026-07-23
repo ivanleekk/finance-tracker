@@ -12,6 +12,11 @@ extension Double {
         Self.symbol(for: code) + formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
     }
 
+    /// Whole-dollar currency ("SGD 29,856"), matching the web goal/report pages.
+    func currencyWhole(_ code: String) -> String {
+        formatted(.currency(code: code).precision(.fractionLength(0)))
+    }
+
     private static var symbolCache: [String: String] = [:]
 
     private static func symbol(for code: String) -> String {

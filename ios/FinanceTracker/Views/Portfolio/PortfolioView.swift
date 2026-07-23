@@ -15,7 +15,6 @@ struct PortfolioView: View {
     @State private var showingAddTrade = false
     @State private var showingMoveCash = false
     @State private var pricingAsset: AssetResponse?
-    @State private var editingGoal: SubPortfolioResponse?
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -67,6 +66,46 @@ struct PortfolioView: View {
         holdings.reduce(0) { $0 + $1.currentValueHomeCurrency }
     }
 
+    // MARK: Performance grid
+
+    private let statColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
+    /// Cost basis of the current holdings, in home currency.
+    private var costBasisTotal: Double {
+        latestHoldings.reduce(0) { $0 + $1.averageCostBasisHomeCurrency * $1.quantity }
+    }
+
+    private var unrealizedPL: Double { totalValue - costBasisTotal }
+
+    /// Prefer the backend's simple return; fall back to unrealized/cost basis (mirrors web).
+    private var unrealizedPercent: Double {
+        let simple = metrics?.overallMetrics.simpleReturn ?? 0
+        if simple != 0 { return simple }
+        return costBasisTotal > 0 ? unrealizedPL / costBasisTotal : 0
+    }
+
+    private var divYieldString: String {
+        guard let yield = metrics?.overallMetrics.dividendYield else { return "—" }
+        return yield.formatted(.percent.precision(.fractionLength(1)))
+    }
+
+    @ViewBuilder private var performanceTiles: some View {
+        let m = metrics?.overallMetrics
+        StatTile(
+            title: "Unrealized P&L",
+            value: unrealizedPL.currency(baseCurrency),
+            subtitle: unrealizedPercent.signedPercent,
+            tint: unrealizedPL >= 0 ? .green : .red
+        )
+        StatTile(title: "Div Yield", value: divYieldString)
+        StatTile(title: "TWR (Ann.)", value: StatTile.percentString(m?.timeWeightedReturn), tint: StatTile.returnTint(m?.timeWeightedReturn))
+        StatTile(title: "IRR / MWR", value: StatTile.percentString(m?.moneyWeightedReturn), tint: StatTile.returnTint(m?.moneyWeightedReturn))
+        StatTile(title: "Sharpe", value: StatTile.ratioString(m?.sharpeRatio))
+        StatTile(title: "Sortino", value: StatTile.ratioString(m?.sortinoRatio))
+        StatTile(title: "Treynor", value: StatTile.ratioString(m?.treynorRatio), subtitle: "Beta \(StatTile.ratioString(m?.beta))")
+        StatTile(title: "Jensen's α", value: StatTile.percentString(m?.alpha), subtitle: "vs SPY", tint: StatTile.returnTint(m?.alpha))
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -101,22 +140,25 @@ struct PortfolioView: View {
                         .padding(.vertical, 4)
                     }
 
-                    if let overall = metrics?.overallMetrics {
-                        HStack {
-                            MetricCell(title: "Simple", value: overall.simpleReturn)
-                            Divider()
-                            MetricCell(title: "TWR", value: overall.timeWeightedReturn)
-                            Divider()
-                            MetricCell(title: "MWR", value: overall.moneyWeightedReturn)
+                }
+
+                if !latestHoldings.isEmpty {
+                    Section {
+                        LazyVGrid(columns: statColumns, spacing: 10) {
+                            performanceTiles
                         }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    } header: {
+                        Text("Performance")
                     }
                 }
 
                 ForEach(holdingsBySubPortfolio, id: \.subPortfolio.id) { group in
                     Section {
-                        // Goal target/progress for this sub-portfolio; tap to set or edit.
-                        Button {
-                            editingGoal = group.subPortfolio
+                        // Goal target/progress for this sub-portfolio; tap for the full goal page.
+                        NavigationLink {
+                            GoalDetailView(goal: group.subPortfolio) { await load() }
                         } label: {
                             GoalProgressRow(
                                 currentValue: currentValue(of: group.holdings),
@@ -126,7 +168,6 @@ struct PortfolioView: View {
                                 baseCurrency: baseCurrency
                             )
                         }
-                        .buttonStyle(.plain)
 
                         ForEach(group.holdings) { holding in
                             let asset = assets.first { $0.id == holding.assetId }
@@ -215,9 +256,6 @@ struct PortfolioView: View {
                     }
                 }
             }
-            .sheet(item: $editingGoal) { goal in
-                GoalTargetEditView(subPortfolio: goal) { await load() }
-            }
             .overlay {
                 if isLoading && snapshots.isEmpty {
                     LoadingSkeleton(showsHeader: true)
@@ -251,20 +289,50 @@ struct PortfolioView: View {
     }
 }
 
-private struct MetricCell: View {
+/// A compact stat card for the portfolio performance grid (and dashboard header).
+struct StatTile: View {
     let title: String
-    let value: Double
+    let value: String
+    var subtitle: String? = nil
+    var tint: Color = .primary
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(value.signedPercent)
-                .font(.subheadline.monospacedDigit().bold())
-                .foregroundStyle(value >= 0 ? .green : .red)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.monospacedDigit().weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+    }
+
+    /// "1.23" for a risk ratio, or "N/A" when the backend has no value (no benchmark data).
+    static func ratioString(_ value: Double?) -> String {
+        value.map { String(format: "%.2f", $0) } ?? "N/A"
+    }
+
+    /// A signed percentage from a fraction, or "N/A" when absent.
+    static func percentString(_ value: Double?) -> String {
+        value.map(\.signedPercent) ?? "N/A"
+    }
+
+    /// Green for gains, red for losses, primary for zero/absent.
+    static func returnTint(_ value: Double?) -> Color {
+        guard let value, value != 0 else { return .primary }
+        return value > 0 ? .green : .red
     }
 }
 

@@ -18,10 +18,13 @@ struct DashboardView: View {
     @State private var snapshots: [PortfolioSnapshotResponse] = []
     @State private var subPortfolios: [SubPortfolioResponse] = []
     @State private var assets: [AssetResponse] = []
+    @State private var metrics: PortfolioMetricsResponse?
     @State private var isLoading = true
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
+
+    private let statColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     // MARK: View-mode visibility
 
@@ -187,6 +190,20 @@ struct DashboardView: View {
                     }
                 }
 
+                if !latestHoldings.isEmpty {
+                    Section("Returns") {
+                        LazyVGrid(columns: statColumns, spacing: 10) {
+                            let m = metrics?.overallMetrics
+                            StatTile(title: "Overall Return", value: StatTile.percentString(m?.simpleReturn), tint: StatTile.returnTint(m?.simpleReturn))
+                            StatTile(title: "TWR (Ann.)", value: StatTile.percentString(m?.timeWeightedReturn), tint: StatTile.returnTint(m?.timeWeightedReturn))
+                            StatTile(title: "IRR / MWR", value: StatTile.percentString(m?.moneyWeightedReturn), tint: StatTile.returnTint(m?.moneyWeightedReturn))
+                            StatTile(title: "Sharpe", value: StatTile.ratioString(m?.sharpeRatio))
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    }
+                }
+
                 if !topHoldings.isEmpty {
                     Section {
                         HStack {
@@ -288,6 +305,10 @@ struct DashboardView: View {
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
             (accounts, balances, transactions, categories, snapshots, subPortfolios, assets) =
                 try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, subPortfoliosReq, assetsReq)
+            // Metrics are secondary — don't fail the whole dashboard if they error out.
+            if let m: PortfolioMetricsResponse = try? await APIClient.shared.get("/portfolio/household/\(household.id)/metrics") {
+                metrics = m
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

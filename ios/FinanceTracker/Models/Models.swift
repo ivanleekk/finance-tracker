@@ -483,6 +483,12 @@ struct PerformanceMetrics: Codable {
     let moneyWeightedReturn: Double
     let volatility: Double
     let sharpeRatio: Double
+    let sortinoRatio: Double
+    /// nil when there's no benchmark data (beta unknown).
+    let treynorRatio: Double?
+    /// Jensen's alpha vs benchmark; nil when there's no benchmark data.
+    let alpha: Double?
+    let beta: Double?
     let dividendIncome: Double?
     let dividendYield: Double?
 }

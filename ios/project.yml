@@ -15,6 +15,11 @@ targets:
     platform: iOS
     sources:
       - FinanceTracker
+    # Declare the scheme here so `xcodegen generate` always (re)creates a shared scheme.
+    # Without this, the generated .xcodeproj has NO scheme and Xcode can't build/run until
+    # it auto-creates one — and every regenerate would wipe it again.
+    scheme:
+      testTargets: []
     info:
       path: FinanceTracker/Info.plist
       properties:
