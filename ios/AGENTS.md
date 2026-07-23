@@ -18,13 +18,20 @@ FinanceTracker/
   Support/Formatters.swift   # currency/percent/date formatting helpers
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
-  Views/                     # Tab bar (5): Dashboard, Goals, Portfolio, Transactions, More (+ Auth)
-                             #   Accounts is NOT a tab — reached from Dashboard's Accounts section ("See All" →
-                             #     Accounts/AccountsListView, which has no NavigationStack of its own).
-                             #   Accounts/  = account create/edit (AccountFormView), manual balance entry
-                             #     (AddBalanceView, POST /accounts/balances), account detail chart/history.
-                             #   Goals/     = life-milestone goals = sub-portfolios with a target; progress vs
-                             #     target from latest snapshot. Target editable via PATCH /portfolio/subportfolios/{id}.
+  Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
+                             #   Accounts/  = the Accounts tab (AccountsListView, wrapped in a NavigationStack by
+                             #     MainTabView; also pushed from Dashboard rows) + account create/edit
+                             #     (AccountFormView), manual balance entry (AddBalanceView, POST /accounts/balances),
+                             #     account detail chart/history. Dashboard's "See All" switches to this tab.
+                             #   Goals are NOT a tab — a "goal" is a sub-portfolio with a target, shown per
+                             #     sub-portfolio inside the Portfolio tab (GoalProgressRow, tap to edit via
+                             #     GoalTargetEditView → PATCH /portfolio/subportfolios/{id}). Goals/GoalsView.swift
+                             #     holds those components (the old standalone GoalsView tab was removed).
+                             #   QuickAdd/  = the command bar (QuickAddView), an options-first quick-add opened by
+                             #     pulling down ANY main List (`.pullDownToQuickAdd` repurposes pull-to-refresh via
+                             #     QuickAddStore). Pick a mode (expense/income/transfer/trade/dividend/balance),
+                             #     fill fields, Log; on submit it bumps QuickAddStore.reloadToken so open screens
+                             #     reload. Presented from MainTabView; store lives in the environment (app root).
                              #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
                              #     transfers are not editable here) + CategoriesView (category CRUD,
                              #     also reached from More → Categories and inline from the New Transaction sheet).

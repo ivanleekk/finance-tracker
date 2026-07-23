@@ -1,164 +1,62 @@
 import SwiftUI
 
-/// Life-milestone goals. A "goal" is a sub-portfolio with a target amount/date; progress
-/// is its latest-snapshot value against that target. Targets are editable here.
-struct GoalsView: View {
-    @Environment(SessionStore.self) private var session
+// Goals are sub-portfolios with a target amount/date. They no longer have their own
+// tab — progress is shown per sub-portfolio inside the Portfolio tab. This file holds
+// the reusable goal-progress row and the target editor used from there.
 
-    @State private var subPortfolios: [SubPortfolioResponse] = []
-    @State private var snapshots: [PortfolioSnapshotResponse] = []
-    @State private var isLoading = true
-    @State private var editing: SubPortfolioResponse?
-    @State private var errorMessage: String?
-
-    private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
-
-    /// Holdings on the most recent snapshot date only.
-    private var latestHoldings: [PortfolioSnapshotResponse] {
-        guard let latest = snapshots.map(\.date).max() else { return [] }
-        return snapshots.filter { $0.date == latest }
-    }
-
-    private func currentValue(of subPortfolioId: String) -> Double {
-        latestHoldings
-            .filter { $0.subPortfolioId == subPortfolioId }
-            .reduce(0) { $0 + $1.currentValueHomeCurrency }
-    }
-
-    /// Sub-portfolios that are goals: they have a target, or already hold value.
-    private var goals: [SubPortfolioResponse] {
-        subPortfolios
-            .filter { $0.targetAmount != nil || currentValue(of: $0.id) > 0 }
-            .sorted { ($0.targetDate ?? .distantFuture) < ($1.targetDate ?? .distantFuture) }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(goals) { goal in
-                    Section {
-                        GoalCard(
-                            goal: goal,
-                            currentValue: currentValue(of: goal.id),
-                            baseCurrency: baseCurrency,
-                            accent: session.theme.primary.accent
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { editing = goal }
-                    }
-                }
-            }
-            .navigationTitle("Goals")
-            .overlay {
-                if isLoading && subPortfolios.isEmpty {
-                    ProgressView()
-                } else if !isLoading && goals.isEmpty {
-                    ContentUnavailableView(
-                        "No Goals Yet",
-                        systemImage: "target",
-                        description: Text("Create a sub-portfolio when you log a trade, then tap a goal here to set its target.")
-                    )
-                }
-            }
-            .sheet(item: $editing) { goal in
-                GoalTargetEditView(subPortfolio: goal) { await load() }
-            }
-            .refreshable { await load() }
-            .task { await load() }
-            .alert("Error", isPresented: .init(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "")
-            }
-        }
-    }
-
-    private func load() async {
-        guard let household = session.activeHousehold else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            async let subsReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
-            async let snapsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
-            (subPortfolios, snapshots) = try await (subsReq, snapsReq)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
-private struct GoalCard: View {
-    let goal: SubPortfolioResponse
+/// Compact goal progress for a sub-portfolio: target, progress bar, and remaining.
+/// The sub-portfolio's name and value are shown by the surrounding section header,
+/// so this row deliberately omits them.
+struct GoalProgressRow: View {
     let currentValue: Double
-    let baseCurrency: String
+    let targetAmount: Double?
+    let targetDate: Date?
     let accent: Color
+    let baseCurrency: String
 
-    private var progress: Double? {
-        guard let target = goal.targetAmount, target > 0 else { return nil }
-        return currentValue / target
+    private var progress: Double {
+        guard let targetAmount, targetAmount > 0 else { return 0 }
+        return currentValue / targetAmount
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(goal.name)
-                    .font(.headline)
-                if goal.ownerUserId != nil {
-                    Image(systemName: "lock.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let targetDate = goal.targetDate {
-                    Text("by \(targetDate.formatted(.dateTime.month(.abbreviated).year()))")
+        if let targetAmount {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    Text("Goal \(targetAmount.compactCurrency(baseCurrency))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(currentValue.currency(baseCurrency))
-                    .font(.title3.weight(.semibold).monospacedDigit())
-                if let target = goal.targetAmount {
-                    Text("/ \(target.compactCurrency(baseCurrency))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let progress {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color(.systemGray5))
-                        Capsule()
-                            .fill(accent)
-                            .frame(width: geo.size.width * min(1, max(0, progress)))
+                    if let targetDate {
+                        Text("· by \(targetDate.formatted(.dateTime.month(.abbreviated).year()))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                }
-                .frame(height: 8)
-
-                HStack {
-                    Text("\(Int((progress * 100).rounded()))%")
-                        .foregroundStyle(accent)
                     Spacer()
-                    if let target = goal.targetAmount, target > currentValue {
-                        Text("\((target - currentValue).compactCurrency(baseCurrency)) to go")
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(accent)
+                }
+                ProgressView(value: min(1, max(0, progress)))
+                    .tint(accent)
+                HStack {
+                    Spacer()
+                    if targetAmount > currentValue {
+                        Text("\((targetAmount - currentValue).compactCurrency(baseCurrency)) to go")
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Reached 🎉").foregroundStyle(.secondary)
+                        Text("Reached 🎉")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .font(.caption.monospacedDigit())
-            } else {
-                Text("Tap to set a target")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 2)
+        } else {
+            Label("Set a goal target", systemImage: "target")
+                .font(.subheadline)
+                .foregroundStyle(accent)
         }
-        .padding(.vertical, 6)
     }
 }
 
@@ -214,7 +112,7 @@ struct GoalTargetEditView: View {
                         DatePicker("Reach by", selection: $targetDate, displayedComponents: .date)
                     }
                 } footer: {
-                    Text("Progress is tracked against this target on the Goals tab.")
+                    Text("Progress is tracked against this target in the Portfolio tab.")
                 }
 
                 if let errorMessage {

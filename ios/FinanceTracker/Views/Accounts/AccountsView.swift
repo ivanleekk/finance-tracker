@@ -5,6 +5,7 @@ import Charts
 /// caller's NavigationStack rather than wrapping its own.
 struct AccountsListView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var accounts: [AccountResponse] = []
     @State private var balances: [BalanceResponse] = []
@@ -58,7 +59,7 @@ struct AccountsListView: View {
                 )
             }
         }
-        .refreshable { await load() }
+        .pullDownToQuickAdd(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransactionsView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var transactions: [TransactionResponse] = []
     @State private var accounts: [AccountResponse] = []
@@ -121,7 +122,7 @@ struct TransactionsView: View {
                     )
                 }
             }
-            .refreshable { await load() }
+            .pullDownToQuickAdd(quickAdd, onReload: load)
             .task { await load() }
             .alert("Error", isPresented: .init(
                 get: { errorMessage != nil },

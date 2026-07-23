@@ -3,11 +3,13 @@ import SwiftUI
 @main
 struct FinanceTrackerApp: App {
     @State private var session = SessionStore()
+    @State private var quickAdd = QuickAddStore()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(session)
+                .environment(quickAdd)
                 .task { await session.bootstrap() }
         }
     }

@@ -4,6 +4,7 @@ import SwiftUI
 /// Reached from the Portfolio tab.
 struct DividendsView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var dividends: [DividendResponse] = []
     @State private var assets: [AssetResponse] = []
@@ -76,7 +77,7 @@ struct DividendsView: View {
                 )
             }
         }
-        .refreshable { await load() }
+        .pullDownToQuickAdd(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

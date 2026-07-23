@@ -3,6 +3,7 @@ import Charts
 
 struct PortfolioView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var snapshots: [PortfolioSnapshotResponse] = []
     @State private var assets: [AssetResponse] = []
@@ -13,6 +14,7 @@ struct PortfolioView: View {
     @State private var showingAddTrade = false
     @State private var showingMoveCash = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingGoal: SubPortfolioResponse?
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -34,13 +36,20 @@ struct PortfolioView: View {
             .sorted { $0.date < $1.date }
     }
 
+    /// One group per sub-portfolio that either holds something or is a goal with a
+    /// target. Each sub-portfolio is a "goal", so its target/progress renders here.
     private var holdingsBySubPortfolio: [(subPortfolio: SubPortfolioResponse, holdings: [PortfolioSnapshotResponse])] {
         subPortfolios.compactMap { sp in
             let holdings = latestHoldings
                 .filter { $0.subPortfolioId == sp.id }
                 .sorted { $0.currentValueHomeCurrency > $1.currentValueHomeCurrency }
-            return holdings.isEmpty ? nil : (sp, holdings)
+            guard !holdings.isEmpty || sp.targetAmount != nil else { return nil }
+            return (sp, holdings)
         }
+    }
+
+    private func currentValue(of holdings: [PortfolioSnapshotResponse]) -> Double {
+        holdings.reduce(0) { $0 + $1.currentValueHomeCurrency }
     }
 
     var body: some View {
@@ -89,6 +98,20 @@ struct PortfolioView: View {
 
                 ForEach(holdingsBySubPortfolio, id: \.subPortfolio.id) { group in
                     Section {
+                        // Goal target/progress for this sub-portfolio; tap to set or edit.
+                        Button {
+                            editingGoal = group.subPortfolio
+                        } label: {
+                            GoalProgressRow(
+                                currentValue: currentValue(of: group.holdings),
+                                targetAmount: group.subPortfolio.targetAmount,
+                                targetDate: group.subPortfolio.targetDate,
+                                accent: session.theme.primary.accent,
+                                baseCurrency: baseCurrency
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         ForEach(group.holdings) { holding in
                             let asset = assets.first { $0.id == holding.assetId }
                             let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
@@ -107,8 +130,7 @@ struct PortfolioView: View {
                                 Image(systemName: "lock.fill").font(.caption2)
                             }
                             Spacer()
-                            Text(group.holdings.reduce(0) { $0 + $1.currentValueHomeCurrency }
-                                .compactCurrency(baseCurrency))
+                            Text(currentValue(of: group.holdings).compactCurrency(baseCurrency))
                         }
                     }
                 }
@@ -171,6 +193,9 @@ struct PortfolioView: View {
                     }
                 }
             }
+            .sheet(item: $editingGoal) { goal in
+                GoalTargetEditView(subPortfolio: goal) { await load() }
+            }
             .overlay {
                 if isLoading && snapshots.isEmpty {
                     ProgressView()
@@ -182,7 +207,7 @@ struct PortfolioView: View {
                     )
                 }
             }
-            .refreshable { await load() }
+            .pullDownToQuickAdd(quickAdd, onReload: load)
             .task { await load() }
         }
     }
@@ -221,7 +246,7 @@ private struct MetricCell: View {
     }
 }
 
-private struct HoldingRow: View {
+struct HoldingRow: View {
     let holding: PortfolioSnapshotResponse
     let asset: AssetResponse?
     let baseCurrency: String

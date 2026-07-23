@@ -401,6 +401,18 @@ struct DividendResponse: Codable, Identifiable {
     @OptionalMoneyAmount var amountHomeCurrency: Double?
 }
 
+/// POST /portfolio/dividends (schemas.DividendCreate). Records a manual dividend payout
+/// for an asset held in a sub-portfolio, attributed to a funding account.
+struct DividendCreate: Encodable {
+    let householdId: String
+    let subPortfolioId: String
+    let assetId: String
+    let accountId: String
+    let date: Date
+    let amount: Double
+    let exchangeRate: Double
+}
+
 struct PerformanceMetrics: Codable {
     let simpleReturn: Double
     let timeWeightedReturn: Double
