@@ -5,6 +5,7 @@ struct MoreView: View {
 
     @AppStorage("api_base_url") private var apiBaseURL = ""
     @State private var showingLogoutConfirm = false
+    @State private var showingCreateHousehold = false
     @State private var appearanceError: String?
 
     private var themeModeBinding: Binding<String> {
@@ -65,6 +66,11 @@ struct MoreView: View {
                         } label: {
                             Label("Members & Invites", systemImage: "person.2")
                         }
+                    }
+                    Button {
+                        showingCreateHousehold = true
+                    } label: {
+                        Label("Create Household", systemImage: "plus.circle")
                     }
                 }
 
@@ -131,6 +137,86 @@ struct MoreView: View {
                 Button("Log Out", role: .destructive) {
                     session.logout()
                 }
+            }
+            .sheet(isPresented: $showingCreateHousehold) {
+                CreateHouseholdView()
+            }
+        }
+    }
+}
+
+/// Create a new household and switch to it. The creator becomes its owner.
+struct CreateHouseholdView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(SessionStore.self) private var session
+
+    @State private var name = ""
+    @State private var baseCurrency = "USD"
+    @State private var countryCode = "US"
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && baseCurrency.trimmingCharacters(in: .whitespaces).count >= 3
+            && countryCode.trimmingCharacters(in: .whitespaces).count >= 2
+            && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name (e.g. Smith Family)", text: $name)
+                    TextField("Base Currency (e.g. USD)", text: $baseCurrency)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                    TextField("Country (e.g. US)", text: $countryCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("All aggregate values are reported in the base currency. You'll switch to this household after creating it.")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("New Household")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") { save() }
+                        .disabled(!canSave)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        isSaving = true
+        errorMessage = nil
+        let cleanName = name.trimmingCharacters(in: .whitespaces)
+        let currency = baseCurrency.trimmingCharacters(in: .whitespaces).uppercased()
+        let country = countryCode.trimmingCharacters(in: .whitespaces).uppercased()
+        Task {
+            defer { isSaving = false }
+            do {
+                try await session.createHousehold(
+                    name: cleanName,
+                    baseCurrency: currency,
+                    countryCode: country
+                )
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
             }
         }
     }

@@ -79,7 +79,7 @@ struct HouseholdMembersView: View {
             }
         }
         .overlay {
-            if isLoading && members.isEmpty { ProgressView() }
+            if isLoading && members.isEmpty { LoadingSkeleton() }
         }
         .refreshable { await load() }
         .task { await load() }

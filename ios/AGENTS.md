@@ -28,10 +28,17 @@ FinanceTracker/
                              #     GoalTargetEditView → PATCH /portfolio/subportfolios/{id}). Goals/GoalsView.swift
                              #     holds those components (the old standalone GoalsView tab was removed).
                              #   QuickAdd/  = the command bar (QuickAddView), an options-first quick-add opened by
-                             #     pulling down ANY main List (`.pullDownToQuickAdd` repurposes pull-to-refresh via
-                             #     QuickAddStore). Pick a mode (expense/income/transfer/trade/dividend/balance),
-                             #     fill fields, Log; on submit it bumps QuickAddStore.reloadToken so open screens
-                             #     reload. Presented from MainTabView; store lives in the environment (app root).
+                             #     pulling down ANY main List (`.quickAddPull` in Components/QuickAddPull.swift reads
+                             #     overscroll via onScrollGeometryChange and shows a custom "pull/release" indicator
+                             #     — NOT pull-to-refresh — then opens the sheet; QuickAddStore is the shared state).
+                             #     Pick a mode (expense/income/transfer/trade/dividend/balance), fill fields, Log; on
+                             #     submit it bumps QuickAddStore.reloadToken so open screens reload. Presented from
+                             #     MainTabView; store lives in the environment (app root).
+                             #   Components/ = shared UI: LoadingSkeleton (shimmering placeholder shown as an
+                             #     `.overlay` while a screen's data loads, instead of a blank page) and QuickAddPull.
+                             #   Create a household from More → Create Household (SessionStore.createHousehold →
+                             #     POST /users/households, then switches active); More shows a household picker once
+                             #     there's more than one.
                              #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
                              #     transfers are not editable here) + CategoriesView (category CRUD,
                              #     also reached from More → Categories and inline from the New Transaction sheet).

@@ -161,6 +161,14 @@ struct HouseholdResponse: Codable, Identifiable, Hashable {
     let defaultSubPortfolioId: String?
 }
 
+/// POST /users/households (schemas.HouseholdCreate). `default_split_mode` defaults to
+/// "even" server-side, so we only send the essentials.
+struct HouseholdCreate: Encodable {
+    let name: String
+    let baseCurrency: String
+    let countryCode: String
+}
+
 // MARK: - Accounts & Balances
 
 struct AccountResponse: Codable, Identifiable, Hashable {

@@ -126,7 +126,7 @@ struct ReportsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isLoading && report == nil {
-                ProgressView()
+                LoadingSkeleton(showsHeader: true)
             }
         }
         .refreshable { await load() }

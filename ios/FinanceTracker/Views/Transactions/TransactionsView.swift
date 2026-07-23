@@ -40,6 +40,7 @@ struct TransactionsView: View {
     var body: some View {
         NavigationStack {
             List {
+                QuickAddPullSensor()
                 ForEach(byMonth, id: \.month) { group in
                     Section(group.month.monthYear) {
                         ForEach(group.transactions) { txn in
@@ -113,7 +114,7 @@ struct TransactionsView: View {
             }
             .overlay {
                 if isLoading && transactions.isEmpty {
-                    ProgressView()
+                    LoadingSkeleton()
                 } else if !isLoading && transactions.isEmpty {
                     ContentUnavailableView(
                         "No Transactions",
@@ -122,7 +123,7 @@ struct TransactionsView: View {
                     )
                 }
             }
-            .pullDownToQuickAdd(quickAdd, onReload: load)
+            .quickAddPull(quickAdd, onReload: load)
             .task { await load() }
             .alert("Error", isPresented: .init(
                 get: { errorMessage != nil },

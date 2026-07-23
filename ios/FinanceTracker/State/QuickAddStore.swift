@@ -17,18 +17,3 @@ final class QuickAddStore {
 
     func requestReload() { reloadToken += 1 }
 }
-
-extension View {
-    /// Repurposes a List's pull-to-refresh to open the quick-add command bar instead of
-    /// refreshing, and reloads `onReload` whenever a change is logged from anywhere.
-    func pullDownToQuickAdd(
-        _ store: QuickAddStore,
-        onReload: @escaping () async -> Void
-    ) -> some View {
-        self
-            .refreshable { await MainActor.run { store.open() } }
-            .onChange(of: store.reloadToken) { _, _ in
-                Task { await onReload() }
-            }
-    }
-}

@@ -102,6 +102,7 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             List {
+                QuickAddPullSensor()
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Net Worth")
@@ -226,9 +227,9 @@ struct DashboardView: View {
             }
             .navigationTitle(session.activeHousehold?.name ?? "Dashboard")
             .overlay {
-                if isLoading && balances.isEmpty { ProgressView() }
+                if isLoading && balances.isEmpty { LoadingSkeleton(showsHeader: true) }
             }
-            .pullDownToQuickAdd(quickAdd, onReload: load)
+            .quickAddPull(quickAdd, onReload: load)
             .task { await load() }
             .alert("Couldn’t Load Dashboard", isPresented: .init(
                 get: { errorMessage != nil },

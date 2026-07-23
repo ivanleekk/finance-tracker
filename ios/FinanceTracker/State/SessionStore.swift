@@ -49,6 +49,16 @@ final class SessionStore {
         ))
     }
 
+    /// Create a household, refresh the list, and switch to it as the active one.
+    func createHousehold(name: String, baseCurrency: String, countryCode: String) async throws {
+        let created: HouseholdResponse = try await APIClient.shared.post(
+            "/users/households",
+            body: HouseholdCreate(name: name, baseCurrency: baseCurrency, countryCode: countryCode)
+        )
+        households = try await APIClient.shared.get("/users/households")
+        activeHousehold = households.first { $0.id == created.id } ?? created
+    }
+
     private static let activeHouseholdKey = "activeHouseholdId"
     private var sessionExpiryObserver: (any NSObjectProtocol)?
 

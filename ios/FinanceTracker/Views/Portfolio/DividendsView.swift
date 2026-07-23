@@ -31,6 +31,7 @@ struct DividendsView: View {
 
     var body: some View {
         List {
+            QuickAddPullSensor()
             if !dividends.isEmpty {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
@@ -68,7 +69,7 @@ struct DividendsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isLoading && dividends.isEmpty {
-                ProgressView()
+                LoadingSkeleton()
             } else if !isLoading && dividends.isEmpty {
                 ContentUnavailableView(
                     "No Dividends",
@@ -77,7 +78,7 @@ struct DividendsView: View {
                 )
             }
         }
-        .pullDownToQuickAdd(quickAdd, onReload: load)
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

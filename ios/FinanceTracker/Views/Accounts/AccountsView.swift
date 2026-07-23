@@ -22,6 +22,7 @@ struct AccountsListView: View {
 
     var body: some View {
         List {
+            QuickAddPullSensor()
             ForEach(grouped, id: \.liquidity) { group in
                 Section(group.liquidity.label) {
                     ForEach(group.accounts) { account in
@@ -50,7 +51,7 @@ struct AccountsListView: View {
         }
         .overlay {
             if isLoading && accounts.isEmpty {
-                ProgressView()
+                LoadingSkeleton()
             } else if !isLoading && accounts.isEmpty {
                 ContentUnavailableView(
                     "No Accounts",
@@ -59,7 +60,7 @@ struct AccountsListView: View {
                 )
             }
         }
-        .pullDownToQuickAdd(quickAdd, onReload: load)
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

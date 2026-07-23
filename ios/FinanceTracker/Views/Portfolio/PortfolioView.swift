@@ -55,6 +55,7 @@ struct PortfolioView: View {
     var body: some View {
         NavigationStack {
             List {
+                QuickAddPullSensor()
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Portfolio Value")
@@ -198,7 +199,7 @@ struct PortfolioView: View {
             }
             .overlay {
                 if isLoading && snapshots.isEmpty {
-                    ProgressView()
+                    LoadingSkeleton(showsHeader: true)
                 } else if !isLoading && latestHoldings.isEmpty {
                     ContentUnavailableView(
                         "No Holdings",
@@ -207,7 +208,7 @@ struct PortfolioView: View {
                     )
                 }
             }
-            .pullDownToQuickAdd(quickAdd, onReload: load)
+            .quickAddPull(quickAdd, onReload: load)
             .task { await load() }
         }
     }
