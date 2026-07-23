@@ -6,6 +6,8 @@ struct MainTabView: View {
     }
 
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(SessionStore.self) private var session
+    @Environment(ViewModeStore.self) private var viewMode
     @State private var selection: Tab = .dashboard
 
     var body: some View {
@@ -38,6 +40,9 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $quickAdd.isPresented, onDismiss: { quickAdd.requestReload() }) {
             QuickAddView()
+        }
+        .task(id: session.activeHousehold?.id) {
+            await viewMode.refresh(householdId: session.activeHousehold?.id)
         }
     }
 }

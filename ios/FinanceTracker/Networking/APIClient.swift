@@ -24,14 +24,17 @@ extension Notification.Name {
 actor APIClient {
     static let shared = APIClient()
 
-    /// Simulator reaches the docker-compose backend on the Mac's localhost.
-    /// On a physical device, set "api_base_url" in UserDefaults (More tab) to a LAN/tunnel URL.
+    /// The backend base URL. Debug builds allow a runtime override ("api_base_url" in
+    /// UserDefaults, set from the More tab / login screen) so a physical device can reach
+    /// a Mac on the LAN. Release builds ignore the override and use the baked-in endpoint.
     var baseURL: URL {
+        #if DEBUG
         if let saved = UserDefaults.standard.string(forKey: "api_base_url"),
-           let url = URL(string: saved), !saved.isEmpty {
+           !saved.isEmpty, let url = URL(string: saved) {
             return url
         }
-        return URL(string: "http://localhost:8000")!
+        #endif
+        return AppConfig.defaultBaseURL
     }
 
     // MARK: - JSON coding

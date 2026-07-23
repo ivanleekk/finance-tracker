@@ -3,6 +3,7 @@ import SwiftUI
 struct TransactionsView: View {
     @Environment(SessionStore.self) private var session
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var transactions: [TransactionResponse] = []
     @State private var accounts: [AccountResponse] = []
@@ -16,8 +17,17 @@ struct TransactionsView: View {
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
+    /// Accounts (by id) visible under the current view mode; transactions inherit their
+    /// account's visibility.
+    private var visibleAccountIds: Set<String> {
+        Set(accounts
+            .filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
+            .map(\.id))
+    }
+
     private var filtered: [TransactionResponse] {
-        let sorted = transactions.sorted { $0.date > $1.date }
+        let visible = transactions.filter { visibleAccountIds.contains($0.accountId) }
+        let sorted = visible.sorted { $0.date > $1.date }
         guard !searchText.isEmpty else { return sorted }
         return sorted.filter { txn in
             let category = categories.first { $0.id == txn.categoryId }?.name ?? ""
@@ -67,6 +77,7 @@ struct TransactionsView: View {
             .navigationTitle("Transactions")
             .searchable(text: $searchText, prompt: "Search description, category, account")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button {

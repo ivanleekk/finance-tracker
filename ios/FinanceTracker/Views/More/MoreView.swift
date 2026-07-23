@@ -3,7 +3,9 @@ import SwiftUI
 struct MoreView: View {
     @Environment(SessionStore.self) private var session
 
+    #if DEBUG
     @AppStorage("api_base_url") private var apiBaseURL = ""
+    #endif
     @State private var showingLogoutConfirm = false
     @State private var showingCreateHousehold = false
     @State private var appearanceError: String?
@@ -115,16 +117,18 @@ struct MoreView: View {
                     }
                 }
 
+                #if DEBUG
                 Section {
                     TextField("http://192.168.1.142:8000", text: $apiBaseURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } header: {
-                    Text("API Server")
+                    Text("API Server (Debug)")
                 } footer: {
-                    Text("Leave empty for localhost (simulator). On a physical device, point this at your Mac's LAN address, e.g. http://192.168.1.10:8000.")
+                    Text("Developer-only, hidden in production builds. Leave empty for localhost (simulator). On a physical device, point this at your Mac's LAN address, e.g. http://192.168.1.10:8000.")
                 }
+                #endif
 
                 Section {
                     Button("Log Out", role: .destructive) {

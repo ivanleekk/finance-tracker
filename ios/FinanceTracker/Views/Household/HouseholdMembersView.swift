@@ -5,6 +5,7 @@ import SwiftUI
 /// Pushed from the More tab, so it uses the caller's NavigationStack.
 struct HouseholdMembersView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var members: [HouseholdMemberUserResponse] = []
     @State private var invites: [HouseholdInviteResponse] = []
@@ -101,6 +102,9 @@ struct HouseholdMembersView: View {
             async let membersReq: [HouseholdMemberUserResponse] = APIClient.shared.get("/users/householdmember/\(household.id)")
             async let invitesReq: [HouseholdInviteResponse] = APIClient.shared.get("/users/households/\(household.id)/invites")
             (members, invites) = try await (membersReq, invitesReq)
+            // Keep the global Private/Household/Blended switch in sync: it appears only
+            // once there's a second person, which is exactly what this screen changes.
+            viewModeStore.setComposition(memberCount: members.count, pendingInviteCount: pendingInvites.count)
         } catch {
             errorMessage = error.localizedDescription
         }

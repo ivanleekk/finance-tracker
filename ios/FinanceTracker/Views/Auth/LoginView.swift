@@ -18,6 +18,10 @@ struct LoginView: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @FocusState private var focused: Field?
+    #if DEBUG
+    @AppStorage("api_base_url") private var apiBaseURL = ""
+    @State private var showServerSettings = false
+    #endif
 
     private var canSubmit: Bool {
         !isSubmitting && !email.isEmpty && !password.isEmpty && (mode == .login || !name.isEmpty)
@@ -46,6 +50,10 @@ struct LoginView: View {
                     .pickerStyle(.segmented)
 
                     fields
+
+                    #if DEBUG
+                    serverSettings
+                    #endif
 
                     if let errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -137,6 +145,47 @@ struct LoginView: View {
     private var rowDivider: some View {
         Divider().padding(.leading, 52)
     }
+
+    #if DEBUG
+    private var effectiveBaseURLDescription: String {
+        apiBaseURL.isEmpty ? "http://localhost:8000 (default)" : apiBaseURL
+    }
+
+    private var serverSettings: some View {
+        DisclosureGroup(isExpanded: $showServerSettings) {
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("http://192.168.1.142:8000", text: $apiBaseURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(12)
+                    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Text("Leave empty for localhost (simulator). On a physical device, point this at your Mac's LAN address, e.g. http://192.168.1.10:8000.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 8)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("API Server", systemImage: "server.rack")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                // Shows the URL that will actually be used, even while collapsed,
+                // since a stale/empty override here is the #1 cause of silent connection failures.
+                Text(effectiveBaseURLDescription)
+                    .font(.caption)
+                    .foregroundStyle(apiBaseURL.isEmpty ? .orange : .secondary)
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onAppear {
+            if apiBaseURL.isEmpty {
+                showServerSettings = true
+            }
+        }
+    }
+    #endif
 
     private var submitButton: some View {
         Button {

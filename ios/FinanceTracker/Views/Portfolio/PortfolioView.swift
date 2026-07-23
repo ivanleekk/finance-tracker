@@ -4,6 +4,7 @@ import Charts
 struct PortfolioView: View {
     @Environment(SessionStore.self) private var session
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var snapshots: [PortfolioSnapshotResponse] = []
     @State private var assets: [AssetResponse] = []
@@ -19,10 +20,24 @@ struct PortfolioView: View {
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
+    /// Sub-portfolios visible under the current view mode (private/household/blended).
+    private var visibleSubPortfolios: [SubPortfolioResponse] {
+        subPortfolios.filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
+    }
+
+    private var visibleSubPortfolioIds: Set<String> {
+        Set(visibleSubPortfolios.map(\.id))
+    }
+
+    /// Snapshots belonging to a sub-portfolio that's visible in the current view mode.
+    private var visibleSnapshots: [PortfolioSnapshotResponse] {
+        snapshots.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+    }
+
     /// Holdings on the most recent snapshot date only.
     private var latestHoldings: [PortfolioSnapshotResponse] {
-        guard let latest = snapshots.map(\.date).max() else { return [] }
-        return snapshots.filter { $0.date == latest && $0.quantity > 0 }
+        guard let latest = visibleSnapshots.map(\.date).max() else { return [] }
+        return visibleSnapshots.filter { $0.date == latest && $0.quantity > 0 }
     }
 
     private var totalValue: Double {
@@ -31,7 +46,7 @@ struct PortfolioView: View {
 
     /// Total equity value over time, from snapshot history.
     private var equityCurve: [(date: Date, value: Double)] {
-        Dictionary(grouping: snapshots, by: \.date)
+        Dictionary(grouping: visibleSnapshots, by: \.date)
             .map { (date: $0.key, value: $0.value.reduce(0) { $0 + $1.currentValueHomeCurrency }) }
             .sorted { $0.date < $1.date }
     }
@@ -39,7 +54,7 @@ struct PortfolioView: View {
     /// One group per sub-portfolio that either holds something or is a goal with a
     /// target. Each sub-portfolio is a "goal", so its target/progress renders here.
     private var holdingsBySubPortfolio: [(subPortfolio: SubPortfolioResponse, holdings: [PortfolioSnapshotResponse])] {
-        subPortfolios.compactMap { sp in
+        visibleSubPortfolios.compactMap { sp in
             let holdings = latestHoldings
                 .filter { $0.subPortfolioId == sp.id }
                 .sorted { $0.currentValueHomeCurrency > $1.currentValueHomeCurrency }
@@ -138,6 +153,11 @@ struct PortfolioView: View {
 
                 Section {
                     NavigationLink {
+                        TradesListView()
+                    } label: {
+                        Label("Trades", systemImage: "arrow.left.arrow.right")
+                    }
+                    NavigationLink {
                         DividendsView()
                     } label: {
                         Label("Dividends", systemImage: "dollarsign.circle")
@@ -146,6 +166,7 @@ struct PortfolioView: View {
             }
             .navigationTitle("Portfolio")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button {

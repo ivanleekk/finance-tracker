@@ -1,41 +1,60 @@
 import SwiftUI
 
-/// Log a buy/sell of an asset into a sub-portfolio, funded from an account (or the
+/// Log or edit a buy/sell of an asset in a sub-portfolio, funded from an account (or the
 /// sub-portfolio's own cash). Cross-currency trades assume a 1:1 rate for now.
+/// Pass `existing` to edit a trade in place (PUT); omit it to create (POST).
 struct TradeFormView: View {
     @Environment(\.dismiss) private var dismiss
 
+    let existing: TradeResponse?
     let householdId: String
     let subPortfolios: [SubPortfolioResponse]
     let accounts: [AccountResponse]
     let onSaved: () async -> Void
 
     @State private var assets: [AssetResponse]
-    @State private var type: TradeType = .buy
+    @State private var type: TradeType
     @State private var subPortfolioId: String?
     @State private var assetId: String?
     @State private var accountId: String?
-    @State private var quantityText = ""
-    @State private var priceText = ""
-    @State private var date = Date()
+    @State private var quantityText: String
+    @State private var priceText: String
+    @State private var date: Date
     @State private var settleFromCash = false
-    @State private var description = ""
+    @State private var description: String
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingNewAsset = false
 
+    private var isEditing: Bool { existing != nil }
+
     init(
+        existing: TradeResponse? = nil,
         householdId: String,
         subPortfolios: [SubPortfolioResponse],
         assets: [AssetResponse],
         accounts: [AccountResponse],
         onSaved: @escaping () async -> Void
     ) {
+        self.existing = existing
         self.householdId = householdId
         self.subPortfolios = subPortfolios
         self.accounts = accounts
         self.onSaved = onSaved
         _assets = State(initialValue: assets)
+        _type = State(initialValue: existing?.type ?? .buy)
+        _subPortfolioId = State(initialValue: existing?.subPortfolioId)
+        _assetId = State(initialValue: existing?.assetId)
+        _accountId = State(initialValue: existing?.accountId)
+        _quantityText = State(initialValue: existing.map { Self.numberString($0.quantity) } ?? "")
+        _priceText = State(initialValue: existing.map { Self.numberString($0.price) } ?? "")
+        _date = State(initialValue: existing?.date ?? Date())
+        _description = State(initialValue: existing?.description ?? "")
+    }
+
+    /// Editable string for a stored number: drop the trailing ".0" on whole values.
+    private static func numberString(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(value)
     }
 
     /// Real (non-cash) assets are tradable.
@@ -113,7 +132,11 @@ struct TradeFormView: View {
                 }
 
                 Section {
-                    Toggle("Settle from sub-portfolio cash", isOn: $settleFromCash)
+                    // Settlement mode is fixed once a trade exists (the backend keeps any
+                    // cash companion leg in sync), so it's only offered when creating.
+                    if !isEditing {
+                        Toggle("Settle from sub-portfolio cash", isOn: $settleFromCash)
+                    }
                     Picker("Funding Account", selection: $accountId) {
                         Text("Select").tag(String?.none)
                         ForEach(accounts) { account in
@@ -134,7 +157,7 @@ struct TradeFormView: View {
                     }
                 }
             }
-            .navigationTitle("New Trade")
+            .navigationTitle(isEditing ? "Edit Trade" : "New Trade")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -167,21 +190,39 @@ struct TradeFormView: View {
         Task {
             defer { isSaving = false }
             do {
-                let body = TradeCreate(
-                    type: type,
-                    date: date,
-                    quantity: quantity,
-                    price: price,
-                    currency: selectedAsset?.currency,
-                    exchangeRate: 1.0,
-                    description: description.isEmpty ? nil : description,
-                    householdId: householdId,
-                    subPortfolioId: subPortfolioId,
-                    assetId: assetId,
-                    accountId: accountId,
-                    settleFromCash: settleFromCash
-                )
-                let _: TradeResponse = try await APIClient.shared.post("/portfolio/trades", body: body)
+                if let existing {
+                    let body = TradeUpdate(
+                        type: type,
+                        date: date,
+                        quantity: quantity,
+                        price: price,
+                        currency: selectedAsset?.currency,
+                        exchangeRate: existing.exchangeRate,
+                        description: description.isEmpty ? nil : description,
+                        subPortfolioId: subPortfolioId,
+                        assetId: assetId,
+                        accountId: accountId
+                    )
+                    let _: TradeResponse = try await APIClient.shared.put(
+                        "/portfolio/trades/\(existing.id)", body: body
+                    )
+                } else {
+                    let body = TradeCreate(
+                        type: type,
+                        date: date,
+                        quantity: quantity,
+                        price: price,
+                        currency: selectedAsset?.currency,
+                        exchangeRate: 1.0,
+                        description: description.isEmpty ? nil : description,
+                        householdId: householdId,
+                        subPortfolioId: subPortfolioId,
+                        assetId: assetId,
+                        accountId: accountId,
+                        settleFromCash: settleFromCash
+                    )
+                    let _: TradeResponse = try await APIClient.shared.post("/portfolio/trades", body: body)
+                }
                 await onSaved()
                 dismiss()
             } catch {

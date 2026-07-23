@@ -4,6 +4,7 @@ import Charts
 struct DashboardView: View {
     @Environment(SessionStore.self) private var session
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(ViewModeStore.self) private var viewModeStore
 
     /// Switches the tab bar to the Portfolio tab (wired from MainTabView).
     var onSeePortfolio: () -> Void = {}
@@ -15,11 +16,32 @@ struct DashboardView: View {
     @State private var transactions: [TransactionResponse] = []
     @State private var categories: [CategoryResponse] = []
     @State private var snapshots: [PortfolioSnapshotResponse] = []
+    @State private var subPortfolios: [SubPortfolioResponse] = []
     @State private var assets: [AssetResponse] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
+
+    // MARK: View-mode visibility
+
+    /// Accounts / sub-portfolios visible under the current view mode; their derived data
+    /// (balances, holdings, transactions) inherits that visibility.
+    private var visibleAccounts: [AccountResponse] {
+        accounts.filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
+    }
+    private var visibleAccountIds: Set<String> { Set(visibleAccounts.map(\.id)) }
+    private var visibleSubPortfolioIds: Set<String> {
+        Set(subPortfolios
+            .filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
+            .map(\.id))
+    }
+    private var visibleBalances: [BalanceResponse] {
+        balances.filter { visibleAccountIds.contains($0.accountId) }
+    }
+    private var visibleSnapshots: [PortfolioSnapshotResponse] {
+        snapshots.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+    }
 
     /// Liability accounts (loans, mortgages) hold their outstanding balance as a
     /// positive number; they count *against* net worth (mirrors web Dashboard).
@@ -30,7 +52,7 @@ struct DashboardView: View {
     /// Latest known balance per account, netting out liabilities. This is the
     /// "cash" side of net worth — money held in real accounts.
     private var currentCash: Double {
-        Dictionary(grouping: balances, by: \.accountId).reduce(0.0) { sum, entry in
+        Dictionary(grouping: visibleBalances, by: \.accountId).reduce(0.0) { sum, entry in
             let (accountId, history) = entry
             guard let bal = history.max(by: { $0.date < $1.date })?.homeValue else { return sum }
             return sum + (liabilityIds.contains(accountId) ? -bal : bal)
@@ -39,8 +61,8 @@ struct DashboardView: View {
 
     /// Holdings on the most recent snapshot date only (mirrors PortfolioView).
     private var latestHoldings: [PortfolioSnapshotResponse] {
-        guard let latest = snapshots.map(\.date).max() else { return [] }
-        return snapshots.filter { $0.date == latest && $0.quantity > 0 }
+        guard let latest = visibleSnapshots.map(\.date).max() else { return [] }
+        return visibleSnapshots.filter { $0.date == latest && $0.quantity > 0 }
     }
 
     /// Total investment value on the most recent snapshot date.
@@ -66,15 +88,15 @@ struct DashboardView: View {
     private var netWorthSeries: [NetWorthPoint] {
         let cal = Calendar.current
         let dates = Set(
-            balances.map { cal.startOfDay(for: $0.date) } +
-            snapshots.map { cal.startOfDay(for: $0.date) }
+            visibleBalances.map { cal.startOfDay(for: $0.date) } +
+            visibleSnapshots.map { cal.startOfDay(for: $0.date) }
         ).sorted()
         guard !dates.isEmpty else { return [] }
 
-        let byAccount = Dictionary(grouping: balances, by: \.accountId)
+        let byAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
             .mapValues { $0.sorted { $0.date < $1.date } }
         let portfolioByDate = Dictionary(
-            grouping: snapshots, by: { cal.startOfDay(for: $0.date) }
+            grouping: visibleSnapshots, by: { cal.startOfDay(for: $0.date) }
         ).mapValues { $0.reduce(0.0) { $0 + $1.currentValueHomeCurrency } }
         let snapshotDates = portfolioByDate.keys.sorted()
 
@@ -96,7 +118,10 @@ struct DashboardView: View {
     private var chartDateCount: Int { Set(netWorthSeries.map(\.date)).count }
 
     private var recentTransactions: [TransactionResponse] {
-        Array(transactions.sorted { $0.date > $1.date }.prefix(5))
+        Array(transactions
+            .filter { visibleAccountIds.contains($0.accountId) }
+            .sorted { $0.date > $1.date }
+            .prefix(5))
     }
 
     var body: some View {
@@ -143,7 +168,7 @@ struct DashboardView: View {
                         .padding(.vertical, 4)
                     }
 
-                    if !snapshots.isEmpty {
+                    if !visibleSnapshots.isEmpty {
                         HStack(spacing: 12) {
                             BreakdownCell(
                                 title: "Cash",
@@ -190,14 +215,14 @@ struct DashboardView: View {
                 }
 
                 Section {
-                    if accounts.isEmpty && !isLoading {
+                    if visibleAccounts.isEmpty && !isLoading {
                         ContentUnavailableView(
                             "No Accounts",
                             systemImage: "building.columns",
                             description: Text("Tap “See All” to add your first account.")
                         )
                     }
-                    ForEach(accounts.prefix(4)) { account in
+                    ForEach(visibleAccounts.prefix(4)) { account in
                         NavigationLink {
                             AccountDetailView(account: account, onChanged: load)
                         } label: {
@@ -226,6 +251,9 @@ struct DashboardView: View {
                 }
             }
             .navigationTitle(session.activeHousehold?.name ?? "Dashboard")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
+            }
             .overlay {
                 if isLoading && balances.isEmpty { LoadingSkeleton(showsHeader: true) }
             }
@@ -256,9 +284,10 @@ struct DashboardView: View {
             async let txnsReq: [TransactionResponse] = APIClient.shared.get("/cashflow/transactions/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
             async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
+            async let subPortfoliosReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
-            (accounts, balances, transactions, categories, snapshots, assets) =
-                try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, assetsReq)
+            (accounts, balances, transactions, categories, snapshots, subPortfolios, assets) =
+                try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, subPortfoliosReq, assetsReq)
         } catch {
             errorMessage = error.localizedDescription
         }

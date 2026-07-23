@@ -6,6 +6,7 @@ import Charts
 struct AccountsListView: View {
     @Environment(SessionStore.self) private var session
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var accounts: [AccountResponse] = []
     @State private var balances: [BalanceResponse] = []
@@ -13,9 +14,14 @@ struct AccountsListView: View {
     @State private var showingAddAccount = false
     @State private var errorMessage: String?
 
+    /// Accounts visible under the current view mode (private/household/blended).
+    private var visibleAccounts: [AccountResponse] {
+        accounts.filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
+    }
+
     private var grouped: [(liquidity: LiquidityStatus, accounts: [AccountResponse])] {
         LiquidityStatus.allCases.compactMap { liquidity in
-            let matching = accounts.filter { $0.liquidity == liquidity }
+            let matching = visibleAccounts.filter { $0.liquidity == liquidity }
             return matching.isEmpty ? nil : (liquidity, matching.sorted { $0.name < $1.name })
         }
     }
@@ -37,6 +43,7 @@ struct AccountsListView: View {
         }
         .navigationTitle("Accounts")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showingAddAccount = true
@@ -52,11 +59,13 @@ struct AccountsListView: View {
         .overlay {
             if isLoading && accounts.isEmpty {
                 LoadingSkeleton()
-            } else if !isLoading && accounts.isEmpty {
+            } else if !isLoading && visibleAccounts.isEmpty {
                 ContentUnavailableView(
-                    "No Accounts",
+                    accounts.isEmpty ? "No Accounts" : "Nothing to Show",
                     systemImage: "building.columns",
-                    description: Text("Tap + to add your first account.")
+                    description: Text(accounts.isEmpty
+                        ? "Tap + to add your first account."
+                        : "No accounts match the current view mode.")
                 )
             }
         }

@@ -125,6 +125,37 @@ enum AccountKind: String, Codable, CaseIterable, Identifiable {
     var label: String { self == .asset ? "Asset" : "Liability" }
 }
 
+/// Which slice of the household's finances to show. Mirrors the web ViewModeContext:
+/// - `blended`: shared items **and** my own private items (default; the only mode a
+///   solo household ever uses).
+/// - `household`: shared items only — everyone's shared money, nobody's private.
+/// - `private`: only my own private items.
+/// The server never returns *other* members' private data, so filtering here is purely
+/// about my own private-vs-shared items.
+enum ViewMode: String, CaseIterable, Identifiable {
+    case blended
+    case household
+    case `private`
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .blended: return "Blended"
+        case .household: return "Household"
+        case .private: return "Private"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .blended: return "square.stack.3d.up.fill"
+        case .household: return "house.fill"
+        case .private: return "lock.fill"
+        }
+    }
+}
+
 // MARK: - Auth & Users
 
 struct TokenResponse: Codable {
@@ -358,13 +389,38 @@ struct SubPortfolioCashCreate: Encodable {
     let description: String?
 }
 
-/// Minimal decode of POST /portfolio/trades (schemas.TradeResponse).
+/// schemas.TradeResponse — returned by trade create/update and the trades list.
 struct TradeResponse: Codable, Identifiable {
     let id: String
+    let householdId: String
+    let subPortfolioId: String?
+    let assetId: String?
+    let accountId: String?
+    let transactionId: String?
+    /// Set when this trade was settled against sub-portfolio cash (has a companion cash leg).
+    let settlementTradeId: String?
     let type: TradeType
     let date: Date
     let quantity: Double
     @MoneyAmount var price: Double
+    let currency: String?
+    let exchangeRate: Double
+    let description: String?
+}
+
+/// PUT /portfolio/trades/{id} (schemas.TradeUpdate). Optional fields; only the ones sent
+/// change. The ID fields are UUIDs (backend previously mis-typed them as ints).
+struct TradeUpdate: Encodable {
+    let type: TradeType?
+    let date: Date?
+    let quantity: Double?
+    let price: Double?
+    let currency: String?
+    let exchangeRate: Double?
+    let description: String?
+    let subPortfolioId: String?
+    let assetId: String?
+    let accountId: String?
 }
 
 struct SubPortfolioResponse: Codable, Identifiable, Hashable {

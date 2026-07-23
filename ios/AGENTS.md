@@ -35,7 +35,13 @@ FinanceTracker/
                              #     submit it bumps QuickAddStore.reloadToken so open screens reload. Presented from
                              #     MainTabView; store lives in the environment (app root).
                              #   Components/ = shared UI: LoadingSkeleton (shimmering placeholder shown as an
-                             #     `.overlay` while a screen's data loads, instead of a blank page) and QuickAddPull.
+                             #     `.overlay` while a screen's data loads, instead of a blank page), QuickAddPull, and
+                             #     ViewModeSwitcher (the Private/Household/Blended nav-bar menu; hidden until the
+                             #     household has a second person — see ViewModeStore + the API/view-mode notes below).
+                             #   Portfolio/ also has TradesListView (Portfolio ▸ Trades): individual buy/sell trades,
+                             #     tap to edit (TradeFormView in edit mode → PUT /portfolio/trades/{id}), swipe to
+                             #     delete; the CASH pseudo-asset legs are filtered out. Trade editing needs the backend
+                             #     TradeUpdate UUID fix (schemas.py) — the ID fields were Optional[int].
                              #   Create a household from More → Create Household (SessionStore.createHousehold →
                              #     POST /users/households, then switches active); More shows a household picker once
                              #     there's more than one.
@@ -57,7 +63,8 @@ FinanceTracker/
 - Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
 - Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data.
-- API base URL: `http://localhost:8000` by default (simulator → Mac). Overridable at runtime in the More tab (stored in `UserDefaults` key `api_base_url`) for physical devices. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
+- **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
+- **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is *generated* from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run

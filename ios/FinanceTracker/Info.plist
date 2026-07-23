@@ -16,6 +16,8 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>API_BASE_URL</key>
+	<string>$(API_BASE_URL)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
@@ -27,6 +29,8 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Used to unlock your private financial data.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Used to reach your finance tracker backend running on your local network during development.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

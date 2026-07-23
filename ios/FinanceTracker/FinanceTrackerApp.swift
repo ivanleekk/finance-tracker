@@ -4,12 +4,14 @@ import SwiftUI
 struct FinanceTrackerApp: App {
     @State private var session = SessionStore()
     @State private var quickAdd = QuickAddStore()
+    @State private var viewMode = ViewModeStore()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(session)
                 .environment(quickAdd)
+                .environment(viewMode)
                 .task { await session.bootstrap() }
         }
     }
