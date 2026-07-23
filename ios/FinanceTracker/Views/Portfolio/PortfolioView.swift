@@ -7,8 +7,10 @@ struct PortfolioView: View {
     @State private var snapshots: [PortfolioSnapshotResponse] = []
     @State private var assets: [AssetResponse] = []
     @State private var subPortfolios: [SubPortfolioResponse] = []
+    @State private var accounts: [AccountResponse] = []
     @State private var metrics: PortfolioMetricsResponse?
     @State private var isLoading = true
+    @State private var showingAddTrade = false
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -106,6 +108,29 @@ struct PortfolioView: View {
                 }
             }
             .navigationTitle("Portfolio")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddTrade = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Log Trade")
+                    .disabled(subPortfolios.isEmpty)
+                }
+            }
+            .sheet(isPresented: $showingAddTrade) {
+                if let household = session.activeHousehold {
+                    TradeFormView(
+                        householdId: household.id,
+                        subPortfolios: subPortfolios,
+                        assets: assets,
+                        accounts: accounts
+                    ) {
+                        await load()
+                    }
+                }
+            }
             .overlay {
                 if isLoading && snapshots.isEmpty {
                     ProgressView()
@@ -130,8 +155,9 @@ struct PortfolioView: View {
             async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
             async let subPortfoliosReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
+            async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let metricsReq: PortfolioMetricsResponse = APIClient.shared.get("/portfolio/household/\(household.id)/metrics")
-            (snapshots, assets, subPortfolios, metrics) = try await (snapshotsReq, assetsReq, subPortfoliosReq, metricsReq)
+            (snapshots, assets, subPortfolios, accounts, metrics) = try await (snapshotsReq, assetsReq, subPortfoliosReq, accountsReq, metricsReq)
         } catch {
             errorMessage = error.localizedDescription
         }

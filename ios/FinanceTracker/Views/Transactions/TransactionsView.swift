@@ -9,6 +9,7 @@ struct TransactionsView: View {
     @State private var searchText = ""
     @State private var isLoading = true
     @State private var showingAddSheet = false
+    @State private var showingTransferSheet = false
     @State private var editingTransaction: TransactionResponse?
     @State private var errorMessage: String?
 
@@ -65,8 +66,17 @@ struct TransactionsView: View {
             .searchable(text: $searchText, prompt: "Search description, category, account")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddSheet = true
+                    Menu {
+                        Button {
+                            showingAddSheet = true
+                        } label: {
+                            Label("New Transaction", systemImage: "arrow.up.arrow.down")
+                        }
+                        Button {
+                            showingTransferSheet = true
+                        } label: {
+                            Label("New Transfer", systemImage: "arrow.left.arrow.right")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -81,6 +91,11 @@ struct TransactionsView: View {
                     ) {
                         await load()
                     }
+                }
+            }
+            .sheet(isPresented: $showingTransferSheet) {
+                TransferFormView(accounts: accounts) {
+                    await load()
                 }
             }
             .sheet(item: $editingTransaction) { txn in
@@ -312,6 +327,119 @@ struct TransactionFormView: View {
                         "/cashflow/transactions", body: body
                     )
                 }
+                await onSaved()
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+/// Move money between two accounts of the same household (backend creates the
+/// linked withdrawal/deposit pair and a "Transfer" category).
+struct TransferFormView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let accounts: [AccountResponse]
+    let onSaved: () async -> Void
+
+    @State private var fromAccountId: String?
+    @State private var toAccountId: String?
+    @State private var amountText = ""
+    @State private var date = Date()
+    @State private var description = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private var amount: Double? {
+        Double(amountText.replacingOccurrences(of: ",", with: ""))
+    }
+
+    private var canSave: Bool {
+        amount ?? 0 > 0
+            && fromAccountId != nil
+            && toAccountId != nil
+            && fromAccountId != toAccountId
+            && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("From", selection: $fromAccountId) {
+                        Text("Select").tag(String?.none)
+                        ForEach(accounts) { account in
+                            Text(account.name).tag(String?.some(account.id))
+                        }
+                    }
+                    Picker("To", selection: $toAccountId) {
+                        Text("Select").tag(String?.none)
+                        ForEach(accounts) { account in
+                            Text(account.name).tag(String?.some(account.id))
+                        }
+                    }
+                } footer: {
+                    if fromAccountId != nil && fromAccountId == toAccountId {
+                        Text("Pick two different accounts.")
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("Amount")
+                        TextField("0.00", text: $amountText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    TextField("Description (optional)", text: $description)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("New Transfer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(!canSave)
+                }
+            }
+            .onAppear {
+                if fromAccountId == nil { fromAccountId = accounts.first?.id }
+                if toAccountId == nil { toAccountId = accounts.dropFirst().first?.id }
+            }
+        }
+    }
+
+    private func save() {
+        guard let amount, let fromAccountId, let toAccountId else { return }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            defer { isSaving = false }
+            do {
+                let body = TransferCreate(
+                    fromAccountId: fromAccountId,
+                    toAccountId: toAccountId,
+                    amount: amount,
+                    date: date,
+                    description: description.isEmpty ? nil : description
+                )
+                let _: [TransactionResponse] = try await APIClient.shared.post(
+                    "/cashflow/transfers", body: body
+                )
                 await onSaved()
                 dismiss()
             } catch {

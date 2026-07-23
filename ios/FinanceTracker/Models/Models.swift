@@ -91,6 +91,15 @@ enum TransactionType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum TradeType: String, Codable, CaseIterable, Identifiable {
+    case buy
+    case sell
+
+    var id: String { rawValue }
+
+    var label: String { self == .buy ? "Buy" : "Sell" }
+}
+
 enum TaxTreatment: String, Codable, CaseIterable, Identifiable {
     case taxable
     case taxDeferred = "tax_deferred"
@@ -247,6 +256,16 @@ struct TransactionUpdate: Encodable {
     let categoryId: String
 }
 
+/// POST /cashflow/transfers (schemas.TransferCreate). Creates a linked
+/// withdrawal/deposit pair; the backend derives the "Transfer" category.
+struct TransferCreate: Encodable {
+    let fromAccountId: String
+    let toAccountId: String
+    let amount: Double
+    let date: Date
+    let description: String?
+}
+
 /// POST /cashflow/categories (schemas.CategoryCreate).
 struct CategoryCreate: Encodable {
     let householdId: String
@@ -270,6 +289,42 @@ struct AssetResponse: Codable, Identifiable, Hashable {
     let currency: String
 
     var isCash: Bool { type == "cash" }
+}
+
+/// POST /portfolio/assets (schemas.AssetCreate). The id is client-generated.
+struct AssetCreate: Encodable {
+    let id: String
+    let ticker: String
+    let name: String
+    let type: String
+    let currency: String
+    let pricingMode: String
+}
+
+/// POST /portfolio/trades (schemas.TradeCreate). Buy/sell of an asset into a
+/// sub-portfolio, funded from an account (or the sub-portfolio's own cash).
+struct TradeCreate: Encodable {
+    let type: TradeType
+    let date: Date
+    let quantity: Double
+    let price: Double
+    let currency: String?
+    let exchangeRate: Double
+    let description: String?
+    let householdId: String
+    let subPortfolioId: String
+    let assetId: String
+    let accountId: String
+    let settleFromCash: Bool
+}
+
+/// Minimal decode of POST /portfolio/trades (schemas.TradeResponse).
+struct TradeResponse: Codable, Identifiable {
+    let id: String
+    let type: TradeType
+    let date: Date
+    let quantity: Double
+    @MoneyAmount var price: Double
 }
 
 struct SubPortfolioResponse: Codable, Identifiable, Hashable {
