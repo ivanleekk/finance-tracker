@@ -448,10 +448,12 @@ class TradeUpdate(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
-    household_id: Optional[int] = None
-    sub_portfolio_id: Optional[int] = None
-    asset_id: Optional[int] = None
-    account_id: Optional[int] = None
+    # These are UUID foreign keys (they were mistakenly typed Optional[int],
+    # which 422'd any attempt to reassign a trade's portfolio/asset/account).
+    household_id: Optional[uuid.UUID] = None
+    sub_portfolio_id: Optional[uuid.UUID] = None
+    asset_id: Optional[uuid.UUID] = None
+    account_id: Optional[uuid.UUID] = None
 
 
 class TradeResponse(TradeBase):

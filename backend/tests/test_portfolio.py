@@ -348,6 +348,35 @@ def test_update_trade(client, auth_headers, test_household, test_subportfolio, t
     assert response.status_code == 200
     assert response.json()["quantity"] == 15.0
 
+def test_update_trade_reassigns_uuid_fields(client, auth_headers, test_household, test_subportfolio, test_asset, test_account, db_session):
+    """Reassigning a trade's asset/sub-portfolio takes UUIDs, not ints (regression:
+    TradeUpdate previously typed these Optional[int], 422'ing any UUID payload)."""
+    trade = models.Trade(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        sub_portfolio_id=test_subportfolio.id,
+        asset_id=test_asset.id,
+        account_id=test_account.id,
+        trade_type="buy",
+        date=datetime.now(timezone.utc),
+        quantity=5.0,
+        price=Decimal("160.00"),
+        exchange_rate=1.0
+    )
+    other_asset = models.Asset(
+        id=uuid.uuid7(), ticker="MSFT", name="Microsoft", type="stock", currency="USD"
+    )
+    db_session.add_all([trade, other_asset])
+    db_session.commit()
+
+    response = client.put(
+        f"/portfolio/trades/{trade.id}",
+        headers=auth_headers,
+        json={"asset_id": str(other_asset.id)}
+    )
+    assert response.status_code == 200
+    assert response.json()["asset_id"] == str(other_asset.id)
+
 def test_delete_trade(client, auth_headers, test_household, test_subportfolio, test_asset, test_account, db_session):
     trade = models.Trade(
         id=uuid.uuid7(),
