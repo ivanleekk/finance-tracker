@@ -312,8 +312,8 @@ class TransactionUpdate(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
-    account_id: Optional[int] = None
-    category_id: Optional[int] = None
+    account_id: Optional[uuid.UUID] = None
+    category_id: Optional[uuid.UUID] = None
 
 
 class TransactionResponse(TransactionBase):

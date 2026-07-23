@@ -1,0 +1,34 @@
+name: FinanceTracker
+options:
+  bundleIdPrefix: com.ivanlee
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+targets:
+  FinanceTracker:
+    type: application
+    platform: iOS
+    sources:
+      - FinanceTracker
+    info:
+      path: FinanceTracker/Info.plist
+      properties:
+        CFBundleDisplayName: Finance Tracker
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # The dev backend is plain http on localhost / LAN.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSFaceIDUsageDescription: Used to unlock your private financial data.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

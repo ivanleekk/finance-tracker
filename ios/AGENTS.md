@@ -1,0 +1,53 @@
+# iOS App — Agent Instructions
+
+Native SwiftUI iOS app for the Finance Tracker backend. Same FastAPI backend as web/mobile; independent codebase (no shared package).
+
+## Stack & Layout
+
+- **Swift / SwiftUI**, iOS 17 minimum (uses `@Observable`, Swift Charts, `NavigationStack`, `ContentUnavailableView`).
+- **XcodeGen** builds the project file: edit `project.yml`, never the `.xcodeproj` (it is generated; regenerate with `xcodegen generate` after adding/removing files).
+- No third-party dependencies — networking is async/await `URLSession`, charts are Apple's Charts framework, tokens live in the Keychain.
+
+```
+FinanceTracker/
+  FinanceTrackerApp.swift    # @main + RootView (auth phase switch)
+  Models/Models.swift        # Codable mirrors of backend/src/schemas.py
+  Networking/APIClient.swift # actor; Bearer auth, 401 → /auth/refresh retry (mirrors mobile/src/lib/api.ts)
+  Networking/Keychain.swift  # token storage
+  State/SessionStore.swift   # @Observable: user, households, activeHousehold (mirrors mobile AuthContext + HouseholdContext)
+  Support/Formatters.swift   # currency/percent/date formatting helpers
+  Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
+  Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
+  Views/                     # Tab bar (5): Dashboard, Goals, Portfolio, Transactions, More (+ Auth)
+                             #   Accounts is NOT a tab — reached from Dashboard's Accounts section ("See All" →
+                             #     Accounts/AccountsListView, which has no NavigationStack of its own).
+                             #   Accounts/  = account create/edit (AccountFormView), manual balance entry
+                             #     (AddBalanceView, POST /accounts/balances), account detail chart/history.
+                             #   Goals/     = life-milestone goals = sub-portfolios with a target; progress vs
+                             #     target from latest snapshot. Target editable via PATCH /portfolio/subportfolios/{id}.
+                             #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
+                             #     transfers are not editable here) + CategoriesView (category CRUD,
+                             #     also reached from More → Categories and inline from the New Transaction sheet).
+```
+
+## Conventions
+
+- JSON decoding uses `.convertFromSnakeCase` — model properties are camelCase versions of the Pydantic field names. Keep `Models.swift` in sync with `backend/src/schemas.py` when schemas change.
+- **Money fields must use `@MoneyAmount` / `@OptionalMoneyAmount`** (property wrappers in Models.swift): Pydantic serializes `Decimal` fields as JSON *strings* ("5000.00") while float fields are numbers. A plain `Double` property will fail to decode any backend Decimal field.
+- Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
+- All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
+- Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data.
+- API base URL: `http://localhost:8000` by default (simulator → Mac). Overridable at runtime in the More tab (stored in `UserDefaults` key `api_base_url`) for physical devices. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
+- **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is *generated* from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
+
+## Build & Run
+
+```sh
+cd ios
+xcodegen generate          # after any file add/remove or project.yml change
+open FinanceTracker.xcodeproj
+```
+
+CLI build: `xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker -destination 'generic/platform=iOS Simulator' build`
+
+Backend must be running (`docker compose up` at repo root).

@@ -1,0 +1,6 @@
+# Xcode / XcodeGen
+# The .xcodeproj is generated from project.yml — regenerate with `xcodegen generate`.
+FinanceTracker.xcodeproj/
+DerivedData/
+*.xcresult
+.DS_Store
