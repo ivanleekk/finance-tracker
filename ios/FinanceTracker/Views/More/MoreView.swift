@@ -60,6 +60,11 @@ struct MoreView: View {
                     if let household = session.activeHousehold {
                         LabeledContent("Base Currency", value: household.baseCurrency)
                         LabeledContent("Country", value: household.countryCode)
+                        NavigationLink {
+                            HouseholdMembersView()
+                        } label: {
+                            Label("Members & Invites", systemImage: "person.2")
+                        }
                     }
                 }
 
@@ -93,6 +98,11 @@ struct MoreView: View {
 
                 Section("Manage") {
                     NavigationLink {
+                        ReportsView()
+                    } label: {
+                        Label("Reports", systemImage: "doc.text.magnifyingglass")
+                    }
+                    NavigationLink {
                         CategoriesView()
                     } label: {
                         Label("Categories", systemImage: "tag")
@@ -100,7 +110,7 @@ struct MoreView: View {
                 }
 
                 Section {
-                    TextField("http://localhost:8000", text: $apiBaseURL)
+                    TextField("http://192.168.1.142:8000", text: $apiBaseURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

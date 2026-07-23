@@ -436,3 +436,112 @@ struct PortfolioMetricsResponse: Codable {
     let overallMetrics: PerformanceMetrics
     let subPortfolioMetrics: [SubPortfolioMetricsResponse]
 }
+
+// MARK: - Reports (GET /exports/household/{id}/report → schemas.HouseholdReportResponse)
+
+struct ReportAccountRow: Codable, Identifiable {
+    let id: String
+    let name: String
+    let kind: AccountKind
+    let currency: String?
+    let liquidity: LiquidityStatus?
+    let isPrivate: Bool
+    @OptionalMoneyAmount var balance: Double?
+    @OptionalMoneyAmount var balanceHomeCurrency: Double?
+    let balanceAsOf: Date?
+}
+
+struct ReportHoldingRow: Codable, Identifiable {
+    let subPortfolio: String
+    let ticker: String
+    let assetName: String?
+    let assetType: String?
+    let quantity: Double
+    @OptionalMoneyAmount var price: Double?
+    let currency: String?
+    @OptionalMoneyAmount var valueHomeCurrency: Double?
+    @OptionalMoneyAmount var costBasisHomeCurrency: Double?
+    @OptionalMoneyAmount var unrealizedGainHomeCurrency: Double?
+    let asOf: Date
+
+    var id: String { subPortfolio + "|" + ticker }
+}
+
+struct ReportCategoryFlow: Codable, Identifiable {
+    let category: String
+    let type: TransactionType
+    @MoneyAmount var totalHomeCurrency: Double
+    let transactionCount: Int
+
+    var id: String { category + "|" + type.rawValue }
+}
+
+struct ReportGoalRow: Codable, Identifiable {
+    let id: String
+    let name: String
+    let isPrivate: Bool
+    @OptionalMoneyAmount var targetAmount: Double?
+    let targetDate: Date?
+    @MoneyAmount var currentValueHomeCurrency: Double
+    let progressPercent: Double?
+}
+
+struct HouseholdReportResponse: Codable {
+    let householdId: String
+    let householdName: String?
+    let baseCurrency: String?
+    let generatedAt: Date
+    let preparedFor: String
+    let periodStart: Date
+    let periodEnd: Date
+    @MoneyAmount var totalAssets: Double
+    @MoneyAmount var totalLiabilities: Double
+    @MoneyAmount var netWorth: Double
+    let accounts: [ReportAccountRow]
+    @MoneyAmount var portfolioValue: Double
+    @MoneyAmount var portfolioCostBasis: Double
+    @MoneyAmount var portfolioUnrealizedGain: Double
+    let holdings: [ReportHoldingRow]
+    @MoneyAmount var incomeTotal: Double
+    @MoneyAmount var expenseTotal: Double
+    @MoneyAmount var netCashflow: Double
+    let cashflowByCategory: [ReportCategoryFlow]
+    @MoneyAmount var dividendsPeriodTotal: Double
+    @MoneyAmount var dividendsAllTimeTotal: Double
+    let goals: [ReportGoalRow]
+}
+
+// MARK: - Household members & invites (schemas in backend/src/routers/users.py)
+
+enum HouseholdRole: String, Codable, CaseIterable, Identifiable {
+    case owner, editor, viewer
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
+/// GET /users/householdmember/{household_id} (schemas.HouseholdMemberUserResponse).
+struct HouseholdMemberUserResponse: Codable, Identifiable {
+    let id: String
+    let userId: String
+    let householdId: String
+    let role: HouseholdRole
+    let name: String
+    let email: String
+}
+
+/// GET /users/households/{household_id}/invites (schemas.HouseholdInviteResponse).
+struct HouseholdInviteResponse: Codable, Identifiable {
+    let id: String
+    let householdId: String
+    let email: String
+    let role: HouseholdRole
+    let invitedByUserId: String
+    let status: String
+    let createdAt: Date
+}
+
+/// POST /users/households/{household_id}/invites (schemas.HouseholdInviteCreate).
+struct HouseholdInviteCreate: Encodable {
+    let email: String
+    let role: HouseholdRole
+}

@@ -63,6 +63,11 @@ actor APIClient {
         try await send(path: path, method: "GET", body: nil)
     }
 
+    /// Raw (undecoded) GET — used for binary downloads like the CSV export ZIP.
+    func getData(_ path: String) async throws -> Data {
+        try await send(path: path, method: "GET", body: nil, decode: false)
+    }
+
     func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
         try await send(path: path, method: "POST", body: try Self.encoder.encode(body))
     }

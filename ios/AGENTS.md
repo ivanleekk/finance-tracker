@@ -35,6 +35,12 @@ FinanceTracker/
                              #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
                              #     transfers are not editable here) + CategoriesView (category CRUD,
                              #     also reached from More → Categories and inline from the New Transaction sheet).
+                             #   Reports/   = ReportsView (More → Reports): GET /exports/household/{id}/report
+                             #     rendered as net worth / portfolio / cash flow / dividends / goals, plus CSV
+                             #     export (GET .../csv → ZIP shared via ShareSheet + APIClient.getData).
+                             #   Household/ = HouseholdMembersView (More → Members & Invites): list members
+                             #     (GET /users/householdmember/{hid}), send/cancel email invites
+                             #     (POST/DELETE /users/households/{hid}/invites), remove members.
 ```
 
 ## Conventions
