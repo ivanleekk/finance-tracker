@@ -44,9 +44,26 @@ struct MoreView: View {
         NavigationStack {
             Form {
                 if let user = session.user {
-                    Section("Profile") {
-                        LabeledContent("Name", value: user.name)
-                        LabeledContent("Email", value: user.email)
+                    Section("Account") {
+                        NavigationLink {
+                            ProfileSettingsView()
+                        } label: {
+                            LabeledContent {
+                                Text(user.name)
+                            } label: {
+                                Label("Profile", systemImage: "person.crop.circle")
+                            }
+                        }
+                        NavigationLink {
+                            SecuritySettingsView()
+                        } label: {
+                            Label("Security", systemImage: "lock")
+                        }
+                        NavigationLink {
+                            PrivacySettingsView()
+                        } label: {
+                            Label("Privacy & Vault", systemImage: "eye.slash")
+                        }
                     }
                 }
 
@@ -57,12 +74,18 @@ struct MoreView: View {
                                 Text(household.name).tag(Optional(household))
                             }
                         }
-                    } else if let household = session.activeHousehold {
-                        LabeledContent("Household", value: household.name)
                     }
                     if let household = session.activeHousehold {
+                        NavigationLink {
+                            HouseholdSettingsView()
+                        } label: {
+                            LabeledContent {
+                                Text(household.name)
+                            } label: {
+                                Label("Preferences", systemImage: "house")
+                            }
+                        }
                         LabeledContent("Base Currency", value: household.baseCurrency)
-                        LabeledContent("Country", value: household.countryCode)
                         NavigationLink {
                             HouseholdMembersView()
                         } label: {

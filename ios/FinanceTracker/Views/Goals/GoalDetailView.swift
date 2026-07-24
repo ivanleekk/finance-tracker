@@ -125,7 +125,7 @@ struct GoalDetailView: View {
             }
         }
         .sheet(isPresented: $isEditing) {
-            GoalTargetEditView(subPortfolio: goalState) { await reload() }
+            GoalFormView(existing: goalState) { await reload() }
         }
         .sheet(isPresented: $isAddingFunds) {
             if let household = session.activeHousehold {
@@ -289,7 +289,7 @@ struct GoalDetailView: View {
                         }
                     }
                 }
-                .frame(height: 160)
+                .adaptiveChartHeight(compact: 160, regular: 260)
             }
         }
     }

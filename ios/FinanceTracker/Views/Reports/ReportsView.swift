@@ -196,5 +196,19 @@ struct ShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
 
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {
+        // On iPad UIKit resolves this controller's presentation to a popover, and a popover
+        // with no anchor is a hard exception ("must have a non-nil sourceView or
+        // barButtonItem"). Hosting it inside a `.sheet` usually dodges that path, but
+        // anchoring it to its own view is free insurance and costs nothing on iPhone.
+        guard let popover = controller.popoverPresentationController else { return }
+        popover.sourceView = controller.view
+        popover.sourceRect = CGRect(
+            x: controller.view.bounds.midX,
+            y: controller.view.bounds.midY,
+            width: 0,
+            height: 0
+        )
+        popover.permittedArrowDirections = []
+    }
 }

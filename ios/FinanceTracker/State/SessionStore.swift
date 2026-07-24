@@ -34,6 +34,11 @@ final class SessionStore {
         }
     }
 
+    /// Partial PUT /users; nil fields are omitted and left unchanged server-side.
+    func updateUser(_ update: UserUpdate) async throws {
+        user = try await APIClient.shared.put("/users", body: update)
+    }
+
     /// Persist appearance choices via PUT /users; nil fields are left unchanged.
     func updateAppearance(
         themeMode: String? = nil,
@@ -41,12 +46,26 @@ final class SessionStore {
         secondaryColor: String? = nil,
         baseColor: String? = nil
     ) async throws {
-        user = try await APIClient.shared.put("/users", body: UserAppearanceUpdate(
+        try await updateUser(UserUpdate(
             themeMode: themeMode,
             primaryColor: primaryColor,
             secondaryColor: secondaryColor,
             baseColor: baseColor
         ))
+    }
+
+    /// Rename the active household / change its base reporting currency.
+    func updateHousehold(id: String, name: String?, baseCurrency: String?) async throws {
+        let updated: HouseholdResponse = try await APIClient.shared.put(
+            "/users/households/\(id)",
+            body: HouseholdUpdate(name: name, baseCurrency: baseCurrency)
+        )
+        if let index = households.firstIndex(where: { $0.id == id }) {
+            households[index] = updated
+        }
+        if activeHousehold?.id == id {
+            activeHousehold = updated
+        }
     }
 
     /// Create a household, refresh the list, and switch to it as the active one.

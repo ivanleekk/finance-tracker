@@ -1,13 +1,19 @@
 name: FinanceTracker
 options:
   bundleIdPrefix: com.ivanlee
+  # iOS 18 is the floor: `.tabViewStyle(.sidebarAdaptable)` (iPad sidebar) and
+  # onScrollGeometryChange (the QuickAdd pull) both require it.
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""
+    # Signing MUST live here, not in Xcode's Signing & Capabilities UI: that UI writes to
+    # the generated .xcodeproj, which `xcodegen generate` overwrites wholesale. An empty
+    # DEVELOPMENT_TEAM here actively blanks the team on every regenerate ("Signing for
+    # FinanceTracker requires a development team"). Applies to every configuration.
+    DEVELOPMENT_TEAM: 9SA33W38S2
     CODE_SIGN_STYLE: Automatic
 targets:
   FinanceTracker:
@@ -25,8 +31,15 @@ targets:
       properties:
         CFBundleDisplayName: Finance Tracker
         UILaunchScreen: {}
+        # iPhone stays portrait-only; iPad must declare all four or it forfeits Split View
+        # and Stage Manager (iPadOS only offers multitasking to fully rotatable apps).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # The dev backend is plain http on localhost / LAN.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -37,7 +50,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker
-        TARGETED_DEVICE_FAMILY: "1"
+        # 1 = iPhone, 2 = iPad. Universal.
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:

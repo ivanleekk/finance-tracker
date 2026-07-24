@@ -4,7 +4,8 @@ Native SwiftUI iOS app for the Finance Tracker backend. Same FastAPI backend as 
 
 ## Stack & Layout
 
-- **Swift / SwiftUI**, iOS 17 minimum (uses `@Observable`, Swift Charts, `NavigationStack`, `ContentUnavailableView`).
+- **Swift / SwiftUI**, iOS 18 minimum (uses `@Observable`, Swift Charts, `NavigationStack`, `ContentUnavailableView`, plus two iOS 18 APIs the app depends on: `.tabViewStyle(.sidebarAdaptable)` and `onScrollGeometryChange`).
+- **Universal (iPhone + iPad)** — `TARGETED_DEVICE_FAMILY: "1,2"`. Layout adapts by **size class, never by device**: `MainTabView` uses `.tabViewStyle(.sidebarAdaptable)`, so regular width (iPad full screen) gets a sidebar and compact (iPhone, iPad in narrow Split View) keeps the tab bar — same 5 tabs either way. Stat grids use `GridItem(.adaptive(minimum:))` and charts use `.adaptiveChartHeight(compact:regular:)` (`Views/Components/AdaptiveLayout.swift`) so they reflow instead of stretching. iPhone is portrait-only but iPad declares all four orientations (`UISupportedInterfaceOrientations~ipad`) — iPadOS withholds Split View / Stage Manager from apps that don't rotate. Two iPad-only traps to remember: **haptics are a no-op**, which is why Quick Add also has a ⌘K shortcut, and a `UIActivityViewController` with no popover anchor is a hard crash (see `ShareSheet` in ReportsView).
 - **XcodeGen** builds the project file: edit `project.yml`, never the `.xcodeproj` (it is generated; regenerate with `xcodegen generate` after adding/removing files).
 - No third-party dependencies — networking is async/await `URLSession`, charts are Apple's Charts framework, tokens live in the Keychain.
 
@@ -29,9 +30,12 @@ FinanceTracker/
                              #     Goals/GoalDetailView.swift — the fleshed-out page (% ring, projected-completion
                              #     chart w/ target line, Funded-from + per-member contributions, recent
                              #     contributions, edit/delete/add-funds via the ⋯ menu); native counterpart of the
-                             #     web /goals/:id screen. Projection math is Support/GoalProjection.swift. Editing a
-                             #     target still uses GoalTargetEditView → PATCH /portfolio/subportfolios/{id}.
-                             #     Goals/GoalsView.swift holds GoalProgressRow + GoalTargetEditView (old tab removed).
+                             #     web /goals/:id screen. Projection math is Support/GoalProjection.swift.
+                             #     Goals/GoalsView.swift holds GoalProgressRow + GoalFormView (old tab removed).
+                             #     GoalFormView is dual-mode: `GoalFormView(householdId:)` creates a sub-portfolio
+                             #     (Portfolio ▸ + ▸ New Goal / Sub-Portfolio → POST /portfolio/subportfolios) and
+                             #     `GoalFormView(existing:)` edits one (⋯ ▸ Edit Goal → PATCH .../{id}). Name, risk
+                             #     profile, target amount/date, and a Private toggle.
                              #   QuickAdd/  = the command bar (QuickAddView), an options-first quick-add opened by
                              #     pulling down ANY main List (`.quickAddPull` in Components/QuickAddPull.swift reads
                              #     overscroll via onScrollGeometryChange and shows a custom "pull/release" indicator
@@ -47,6 +51,14 @@ FinanceTracker/
                              #     tap to edit (TradeFormView in edit mode → PUT /portfolio/trades/{id}), swipe to
                              #     delete; the CASH pseudo-asset legs are filtered out. Trade editing needs the backend
                              #     TradeUpdate UUID fix (schemas.py) — the ID fields were Optional[int].
+                             #   More/     = MoreView (the tab) + SettingsViews.swift, the native counterpart of the
+                             #     web /settings sections: ProfileSettingsView (name + timezone),
+                             #     SecuritySettingsView (change email / password), PrivacySettingsView (the private
+                             #     vault toggles `hide_private_from_household` / `default_new_items_private`, saved
+                             #     on change), HouseholdSettingsView (rename + base currency → PUT
+                             #     /users/households/{id}). Currency/timezone use `ReferencePicker`, a searchable
+                             #     list over GET /reference/currencies|timezones. Appearance + Reports + Categories
+                             #     stay inline in MoreView.
                              #   Create a household from More → Create Household (SessionStore.createHousehold →
                              #     POST /users/households, then switches active); More shows a household picker once
                              #     there's more than one.
@@ -67,7 +79,9 @@ FinanceTracker/
 - **Money fields must use `@MoneyAmount` / `@OptionalMoneyAmount`** (property wrappers in Models.swift): Pydantic serializes `Decimal` fields as JSON *strings* ("5000.00") while float fields are numbers. A plain `Double` property will fail to decode any backend Decimal field.
 - Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
-- Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data.
+- Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data. Create forms (AccountFormView, GoalFormView) seed their Private toggle from the user's `default_new_items_private` in `.onAppear` (SessionStore isn't reachable from `init`), matching web.
+    - `SubPortfolioUpdate.ownerUserId` is a `.unchanged` / `.set(String?)` enum with a hand-written `encode(to:)`, not a plain `String?`. The backend PATCH uses `exclude_unset`, so omitting the key leaves ownership alone while an explicit `null` clears it — a plain Optional can only express the first, which would make "Private → Shared" silently do nothing (the web UI has that limitation).
+- **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that *looks* right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens only when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) **and** the finger lifts below `flickVelocity` (1200 pt/s); momentum-only overscroll never arms it. Both halves matter — without the velocity check a fast flick from the top still opens it, which is what "too sensitive" meant.
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Performance metrics** come from `GET /portfolio/household/{id}/metrics` (`PortfolioMetricsResponse.overallMetrics`, a `PerformanceMetrics` mirroring the backend schema — includes `sortino_ratio`, `treynor_ratio`, `alpha`, `beta`). The Portfolio tab renders the full grid (Unrealized P&L, Div Yield, TWR, IRR/MWR, Sharpe, Sortino, Treynor+Beta, Jensen's α vs SPY); the Dashboard shows a compact Returns row (Overall Return, TWR, IRR/MWR, Sharpe). `StatTile` (in PortfolioView.swift) is the shared card, with `ratioString` / `percentString` / `returnTint` statics reused by both screens.

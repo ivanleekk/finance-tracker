@@ -128,7 +128,7 @@ struct AccountDetailView: View {
                         .foregroundStyle(session.theme.primary.accent)
                         .interpolationMethod(.monotone)
                     }
-                    .frame(height: 160)
+                    .adaptiveChartHeight(compact: 160, regular: 280)
                     .padding(.vertical, 4)
                 }
             }
@@ -223,6 +223,9 @@ struct AccountFormView: View {
     @State private var kind: AccountKind
     @State private var currency: String
     @State private var isPrivate: Bool
+    /// On create, `isPrivate` is seeded from the user's "default new items private"
+    /// preference in onAppear — SessionStore isn't reachable from init.
+    @State private var didSeedPrivacy: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -235,6 +238,7 @@ struct AccountFormView: View {
         _kind = State(initialValue: existing?.kind.flatMap(AccountKind.init(rawValue:)) ?? .asset)
         _currency = State(initialValue: existing?.currency ?? "")
         _isPrivate = State(initialValue: existing?.ownerUserId != nil)
+        _didSeedPrivacy = State(initialValue: existing != nil)
     }
 
     private var canSave: Bool {
@@ -293,6 +297,10 @@ struct AccountFormView: View {
             .onAppear {
                 if currency.isEmpty {
                     currency = session.activeHousehold?.baseCurrency ?? "USD"
+                }
+                if !didSeedPrivacy {
+                    isPrivate = session.user?.defaultsNewItemsPrivate ?? false
+                    didSeedPrivacy = true
                 }
             }
         }

@@ -67,6 +67,10 @@ struct LoginView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 32)
+                // Without a ceiling the sign-in fields stretch the full 1032pt of an iPad,
+                // which is the giveaway that an app is just a blown-up iPhone build.
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
                 .animation(.default, value: mode)
                 .animation(.default, value: errorMessage)
             }

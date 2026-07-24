@@ -24,7 +24,8 @@ struct DashboardView: View {
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
-    private let statColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+    /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
+    private let statColumns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
 
     // MARK: View-mode visibility
 
@@ -167,7 +168,7 @@ struct DashboardView: View {
                                 }
                             }
                         }
-                        .frame(height: 180)
+                        .adaptiveChartHeight(compact: 180, regular: 300)
                         .padding(.vertical, 4)
                     }
 

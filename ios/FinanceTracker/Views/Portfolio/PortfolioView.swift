@@ -14,6 +14,7 @@ struct PortfolioView: View {
     @State private var isLoading = true
     @State private var showingAddTrade = false
     @State private var showingMoveCash = false
+    @State private var showingNewGoal = false
     @State private var pricingAsset: AssetResponse?
     @State private var errorMessage: String?
 
@@ -68,7 +69,8 @@ struct PortfolioView: View {
 
     // MARK: Performance grid
 
-    private let statColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+    /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
+    private let statColumns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
 
     /// Cost basis of the current holdings, in home currency.
     private var costBasisTotal: Double {
@@ -136,7 +138,7 @@ struct PortfolioView: View {
                                 }
                             }
                         }
-                        .frame(height: 160)
+                        .adaptiveChartHeight(compact: 160, regular: 280)
                         .padding(.vertical, 4)
                     }
 
@@ -215,15 +217,22 @@ struct PortfolioView: View {
                         } label: {
                             Label("Log Trade", systemImage: "arrow.left.arrow.right")
                         }
+                        .disabled(subPortfolios.isEmpty)
                         Button {
                             showingMoveCash = true
                         } label: {
                             Label("Move Cash", systemImage: "banknote")
                         }
+                        .disabled(subPortfolios.isEmpty)
+                        Divider()
+                        Button {
+                            showingNewGoal = true
+                        } label: {
+                            Label("New Goal / Sub-Portfolio", systemImage: "target")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .disabled(subPortfolios.isEmpty)
                 }
             }
             .sheet(isPresented: $showingAddTrade) {
@@ -245,6 +254,13 @@ struct PortfolioView: View {
                         subPortfolios: subPortfolios,
                         accounts: accounts
                     ) {
+                        await load()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingNewGoal) {
+                if let household = session.activeHousehold {
+                    GoalFormView(householdId: household.id) {
                         await load()
                     }
                 }

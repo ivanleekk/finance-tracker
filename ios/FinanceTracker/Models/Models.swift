@@ -173,14 +173,29 @@ struct UserResponse: Codable, Identifiable {
     let primaryColor: String?
     let secondaryColor: String?
     let baseColor: String?
+    /// Private-vault preferences (schemas.UserBase). Optional so an older backend
+    /// response still decodes; the defaults below mirror the server's.
+    let hidePrivateFromHousehold: Bool?
+    let defaultNewItemsPrivate: Bool?
+
+    var hidesPrivateFromHousehold: Bool { hidePrivateFromHousehold ?? true }
+    var defaultsNewItemsPrivate: Bool { defaultNewItemsPrivate ?? true }
 }
 
-/// Partial update for PUT /users (schemas.UserUpdate) — appearance fields only.
-struct UserAppearanceUpdate: Encodable {
-    let themeMode: String?
-    let primaryColor: String?
-    let secondaryColor: String?
-    let baseColor: String?
+/// Partial update for PUT /users (schemas.UserUpdate). Every field is optional and nil
+/// fields are omitted from the JSON body (synthesized `encodeIfPresent`), so the server
+/// leaves anything we don't send unchanged.
+struct UserUpdate: Encodable {
+    var name: String? = nil
+    var preferredTimezone: String? = nil
+    var email: String? = nil
+    var password: String? = nil
+    var themeMode: String? = nil
+    var primaryColor: String? = nil
+    var secondaryColor: String? = nil
+    var baseColor: String? = nil
+    var hidePrivateFromHousehold: Bool? = nil
+    var defaultNewItemsPrivate: Bool? = nil
 }
 
 struct HouseholdResponse: Codable, Identifiable, Hashable {
@@ -198,6 +213,33 @@ struct HouseholdCreate: Encodable {
     let name: String
     let baseCurrency: String
     let countryCode: String
+}
+
+/// PUT /users/households/{id} (schemas.HouseholdUpdate); nil fields are left unchanged.
+struct HouseholdUpdate: Encodable {
+    var name: String? = nil
+    var baseCurrency: String? = nil
+    var countryCode: String? = nil
+}
+
+// MARK: - Reference data (GET /reference/*)
+
+struct ReferenceCurrency: Codable, Identifiable, Hashable {
+    let code: String
+    let name: String
+    var id: String { code }
+}
+
+struct ReferenceCountry: Codable, Identifiable, Hashable {
+    let code: String
+    let name: String
+    var id: String { code }
+}
+
+struct ReferenceTimezone: Codable, Identifiable, Hashable {
+    let name: String
+    let label: String
+    var id: String { name }
 }
 
 // MARK: - Accounts & Balances
@@ -433,13 +475,51 @@ struct SubPortfolioResponse: Codable, Identifiable, Hashable {
     let ownerUserId: String?
 }
 
+/// POST /portfolio/subportfolios (schemas.SubPortfolioCreate). A "goal" is just a
+/// sub-portfolio with a target. `targetDate` is a bare "yyyy-MM-dd" string (a `date`
+/// field — see Date.apiDateOnly); `ownerUserId` nil = shared, set = private to that user.
+struct SubPortfolioCreate: Encodable {
+    let householdId: String
+    let name: String
+    let riskProfile: String
+    let targetAmount: Double?
+    let targetDate: String?
+    let ownerUserId: String?
+}
+
 /// PATCH /portfolio/subportfolios/{id} (schemas.SubPortfolioUpdate). Used to set a
 /// goal's name and target. Only sent fields change; nil target fields are left as-is.
 /// `targetDate` is a bare "yyyy-MM-dd" string (a `date` field — see Date.apiDateOnly).
+///
+/// Ownership is special: the backend uses `exclude_unset`, so omitting `owner_user_id`
+/// leaves it alone while an explicit `null` clears it. A plain `String?` can only express
+/// the former, so `ownerUserId` is a `.unchanged`/`.set` enum encoded by hand — that's
+/// what lets a private goal be made shared again (the web UI can't).
 struct SubPortfolioUpdate: Encodable {
+    enum OwnerChange {
+        case unchanged
+        case set(String?)
+    }
+
     let name: String
     let targetAmount: Double?
     let targetDate: String?
+    var ownerUserId: OwnerChange = .unchanged
+
+    private enum CodingKeys: String, CodingKey {
+        case name, targetAmount, targetDate, ownerUserId
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(targetAmount, forKey: .targetAmount)
+        try container.encodeIfPresent(targetDate, forKey: .targetDate)
+        if case .set(let owner) = ownerUserId {
+            // encode(String?) writes an explicit null when owner is nil — the point.
+            try container.encode(owner, forKey: .ownerUserId)
+        }
+    }
 }
 
 struct PortfolioSnapshotResponse: Codable, Identifiable {

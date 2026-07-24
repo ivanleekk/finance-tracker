@@ -60,29 +60,57 @@ struct GoalProgressRow: View {
     }
 }
 
-/// Set a goal's name and target amount/date on its sub-portfolio.
-struct GoalTargetEditView: View {
+/// Create a sub-portfolio, or edit an existing one's name/target/ownership.
+/// A goal *is* a sub-portfolio, so this is both "New Goal" (Portfolio ▸ +) and the
+/// editor reached from GoalDetailView's ⋯ menu.
+struct GoalFormView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(SessionStore.self) private var session
 
-    let subPortfolio: SubPortfolioResponse
+    /// nil = create a new sub-portfolio in `householdId`.
+    let existing: SubPortfolioResponse?
+    let householdId: String
     let onSaved: () async -> Void
 
     @State private var name: String
+    @State private var riskProfile: String
     @State private var targetAmountText: String
     @State private var hasTargetDate: Bool
     @State private var targetDate: Date
+    @State private var isPrivate: Bool
+    @State private var didSeedPrivacy: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    init(subPortfolio: SubPortfolioResponse, onSaved: @escaping () async -> Void) {
-        self.subPortfolio = subPortfolio
+    private static let riskProfiles = ["Conservative", "Moderate", "Aggressive"]
+
+    init(existing: SubPortfolioResponse, onSaved: @escaping () async -> Void) {
+        self.init(existing: existing, householdId: existing.householdId, onSaved: onSaved)
+    }
+
+    init(householdId: String, onSaved: @escaping () async -> Void) {
+        self.init(existing: nil, householdId: householdId, onSaved: onSaved)
+    }
+
+    private init(
+        existing: SubPortfolioResponse?,
+        householdId: String,
+        onSaved: @escaping () async -> Void
+    ) {
+        self.existing = existing
+        self.householdId = householdId
         self.onSaved = onSaved
-        _name = State(initialValue: subPortfolio.name)
-        _targetAmountText = State(initialValue: subPortfolio.targetAmount.map {
+        _name = State(initialValue: existing?.name ?? "")
+        _riskProfile = State(initialValue: existing?.riskProfile ?? "Moderate")
+        _targetAmountText = State(initialValue: existing?.targetAmount.map {
             $0 == $0.rounded() ? String(Int($0)) : String($0)
         } ?? "")
-        _hasTargetDate = State(initialValue: subPortfolio.targetDate != nil)
-        _targetDate = State(initialValue: subPortfolio.targetDate ?? Date())
+        _hasTargetDate = State(initialValue: existing?.targetDate != nil)
+        _targetDate = State(initialValue: existing?.targetDate ?? Date())
+        _isPrivate = State(initialValue: existing?.ownerUserId != nil)
+        // On create, seed from the user's "default new items private" preference in
+        // onAppear — SessionStore isn't reachable from init.
+        _didSeedPrivacy = State(initialValue: existing != nil)
     }
 
     private var targetAmount: Double? {
@@ -97,7 +125,10 @@ struct GoalTargetEditView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $name)
+                    TextField("Name (e.g. House Downpayment)", text: $name)
+                    Picker("Risk Profile", selection: $riskProfile) {
+                        ForEach(Self.riskProfiles, id: \.self) { Text($0).tag($0) }
+                    }
                 }
 
                 Section {
@@ -112,7 +143,13 @@ struct GoalTargetEditView: View {
                         DatePicker("Reach by", selection: $targetDate, displayedComponents: .date)
                     }
                 } footer: {
-                    Text("Progress is tracked against this target in the Portfolio tab.")
+                    Text("A sub-portfolio with a target becomes a goal — progress is tracked against it in the Portfolio tab.")
+                }
+
+                Section {
+                    Toggle("Private to me", isOn: $isPrivate)
+                } footer: {
+                    Text("Private goals and their holdings are visible only to you, not other household members.")
                 }
 
                 if let errorMessage {
@@ -122,16 +159,21 @@ struct GoalTargetEditView: View {
                     }
                 }
             }
-            .navigationTitle("Edit Goal")
+            .navigationTitle(existing == nil ? "New Goal" : "Edit Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(existing == nil ? "Create" : "Save") { save() }
                         .disabled(!canSave)
                 }
+            }
+            .onAppear {
+                guard !didSeedPrivacy else { return }
+                isPrivate = session.user?.defaultsNewItemsPrivate ?? false
+                didSeedPrivacy = true
             }
         }
     }
@@ -141,17 +183,36 @@ struct GoalTargetEditView: View {
         isSaving = true
         errorMessage = nil
         let cleanName = name.trimmingCharacters(in: .whitespaces)
+        let owner = isPrivate ? session.user?.id : nil
+        let date = hasTargetDate ? targetDate.apiDateOnly : nil
         Task {
             defer { isSaving = false }
             do {
-                let _: SubPortfolioResponse = try await APIClient.shared.patch(
-                    "/portfolio/subportfolios/\(subPortfolio.id)",
-                    body: SubPortfolioUpdate(
-                        name: cleanName,
-                        targetAmount: targetAmount,
-                        targetDate: hasTargetDate ? targetDate.apiDateOnly : nil
+                if let existing {
+                    let _: SubPortfolioResponse = try await APIClient.shared.patch(
+                        "/portfolio/subportfolios/\(existing.id)",
+                        body: SubPortfolioUpdate(
+                            name: cleanName,
+                            targetAmount: targetAmount,
+                            targetDate: date,
+                            // Only send ownership when it actually changed, so an
+                            // untouched toggle can't clear someone else's owner id.
+                            ownerUserId: owner == existing.ownerUserId ? .unchanged : .set(owner)
+                        )
                     )
-                )
+                } else {
+                    let _: SubPortfolioResponse = try await APIClient.shared.post(
+                        "/portfolio/subportfolios",
+                        body: SubPortfolioCreate(
+                            householdId: householdId,
+                            name: cleanName,
+                            riskProfile: riskProfile,
+                            targetAmount: targetAmount,
+                            targetDate: date,
+                            ownerUserId: owner
+                        )
+                    )
+                }
                 await onSaved()
                 dismiss()
             } catch {
