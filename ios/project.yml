@@ -57,8 +57,9 @@ targets:
       configs:
         # Debug builds also honour a runtime override (More ▸ API Server) for on-device
         # testing; Release builds ignore that override and always use this baked-in value.
-        # TODO: point Release at the production API domain before shipping a Release build.
+        # Release MUST stay https: App Transport Security only exempts localhost/LAN here
+        # (NSAllowsLocalNetworking), so a plain-http production URL is blocked outright.
         Debug:
           API_BASE_URL: http://localhost:8000
         Release:
-          API_BASE_URL: http://localhost:8000
+          API_BASE_URL: https://financeapi.ivanleekaikiat.com
