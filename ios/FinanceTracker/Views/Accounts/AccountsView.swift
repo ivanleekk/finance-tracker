@@ -10,6 +10,7 @@ struct AccountsListView: View {
 
     @State private var accounts: [AccountResponse] = []
     @State private var balances: [BalanceResponse] = []
+    @State private var equity: [LinkedEquityRow] = []
     @State private var isLoading = true
     @State private var showingAddAccount = false
     @State private var errorMessage: String?
@@ -26,9 +27,28 @@ struct AccountsListView: View {
         }
     }
 
+    /// Properties a loan can be secured against, for the account form's picker.
+    private var propertyAccounts: [AccountResponse] {
+        visibleAccounts.filter { $0.liquidity == .illiquid && !$0.isLiability }
+    }
+
+    /// Equity rows for properties the current view mode actually shows.
+    private var visibleEquity: [LinkedEquityRow] {
+        equity.filter { row in visibleAccounts.contains { $0.id == row.assetAccountId } }
+    }
+
     var body: some View {
         List {
             QuickAddPullSensor()
+
+            if !visibleEquity.isEmpty {
+                Section("Property & equity") {
+                    ForEach(visibleEquity) { row in
+                        EquityRow(row: row, currency: session.activeHousehold?.baseCurrency ?? "USD")
+                    }
+                }
+            }
+
             ForEach(grouped, id: \.liquidity) { group in
                 Section(group.liquidity.label) {
                     ForEach(group.accounts) { account in
@@ -55,7 +75,7 @@ struct AccountsListView: View {
             }
         }
         .sheet(isPresented: $showingAddAccount) {
-            AccountFormView(existing: nil) { await load() }
+            AccountFormView(existing: nil, propertyAccounts: propertyAccounts) { await load() }
         }
         .overlay {
             if isLoading && accounts.isEmpty {
@@ -94,6 +114,9 @@ struct AccountsListView: View {
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let balancesReq: [BalanceResponse] = APIClient.shared.get("/accounts/balances/household/\(household.id)")
             (accounts, balances) = try await (accountsReq, balancesReq)
+            // Equity is a supplementary panel — a failure here shouldn't blank
+            // the accounts list the user came for.
+            equity = (try? await APIClient.shared.get("/accounts/household/\(household.id)/equity")) ?? []
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -117,8 +140,25 @@ struct AccountDetailView: View {
         balances.sorted { $0.date < $1.date }
     }
 
+    /// Properties this account's loan could be secured against. Fetched here
+    /// because the detail screen can be pushed straight from the Dashboard,
+    /// without the accounts list ever having loaded.
+    @State private var propertyAccounts: [AccountResponse] = []
+
     var body: some View {
         List {
+            if account.hasLoanTerms {
+                Section {
+                    NavigationLink {
+                        LoanScheduleView(account: account)
+                    } label: {
+                        Label("Payoff schedule", systemImage: "calendar.badge.clock")
+                    }
+                } footer: {
+                    Text("Every payment split into interest and principal, with your payoff date.")
+                }
+            }
+
             if sorted.count > 1 {
                 Section {
                     Chart(sorted) { balance in
@@ -181,7 +221,7 @@ struct AccountDetailView: View {
             }
         }
         .sheet(isPresented: $showingEditAccount) {
-            AccountFormView(existing: account) {
+            AccountFormView(existing: account, propertyAccounts: propertyAccounts) {
                 await onChanged()
             }
         }
@@ -207,6 +247,13 @@ struct AccountDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+        // Only a liability can be secured against something, so don't spend the
+        // request otherwise. A failure just means an empty picker.
+        if account.isLiability, let household = session.activeHousehold {
+            let all: [AccountResponse] =
+                (try? await APIClient.shared.get("/accounts/household/\(household.id)")) ?? []
+            propertyAccounts = all.filter { $0.liquidity == .illiquid && !$0.isLiability }
+        }
     }
 }
 
@@ -230,7 +277,23 @@ struct AccountFormView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    init(existing: AccountResponse?, onSaved: @escaping () async -> Void) {
+    // Optional loan terms (liabilities) and property terms (illiquid assets).
+    // Held as text so a blank field means "not set" rather than 0.
+    @State private var principalText: String
+    @State private var rateText: String
+    @State private var termMonthsText: String
+    @State private var paymentText: String
+    @State private var hasLoanStart: Bool
+    @State private var loanStartDate: Date
+    @State private var appreciationText: String
+    @State private var linkedAccountId: String
+
+    /// Property accounts a loan can be secured against. Passed in so the form
+    /// doesn't need its own fetch.
+    var propertyAccounts: [AccountResponse] = []
+
+    init(existing: AccountResponse?, propertyAccounts: [AccountResponse] = [], onSaved: @escaping () async -> Void) {
+        self.propertyAccounts = propertyAccounts
         self.existing = existing
         self.onSaved = onSaved
         _name = State(initialValue: existing?.name ?? "")
@@ -240,6 +303,15 @@ struct AccountFormView: View {
         _currency = State(initialValue: existing?.currency ?? "")
         _isPrivate = State(initialValue: existing?.ownerUserId != nil)
         _didSeedPrivacy = State(initialValue: existing != nil)
+
+        _principalText = State(initialValue: existing?.originalPrincipal.map { String($0) } ?? "")
+        _rateText = State(initialValue: existing?.interestRateAnnual.map { String($0) } ?? "")
+        _termMonthsText = State(initialValue: existing?.loanTermMonths.map(String.init) ?? "")
+        _paymentText = State(initialValue: existing?.monthlyPayment.map { String($0) } ?? "")
+        _hasLoanStart = State(initialValue: existing?.loanStartDate != nil)
+        _loanStartDate = State(initialValue: existing?.loanStartDate ?? Date())
+        _appreciationText = State(initialValue: existing?.appreciationRateAnnual.map { String($0) } ?? "")
+        _linkedAccountId = State(initialValue: existing?.linkedAccountId ?? "")
     }
 
     private var canSave: Bool {
@@ -268,6 +340,46 @@ struct AccountFormView: View {
                     }
                     Picker("Tax Status", selection: $taxStatus) {
                         ForEach(TaxTreatment.allCases) { Text($0.label).tag($0) }
+                    }
+                }
+
+                if kind == .liability {
+                    Section {
+                        TextField("Amount borrowed", text: $principalText)
+                            .keyboardType(.decimalPad)
+                        TextField("Interest rate % / yr", text: $rateText)
+                            .keyboardType(.decimalPad)
+                        TextField("Term (months)", text: $termMonthsText)
+                            .keyboardType(.numberPad)
+                        TextField("Monthly payment (optional)", text: $paymentText)
+                            .keyboardType(.decimalPad)
+                        Toggle("Set first payment date", isOn: $hasLoanStart.animation())
+                        if hasLoanStart {
+                            DatePicker(
+                                "First payment", selection: $loanStartDate, displayedComponents: .date
+                            )
+                        }
+                        if !propertyAccounts.isEmpty {
+                            Picker("Secured against", selection: $linkedAccountId) {
+                                Text("Nothing — unsecured").tag("")
+                                ForEach(propertyAccounts) { Text($0.name).tag($0.id) }
+                            }
+                        }
+                    } header: {
+                        Text("Loan terms")
+                    } footer: {
+                        Text("Optional. With the amount, rate, term and first payment set, we amortize the balance down and show your payoff date. Leave the monthly payment blank to calculate it.")
+                    }
+                }
+
+                if kind == .asset && liquidity == .illiquid {
+                    Section {
+                        TextField("Expected appreciation % / yr", text: $appreciationText)
+                            .keyboardType(.numbersAndPunctuation)
+                    } header: {
+                        Text("Property")
+                    } footer: {
+                        Text("Used only for the net worth projection — your recorded valuations are never overwritten. Leave blank to hold today's value flat.")
                     }
                 }
 
@@ -307,6 +419,35 @@ struct AccountFormView: View {
         }
     }
 
+    /// Blank means "no term set", so send nil rather than 0 — the backend
+    /// treats a partial set of terms as "no terms" and keeps the flat balance.
+    private func loanNumber(_ text: String) -> Double? {
+        guard kind == .liability else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else { return nil }
+        return value
+    }
+
+    private func loanInt(_ text: String) -> Int? {
+        guard kind == .liability else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let value = Int(trimmed), value > 0 else { return nil }
+        return value
+    }
+
+    /// Property can fall in value, so a negative rate is legitimate here.
+    private func propertyNumber(_ text: String) -> Double? {
+        guard kind == .asset, liquidity == .illiquid else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let value = Double(trimmed) else { return nil }
+        return value
+    }
+
+    private var loanStartValue: String? {
+        guard kind == .liability, hasLoanStart else { return nil }
+        return loanStartDate.apiDateOnly
+    }
+
     private func save() {
         guard canSave, let household = session.activeHousehold else { return }
         isSaving = true
@@ -322,7 +463,14 @@ struct AccountFormView: View {
                         "/accounts/\(existing.id)",
                         body: AccountUpdate(
                             name: cleanName, liquidity: liquidity, taxStatus: taxStatus,
-                            kind: kind, currency: cleanCurrency, ownerUserId: owner
+                            kind: kind, currency: cleanCurrency, ownerUserId: owner,
+                            originalPrincipal: loanNumber(principalText),
+                            interestRateAnnual: loanNumber(rateText),
+                            loanTermMonths: loanInt(termMonthsText),
+                            monthlyPayment: loanNumber(paymentText),
+                            loanStartDate: loanStartValue,
+                            appreciationRateAnnual: propertyNumber(appreciationText),
+                            linkedAccountId: linkedAccountId.isEmpty ? nil : linkedAccountId
                         )
                     )
                 } else {
@@ -330,7 +478,14 @@ struct AccountFormView: View {
                         "/accounts",
                         body: AccountCreate(
                             householdId: household.id, name: cleanName, liquidity: liquidity,
-                            taxStatus: taxStatus, kind: kind, currency: cleanCurrency, ownerUserId: owner
+                            taxStatus: taxStatus, kind: kind, currency: cleanCurrency, ownerUserId: owner,
+                            originalPrincipal: loanNumber(principalText),
+                            interestRateAnnual: loanNumber(rateText),
+                            loanTermMonths: loanInt(termMonthsText),
+                            monthlyPayment: loanNumber(paymentText),
+                            loanStartDate: loanStartValue,
+                            appreciationRateAnnual: propertyNumber(appreciationText),
+                            linkedAccountId: linkedAccountId.isEmpty ? nil : linkedAccountId
                         )
                     )
                 }

@@ -17,6 +17,7 @@ const LIQUIDITY_GROUPS: { key: string; label: string; liquidities: string[] }[] 
     { key: "cash", label: "Cash & liquid", liquidities: ["liquid"] },
     { key: "invest", label: "Investments", liquidities: ["market_liquid"] },
     { key: "retirement", label: "Retirement", liquidities: ["time_locked", "retirement"] },
+    { key: "property", label: "Property & physical assets", liquidities: ["illiquid"] },
 ];
 
 export default function Accounts() {

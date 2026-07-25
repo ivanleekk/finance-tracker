@@ -6,7 +6,9 @@ import type {
     SubPortfolioResponse, 
     TransactionResponse, 
     PortfolioSnapshotResponse,
-    PortfolioMetricsResponse
+    PortfolioMetricsResponse,
+    NetWorthProjectionResponse,
+    EmergencyFundResponse
 } from "../../types/types";
 
 export type DashboardLoaderData = {
@@ -16,6 +18,11 @@ export type DashboardLoaderData = {
     transactions: TransactionResponse[];
     snapshots: PortfolioSnapshotResponse[];
     metrics: PortfolioMetricsResponse | null;
+    // Forward net worth trajectory: loans amortize down, property appreciates.
+    // Null when the household has nothing to project (or the call failed).
+    projection: NetWorthProjectionResponse | null;
+    // Runway: how long liquid cash covers recent spending. Null if unavailable.
+    emergencyFund: EmergencyFundResponse | null;
 };
 
 export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<DashboardLoaderData> {
@@ -32,13 +39,15 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes, allBalancesRes] = await Promise.all([
+        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes, allBalancesRes, projectionRes, emergencyFundRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
             ssrFetch(`/portfolio/snapshots/household/${householdId}`),
             ssrFetch(metricsUrl),
-            ssrFetch(`/accounts/balances/household/${householdId}`)
+            ssrFetch(`/accounts/balances/household/${householdId}`),
+            ssrFetch(`/accounts/household/${householdId}/projection?months=360`),
+            ssrFetch(`/cashflow/household/${householdId}/emergency-fund`)
         ]);
 
         const [accounts, subPortfolios, transactions, snapshots, metrics] = await Promise.all([
@@ -50,6 +59,9 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         ]);
 
         const allBalances: BalanceResponse[] = allBalancesRes.ok ? await allBalancesRes.json() : [];
+        // The projection is supplementary — never let it break the dashboard.
+        const projection: NetWorthProjectionResponse | null = projectionRes.ok ? await projectionRes.json() : null;
+        const emergencyFund: EmergencyFundResponse | null = emergencyFundRes.ok ? await emergencyFundRes.json() : null;
 
         const balanceMap: Record<string, BalanceResponse[]> = {};
         allBalances.forEach(b => {
@@ -63,7 +75,9 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             subPortfolios,
             transactions,
             snapshots,
-            metrics
+            metrics,
+            projection,
+            emergencyFund
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
@@ -74,7 +88,9 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             subPortfolios: [], 
             transactions: [], 
             snapshots: [],
-            metrics: null
+            metrics: null,
+            projection: null,
+            emergencyFund: null
         };
     }
 }

@@ -118,7 +118,7 @@ actor APIClient {
         decode: Bool = true,
         isRetry: Bool = false
     ) async throws -> Data {
-        var request = URLRequest(url: baseURL.appending(path: path))
+        var request = URLRequest(url: Self.url(base: baseURL, path: path))
         request.httpMethod = method
         request.httpBody = body
         if body != nil {
@@ -138,6 +138,33 @@ actor APIClient {
 
         try Self.checkStatus(response, data: data)
         return data
+    }
+
+    /// Build a request URL from a path that may carry a query string.
+    ///
+    /// `URL.appending(path:)` percent-encodes its argument, so a path like
+    /// "/x/projection?months=360" turns the "?" into "%3F" and the query becomes
+    /// part of the path — the server sees an unknown route and 404s. Split the
+    /// query off and attach it as real query items instead.
+    static func url(base: URL, path: String) -> URL {
+        guard let separator = path.firstIndex(of: "?") else {
+            return base.appending(path: path)
+        }
+        let bare = String(path[path.startIndex..<separator])
+        let query = String(path[path.index(after: separator)...])
+
+        let items = query.split(separator: "&").compactMap { pair -> URLQueryItem? in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let name = parts.first, !name.isEmpty else { return nil }
+            return URLQueryItem(
+                name: String(name),
+                value: parts.count > 1 ? String(parts[1]) : nil
+            )
+        }
+
+        let withPath = base.appending(path: bare)
+        guard !items.isEmpty else { return withPath }
+        return withPath.appending(queryItems: items)
     }
 
     private func send<T: Decodable>(path: String, method: String, body: Data?) async throws -> T {

@@ -19,6 +19,8 @@ struct DashboardView: View {
     @State private var subPortfolios: [SubPortfolioResponse] = []
     @State private var assets: [AssetResponse] = []
     @State private var metrics: PortfolioMetricsResponse?
+    @State private var emergencyFund: EmergencyFundResponse?
+    @State private var projection: NetWorthProjectionResponse?
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -191,6 +193,36 @@ struct DashboardView: View {
                     }
                 }
 
+                if let emergencyFund {
+                    Section {
+                        NavigationLink {
+                            BudgetsView()
+                        } label: {
+                            RunwaySummaryRow(fund: emergencyFund, currency: baseCurrency)
+                        }
+                    }
+                }
+
+                if let projection, projection.currentNetWorth < 0 || projection.debtFreeDate != nil {
+                    Section("Outlook") {
+                        LabeledContent("Net worth positive") {
+                            Text(projection.currentNetWorth >= 0
+                                ? "Already there"
+                                : projection.netWorthPositiveDate.map { $0.monthYear } ?? "Not within 30 years")
+                                .monospacedDigit()
+                        }
+                        LabeledContent("Debt free") {
+                            Text(projection.debtFreeDate.map { $0.monthYear } ?? "Not within 30 years")
+                                .monospacedDigit()
+                        }
+                        LabeledContent("Interest still to pay") {
+                            Text(projection.totalInterestRemaining.currencyWhole(baseCurrency))
+                                .monospacedDigit()
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+
                 if !latestHoldings.isEmpty {
                     Section("Returns") {
                         LazyVGrid(columns: statColumns, spacing: 10) {
@@ -311,6 +343,10 @@ struct DashboardView: View {
             if let m: PortfolioMetricsResponse = try? await APIClient.shared.get("/portfolio/household/\(household.id)/metrics") {
                 metrics = m
             }
+            // Same for the runway and the forward projection: supplementary
+            // panels that must never blank the dashboard the user came for.
+            emergencyFund = try? await APIClient.shared.get("/cashflow/household/\(household.id)/emergency-fund")
+            projection = try? await APIClient.shared.get("/accounts/household/\(household.id)/projection?months=360")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -416,5 +452,41 @@ struct BreakdownCell: View {
                 .font(.subheadline.monospacedDigit().weight(.semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Compact runway readout for the Dashboard, linking through to Budgets.
+struct RunwaySummaryRow: View {
+    let fund: EmergencyFundResponse
+    let currency: String
+
+    private var tint: Color {
+        switch BudgetPresentation.runwayTone(fund) {
+        case .critical: return .red
+        case .low: return .orange
+        case .ok: return .green
+        case .unknown: return .secondary
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Emergency fund runway")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(BudgetPresentation.runwayLabel(fund))
+                .font(.title3.bold())
+                .foregroundStyle(tint)
+            if fund.monthsCovered == nil {
+                Text("Log some expenses to measure your burn rate.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(fund.liquidTotal.currencyWhole(currency)) liquid against \(fund.averageMonthlyExpenses.currencyWhole(currency))/month")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }

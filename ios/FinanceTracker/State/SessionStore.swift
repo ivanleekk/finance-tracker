@@ -65,11 +65,21 @@ final class SessionStore {
         ))
     }
 
-    /// Rename the active household / change its base reporting currency.
-    func updateHousehold(id: String, name: String?, baseCurrency: String?) async throws {
+    /// Rename the active household / change its base reporting currency or its
+    /// emergency-fund target. Omitted fields are left alone by the backend.
+    func updateHousehold(
+        id: String,
+        name: String? = nil,
+        baseCurrency: String? = nil,
+        emergencyFundTargetMonths: Double? = nil
+    ) async throws {
         let updated: HouseholdResponse = try await APIClient.shared.put(
             "/users/households/\(id)",
-            body: HouseholdUpdate(name: name, baseCurrency: baseCurrency)
+            body: HouseholdUpdate(
+                name: name,
+                baseCurrency: baseCurrency,
+                emergencyFundTargetMonths: emergencyFundTargetMonths
+            )
         )
         if let index = households.firstIndex(where: { $0.id == id }) {
             households[index] = updated

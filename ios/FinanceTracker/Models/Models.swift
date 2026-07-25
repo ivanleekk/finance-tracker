@@ -71,6 +71,9 @@ enum LiquidityStatus: String, Codable, CaseIterable, Identifiable {
     case marketLiquid = "market_liquid"
     case timeLocked = "time_locked"
     case retirement
+    /// Property, vehicles and other physical assets: part of net worth, never
+    /// part of "liquid now".
+    case illiquid
 
     var id: String { rawValue }
 
@@ -80,7 +83,16 @@ enum LiquidityStatus: String, Codable, CaseIterable, Identifiable {
         case .marketLiquid: return "Market Liquid"
         case .timeLocked: return "Time Locked"
         case .retirement: return "Retirement"
+        case .illiquid: return "Property"
         }
+    }
+
+    /// A liquidity value the app doesn't know about must not fail the decode of
+    /// the whole accounts list — an older build should still show the accounts
+    /// it understands rather than an empty screen.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LiquidityStatus(rawValue: raw) ?? .liquid
     }
 }
 
@@ -211,6 +223,9 @@ struct HouseholdResponse: Codable, Identifiable, Hashable {
     let countryCode: String
     let defaultFundingAccountId: String?
     let defaultSubPortfolioId: String?
+    /// Months of expenses the household wants held in liquid cash. Optional so
+    /// older backends (before the emergency-fund migration) still decode.
+    @OptionalMoneyAmount var emergencyFundTargetMonths: Double?
 }
 
 /// POST /users/households (schemas.HouseholdCreate). `default_split_mode` defaults to
@@ -226,6 +241,7 @@ struct HouseholdUpdate: Encodable {
     var name: String? = nil
     var baseCurrency: String? = nil
     var countryCode: String? = nil
+    var emergencyFundTargetMonths: Double? = nil
 }
 
 // MARK: - Reference data (GET /reference/*)
@@ -260,6 +276,33 @@ struct AccountResponse: Codable, Identifiable, Hashable {
     let currency: String
     /// nil = shared with the household; set = private to that user.
     let ownerUserId: String?
+
+    // Loan terms — liability accounts only. All optional: without the full set
+    // the account keeps whatever balance was last entered, exactly as before.
+    @OptionalMoneyAmount var originalPrincipal: Double?
+    @OptionalMoneyAmount var interestRateAnnual: Double?   // percent per year
+    let loanTermMonths: Int?
+    @OptionalMoneyAmount var monthlyPayment: Double?       // derived if unset
+    let loanStartDate: Date?
+
+    // Property terms — illiquid asset accounts only. nil holds today's
+    // valuation flat in the projection.
+    @OptionalMoneyAmount var appreciationRateAnnual: Double?
+
+    /// Ties a property to the loan secured against it (settable from either side).
+    let linkedAccountId: String?
+
+    var isLiability: Bool { kind == "liability" }
+
+    /// Whether this liability has enough detail to amortize. Mirrors
+    /// `loan_terms_for` on the backend — without all four there is no schedule.
+    var hasLoanTerms: Bool {
+        isLiability
+            && (originalPrincipal ?? 0) > 0
+            && interestRateAnnual != nil
+            && (loanTermMonths ?? 0) > 0
+            && loanStartDate != nil
+    }
 }
 
 /// POST /accounts (schemas.AccountCreate).
@@ -271,6 +314,17 @@ struct AccountCreate: Encodable {
     let kind: AccountKind
     let currency: String
     let ownerUserId: String?
+
+    // Optional loan/property terms. nil is omitted from the body, so an account
+    // created without them behaves exactly as before.
+    var originalPrincipal: Double? = nil
+    var interestRateAnnual: Double? = nil
+    var loanTermMonths: Int? = nil
+    var monthlyPayment: Double? = nil
+    /// Date-only field — encode with `Formatters.apiDateOnly`.
+    var loanStartDate: String? = nil
+    var appreciationRateAnnual: Double? = nil
+    var linkedAccountId: String? = nil
 }
 
 /// PUT /accounts/{id} (schemas.AccountUpdate).
@@ -281,6 +335,14 @@ struct AccountUpdate: Encodable {
     let kind: AccountKind
     let currency: String
     let ownerUserId: String?
+
+    var originalPrincipal: Double? = nil
+    var interestRateAnnual: Double? = nil
+    var loanTermMonths: Int? = nil
+    var monthlyPayment: Double? = nil
+    var loanStartDate: String? = nil
+    var appreciationRateAnnual: Double? = nil
+    var linkedAccountId: String? = nil
 }
 
 struct BalanceResponse: Codable, Identifiable {
@@ -707,4 +769,266 @@ struct HouseholdInviteResponse: Codable, Identifiable {
 struct HouseholdInviteCreate: Encodable {
     let email: String
     let role: HouseholdRole
+}
+
+// MARK: - Loans, property & net worth projection
+//
+// Mirrors the schemas added alongside `backend/src/services/loan_service.py`.
+// A mortgage recorded as a plain liability makes net worth read like a
+// catastrophe: the debt is there in full and the house it bought is not. These
+// types carry the amortization and the forward trajectory that fix that.
+
+struct AmortizationRow: Codable, Identifiable, Hashable {
+    let period: Int
+    let date: Date
+    @MoneyAmount var payment: Double
+    @MoneyAmount var interest: Double
+    @MoneyAmount var principal: Double
+    @MoneyAmount var balance: Double
+
+    var id: Int { period }
+}
+
+/// GET /accounts/{id}/loan-schedule
+struct LoanScheduleResponse: Codable {
+    let accountId: String
+    let accountName: String
+    let currency: String
+    @MoneyAmount var originalPrincipal: Double
+    @MoneyAmount var interestRateAnnual: Double
+    let loanTermMonths: Int
+    @MoneyAmount var monthlyPayment: Double
+    let loanStartDate: Date
+    /// nil when the payment is too small to ever clear the balance.
+    let payoffDate: Date?
+    @MoneyAmount var currentBalance: Double
+    @MoneyAmount var principalPaid: Double
+    @MoneyAmount var interestPaid: Double
+    @MoneyAmount var totalInterest: Double
+    @MoneyAmount var remainingInterest: Double
+    let schedule: [AmortizationRow]
+}
+
+struct NetWorthProjectionPoint: Codable, Identifiable, Hashable {
+    let date: Date
+    @MoneyAmount var assets: Double
+    @MoneyAmount var liabilities: Double
+    @MoneyAmount var netWorth: Double
+
+    var id: Date { date }
+}
+
+/// GET /accounts/household/{id}/projection
+struct NetWorthProjectionResponse: Codable {
+    let householdId: String
+    let baseCurrency: String
+    let start: Date
+    let months: Int
+    @MoneyAmount var currentNetWorth: Double
+    /// When the household stops being underwater; nil if it never crosses
+    /// inside the projected window.
+    let netWorthPositiveDate: Date?
+    let debtFreeDate: Date?
+    @MoneyAmount var totalInterestRemaining: Double
+    let points: [NetWorthProjectionPoint]
+}
+
+/// GET /accounts/household/{id}/equity — a property netted against its loan.
+struct LinkedEquityRow: Codable, Identifiable, Hashable {
+    let assetAccountId: String
+    let assetAccountName: String
+    @MoneyAmount var assetValue: Double
+    let loanAccountId: String?
+    let loanAccountName: String?
+    @MoneyAmount var loanBalance: Double
+    @MoneyAmount var equity: Double
+    let equityPercent: Double?
+
+    var id: String { assetAccountId }
+}
+
+// MARK: - Recurring transactions
+
+enum RecurrenceFrequency: String, Codable, CaseIterable, Identifiable {
+    case weekly
+    case biweekly
+    case monthly
+    case quarterly
+    case yearly
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .weekly: return "Weekly"
+        case .biweekly: return "Every 2 weeks"
+        case .monthly: return "Monthly"
+        case .quarterly: return "Quarterly"
+        case .yearly: return "Yearly"
+        }
+    }
+
+    /// How many times a year this fires — used to normalize rules of different
+    /// cadences into one comparable "per month" commitment figure.
+    var occurrencesPerMonth: Double {
+        switch self {
+        case .weekly: return 52.0 / 12.0
+        case .biweekly: return 26.0 / 12.0
+        case .monthly: return 1
+        case .quarterly: return 1.0 / 3.0
+        case .yearly: return 1.0 / 12.0
+        }
+    }
+
+    /// An unknown cadence must not fail the decode of the whole list.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = RecurrenceFrequency(rawValue: raw) ?? .monthly
+    }
+}
+
+struct RecurringTransactionResponse: Codable, Identifiable, Hashable {
+    let id: String
+    let householdId: String
+    let accountId: String
+    let categoryId: String
+    /// Positive magnitude; direction comes from the category.
+    @MoneyAmount var amount: Double
+    let currency: String?
+    let description: String?
+    let frequency: RecurrenceFrequency
+    let startDate: Date
+    let endDate: Date?
+    let nextDueDate: Date
+    let lastPostedDate: Date?
+    let isActive: Bool
+    let ownerUserId: String?
+}
+
+struct RecurringTransactionCreate: Encodable {
+    let householdId: String
+    let accountId: String
+    let categoryId: String
+    let amount: Double
+    let description: String?
+    let frequency: RecurrenceFrequency
+    /// Date-only strings — see Formatters.apiDateOnly.
+    let startDate: String
+    let endDate: String?
+    let ownerUserId: String?
+}
+
+/// PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone.
+struct RecurringTransactionUpdate: Encodable {
+    var amount: Double? = nil
+    var description: String? = nil
+    var frequency: RecurrenceFrequency? = nil
+    var startDate: String? = nil
+    var endDate: String? = nil
+    var isActive: Bool? = nil
+}
+
+/// GET /cashflow/recurring/household/{id}/upcoming
+struct UpcomingOccurrence: Codable, Identifiable, Hashable {
+    let recurringTransactionId: String
+    let description: String?
+    let categoryName: String
+    let accountName: String
+    let date: Date
+    @MoneyAmount var amount: Double
+    let currency: String?
+    let transactionType: TransactionType
+
+    /// Occurrences repeat per rule, so the rule id alone isn't unique in a list.
+    var id: String { "\(recurringTransactionId)-\(date.timeIntervalSince1970)" }
+}
+
+struct RecurringRunResponse: Codable {
+    let posted: Int
+}
+
+// MARK: - Budgets & emergency fund
+
+enum BudgetPeriod: String, Codable, CaseIterable, Identifiable {
+    case monthly
+    case yearly
+
+    var id: String { rawValue }
+
+    var label: String { self == .monthly ? "Monthly" : "Yearly" }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = BudgetPeriod(rawValue: raw) ?? .monthly
+    }
+}
+
+struct BudgetResponse: Codable, Identifiable, Hashable {
+    let id: String
+    let householdId: String
+    let categoryId: String
+    @MoneyAmount var amount: Double
+    let period: BudgetPeriod
+    let ownerUserId: String?
+}
+
+struct BudgetCreate: Encodable {
+    let householdId: String
+    let categoryId: String
+    let amount: Double
+    let period: BudgetPeriod
+    let ownerUserId: String?
+}
+
+struct BudgetUpdate: Encodable {
+    var amount: Double? = nil
+    var period: BudgetPeriod? = nil
+}
+
+struct BudgetStatusRow: Codable, Identifiable, Hashable {
+    let budgetId: String
+    let categoryId: String
+    let categoryName: String
+    let period: BudgetPeriod
+    let isPrivate: Bool
+    @MoneyAmount var limit: Double
+    @MoneyAmount var spent: Double
+    @MoneyAmount var remaining: Double
+    let percentUsed: Double
+    let periodStart: Date
+    let periodEnd: Date
+    let daysElapsed: Int
+    let daysTotal: Int
+    /// Spend extrapolated to the end of the period at the current daily rate.
+    @MoneyAmount var projectedSpend: Double
+    let projectedOver: Bool
+
+    var id: String { budgetId }
+}
+
+/// GET /cashflow/budgets/household/{id}/status
+struct BudgetStatusResponse: Codable {
+    let householdId: String
+    let baseCurrency: String
+    let asOf: Date
+    @MoneyAmount var totalLimit: Double
+    @MoneyAmount var totalSpent: Double
+    let budgets: [BudgetStatusRow]
+}
+
+/// GET /cashflow/household/{id}/emergency-fund
+struct EmergencyFundResponse: Codable {
+    let householdId: String
+    let baseCurrency: String
+    let asOf: Date
+    @MoneyAmount var liquidTotal: Double
+    @MoneyAmount var averageMonthlyExpenses: Double
+    /// nil when no spending has been recorded — an *undefined* runway, not an
+    /// infinite one. Never render this as "∞".
+    @OptionalMoneyAmount var monthsCovered: Double?
+    @MoneyAmount var targetMonths: Double
+    @MoneyAmount var targetAmount: Double
+    @MoneyAmount var shortfall: Double
+    let monthsOfHistory: Int
+    let onTrack: Bool
 }

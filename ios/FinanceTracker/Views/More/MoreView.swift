@@ -129,6 +129,16 @@ struct MoreView: View {
 
                 Section("Manage") {
                     NavigationLink {
+                        BudgetsView()
+                    } label: {
+                        Label("Budgets & Emergency Fund", systemImage: "chart.pie")
+                    }
+                    NavigationLink {
+                        RecurringView()
+                    } label: {
+                        Label("Recurring", systemImage: "repeat")
+                    }
+                    NavigationLink {
                         ReportsView()
                     } label: {
                         Label("Reports", systemImage: "doc.text.magnifyingglass")

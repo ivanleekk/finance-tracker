@@ -6,10 +6,13 @@ import { useHousehold } from "../../lib/HouseholdContext"
 import { useEffect, useMemo, useState } from "react"
 import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
 import { cn } from "../../lib/utils"
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Area, AreaChart, Line, ReferenceLine, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
+import { sampleProjection } from "../../lib/networth"
+import { runwayLabel, runwayTone } from "../../lib/budgets"
+import { Link } from "react-router"
 
 export { dashboardLoader as loader } from "./dashboard.loader";
 
@@ -21,7 +24,9 @@ export default function Dashboard() {
         subPortfolios = [],
         transactions = [],
         snapshots = [],
-        metrics = null
+        metrics = null,
+        projection = null,
+        emergencyFund = null
     } = (useLoaderData() as DashboardLoaderData) || {};
     const revalidator = useRevalidator();
     const [searchParams] = useSearchParams();
@@ -91,6 +96,19 @@ export default function Dashboard() {
     }, [snapshots]);
 
     const netWorth = currentCash + currentPortfolioValue;
+
+    // The outlook only says something worth reading once there is debt to
+    // amortize or property to grow — otherwise it's a flat line at today's
+    // number, which is noise on the dashboard.
+    const projectionData = useMemo(
+        () => sampleProjection(projection?.points ?? []),
+        [projection]
+    );
+
+    const formatMonthYear = (value?: string | null) =>
+        value
+            ? new Date(value).toLocaleDateString('default', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+            : null;
 
     // ⚡ Bolt Performance Optimization:
     // Replaced O(N^2) nested `.find()` and `.filter()` array operations inside `.map()`
@@ -216,6 +234,39 @@ export default function Dashboard() {
                         trend="neutral"
                     />
                 </div>
+
+                {/* Emergency fund runway — the "how long could I survive" number. */}
+                {emergencyFund && (
+                    <Link to="/budgets" className="block">
+                        <Card className="hover:border-primary-300 dark:hover:border-primary-800 transition-colors">
+                            <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <div className="text-[10px] uppercase tracking-wider text-base-500">Emergency fund runway</div>
+                                    <div className={cn(
+                                        "font-display text-xl font-bold",
+                                        runwayTone(emergencyFund) === "critical" && "text-red-600 dark:text-red-400",
+                                        runwayTone(emergencyFund) === "low" && "text-amber-600 dark:text-amber-400",
+                                        runwayTone(emergencyFund) === "ok" && "text-emerald-600 dark:text-emerald-400",
+                                        runwayTone(emergencyFund) === "unknown" && "text-base-500",
+                                    )}>
+                                        {runwayLabel(emergencyFund)}
+                                    </div>
+                                </div>
+                                <div className="text-sm text-base-500 dark:text-base-400">
+                                    {emergencyFund.months_covered === null || emergencyFund.months_covered === undefined
+                                        ? "Log some expenses to measure your burn rate."
+                                        : <>
+                                            {formatCurrency(Number(emergencyFund.liquid_total))} liquid against{" "}
+                                            {formatCurrency(Number(emergencyFund.average_monthly_expenses))}/month
+                                            {Number(emergencyFund.shortfall) > 0 && (
+                                                <> · {formatCurrency(Number(emergencyFund.shortfall))} short of a {Number(emergencyFund.target_months)}-month target</>
+                                            )}
+                                        </>}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </Link>
+                )}
 
                 {/* Middle Row: Charts & Goals */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
@@ -374,6 +425,97 @@ export default function Dashboard() {
                         </CardContent>
                     </Card>
                 </div>
+
+                {/* Net worth outlook — where today's assets and debts are headed */}
+                {projectionData.length > 0 && projection && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Net Worth Outlook</CardTitle>
+                            <CardDescription>
+                                Where you land if you keep paying the loans you've recorded. Cash and investments are held flat — this is your debt-and-property trajectory, not a savings forecast.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid gap-4 sm:grid-cols-3 mb-4">
+                                <div className="rounded-lg border border-base-200 dark:border-base-800 p-3">
+                                    <div className="text-[10px] uppercase tracking-wider text-base-500">Net worth positive</div>
+                                    <div className="font-display font-bold text-base-900 dark:text-base-50">
+                                        {Number(projection.current_net_worth) >= 0
+                                            ? "Already there"
+                                            : formatMonthYear(projection.net_worth_positive_date) ?? "Not within 30 years"}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg border border-base-200 dark:border-base-800 p-3">
+                                    <div className="text-[10px] uppercase tracking-wider text-base-500">Debt free</div>
+                                    <div className="font-display font-bold text-base-900 dark:text-base-50">
+                                        {formatMonthYear(projection.debt_free_date) ?? "Not within 30 years"}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg border border-base-200 dark:border-base-800 p-3">
+                                    <div className="text-[10px] uppercase tracking-wider text-base-500">Interest still to pay</div>
+                                    <div className="font-display font-bold text-red-600 dark:text-red-400">
+                                        {formatCurrency(Number(projection.total_interest_remaining))}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                                    <ComposedChart data={projectionData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
+                                        <XAxis
+                                            dataKey="date"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
+                                            tickFormatter={(val) => new Date(val).getUTCFullYear().toString()}
+                                            dy={10}
+                                        />
+                                        <YAxis
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
+                                            tickFormatter={(value) => formatCompactCurrency(value)}
+                                        />
+                                        <Tooltip
+                                            content={({ active, payload, label }) => {
+                                                if (!active || !payload || !payload.length) return null;
+                                                const labels: Record<string, string> = {
+                                                    netWorth: "Net worth",
+                                                    assets: "Assets",
+                                                    liabilities: "Debt",
+                                                };
+                                                return (
+                                                    <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-3 rounded-lg shadow-xl">
+                                                        <p className="text-xs font-semibold text-base-500 mb-2 uppercase tracking-wider">
+                                                            {new Date(label).toLocaleDateString('default', { month: 'short', year: 'numeric', timeZone: 'UTC' })}
+                                                        </p>
+                                                        <div className="space-y-1.5">
+                                                            {payload.map((entry: any, index: number) => (
+                                                                <div key={index} className="flex items-center justify-between gap-4">
+                                                                    <span className="text-sm font-semibold" style={{ color: entry.stroke }}>
+                                                                        {labels[entry.dataKey] ?? entry.dataKey}
+                                                                    </span>
+                                                                    <span className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                        {formatCurrency(Number(entry.value))}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }}
+                                        />
+                                        {/* The line the user is waiting to cross. */}
+                                        <ReferenceLine y={0} stroke="var(--color-base-400)" strokeDasharray="4 4" />
+                                        <Area type="monotone" dataKey="assets" stroke="var(--color-secondary-500)" strokeWidth={1} fill="var(--color-secondary-500)" fillOpacity={0.08} />
+                                        <Area type="monotone" dataKey="liabilities" stroke="#ef4444" strokeWidth={1} fill="#ef4444" fillOpacity={0.08} />
+                                        <Line type="monotone" dataKey="netWorth" stroke="var(--color-primary-500)" strokeWidth={2.5} dot={false} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Bottom Row: Recent Transactions */}
                 <Card>

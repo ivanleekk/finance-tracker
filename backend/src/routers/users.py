@@ -226,6 +226,7 @@ def create_household(
         country_code=household.country_code,
         owner_id=current_user.id,
         default_split_mode=household.default_split_mode,
+        emergency_fund_target_months=household.emergency_fund_target_months,
     )
     db.add(new_household)
     db.commit()
@@ -315,6 +316,8 @@ def update_household(
         existing_household.default_sub_portfolio_id = household_update.default_sub_portfolio_id
     if household_update.default_split_mode is not None:
         existing_household.default_split_mode = household_update.default_split_mode
+    if household_update.emergency_fund_target_months is not None:
+        existing_household.emergency_fund_target_months = household_update.emergency_fund_target_months
 
     db.commit()
     db.refresh(existing_household)

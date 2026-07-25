@@ -8,6 +8,7 @@ from src.models import Household, PortfolioSnapshot, Trade
 from sqlalchemy import select, func
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range
+from src.services.recurring_service import materialize_due
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
@@ -34,6 +35,12 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
         
         results = []
         for hh_id in households:
+            # Post any recurring transactions that have come due. This runs for
+            # every household, including ones with no portfolio activity — a
+            # household can have rent and salary without ever placing a trade.
+            recurring_posted = materialize_due(db, hh_id, today)
+            db.commit()
+
             # Find the last snapshot date for this household
             last_snapshot_date = db.execute(
                 select(func.max(PortfolioSnapshot.date))
@@ -52,9 +59,9 @@ def scheduled_snapshot_job(db: Session = Depends(get_db)):
                 run_snapshot_range(db, hh_id, last_snapshot_date, today)
                 # Record any dividends that went ex within the caught-up range
                 dividends_recorded = sync_dividends_range(db, hh_id, last_snapshot_date, today)
-                results.append({"household_id": hh_id, "status": "updated", "from": last_snapshot_date, "to": today, "dividends_recorded": dividends_recorded})
+                results.append({"household_id": hh_id, "status": "updated", "from": last_snapshot_date, "to": today, "dividends_recorded": dividends_recorded, "recurring_posted": recurring_posted})
             else:
-                results.append({"household_id": hh_id, "status": "no_data"})
+                results.append({"household_id": hh_id, "status": "no_data", "recurring_posted": recurring_posted})
                 
         return {"status": "success", "processed": len(results), "details": results}
     except Exception as e:

@@ -72,14 +72,14 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     # 1. Find or create the "Investment" category for this household
     investment_category = db.query(models.Category).filter(
         models.Category.household_id == db_trade.household_id,
-        models.Category.name == "Investment"
+        models.Category.name == models.SYSTEM_CATEGORY_INVESTMENT
     ).first()
 
     if not investment_category:
         investment_category = models.Category(
             id=uuid.uuid7(),
             household_id=db_trade.household_id,
-            name="Investment",
+            name=models.SYSTEM_CATEGORY_INVESTMENT,
             type=models.TransactionType.expense.value
         )
         db.add(investment_category)
