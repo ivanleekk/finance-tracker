@@ -132,6 +132,46 @@ struct ModelDecodingTests {
 
     // MARK: encoding — snake_case out + partial-update omission semantics
 
+    @Test func decodesDividendWithPerShareDetail() throws {
+        let json = """
+        {
+          "id": "div-1",
+          "household_id": "hh-1",
+          "sub_portfolio_id": "sp-1",
+          "asset_id": "a-1",
+          "account_id": "acc-1",
+          "date": "2026-03-12T00:00:00",
+          "amount": "213.00",
+          "exchange_rate": 1.0,
+          "per_share_amount": "1.42",
+          "quantity": 150.0,
+          "amount_home_currency": "288.55",
+          "is_manual": true
+        }
+        """.data(using: .utf8)!
+        let dividend = try decoder.decode(DividendResponse.self, from: json)
+        #expect(dividend.amount == 213.00)
+        #expect(dividend.amountHomeCurrency == 288.55)
+        #expect(dividend.perShareAmount == 1.42)
+        #expect(dividend.quantity == 150.0)
+        #expect(dividend.isManual == true)
+    }
+
+    @Test func decodesDividendWithoutOptionalDetail() throws {
+        // Every optional on DividendBase can be absent; the sub-portfolio dividend list
+        // must still decode rather than throwing and blanking the whole tab.
+        let json = """
+        {"id":"div-2","household_id":"hh-1","sub_portfolio_id":"sp-1","asset_id":"a-1",
+         "account_id":"acc-1","date":"2026-03-12T00:00:00","amount":"10.00","exchange_rate":1.0}
+        """.data(using: .utf8)!
+        let dividend = try decoder.decode(DividendResponse.self, from: json)
+        #expect(dividend.amount == 10.0)
+        #expect(dividend.amountHomeCurrency == nil)
+        #expect(dividend.perShareAmount == nil)
+        #expect(dividend.quantity == nil)
+        #expect(dividend.isManual == nil)
+    }
+
     @Test func encodesSubPortfolioUpdateToSnakeCase() throws {
         let update = SubPortfolioUpdate(
             name: "Emergency Fund", targetAmount: 20_000, targetDate: "2028-01-01"

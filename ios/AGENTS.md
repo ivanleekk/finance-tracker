@@ -18,6 +18,8 @@ FinanceTracker/
   State/SessionStore.swift   # @Observable: user, households, activeHousehold (mirrors mobile AuthContext + HouseholdContext)
   Support/Formatters.swift   # currency/percent/date formatting helpers
   Support/GoalProjection.swift # Swift port of web lib/goals.ts (projectGoal / valueHistory) — keep in sync
+  Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
+                             #   and the per-sub-portfolio detail screen (see the growth-chart note below)
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
   Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
@@ -54,6 +56,18 @@ FinanceTracker/
                              #     household — backend POST /users doesn't make one). Two steps: create the first
                              #     household + optional starter accounts + private-by-default choice, then optionally
                              #     rename + invite. Native counterpart of the web /onboarding flow.
+                             #   Portfolio/SubPortfolioDetailView.swift = one sub-portfolio scoped to
+                             #     Growth / Holdings / Dividends, pushed from a sub-portfolio's row in the
+                             #     Portfolio tab. Native counterpart of the WEB PORTFOLIO TAB BAR: the web
+                             #     re-scopes its whole page to the selected sub-portfolio, which a phone-width
+                             #     tab strip can't do, so the scoping is a drill-in here. There's no "Overall"
+                             #     segment — PortfolioView itself is the overall view. Growth = scoped equity
+                             #     curve + range picker + PerformanceTileGrid off that sub-portfolio's
+                             #     PerformanceMetrics + (when a target is set) goal progress linking on to
+                             #     GoalDetailView. Holdings = scoped AllocationCard + DetailedHoldingRow
+                             #     (shares / avg cost / price in native *and* home currency, return, and a
+                             #     trade / record-price / manage-cash menu). Dividends = scoped payouts with
+                             #     total received, trailing yield and per-share detail.
                              #   Portfolio/ also has an AllocationCard (donut by asset type + legend + FX-exposure
                              #     chips, colours matched to the web ALLOCATION_COLORS), plus TradesListView
                              #     tap to edit (TradeFormView in edit mode → PUT /portfolio/trades/{id}), swipe to
@@ -94,7 +108,11 @@ FinanceTracker/
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `true`**, so once enforced, every user's private vault is biometric-gated by default (the preview test user was flipped to `false` locally so browser/simulator verification isn't blocked by the prompt).
-- **Performance metrics** come from `GET /portfolio/household/{id}/metrics` (`PortfolioMetricsResponse.overallMetrics`, a `PerformanceMetrics` mirroring the backend schema — includes `sortino_ratio`, `treynor_ratio`, `alpha`, `beta`). The Portfolio tab renders the full grid (Unrealized P&L, Div Yield, TWR, IRR/MWR, Sharpe, Sortino, Treynor+Beta, Jensen's α vs SPY); the Dashboard shows a compact Returns row (Overall Return, TWR, IRR/MWR, Sharpe). `StatTile` (in PortfolioView.swift) is the shared card, with `ratioString` / `percentString` / `returnTint` statics reused by both screens.
+- **Performance metrics** come from `GET /portfolio/household/{id}/metrics` (`PortfolioMetricsResponse.overallMetrics`, a `PerformanceMetrics` mirroring the backend schema — includes `sortino_ratio`, `treynor_ratio`, `alpha`, `beta`). The Portfolio tab renders the full grid (Unrealized P&L, Div Yield, TWR, IRR/MWR, Sharpe, Sortino, Treynor+Beta, Jensen's α vs SPY); the Dashboard shows a compact Returns row (Overall Return, TWR, IRR/MWR, Sharpe). `StatTile` (in PortfolioView.swift) is the shared card, with `ratioString` / `percentString` / `returnTint` statics reused by both screens. `PerformanceTileGrid` wraps the full grid so `SubPortfolioDetailView` can render the same tiles off `subPortfolioMetrics[…].metrics` instead of the overall ones.
+- **Growth charts** (`Support/PortfolioAnalytics.swift`) are built by `equityCurve(snapshots:subPortfolioId:range:now:)` and shared by the Portfolio tab and the sub-portfolio detail screen. Two deliberate divergences from web:
+    - The web has *two* controls — a range (1M…ALL) and a Daily/Weekly/Monthly/Yearly binning selector. Two adjacent selectors don't fit a phone, so only the range is exposed and the bin is derived from the data's span (`growthBin(forSpanDays:)`: ≤92d daily, ≤550d weekly, else monthly). Binning keeps the **last** value in each bucket, not a sum or mean — an equity curve is a running balance (this matches the web's `binHistory`). Bucketing uses a **UTC, Monday-first** calendar so a snapshot can't drift into a neighbouring bucket by timezone.
+    - `allocationSlices` weights by `current_value_home_currency`, whereas the web weights by native value — which mixes units in a multi-currency portfolio (a US$1 and a S$1 position get the same wedge there).
+    - `periodChange` returns a **nil** `fraction` when the opening balance is under 1% of the closing one. A goal funded from $42 to $13,104 is not a +31,100% return, and printing that as one is worse than printing no percentage.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is *generated* from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run
@@ -134,6 +152,10 @@ where tests pay off without a running backend:
 - `ModelDecodingTests` — representative backend JSON through the real `APIClient.decoder`
   (`.convertFromSnakeCase` + `DateParser`); catches `Models.swift` ⇄ `schemas.py` drift. Also
   covers `SubPortfolioUpdate`'s omit-vs-explicit-null owner encoding.
+- `PortfolioAnalyticsTests` — `Support/PortfolioAnalytics.swift`: equity-curve aggregation,
+  sub-portfolio scoping, range windows, the daily/weekly/monthly bin thresholds and
+  last-in-bucket rule, `periodChange`'s small-base guard, allocation and FX exposure. Dates
+  are built with an explicit UTC calendar so results don't depend on the machine's timezone.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).

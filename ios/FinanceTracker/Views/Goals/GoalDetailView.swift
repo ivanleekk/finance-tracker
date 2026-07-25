@@ -411,7 +411,7 @@ struct GoalDetailView: View {
 
 /// A rounded card used throughout the goal detail page. Optional title with a trailing
 /// accessory (e.g. a status pill).
-private struct DetailCard<Accessory: View, Content: View>: View {
+struct DetailCard<Accessory: View, Content: View>: View {
     var title: String?
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
@@ -440,7 +440,7 @@ extension DetailCard where Accessory == EmptyView {
 }
 
 /// One labelled figure in the goal summary's stat rows.
-private struct GoalStat: View {
+struct GoalStat: View {
     let title: String
     let value: String
     var tint: Color = .primary
@@ -463,7 +463,7 @@ private struct GoalStat: View {
 }
 
 /// Small uppercase status pill (ON TRACK / BEHIND PACE).
-private struct StatusPill: View {
+struct StatusPill: View {
     let text: String
     let color: Color
 

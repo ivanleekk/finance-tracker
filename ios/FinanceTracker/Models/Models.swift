@@ -549,6 +549,13 @@ struct DividendResponse: Codable, Identifiable {
     let date: Date
     @MoneyAmount var amount: Double
     @OptionalMoneyAmount var amountHomeCurrency: Double?
+    /// Payout per share, in the asset's own currency. Optional on the backend, so nil for
+    /// hand-entered dividends that only recorded a total.
+    @OptionalMoneyAmount var perShareAmount: Double?
+    /// Shares held at the ex-date. Optional for the same reason as `perShareAmount`.
+    let quantity: Double?
+    /// True when entered by hand rather than synced from market data.
+    let isManual: Bool?
 }
 
 /// POST /portfolio/dividends (schemas.DividendCreate). Records a manual dividend payout

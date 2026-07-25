@@ -16,6 +16,7 @@ struct PortfolioView: View {
     @State private var showingMoveCash = false
     @State private var showingNewGoal = false
     @State private var pricingAsset: AssetResponse?
+    @State private var range: GrowthRange = .all
     @State private var errorMessage: String?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
@@ -44,11 +45,9 @@ struct PortfolioView: View {
         latestHoldings.reduce(0) { $0 + $1.currentValueHomeCurrency }
     }
 
-    /// Total equity value over time, from snapshot history.
-    private var equityCurve: [(date: Date, value: Double)] {
-        Dictionary(grouping: visibleSnapshots, by: \.date)
-            .map { (date: $0.key, value: $0.value.reduce(0) { $0 + $1.currentValueHomeCurrency }) }
-            .sorted { $0.date < $1.date }
+    /// Total equity value over time across every visible sub-portfolio.
+    private var curve: [GoalHistoryPoint] {
+        equityCurve(snapshots: visibleSnapshots, range: range)
     }
 
     /// One group per sub-portfolio that either holds something or is a goal with a
@@ -73,80 +72,19 @@ struct PortfolioView: View {
         Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
     }
 
-    /// Current holdings sliced by asset type (stock/etf/cash/…), largest first, weighted by
-    /// home-currency value so cross-currency holdings compare fairly (the web weights by
-    /// native value; home currency is the more correct basis for a single pie). Mirrors the
-    /// web Portfolio "Allocation" card.
-    private var allocationSlices: [AllocationSlice] {
-        var byType: [String: Double] = [:]
-        var total = 0.0
-        for h in latestHoldings {
-            let value = h.currentValueHomeCurrency
-            total += value
-            let type = assetsById[h.assetId]?.type ?? "other"
-            byType[type, default: 0] += value
-        }
-        guard total > 0 else { return [] }
-        return byType
-            .map { AllocationSlice(type: $0.key, value: $0.value, pct: $0.value / total * 100) }
-            .sorted { $0.value > $1.value }
+    private var slices: [AllocationSlice] {
+        allocationSlices(holdings: latestHoldings, assetsById: assetsById)
     }
 
-    /// Currency exposure of current holdings, by each asset's own currency, as % of value.
-    private var fxExposure: [(currency: String, pct: Double)] {
-        var byCurrency: [String: Double] = [:]
-        var total = 0.0
-        for h in latestHoldings {
-            let value = h.currentValueHomeCurrency
-            total += value
-            let currency = assetsById[h.assetId]?.currency ?? baseCurrency
-            byCurrency[currency, default: 0] += value
-        }
-        guard total > 0 else { return [] }
-        return byCurrency
-            .map { (currency: $0.key, pct: $0.value / total * 100) }
-            .sorted { $0.pct > $1.pct }
+    private var fx: [FXSlice] {
+        fxExposure(holdings: latestHoldings, assetsById: assetsById, fallbackCurrency: baseCurrency)
     }
 
     // MARK: Performance grid
 
-    /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
-    private let statColumns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
-
     /// Cost basis of the current holdings, in home currency.
     private var costBasisTotal: Double {
         latestHoldings.reduce(0) { $0 + $1.averageCostBasisHomeCurrency * $1.quantity }
-    }
-
-    private var unrealizedPL: Double { totalValue - costBasisTotal }
-
-    /// Prefer the backend's simple return; fall back to unrealized/cost basis (mirrors web).
-    private var unrealizedPercent: Double {
-        let simple = metrics?.overallMetrics.simpleReturn ?? 0
-        if simple != 0 { return simple }
-        return costBasisTotal > 0 ? unrealizedPL / costBasisTotal : 0
-    }
-
-    private var divYieldString: String {
-        guard let yield = metrics?.overallMetrics.dividendYield else { return "—" }
-        return yield.formatted(.percent.precision(.fractionLength(1)))
-    }
-
-    @ViewBuilder private var performanceTiles: some View {
-        let m = metrics?.overallMetrics
-        StatTile(
-            title: "Unrealized P&L",
-            value: unrealizedPL.currency(baseCurrency),
-            subtitle: unrealizedPercent.signedPercent,
-            tint: unrealizedPL >= 0 ? .green : .red
-        )
-        StatTile(title: "Div Yield", value: divYieldString)
-        StatTile(title: "TWR (Ann.)", value: StatTile.percentString(m?.timeWeightedReturn), tint: StatTile.returnTint(m?.timeWeightedReturn))
-        StatTile(title: "IRR / MWR", value: StatTile.percentString(m?.moneyWeightedReturn), tint: StatTile.returnTint(m?.moneyWeightedReturn))
-        StatTile(title: "Sharpe", value: StatTile.ratioString(m?.sharpeRatio))
-        StatTile(title: "Sortino", value: StatTile.ratioString(m?.sortinoRatio))
-        StatTile(title: "Treynor", value: StatTile.ratioString(m?.treynorRatio), subtitle: "Beta \(StatTile.ratioString(m?.beta))")
-        StatTile(title: "Jensen's α", value: StatTile.percentString(m?.alpha), subtitle: "vs SPY", tint: StatTile.returnTint(m?.alpha))
     }
 
     var body: some View {
@@ -163,33 +101,22 @@ struct PortfolioView: View {
                     }
                     .padding(.vertical, 4)
 
-                    if equityCurve.count > 1 {
-                        Chart(equityCurve, id: \.date) { point in
-                            LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                                .foregroundStyle(session.theme.primary.accent)
-                                .interpolationMethod(.monotone)
-                        }
-                        .chartYAxis {
-                            AxisMarks(position: .trailing) { value in
-                                AxisGridLine()
-                                AxisValueLabel {
-                                    if let v = value.as(Double.self) {
-                                        Text(v.compactCurrency(baseCurrency))
-                                    }
-                                }
-                            }
-                        }
-                        .adaptiveChartHeight(compact: 160, regular: 280)
-                        .padding(.vertical, 4)
+                    if curve.count > 1 {
+                        GrowthChart(curve: curve, accent: session.theme.primary.accent, baseCurrency: baseCurrency)
+                            .padding(.vertical, 4)
+                        GrowthRangePicker(range: $range)
                     }
 
                 }
 
                 if !latestHoldings.isEmpty {
                     Section {
-                        LazyVGrid(columns: statColumns, spacing: 10) {
-                            performanceTiles
-                        }
+                        PerformanceTileGrid(
+                            metrics: metrics?.overallMetrics,
+                            unrealizedPL: totalValue - costBasisTotal,
+                            costBasis: costBasisTotal,
+                            baseCurrency: baseCurrency
+                        )
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
                     } header: {
@@ -197,12 +124,12 @@ struct PortfolioView: View {
                     }
                 }
 
-                if !allocationSlices.isEmpty {
+                if !slices.isEmpty {
                     Section {
                         AllocationCard(
-                            slices: allocationSlices,
+                            slices: slices,
                             holdingsCount: latestHoldings.count,
-                            fxExposure: fxExposure
+                            fxExposure: fx
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     } header: {
@@ -212,17 +139,22 @@ struct PortfolioView: View {
 
                 ForEach(holdingsBySubPortfolio, id: \.subPortfolio.id) { group in
                     Section {
-                        // Goal target/progress for this sub-portfolio; tap for the full goal page.
+                        // Drills into the per-sub-portfolio Growth / Holdings / Dividends
+                        // tabs — the native counterpart of the web Portfolio tab bar.
                         NavigationLink {
-                            GoalDetailView(goal: group.subPortfolio) { await load() }
+                            SubPortfolioDetailView(subPortfolio: group.subPortfolio) { await load() }
                         } label: {
-                            GoalProgressRow(
-                                currentValue: currentValue(of: group.holdings),
-                                targetAmount: group.subPortfolio.targetAmount,
-                                targetDate: group.subPortfolio.targetDate,
-                                accent: session.theme.primary.accent,
-                                baseCurrency: baseCurrency
-                            )
+                            if group.subPortfolio.targetAmount != nil {
+                                GoalProgressRow(
+                                    currentValue: currentValue(of: group.holdings),
+                                    targetAmount: group.subPortfolio.targetAmount,
+                                    targetDate: group.subPortfolio.targetDate,
+                                    accent: session.theme.primary.accent,
+                                    baseCurrency: baseCurrency
+                                )
+                            } else {
+                                Label("Growth, holdings & dividends", systemImage: "chart.xyaxis.line")
+                            }
                         }
 
                         ForEach(group.holdings) { holding in
@@ -407,19 +339,95 @@ struct StatTile: View {
     }
 }
 
-/// One wedge of the allocation donut: an asset type, its home-currency value, and share.
-struct AllocationSlice: Identifiable {
-    let type: String
-    let value: Double
-    let pct: Double
-    var id: String { type }
+/// The portfolio performance stat grid — used household-wide on `PortfolioView` and
+/// per-sub-portfolio on the `SubPortfolioDetailView` Growth tab, so the two always show
+/// the same figures from the same `PerformanceMetrics`.
+struct PerformanceTileGrid: View {
+    let metrics: PerformanceMetrics?
+    let unrealizedPL: Double
+    let costBasis: Double
+    let baseCurrency: String
 
-    /// "time_locked" → "Time Locked" for the legend.
-    var label: String {
-        type.replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+    /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
+
+    /// Prefer the backend's simple return; fall back to unrealized/cost basis (mirrors web).
+    private var unrealizedPercent: Double {
+        let simple = metrics?.simpleReturn ?? 0
+        if simple != 0 { return simple }
+        return costBasis > 0 ? unrealizedPL / costBasis : 0
+    }
+
+    private var divYieldString: String {
+        guard let yield = metrics?.dividendYield else { return "—" }
+        return yield.formatted(.percent.precision(.fractionLength(1)))
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            StatTile(
+                title: "Unrealized P&L",
+                value: unrealizedPL.currency(baseCurrency),
+                subtitle: unrealizedPercent.signedPercent,
+                tint: unrealizedPL >= 0 ? .green : .red
+            )
+            StatTile(title: "Div Yield", value: divYieldString)
+            StatTile(title: "TWR (Ann.)", value: StatTile.percentString(metrics?.timeWeightedReturn), tint: StatTile.returnTint(metrics?.timeWeightedReturn))
+            StatTile(title: "IRR / MWR", value: StatTile.percentString(metrics?.moneyWeightedReturn), tint: StatTile.returnTint(metrics?.moneyWeightedReturn))
+            StatTile(title: "Sharpe", value: StatTile.ratioString(metrics?.sharpeRatio))
+            StatTile(title: "Sortino", value: StatTile.ratioString(metrics?.sortinoRatio))
+            StatTile(title: "Treynor", value: StatTile.ratioString(metrics?.treynorRatio), subtitle: "Beta \(StatTile.ratioString(metrics?.beta))")
+            StatTile(title: "Jensen's α", value: StatTile.percentString(metrics?.alpha), subtitle: "vs SPY", tint: StatTile.returnTint(metrics?.alpha))
+        }
+    }
+}
+
+/// The shared equity curve: a filled area under a line, y-axis in compact currency.
+struct GrowthChart: View {
+    let curve: [GoalHistoryPoint]
+    let accent: Color
+    let baseCurrency: String
+    var compactHeight: CGFloat = 160
+    var regularHeight: CGFloat = 280
+
+    var body: some View {
+        Chart(curve) { point in
+            AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
+                .foregroundStyle(LinearGradient(
+                    colors: [accent.opacity(0.28), accent.opacity(0)],
+                    startPoint: .top, endPoint: .bottom
+                ))
+                .interpolationMethod(.monotone)
+            LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
+                .foregroundStyle(accent)
+                .interpolationMethod(.monotone)
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(v.compactCurrency(baseCurrency))
+                    }
+                }
+            }
+        }
+        .adaptiveChartHeight(compact: compactHeight, regular: regularHeight)
+    }
+}
+
+/// 1M / 6M / 1Y / ALL window selector for a growth chart.
+struct GrowthRangePicker: View {
+    @Binding var range: GrowthRange
+
+    var body: some View {
+        Picker("Range", selection: $range) {
+            ForEach(GrowthRange.allCases) { option in
+                Text(option.rawValue).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+        .listRowBackground(Color.clear)
     }
 }
 
@@ -429,7 +437,7 @@ struct AllocationSlice: Identifiable {
 struct AllocationCard: View {
     let slices: [AllocationSlice]
     let holdingsCount: Int
-    let fxExposure: [(currency: String, pct: Double)]
+    let fxExposure: [FXSlice]
 
     /// Web ALLOCATION_COLORS, in order, so a given type gets the same hue on both clients.
     static let palette: [Color] = [
@@ -491,7 +499,7 @@ struct AllocationCard: View {
                         .tracking(1.2)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
-                        ForEach(fxExposure.prefix(4), id: \.currency) { fx in
+                        ForEach(fxExposure.prefix(4)) { fx in
                             Text("\(fx.currency) \(Int(fx.pct.rounded()))%")
                                 .font(.caption.monospacedDigit().weight(.semibold))
                                 .frame(maxWidth: .infinity)
