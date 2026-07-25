@@ -67,6 +67,47 @@ struct PortfolioView: View {
         holdings.reduce(0) { $0 + $1.currentValueHomeCurrency }
     }
 
+    // MARK: Allocation
+
+    private var assetsById: [String: AssetResponse] {
+        Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
+    }
+
+    /// Current holdings sliced by asset type (stock/etf/cash/…), largest first, weighted by
+    /// home-currency value so cross-currency holdings compare fairly (the web weights by
+    /// native value; home currency is the more correct basis for a single pie). Mirrors the
+    /// web Portfolio "Allocation" card.
+    private var allocationSlices: [AllocationSlice] {
+        var byType: [String: Double] = [:]
+        var total = 0.0
+        for h in latestHoldings {
+            let value = h.currentValueHomeCurrency
+            total += value
+            let type = assetsById[h.assetId]?.type ?? "other"
+            byType[type, default: 0] += value
+        }
+        guard total > 0 else { return [] }
+        return byType
+            .map { AllocationSlice(type: $0.key, value: $0.value, pct: $0.value / total * 100) }
+            .sorted { $0.value > $1.value }
+    }
+
+    /// Currency exposure of current holdings, by each asset's own currency, as % of value.
+    private var fxExposure: [(currency: String, pct: Double)] {
+        var byCurrency: [String: Double] = [:]
+        var total = 0.0
+        for h in latestHoldings {
+            let value = h.currentValueHomeCurrency
+            total += value
+            let currency = assetsById[h.assetId]?.currency ?? baseCurrency
+            byCurrency[currency, default: 0] += value
+        }
+        guard total > 0 else { return [] }
+        return byCurrency
+            .map { (currency: $0.key, pct: $0.value / total * 100) }
+            .sorted { $0.pct > $1.pct }
+    }
+
     // MARK: Performance grid
 
     /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
@@ -156,6 +197,19 @@ struct PortfolioView: View {
                     }
                 }
 
+                if !allocationSlices.isEmpty {
+                    Section {
+                        AllocationCard(
+                            slices: allocationSlices,
+                            holdingsCount: latestHoldings.count,
+                            fxExposure: fxExposure
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    } header: {
+                        Text("Allocation")
+                    }
+                }
+
                 ForEach(holdingsBySubPortfolio, id: \.subPortfolio.id) { group in
                     Section {
                         // Goal target/progress for this sub-portfolio; tap for the full goal page.
@@ -209,6 +263,7 @@ struct PortfolioView: View {
             }
             .navigationTitle("Portfolio")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
                 ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -349,6 +404,106 @@ struct StatTile: View {
     static func returnTint(_ value: Double?) -> Color {
         guard let value, value != 0 else { return .primary }
         return value > 0 ? .green : .red
+    }
+}
+
+/// One wedge of the allocation donut: an asset type, its home-currency value, and share.
+struct AllocationSlice: Identifiable {
+    let type: String
+    let value: Double
+    let pct: Double
+    var id: String { type }
+
+    /// "time_locked" → "Time Locked" for the legend.
+    var label: String {
+        type.replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+}
+
+/// Allocation-by-asset-type donut + legend + FX-exposure chips. Native counterpart of the
+/// web Portfolio "Allocation" card. Colours match the web's ALLOCATION_COLORS so the two
+/// clients read the same. Uses Swift Charts `SectorMark` (a donut via inner radius).
+struct AllocationCard: View {
+    let slices: [AllocationSlice]
+    let holdingsCount: Int
+    let fxExposure: [(currency: String, pct: Double)]
+
+    /// Web ALLOCATION_COLORS, in order, so a given type gets the same hue on both clients.
+    static let palette: [Color] = [
+        Color(red: 0.220, green: 0.741, blue: 0.973), // #38bdf8
+        Color(red: 0.290, green: 0.871, blue: 0.502), // #4ade80
+        Color(red: 0.984, green: 0.749, blue: 0.141), // #fbbf24
+        Color(red: 0.910, green: 0.475, blue: 0.976), // #e879f9
+        Color(red: 0.957, green: 0.447, blue: 0.714), // #f472b6
+        Color(red: 0.655, green: 0.545, blue: 0.980), // #a78bfa
+        Color(red: 0.984, green: 0.573, blue: 0.235), // #fb923c
+        Color(red: 0.176, green: 0.831, blue: 0.749), // #2dd4bf
+    ]
+
+    private func color(_ index: Int) -> Color { Self.palette[index % Self.palette.count] }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Chart(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                SectorMark(
+                    angle: .value("Value", slice.value),
+                    innerRadius: .ratio(0.62),
+                    angularInset: 1.5
+                )
+                .cornerRadius(3)
+                .foregroundStyle(color(index))
+            }
+            .chartLegend(.hidden)
+            .frame(height: 150)
+            .overlay {
+                VStack(spacing: 0) {
+                    Text("\(holdingsCount)")
+                        .font(.title3.monospacedDigit().weight(.bold))
+                    Text(holdingsCount == 1 ? "holding" : "holdings")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(spacing: 8) {
+                ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(color(index))
+                            .frame(width: 11, height: 11)
+                        Text(slice.label)
+                            .font(.caption)
+                        Spacer()
+                        Text("\(Int(slice.pct.rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if !fxExposure.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("FX EXPOSURE")
+                        .font(.caption2.weight(.semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ForEach(fxExposure.prefix(4), id: \.currency) { fx in
+                            Text("\(fx.currency) \(Int(fx.pct.rounded()))%")
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

@@ -43,6 +43,7 @@ struct AccountsListView: View {
         }
         .navigationTitle("Accounts")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
             ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
             ToolbarItem(placement: .primaryAction) {
                 Button {

@@ -9,6 +9,7 @@ struct MainTabView: View {
     @Environment(QuickAddStore.self) private var quickAdd
     @Environment(SessionStore.self) private var session
     @Environment(ViewModeStore.self) private var viewMode
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab = .dashboard
 
     var body: some View {
@@ -50,6 +51,33 @@ struct MainTabView: View {
         }
         .task(id: session.activeHousehold?.id) {
             await viewMode.refresh(householdId: session.activeHousehold?.id)
+        }
+        // Configure the private-vault lock from the user's setting when they log in / change,
+        // then auto-prompt once so opening the app goes straight to the biometric unlock.
+        .task(id: session.user?.id) {
+            viewMode.configureVault(requireFaceId: session.user?.requiresFaceIdForVault ?? false)
+            if viewMode.isVaultLocked {
+                _ = await viewMode.unlockVault()
+            }
+        }
+        // Reflect a live toggle of the setting (same user, changed value) without re-prompting.
+        .onChange(of: session.user?.requiresFaceIdForVault) { _, _ in
+            viewMode.configureVault(requireFaceId: session.user?.requiresFaceIdForVault ?? false)
+        }
+        // Re-lock when the app is actually backgrounded, and re-unlock on return. Guard against
+        // `.inactive` (the biometric prompt itself makes the app inactive — locking there would
+        // loop) by acting only on `.background` / `.active`.
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                viewMode.lockVault()
+            case .active:
+                if viewMode.isVaultLocked {
+                    Task { _ = await viewMode.unlockVault() }
+                }
+            default:
+                break
+            }
         }
     }
 }

@@ -270,6 +270,7 @@ struct DashboardView: View {
             }
             .navigationTitle(session.activeHousehold?.name ?? "Dashboard")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
                 ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
             }
             .overlay {

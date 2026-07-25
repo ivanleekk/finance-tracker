@@ -177,9 +177,14 @@ struct UserResponse: Codable, Identifiable {
     /// response still decodes; the defaults below mirror the server's.
     let hidePrivateFromHousehold: Bool?
     let defaultNewItemsPrivate: Bool?
+    /// When true, private (vault) items require a biometric/passcode unlock to be shown.
+    let requireFaceIdForVault: Bool?
 
     var hidesPrivateFromHousehold: Bool { hidePrivateFromHousehold ?? true }
     var defaultsNewItemsPrivate: Bool { defaultNewItemsPrivate ?? true }
+    /// Backend defaults this to true; treat an absent value as false so we never lock a
+    /// user out on a stale/minimal decode.
+    var requiresFaceIdForVault: Bool { requireFaceIdForVault ?? false }
 }
 
 /// Partial update for PUT /users (schemas.UserUpdate). Every field is optional and nil
@@ -196,6 +201,7 @@ struct UserUpdate: Encodable {
     var baseColor: String? = nil
     var hidePrivateFromHousehold: Bool? = nil
     var defaultNewItemsPrivate: Bool? = nil
+    var requireFaceIdForVault: Bool? = nil
 }
 
 struct HouseholdResponse: Codable, Identifiable, Hashable {

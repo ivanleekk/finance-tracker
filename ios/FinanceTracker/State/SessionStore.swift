@@ -16,6 +16,17 @@ final class SessionStore {
     var phase: Phase = .loading
     var user: UserResponse?
     var households: [HouseholdResponse] = []
+
+    /// True while the guided first-run flow owns the screen. Set when a brand-new user
+    /// signs up (backend `POST /users` doesn't create a household, so they'd otherwise land
+    /// with nothing) and cleared when onboarding finishes. Keeps `OnboardingView` mounted
+    /// even after step 1 creates the household — without this, `RootView` would swap in
+    /// `MainTabView` the moment `households` becomes non-empty, mid-flow. See `needsOnboarding`.
+    var isOnboarding = false
+
+    /// Show the guided setup when there's no household to work in, or while the flow is
+    /// explicitly active. Mirrors the web redirect to `/onboarding` for household-less users.
+    var needsOnboarding: Bool { isOnboarding || households.isEmpty }
     var activeHousehold: HouseholdResponse? {
         didSet {
             UserDefaults.standard.set(activeHousehold?.id, forKey: Self.activeHouseholdKey)
@@ -118,7 +129,50 @@ final class SessionStore {
             "/users", body: UserCreate(email: email, password: password, name: name)
         )
         try await login(email: email, password: password)
+        // A fresh signup has no household yet — hand off to the guided setup flow.
+        if households.isEmpty { isOnboarding = true }
     }
+
+    // MARK: - Onboarding (guided first-run; mirrors web /onboarding)
+
+    /// Create a preset account and, when a starting balance is given, seed it. Used by the
+    /// onboarding "Cash / Investment account" presets. `ownerUserId` follows the user's
+    /// private-by-default choice. Errors are surfaced to the caller (the account may exist
+    /// even if the balance post fails — same best-effort behaviour as web).
+    func createPresetAccount(
+        householdId: String,
+        name: String,
+        liquidity: LiquidityStatus,
+        currency: String,
+        ownerUserId: String?,
+        startingBalance: Double
+    ) async throws {
+        let account: AccountResponse = try await APIClient.shared.post(
+            "/accounts",
+            body: AccountCreate(
+                householdId: householdId, name: name, liquidity: liquidity,
+                taxStatus: .taxable, kind: .asset, currency: currency, ownerUserId: ownerUserId
+            )
+        )
+        let _: BalanceResponse = try await APIClient.shared.post(
+            "/accounts/balances",
+            body: BalanceCreate(
+                accountId: account.id, date: Date().apiDateOnly,
+                balance: startingBalance, isManual: true
+            )
+        )
+    }
+
+    /// Send a household invite (onboarding step 2 "invite a partner"). Editor role, matching web.
+    func sendInvite(householdId: String, email: String) async throws {
+        let _: HouseholdInviteResponse = try await APIClient.shared.post(
+            "/users/households/\(householdId)/invites",
+            body: HouseholdInviteCreate(email: email, role: .editor)
+        )
+    }
+
+    /// Leave the guided flow and land in the app proper.
+    func finishOnboarding() { isOnboarding = false }
 
     func logout() {
         Keychain.clearTokens()

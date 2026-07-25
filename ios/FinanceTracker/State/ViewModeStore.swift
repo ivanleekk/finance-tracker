@@ -20,6 +20,24 @@ final class ViewModeStore {
     /// household. Controls whether the switcher renders and whether filtering applies.
     private(set) var hasSecondPerson = false
 
+    // MARK: Private-vault lock (Face ID)
+
+    /// The user's `require_face_id_for_vault` preference.
+    private(set) var requireFaceId = false
+    /// Cached at configure-time so `isVisible` (called every render) doesn't re-probe LAContext.
+    private var biometricsAvailable = false
+    /// Whether the vault has been unlocked this session. Only meaningful when `requireFaceId`.
+    private(set) var vaultUnlocked = false
+
+    /// The vault is locked — private items hidden regardless of view mode — only when the
+    /// user requires Face ID, the device can actually authenticate, and they haven't unlocked
+    /// yet. On a device with no biometrics/passcode we fail open so nobody is locked out.
+    var isVaultLocked: Bool { requireFaceId && biometricsAvailable && !vaultUnlocked }
+
+    /// True when the lock feature is active on this device (setting on + biometrics present),
+    /// so UI can show a lock/unlock control whether currently locked or not.
+    var vaultLockActive: Bool { requireFaceId && biometricsAvailable }
+
     private static let storageKey = "viewMode"
 
     init() {
@@ -58,14 +76,44 @@ final class ViewModeStore {
     }
 
     /// Given an item's owner (`nil` = shared) and the current user, should it be shown
-    /// under the current effective mode? Mirrors web `isVisibleInViewMode`.
+    /// under the current effective mode? Mirrors web `isVisibleInViewMode`, plus the local
+    /// vault lock: while the vault is locked, private items are hidden in every mode until
+    /// the user authenticates (biometrics/passcode).
     func isVisible(ownerUserId: String?, currentUserId: String?) -> Bool {
         let isPrivate = ownerUserId != nil
+        if isPrivate && isVaultLocked { return false }
         let isMine = ownerUserId == currentUserId
         switch effectiveMode {
         case .blended: return !isPrivate || isMine
         case .household: return !isPrivate
         case .private: return isPrivate && isMine
         }
+    }
+
+    /// Apply the user's Face ID preference (call on login and when the user record changes).
+    /// A fresh configuration re-locks the vault so switching accounts always re-authenticates.
+    func configureVault(requireFaceId: Bool) {
+        configureVault(requireFaceId: requireFaceId, biometricsAvailable: requireFaceId && BiometricAuth.isAvailable)
+    }
+
+    /// Availability-injecting variant so the gating logic is testable without live biometrics.
+    func configureVault(requireFaceId: Bool, biometricsAvailable: Bool) {
+        self.requireFaceId = requireFaceId
+        self.biometricsAvailable = biometricsAvailable
+        vaultUnlocked = false
+    }
+
+    /// Prompt for biometrics/passcode; on success the vault stays unlocked for the session.
+    /// Returns true when the vault ends up usable (already unlocked, not required, or success).
+    func unlockVault() async -> Bool {
+        guard isVaultLocked else { return true }
+        let ok = await BiometricAuth.authenticate(reason: "Unlock your private financial data")
+        if ok { vaultUnlocked = true }
+        return ok
+    }
+
+    /// Re-lock the vault (e.g. when the app goes to the background, or a manual re-lock).
+    func lockVault() {
+        if requireFaceId { vaultUnlocked = false }
     }
 }

@@ -28,7 +28,11 @@ struct RootView: View {
             case .unauthenticated:
                 LoginView()
             case .authenticated:
-                MainTabView()
+                if session.needsOnboarding {
+                    OnboardingView()
+                } else {
+                    MainTabView()
+                }
             }
         }
         .tint(session.theme.primary.accent)

@@ -174,10 +174,13 @@ struct PrivacySettingsView: View {
 
     @State private var hidePrivate = true
     @State private var defaultPrivate = true
+    @State private var requireFaceId = false
     @State private var isSaving = false
     @State private var status: SaveStatus = .idle
     /// Seeding the toggles from the user also fires `onChange`; don't PUT until then.
     @State private var didLoad = false
+
+    private var biometryName: String { BiometricAuth.displayName }
 
     var body: some View {
         Form {
@@ -201,6 +204,22 @@ struct PrivacySettingsView: View {
                 """)
             }
 
+            Section {
+                Toggle("Require \(biometryName) to unlock", isOn: $requireFaceId)
+                    .onChange(of: requireFaceId) { _, value in
+                        guard didLoad else { return }
+                        save(UserUpdate(requireFaceIdForVault: value))
+                    }
+            } header: {
+                Label("Vault lock", systemImage: BiometricAuth.symbolName)
+            } footer: {
+                if BiometricAuth.isAvailable {
+                    Text("When on, your private items stay hidden until you unlock them with \(biometryName). The vault re-locks each time you leave the app.")
+                } else {
+                    Text("This device has no biometrics or passcode set, so the lock can't be enforced here — your private items stay visible. The setting still syncs to your other devices.")
+                }
+            }
+
             StatusSection(status: status, savingLabel: isSaving ? "Saving…" : nil)
         }
         .navigationTitle("Privacy & Vault")
@@ -209,6 +228,7 @@ struct PrivacySettingsView: View {
             guard !didLoad else { return }
             hidePrivate = session.user?.hidesPrivateFromHousehold ?? true
             defaultPrivate = session.user?.defaultsNewItemsPrivate ?? true
+            requireFaceId = session.user?.requiresFaceIdForVault ?? false
             didLoad = true
         }
     }
@@ -226,6 +246,7 @@ struct PrivacySettingsView: View {
                 didLoad = false
                 hidePrivate = session.user?.hidesPrivateFromHousehold ?? true
                 defaultPrivate = session.user?.defaultsNewItemsPrivate ?? true
+                requireFaceId = session.user?.requiresFaceIdForVault ?? false
                 didLoad = true
             }
         }

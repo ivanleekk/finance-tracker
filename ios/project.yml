@@ -25,7 +25,8 @@ targets:
     # Without this, the generated .xcodeproj has NO scheme and Xcode can't build/run until
     # it auto-creates one — and every regenerate would wipe it again.
     scheme:
-      testTargets: []
+      testTargets:
+        - FinanceTrackerTests
     info:
       path: FinanceTracker/Info.plist
       properties:
@@ -63,3 +64,23 @@ targets:
           API_BASE_URL: http://localhost:8000
         Release:
           API_BASE_URL: https://financeapi.ivanleekaikiat.com
+  # Logic unit tests (Swift Testing). Because this target depends on the app target,
+  # XcodeGen auto-wires TEST_HOST + BUNDLE_LOADER so `@testable import FinanceTracker`
+  # resolves against the built app. Run with:
+  #   xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker \
+  #     -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+  #
+  # Keep this target's `info` generated (GENERATE_INFOPLIST_FILE) — pointing it at the app's
+  # Info.plist makes XcodeGen rewrite that file's CFBundlePackageType to BNDL and strips the
+  # app's own bundle id, which silently renames the app to com.ivanlee.FinanceTracker.
+  FinanceTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - FinanceTrackerTests
+    dependencies:
+      - target: FinanceTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker.tests
+        GENERATE_INFOPLIST_FILE: "YES"

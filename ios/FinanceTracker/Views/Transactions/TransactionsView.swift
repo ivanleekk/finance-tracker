@@ -77,6 +77,7 @@ struct TransactionsView: View {
             .navigationTitle("Transactions")
             .searchable(text: $searchText, prompt: "Search description, category, account")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
                 ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
