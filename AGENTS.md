@@ -40,7 +40,7 @@ This document provides a high-level overview and instructions for AI agents work
     - Frontend uses `pnpm` for dependency management.
     - Docker is used for local development and orchestration.
 - Always use `alembic` for schema changes.
-- Run `uv run alembic revision --autogenerate -m "description"` after modifying `models.py`.
+- Run `uv run alembic revision --autogenerate -m "description"` after modifying `models.py`. ALWAYS generate migrations via this native CLI — never hand-write a migration file from scratch. Hand-coding invites drift from the autogenerate diff (missed constraints, wrong `op.` ordering, forgotten downgrade) that the CLI gets right by construction; if the autogenerate output needs tweaking (e.g. data backfills, renamed-column detection), edit the CLI-generated file rather than authoring one by hand.
 - **Multi-Currency Reporting**: The system standardizes all financial reporting (Dashboard, Portfolio, Net Worth) to the household's `base_currency`.
     - Backend models (`AccountBalance`, `PortfolioSnapshot`) store a `home_currency` equivalent calculated at the time of the record.
     - The `snapshot_engine.py` uses `yfinance` to fetch historical exchange rates for conversion.
