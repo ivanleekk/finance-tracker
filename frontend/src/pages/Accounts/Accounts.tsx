@@ -303,7 +303,7 @@ export default function Accounts() {
                 commandPlaceholder="Log or find…"
                 cta={<Button variant="cta" onClick={() => setIsAddAccountModalOpen(true)}>+ Link account</Button>}
             />
-            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
+            <div className="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:p-8 relative">
                 <p className="text-base-500 dark:text-base-400 -mt-2">Manage and track your cash balances for {activeHousehold.name}.</p>
 
                 {/* Summary stats */}
@@ -499,7 +499,7 @@ export default function Accounts() {
                                                         <div className="text-[10px] text-base-400 dark:text-base-500 font-mono whitespace-nowrap">{formatCurrency(isLiability ? -balance : balance, acc.currency)}</div>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-auto">
+                                                <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
                                                     {hasLoanTerms(acc) && (
                                                         <Button variant="ghost" size="sm" onClick={() => openScheduleModal(acc.id)}>Schedule</Button>
                                                     )}
@@ -885,7 +885,8 @@ export default function Accounts() {
                                                 <div className="font-mono font-semibold text-base-900 dark:text-base-50">{formatCurrency(Number(loanSchedule.total_interest), loanSchedule.currency)}</div>
                                             </div>
                                         </div>
-                                        <table className="w-full text-left text-sm">
+                                        <div className="overflow-x-auto">
+                                        <table className="w-full min-w-[520px] text-left text-sm">
                                             <thead className="text-base-500 uppercase text-[10px] font-bold tracking-wider">
                                                 <tr>
                                                     <th className="px-2 py-2">Date</th>
@@ -909,6 +910,7 @@ export default function Accounts() {
                                                 ))}
                                             </tbody>
                                         </table>
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>
@@ -1014,7 +1016,8 @@ export default function Accounts() {
                                 </CardHeader>
                                 <CardContent className="overflow-y-auto pt-4">
                                     <div className="space-y-4">
-                                        <table className="w-full text-left text-sm">
+                                        <div className="overflow-x-auto">
+                                        <table className="w-full min-w-[420px] text-left text-sm">
                                             <thead className="text-base-500 uppercase text-[10px] font-bold tracking-wider">
                                                 <tr>
                                                     <th className="px-2 py-2">Date</th>
@@ -1063,6 +1066,7 @@ export default function Accounts() {
                                                 )}
                                             </tbody>
                                         </table>
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>

@@ -63,14 +63,20 @@ export function TopBar({
     const { hasHousehold } = useViewMode();
 
     return (
-        <div className="h-16 flex-none border-b border-base-200 dark:border-base-800 flex items-center px-6 gap-4">
+        // Below sm the controls wrap onto their own rows rather than overflowing
+        // the viewport; from sm up this is the original single 64px-tall row.
+        <div className="flex-none border-b border-base-200 dark:border-base-800 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:h-16 sm:flex-nowrap sm:px-6 sm:py-0">
             <h1 className="font-display text-lg font-extrabold tracking-tight text-base-900 dark:text-base-50 whitespace-nowrap">
                 {title}
             </h1>
             <HouseholdSelector />
             {hasHousehold && <ViewModeSwitch />}
             <div className="ml-auto flex items-center gap-3">
-                <CommandBarTrigger placeholder={commandPlaceholder} />
+                {/* ⌘K is a keyboard affordance — hide it where there's no keyboard
+                    and no room. Everything it reaches is still in the nav. */}
+                <div className="hidden lg:block">
+                    <CommandBarTrigger placeholder={commandPlaceholder} />
+                </div>
                 {cta}
             </div>
         </div>

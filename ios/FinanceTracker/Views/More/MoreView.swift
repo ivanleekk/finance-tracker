@@ -170,7 +170,7 @@ struct MoreView: View {
                 }
             }
             .navigationTitle("More")
-            .confirmationDialog("Log out of Finance Tracker?", isPresented: $showingLogoutConfirm, titleVisibility: .visible) {
+            .confirmationDialog("Log out of Waypoint?", isPresented: $showingLogoutConfirm, titleVisibility: .visible) {
                 Button("Log Out", role: .destructive) {
                     session.logout()
                 }

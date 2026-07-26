@@ -64,7 +64,7 @@ export default function Signup() {
     return (
         <div className="flex items-center justify-center h-screen">
             <Form method="post" className="w-full max-w-sm bg-white dark:bg-base-900 p-8 rounded-lg shadow-md border border-base-200 dark:border-base-800">
-                <h2 className="text-2xl font-bold mb-6 text-center text-base-900 dark:text-base-50">Sign Up for FinTracker</h2>
+                <h2 className="text-2xl font-bold mb-6 text-center text-base-900 dark:text-base-50">Sign up for Waypoint</h2>
 
                 {actionData?.error && (
                     <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded text-sm">

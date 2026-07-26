@@ -198,7 +198,7 @@ export default function Settings() {
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <TopBar title="Settings" commandPlaceholder="Log or find…" />
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
                 {message && (
                     <div className={`mb-6 p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300 ${message.type === 'success'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800'
@@ -457,7 +457,7 @@ export default function Settings() {
                                         <div className="space-y-1">
                                             <h4 className="text-sm font-semibold text-base-900 dark:text-base-50">Security Recommendation</h4>
                                             <p className="text-xs text-base-500 dark:text-base-400 leading-relaxed">
-                                                We recommend using a unique password for FinTracker that you don't use elsewhere.
+                                                We recommend using a unique password for Waypoint that you don't use elsewhere.
                                                 Passwords are cryptographically hashed and salted before storage.
                                             </p>
                                         </div>
