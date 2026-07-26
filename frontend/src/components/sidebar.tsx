@@ -12,6 +12,8 @@ import {
     CircleDollarSign,
     Target,
     Settings,
+    PiggyBank,
+    Repeat,
 } from "lucide-react";
 import SidebarButton from "./sidebarButton";
 import { useAuth } from "../lib/AuthContext";
@@ -36,6 +38,8 @@ function Sidebar() {
                     <SidebarButton text="Portfolio" href="/portfolio" icon={<PieChart />} />
                     <SidebarButton text="Dividends" href="/dividends" icon={<CircleDollarSign />} />
                     <SidebarButton text="Transactions" href="/transactions" icon={<History />} />
+                    <SidebarButton text="Budgets" href="/budgets" icon={<PiggyBank />} />
+                    <SidebarButton text="Recurring" href="/recurring" icon={<Repeat />} />
                     <SidebarButton text="Trade" href="/trade" icon={<ArrowRightLeft />} />
                     <SidebarButton text="Goals" href="/goals" icon={<Target />} />
                     <SidebarButton text="Household" href="/households" icon={<Users />} />

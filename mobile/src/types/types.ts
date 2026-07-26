@@ -5,6 +5,9 @@ export const LiquidityStatus = {
   MarketLiquid: "market_liquid",
   TimeLocked: "time_locked",
   Retirement: "retirement",
+  // Property, vehicles and other physical assets: part of net worth, never
+  // part of "liquid now".
+  Illiquid: "illiquid",
 } as const;
 export type LiquidityStatus = typeof LiquidityStatus[keyof typeof LiquidityStatus];
 

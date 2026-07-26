@@ -14,7 +14,7 @@ export { goalDetailLoader as loader, goalDetailAction as action } from "./goalDe
 export default function GoalDetail() {
     const { activeHousehold } = useHousehold();
     const params = useParams();
-    const { goal, snapshots = [], trades = [], accounts = [], members = [] } = (useLoaderData() as GoalDetailLoaderData) || {};
+    const { goal, timeseries = [], trades = [], accounts = [], members = [] } = (useLoaderData() as GoalDetailLoaderData) || {};
     const editFetcher = useFetcher();
 
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -41,7 +41,7 @@ export default function GoalDetail() {
     const formatCurrency = (v: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: activeHousehold?.base_currency || 'USD', maximumFractionDigits: 0 }).format(v);
 
-    const history = useMemo(() => valueHistoryForGoal(snapshots, params.id as string), [snapshots, params.id]);
+    const history = useMemo(() => valueHistoryForGoal(timeseries, params.id as string), [timeseries, params.id]);
     const proj = useMemo(
         () => projectGoal(history, goal?.target_amount ?? null, goal?.target_date ?? null),
         [history, goal?.target_amount, goal?.target_date]

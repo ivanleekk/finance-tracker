@@ -379,6 +379,42 @@ def test_update_transaction(client, auth_headers, test_account, test_category, d
     assert data["description"] == "New description"
     assert data["amount"] == "60.00"
 
+def test_update_transaction_reassign_category(client, auth_headers, test_account, test_category, test_household, db_session):
+    """Reassigning a transaction's category by UUID must succeed and flip the derived
+    income/expense type. Regression: TransactionUpdate.category_id was typed Optional[int],
+    which rejected UUIDs with a 422."""
+    income_category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Salary",
+        type="income",
+    )
+    db_session.add(income_category)
+    db_session.commit()
+
+    transaction = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=test_account.id,
+        category_id=test_category.id,
+        date=datetime.now(timezone.utc),
+        amount=Decimal("50.00"),
+        description="Reassign me",
+        transaction_type=test_category.type,
+    )
+    db_session.add(transaction)
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/transactions/{transaction.id}",
+        headers=auth_headers,
+        json={"category_id": str(income_category.id)},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category_id"] == str(income_category.id)
+    # Sign is derived from the category, so the type must follow the new category.
+    assert data["transaction_type"] == "income"
+
 def test_update_transaction_not_found(client, auth_headers):
     response = client.put(
         f"/cashflow/transactions/{uuid.uuid7()}",

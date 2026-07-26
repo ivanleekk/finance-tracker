@@ -17,6 +17,7 @@ from src.services.market_data import (
     fetch_and_cache_market_prices_range,
     fetch_and_cache_exchange_rates_range
 )
+from src.services.cache import invalidate_household
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,7 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
     if all_snapshots:
         db.execute(insert(PortfolioSnapshot), all_snapshots)
         db.commit()
+    invalidate_household(household_id)
     return True
 
 def run_daily_snapshot_targeted(db: Session, household_id: uuid.UUID, target_date: date):

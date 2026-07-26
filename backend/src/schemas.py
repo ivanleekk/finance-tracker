@@ -28,6 +28,9 @@ FiniteDecimal = Annotated[Decimal, Field(allow_inf_nan=False)]
 PositiveDecimal = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 NonNegativeDecimal = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 PercentDecimal = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
+# An emergency-fund target of 0 is meaningful ("I'm not targeting one"); 120
+# months is already far beyond any advice, so it's a generous sanity ceiling.
+EmergencyMonths = Annotated[Decimal, Field(ge=0, le=120, allow_inf_nan=False)]
 
 # A password long enough to be meaningfully hashed. Empty/1-char passwords are
 # a red flag for automated account creation.
@@ -44,6 +47,8 @@ from src.models import (
     ThemeMode,
     HouseholdInviteStatus,
     SplitMode,
+    RecurrenceFrequency,
+    BudgetPeriod,
 )
 
 # ----------------------------------------
@@ -94,6 +99,8 @@ class HouseholdBase(BaseModel):
     default_funding_account_id: Optional[uuid.UUID] = None
     default_sub_portfolio_id: Optional[uuid.UUID] = None
     default_split_mode: SplitMode = SplitMode.even
+    # Months of expenses the household wants held in liquid cash (emergency fund).
+    emergency_fund_target_months: EmergencyMonths = Decimal("6")
 
 
 class HouseholdCreate(HouseholdBase):
@@ -107,6 +114,7 @@ class HouseholdUpdate(BaseModel):
     default_funding_account_id: Optional[uuid.UUID] = None
     default_sub_portfolio_id: Optional[uuid.UUID] = None
     default_split_mode: Optional[SplitMode] = None
+    emergency_fund_target_months: Optional[EmergencyMonths] = None
 
 
 class HouseholdResponse(HouseholdBase):
@@ -172,7 +180,29 @@ class HouseholdSplitShareResponse(BaseModel):
 # ----------------------------------------
 
 
-class AccountBase(BaseModel):
+# Loan/property terms are optional everywhere: an account without them keeps
+# the original behaviour of holding whatever balance was last entered.
+# Rates are percent-per-year and capped well above any real consumer loan so a
+# fat-fingered 3500 can't blow up a projection.
+LoanRate = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
+# Property can fall in value, so appreciation is allowed to be negative.
+AppreciationRate = Annotated[Decimal, Field(ge=-100, le=100, allow_inf_nan=False)]
+LoanTermMonths = Annotated[int, Field(gt=0, le=720)]
+
+
+class AccountLoanTerms(BaseModel):
+    """Shared optional loan/property fields (see models.FinancialAccount)."""
+
+    original_principal: Optional[PositiveDecimal] = None
+    interest_rate_annual: Optional[LoanRate] = None
+    loan_term_months: Optional[LoanTermMonths] = None
+    monthly_payment: Optional[PositiveDecimal] = None
+    loan_start_date: Optional[date] = None
+    appreciation_rate_annual: Optional[AppreciationRate] = None
+    linked_account_id: Optional[uuid.UUID] = None
+
+
+class AccountBase(AccountLoanTerms):
     name: str
     liquidity: LiquidityStatus
     tax_status: TaxTreatment
@@ -185,7 +215,7 @@ class AccountCreate(AccountBase):
     household_id: uuid.UUID
 
 
-class AccountUpdate(BaseModel):
+class AccountUpdate(AccountLoanTerms):
     name: Optional[str] = None
     liquidity: Optional[LiquidityStatus] = None
     tax_status: Optional[TaxTreatment] = None
@@ -198,6 +228,73 @@ class AccountResponse(AccountBase):
     id: uuid.UUID
     household_id: uuid.UUID
     model_config = ConfigDict(from_attributes=True)
+
+
+# ----------------------------------------
+# 2b. LOAN AMORTIZATION & NET WORTH PROJECTION
+# ----------------------------------------
+
+
+class AmortizationRow(BaseModel):
+    period: int
+    date: date
+    payment: Decimal
+    interest: Decimal
+    principal: Decimal
+    balance: Decimal
+
+
+class LoanScheduleResponse(BaseModel):
+    account_id: uuid.UUID
+    account_name: str
+    currency: str
+    original_principal: Decimal
+    interest_rate_annual: Decimal
+    loan_term_months: int
+    monthly_payment: Decimal
+    loan_start_date: date
+    # None when the payment is too small to ever clear the balance.
+    payoff_date: Optional[date] = None
+    current_balance: Decimal
+    principal_paid: Decimal
+    interest_paid: Decimal
+    total_interest: Decimal
+    remaining_interest: Decimal
+    schedule: List[AmortizationRow]
+
+
+class NetWorthProjectionPoint(BaseModel):
+    date: date
+    assets: Decimal
+    liabilities: Decimal
+    net_worth: Decimal
+
+
+class NetWorthProjectionResponse(BaseModel):
+    household_id: uuid.UUID
+    base_currency: str
+    start: date
+    months: int
+    current_net_worth: Decimal
+    # The reassuring number: when the household stops being underwater. None if
+    # it never crosses within the projected window.
+    net_worth_positive_date: Optional[date] = None
+    debt_free_date: Optional[date] = None
+    total_interest_remaining: Decimal
+    points: List[NetWorthProjectionPoint]
+
+
+class LinkedEquityRow(BaseModel):
+    """A property and the loan secured against it, netted to equity."""
+
+    asset_account_id: uuid.UUID
+    asset_account_name: str
+    asset_value: Decimal
+    loan_account_id: Optional[uuid.UUID] = None
+    loan_account_name: Optional[str] = None
+    loan_balance: Decimal
+    equity: Decimal
+    equity_percent: Optional[float] = None
 
 
 class BalanceBase(BaseModel):
@@ -312,8 +409,8 @@ class TransactionUpdate(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
-    account_id: Optional[int] = None
-    category_id: Optional[int] = None
+    account_id: Optional[uuid.UUID] = None
+    category_id: Optional[uuid.UUID] = None
 
 
 class TransactionResponse(TransactionBase):
@@ -324,7 +421,140 @@ class TransactionResponse(TransactionBase):
     exchange_rate: Optional[float] = None
     transaction_type: TransactionType
     transfer_id: Optional[uuid.UUID] = None
+    # Set when a recurring rule generated this row rather than a person.
+    recurring_transaction_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+# ----------------------------------------
+# 3b. RECURRING TRANSACTIONS
+# ----------------------------------------
+
+
+class RecurringTransactionBase(BaseModel):
+    account_id: uuid.UUID
+    category_id: uuid.UUID
+    # Positive magnitude — direction comes from the category, as with a normal
+    # transaction.
+    amount: PositiveDecimal
+    currency: Optional[str] = None
+    description: Optional[str] = None
+    frequency: RecurrenceFrequency
+    start_date: date
+    end_date: Optional[date] = None
+    is_active: bool = True
+    owner_user_id: Optional[uuid.UUID] = None
+
+
+class RecurringTransactionCreate(RecurringTransactionBase):
+    household_id: uuid.UUID
+
+
+class RecurringTransactionUpdate(BaseModel):
+    account_id: Optional[uuid.UUID] = None
+    category_id: Optional[uuid.UUID] = None
+    amount: Optional[PositiveDecimal] = None
+    currency: Optional[str] = None
+    description: Optional[str] = None
+    frequency: Optional[RecurrenceFrequency] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    next_due_date: Optional[date] = None
+    is_active: Optional[bool] = None
+
+
+class RecurringTransactionResponse(RecurringTransactionBase):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    next_due_date: date
+    last_posted_date: Optional[date] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UpcomingOccurrence(BaseModel):
+    recurring_transaction_id: uuid.UUID
+    description: Optional[str] = None
+    category_name: str
+    account_name: str
+    date: date
+    amount: Decimal
+    currency: Optional[str] = None
+    transaction_type: TransactionType
+
+
+class RecurringRunResponse(BaseModel):
+    posted: int
+
+
+# ----------------------------------------
+# 3c. BUDGETS & EMERGENCY FUND
+# ----------------------------------------
+
+
+class BudgetBase(BaseModel):
+    category_id: uuid.UUID
+    amount: PositiveDecimal  # the limit, in the household base currency
+    period: BudgetPeriod = BudgetPeriod.monthly
+    owner_user_id: Optional[uuid.UUID] = None
+
+
+class BudgetCreate(BudgetBase):
+    household_id: uuid.UUID
+
+
+class BudgetUpdate(BaseModel):
+    amount: Optional[PositiveDecimal] = None
+    period: Optional[BudgetPeriod] = None
+
+
+class BudgetResponse(BudgetBase):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BudgetStatusRow(BaseModel):
+    budget_id: uuid.UUID
+    category_id: uuid.UUID
+    category_name: str
+    period: BudgetPeriod
+    is_private: bool
+    limit: Decimal
+    spent: Decimal
+    remaining: Decimal
+    percent_used: float
+    period_start: date
+    period_end: date
+    days_elapsed: int
+    days_total: int
+    # Spend extrapolated to the end of the period at the current daily rate.
+    projected_spend: Decimal
+    projected_over: bool
+
+
+class BudgetStatusResponse(BaseModel):
+    household_id: uuid.UUID
+    base_currency: str
+    as_of: date
+    total_limit: Decimal
+    total_spent: Decimal
+    budgets: List[BudgetStatusRow]
+
+
+class EmergencyFundResponse(BaseModel):
+    household_id: uuid.UUID
+    base_currency: str
+    as_of: date
+    liquid_total: Decimal
+    average_monthly_expenses: Decimal
+    # None when there is no recorded spending — an undefined runway, not an
+    # infinite one.
+    months_covered: Optional[Decimal] = None
+    target_months: Decimal
+    target_amount: Decimal
+    shortfall: Decimal
+    months_of_history: int
+    on_track: bool
 
 
 class TransferCreate(BaseModel):
@@ -448,10 +678,12 @@ class TradeUpdate(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
-    household_id: Optional[int] = None
-    sub_portfolio_id: Optional[int] = None
-    asset_id: Optional[int] = None
-    account_id: Optional[int] = None
+    # These are UUID foreign keys (they were mistakenly typed Optional[int],
+    # which 422'd any attempt to reassign a trade's portfolio/asset/account).
+    household_id: Optional[uuid.UUID] = None
+    sub_portfolio_id: Optional[uuid.UUID] = None
+    asset_id: Optional[uuid.UUID] = None
+    account_id: Optional[uuid.UUID] = None
 
 
 class TradeResponse(TradeBase):
@@ -500,6 +732,18 @@ class PortfolioSnapshotResponse(PortfolioSnapshotBase):
     household_id: uuid.UUID
     sub_portfolio_id: uuid.UUID
     asset_id: uuid.UUID
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PortfolioTimeseriesPoint(BaseModel):
+    """
+    One (date, sub_portfolio) total — the per-asset rows of PortfolioSnapshot summed
+    server-side. Chart/projection consumers (net worth trend, goal pace) only ever need this
+    granularity; see `get_household_portfolio_timeseries`.
+    """
+    date: date
+    sub_portfolio_id: uuid.UUID
+    total_value_home_currency: FiniteDecimal
     model_config = ConfigDict(from_attributes=True)
 
 

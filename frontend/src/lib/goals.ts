@@ -1,4 +1,4 @@
-import type { PortfolioSnapshotResponse } from "../types/types";
+import type { PortfolioTimeseriesPoint } from "../types/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DAYS_PER_MONTH = 30.44;
@@ -18,22 +18,17 @@ export type GoalProjection = {
     etaVsTargetMonths: number | null; // positive = ETA lands after the target date (behind), negative = ahead
 };
 
-/** Sums snapshot values across all assets in a sub-portfolio, per date, and returns dates sorted ascending. */
-export function valueHistoryForGoal(snapshots: PortfolioSnapshotResponse[], subPortfolioId: string): { date: string; value: number }[] {
-    const byDate = new Map<string, number>();
-    snapshots
-        .filter(s => s.sub_portfolio_id === subPortfolioId)
-        .forEach(s => {
-            // A snapshot's home-currency value can be null/undefined (manual
-            // snapshots) or otherwise non-numeric; Number(null) is 0 but
-            // Number(undefined) is NaN, which would poison the running sum and
-            // every downstream goal projection. Coerce non-finite to 0.
-            const raw = Number(s.current_value_home_currency);
-            const value = Number.isFinite(raw) ? raw : 0;
-            byDate.set(s.date, (byDate.get(s.date) || 0) + value);
-        });
-    return Array.from(byDate.entries())
-        .map(([date, value]) => ({ date, value }))
+/** This sub-portfolio's value per date (already summed across assets server-side), sorted ascending. */
+export function valueHistoryForGoal(timeseries: PortfolioTimeseriesPoint[], subPortfolioId: string): { date: string; value: number }[] {
+    return timeseries
+        .filter(t => t.sub_portfolio_id === subPortfolioId)
+        .map(t => {
+            // total_value_home_currency can be non-numeric in edge cases (e.g. a manual
+            // snapshot with no recorded value); Number(undefined) is NaN, which would
+            // poison every downstream goal projection. Coerce non-finite to 0.
+            const raw = Number(t.total_value_home_currency);
+            return { date: t.date, value: Number.isFinite(raw) ? raw : 0 };
+        })
         .sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
@@ -44,13 +39,17 @@ export function formatDueDate(targetDate: string): string {
 
 export function projectGoal(
     history: { date: string; value: number }[],
-    targetAmount: number | null,
+    targetAmountInput: number | string | null,
     targetDate?: string | null,
 ): GoalProjection {
     const rawCurrent = history.length > 0 ? history[history.length - 1].value : 0;
     // Defend the projection against a non-finite value slipping in from history,
     // so nothing downstream (percentages, pace, ETA) can become NaN/Infinity.
     const currentValue = Number.isFinite(rawCurrent) ? rawCurrent : 0;
+    // The backend serializes Decimal fields (like target_amount) as JSON strings, so
+    // coerce before the finite check — Number.isFinite('20000') is false, unlike the
+    // coercing global isFinite, and would silently null out every string target.
+    let targetAmount: number | null = targetAmountInput != null ? Number(targetAmountInput) : null;
     // A non-finite or non-positive target isn't a usable goal target; treat it
     // as "no target" so we never emit NaN/Infinity percentages.
     if (targetAmount != null && (!Number.isFinite(targetAmount) || targetAmount <= 0)) {

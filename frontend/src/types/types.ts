@@ -5,6 +5,9 @@ export const LiquidityStatus = {
   MarketLiquid: "market_liquid",
   TimeLocked: "time_locked",
   Retirement: "retirement",
+  // Property, vehicles and other physical assets: counted in net worth, never
+  // in "liquid now", valued from manual valuations rather than a market feed.
+  Illiquid: "illiquid",
 } as const;
 export type LiquidityStatus = typeof LiquidityStatus[keyof typeof LiquidityStatus];
 
@@ -89,6 +92,8 @@ export type HouseholdResponse = {
   default_funding_account_id?: string;
   default_sub_portfolio_id?: string;
   default_split_mode: SplitMode;
+  // Months of expenses the household wants held in liquid cash.
+  emergency_fund_target_months?: number;
 };
 
 
@@ -135,6 +140,79 @@ export type AccountResponse = {
   currency: string;
   // NULL = shared with the household. Set = private to that user.
   owner_user_id?: string | null;
+
+  // Loan terms — liability accounts only. All optional: without them the
+  // account keeps whatever balance was last entered, as before.
+  original_principal?: number | null;
+  interest_rate_annual?: number | null;  // percent per year
+  loan_term_months?: number | null;
+  monthly_payment?: number | null;       // derived from the others if unset
+  loan_start_date?: string | null;
+
+  // Property terms — illiquid asset accounts only. Percent per year; null
+  // holds today's valuation flat.
+  appreciation_rate_annual?: number | null;
+
+  // Ties a property to the loan secured against it (settable from either side).
+  linked_account_id?: string | null;
+};
+
+export type AmortizationRow = {
+  period: number;
+  date: string;
+  payment: number;
+  interest: number;
+  principal: number;
+  balance: number;
+};
+
+export type LoanScheduleResponse = {
+  account_id: string;
+  account_name: string;
+  currency: string;
+  original_principal: number;
+  interest_rate_annual: number;
+  loan_term_months: number;
+  monthly_payment: number;
+  loan_start_date: string;
+  // null when the payment never clears the balance
+  payoff_date?: string | null;
+  current_balance: number;
+  principal_paid: number;
+  interest_paid: number;
+  total_interest: number;
+  remaining_interest: number;
+  schedule: AmortizationRow[];
+};
+
+export type NetWorthProjectionPoint = {
+  date: string;
+  assets: number;
+  liabilities: number;
+  net_worth: number;
+};
+
+export type NetWorthProjectionResponse = {
+  household_id: string;
+  base_currency: string;
+  start: string;
+  months: number;
+  current_net_worth: number;
+  net_worth_positive_date?: string | null;
+  debt_free_date?: string | null;
+  total_interest_remaining: number;
+  points: NetWorthProjectionPoint[];
+};
+
+export type LinkedEquityRow = {
+  asset_account_id: string;
+  asset_account_name: string;
+  asset_value: number;
+  loan_account_id?: string | null;
+  loan_account_name?: string | null;
+  loan_balance: number;
+  equity: number;
+  equity_percent?: number | null;
 };
 
 export type BalanceResponse = {
@@ -236,6 +314,15 @@ export type PortfolioSnapshotResponse = {
   current_value_home_currency: number;
   average_cost_basis: number;
   average_cost_basis_home_currency: number;
+};
+
+// One (date, sub_portfolio) total — the per-asset PortfolioSnapshot rows summed
+// server-side. Use this instead of PortfolioSnapshotResponse for chart/projection
+// use cases (net worth trend, equity curve, goal pace) that don't need per-asset detail.
+export type PortfolioTimeseriesPoint = {
+  date: string;
+  sub_portfolio_id: string;
+  total_value_home_currency: number;
 };
 
 export type DividendResponse = {
@@ -384,4 +471,103 @@ export type CurrencyResponse = {
 export type CountryResponse = {
   code: string;
   name: string;
+};
+
+
+// --- RECURRING TRANSACTIONS, BUDGETS & EMERGENCY FUND ---
+
+export const RecurrenceFrequency = {
+  Weekly: "weekly",
+  Biweekly: "biweekly",
+  Monthly: "monthly",
+  Quarterly: "quarterly",
+  Yearly: "yearly",
+} as const;
+export type RecurrenceFrequency = typeof RecurrenceFrequency[keyof typeof RecurrenceFrequency];
+
+export const BudgetPeriod = {
+  Monthly: "monthly",
+  Yearly: "yearly",
+} as const;
+export type BudgetPeriod = typeof BudgetPeriod[keyof typeof BudgetPeriod];
+
+export type RecurringTransactionResponse = {
+  id: string;
+  household_id: string;
+  account_id: string;
+  category_id: string;
+  // Positive magnitude; direction comes from the category.
+  amount: number;
+  currency?: string | null;
+  description?: string | null;
+  frequency: RecurrenceFrequency;
+  start_date: string;
+  end_date?: string | null;
+  next_due_date: string;
+  last_posted_date?: string | null;
+  is_active: boolean;
+  owner_user_id?: string | null;
+};
+
+export type UpcomingOccurrence = {
+  recurring_transaction_id: string;
+  description?: string | null;
+  category_name: string;
+  account_name: string;
+  date: string;
+  amount: number;
+  currency?: string | null;
+  transaction_type: TransactionType;
+};
+
+export type BudgetResponse = {
+  id: string;
+  household_id: string;
+  category_id: string;
+  amount: number;
+  period: BudgetPeriod;
+  owner_user_id?: string | null;
+};
+
+export type BudgetStatusRow = {
+  budget_id: string;
+  category_id: string;
+  category_name: string;
+  period: BudgetPeriod;
+  is_private: boolean;
+  limit: number;
+  spent: number;
+  remaining: number;
+  percent_used: number;
+  period_start: string;
+  period_end: string;
+  days_elapsed: number;
+  days_total: number;
+  // Spend extrapolated to the end of the period at the current daily rate.
+  projected_spend: number;
+  projected_over: boolean;
+};
+
+export type BudgetStatusResponse = {
+  household_id: string;
+  base_currency: string;
+  as_of: string;
+  total_limit: number;
+  total_spent: number;
+  budgets: BudgetStatusRow[];
+};
+
+export type EmergencyFundResponse = {
+  household_id: string;
+  base_currency: string;
+  as_of: string;
+  liquid_total: number;
+  average_monthly_expenses: number;
+  // null when there is no recorded spending — undefined runway, not infinite.
+  months_covered?: number | null;
+  target_months: number;
+  target_amount: number;
+  shortfall: number;
+  months_of_history: number;
+  on_track: boolean;
 };

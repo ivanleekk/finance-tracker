@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal, exports
 
@@ -45,6 +46,10 @@ cors_origins = [
 # widen access for a real deployment - no external origin can present as
 # "localhost" to a browser's CORS check.
 cors_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+# Compress JSON responses over ~1KB (holdings lists, snapshot history, exports)
+# before CORS/auth middleware runs, mainly to help iOS/mobile on slower links.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Configure CORS
 app.add_middleware(

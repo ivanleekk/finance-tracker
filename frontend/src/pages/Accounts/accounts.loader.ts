@@ -1,5 +1,5 @@
 import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
-import type { AccountResponse, BalanceResponse, CurrencyResponse } from "../../types/types";
+import type { AccountResponse, BalanceResponse, CurrencyResponse, LinkedEquityRow } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
 
 export type AccountWithHistory = AccountResponse & {
@@ -9,6 +9,9 @@ export type AccountWithHistory = AccountResponse & {
 export type AccountsLoaderData = {
     accounts: AccountWithHistory[];
     currencies: CurrencyResponse[];
+    // Properties netted against the loans secured on them. Empty until the
+    // household records an illiquid asset.
+    equity: LinkedEquityRow[];
 };
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsLoaderData> {
@@ -19,10 +22,11 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     }
     // All three are household-scoped and independent — fetch in one round-trip
     // instead of fetching balances in a second wave after accounts+currencies.
-    const [accountsRes, currenciesRes, balancesRes] = await Promise.all([
+    const [accountsRes, currenciesRes, balancesRes, equityRes] = await Promise.all([
         ssrFetch(`/accounts/household/${householdId}`),
         ssrFetch(`/reference/currencies`),
-        ssrFetch(`/accounts/balances/household/${householdId}`)
+        ssrFetch(`/accounts/balances/household/${householdId}`),
+        ssrFetch(`/accounts/household/${householdId}/equity`)
     ]);
 
     if (!accountsRes.ok) {
@@ -34,6 +38,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     const accounts: AccountResponse[] = await accountsRes.json();
     const currencies: CurrencyResponse[] = currenciesRes.ok ? await currenciesRes.json() : [];
     const allBalances: BalanceResponse[] = await balancesRes.json();
+    // Equity is a nice-to-have panel; a failure here shouldn't take the page down.
+    const equity: LinkedEquityRow[] = equityRes.ok ? await equityRes.json() : [];
 
     const balanceMap: Record<string, BalanceResponse[]> = {};
     allBalances.forEach(b => {
@@ -48,7 +54,37 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
 
     return {
         accounts: accountsWithHistory,
-        currencies
+        currencies,
+        equity
+    };
+}
+
+/**
+ * Pull the optional loan/property terms off a submitted form.
+ *
+ * Every field is optional and blank means "not set" — a liability with no terms
+ * keeps the old flat-balance behaviour, so we send null rather than 0.
+ */
+function loanTermsFromForm(formData: FormData) {
+    const num = (key: string) => {
+        const raw = (formData.get(key) as string | null)?.trim();
+        if (!raw) return null;
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+    const str = (key: string) => {
+        const raw = (formData.get(key) as string | null)?.trim();
+        return raw ? raw : null;
+    };
+
+    return {
+        original_principal: num("original_principal"),
+        interest_rate_annual: num("interest_rate_annual"),
+        loan_term_months: num("loan_term_months"),
+        monthly_payment: num("monthly_payment"),
+        loan_start_date: str("loan_start_date"),
+        appreciation_rate_annual: num("appreciation_rate_annual"),
+        linked_account_id: str("linked_account_id"),
     };
 }
 
@@ -82,6 +118,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 kind,
                 currency,
                 owner_user_id: isPrivate && currentUserId ? currentUserId : null,
+                ...loanTermsFromForm(formData),
             }),
         });
 
@@ -101,6 +138,28 @@ export async function action({ request }: ActionFunctionArgs) {
         });
 
         if (!balRes.ok) return { error: "Failed to add initial balance" };
+        return { success: true };
+    }
+
+    if (intent === "editAccount") {
+        const accountId = formData.get("accountId") as string;
+        const name = formData.get("name") as string;
+
+        const res = await ssrFetch(`/accounts/${accountId}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                name,
+                ...loanTermsFromForm(formData),
+            }),
+        });
+
+        if (!res.ok) {
+            const detail = await res.json().catch(() => null);
+            return { error: detail?.detail || "Failed to update account" };
+        }
         return { success: true };
     }
 

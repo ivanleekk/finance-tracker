@@ -5,15 +5,16 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, date
 
-from src.database import get_db
+from src.database import get_db, SessionLocal
 from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
-from src.services.performance import calculate_performance_metrics
+from src.services.performance import calculate_performance_metrics, fetch_rf_and_benchmark_rows
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
+from src.services.cache import cache_get_or_compute
 from datetime import date
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -72,14 +73,14 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     # 1. Find or create the "Investment" category for this household
     investment_category = db.query(models.Category).filter(
         models.Category.household_id == db_trade.household_id,
-        models.Category.name == "Investment"
+        models.Category.name == models.SYSTEM_CATEGORY_INVESTMENT
     ).first()
 
     if not investment_category:
         investment_category = models.Category(
             id=uuid.uuid7(),
             household_id=db_trade.household_id,
-            name="Investment",
+            name=models.SYSTEM_CATEGORY_INVESTMENT,
             type=models.TransactionType.expense.value
         )
         db.add(investment_category)
@@ -914,18 +915,45 @@ def create_portfolio_snapshot(
         average_cost_basis_home_currency=db_snapshot.average_cost_basis_home_currency,
     )
 
+def _filter_by_date_range(query, start_date: Optional[date], end_date: Optional[date]):
+    if start_date:
+        query = query.filter(models.PortfolioSnapshot.date >= start_date)
+    if end_date:
+        query = query.filter(models.PortfolioSnapshot.date <= end_date)
+    return query
+
+
+def _restrict_to_latest_date(query):
+    """Narrows an already-filtered PortfolioSnapshot query to just its own max date."""
+    max_date = query.with_entities(func.max(models.PortfolioSnapshot.date)).scalar()
+    if max_date is None:
+        return query  # already empty — nothing to further restrict
+    return query.filter(models.PortfolioSnapshot.date == max_date)
+
+
 @router.get(
     "/snapshots/household/{household_id}",
     response_model=List[schemas.PortfolioSnapshotResponse],
 )
 def get_household_portfolio_snapshots(
     household_id: uuid.UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    # Restricts to the single most recent date in the (optionally range-filtered) result set —
+    # the shape every "current holdings" consumer actually needs (web Portfolio/Dividends,
+    # mobile, iOS DashboardView/PortfolioView/SubPortfolioDetailView) instead of full history.
+    latest_only: bool = False,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
 
-    snapshots = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.household_id == household_id).all()
+    query = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.household_id == household_id)
+    query = _filter_by_date_range(query, start_date, end_date)
+    if latest_only:
+        query = _restrict_to_latest_date(query)
+
+    snapshots = query.all()
 
     return [
         schemas.PortfolioSnapshotResponse(
@@ -945,11 +973,49 @@ def get_household_portfolio_snapshots(
 
 
 @router.get(
+    "/snapshots/household/{household_id}/timeseries",
+    response_model=List[schemas.PortfolioTimeseriesPoint],
+)
+def get_household_portfolio_timeseries(
+    household_id: uuid.UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Pre-aggregated (date, sub_portfolio_id) -> total value, for chart/projection consumers
+    (net worth trend, equity curve, goal pace) that don't need per-asset rows. Returns
+    O(dates x sub_portfolios) instead of the raw endpoint's O(dates x sub_portfolios x assets).
+    """
+    verify_household_access(household_id, current_user, db)
+
+    query = db.query(
+        models.PortfolioSnapshot.date,
+        models.PortfolioSnapshot.sub_portfolio_id,
+        func.coalesce(func.sum(models.PortfolioSnapshot.current_value_home_currency), 0).label("total_value_home_currency"),
+    ).filter(models.PortfolioSnapshot.household_id == household_id)
+    query = _filter_by_date_range(query, start_date, end_date)
+    rows = query.group_by(models.PortfolioSnapshot.date, models.PortfolioSnapshot.sub_portfolio_id).all()
+
+    return [
+        schemas.PortfolioTimeseriesPoint(
+            date=row.date,
+            sub_portfolio_id=row.sub_portfolio_id,
+            total_value_home_currency=row.total_value_home_currency,
+        ) for row in rows
+    ]
+
+
+@router.get(
     "/subportfolios/{subportfolio_id}/snapshot",
     response_model=List[schemas.PortfolioSnapshotResponse],
 )
 def get_portfolio_snapshots(
     subportfolio_id: uuid.UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    latest_only: bool = False,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -959,7 +1025,12 @@ def get_portfolio_snapshots(
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
 
-    snapshots = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.sub_portfolio_id == subportfolio_id).all()
+    query = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.sub_portfolio_id == subportfolio_id)
+    query = _filter_by_date_range(query, start_date, end_date)
+    if latest_only:
+        query = _restrict_to_latest_date(query)
+
+    snapshots = query.all()
 
     return [
         schemas.PortfolioSnapshotResponse(
@@ -1396,7 +1467,8 @@ METRICS_BENCHMARK_TICKER = "SPY"
 
 def _refresh_metrics_market_data(db: Session, household_id: uuid.UUID):
     """Best-effort refresh of the risk-free rate (^IRX) and benchmark (SPY)
-    series used by performance metrics. Never blocks metrics calculation."""
+    series used by performance metrics. Runs as a BackgroundTask (see callers)
+    so a stale-cache yfinance round trip never blocks a metrics response."""
     last_rf = db.query(models.MarketPrice).filter(models.MarketPrice.ticker == "^IRX").order_by(models.MarketPrice.date.desc()).first()
     if not last_rf or last_rf.date < date.today() - timedelta(days=2):
         try:
@@ -1418,10 +1490,24 @@ def _refresh_metrics_market_data(db: Session, household_id: uuid.UUID):
             print(f"Failed to fetch benchmark prices: {e}")
 
 
+def _refresh_metrics_market_data_background(household_id: uuid.UUID):
+    """
+    BackgroundTasks entry point: opens its own DB session since the
+    request-scoped session from `Depends(get_db)` is already closed by the
+    time a background task runs (it executes after the response is sent).
+    """
+    db = SessionLocal()
+    try:
+        _refresh_metrics_market_data(db, household_id)
+    finally:
+        db.close()
+
+
 # Note: This is where we will eventually put the Polars math endpoints!
 @router.get("/household/{household_id}/metrics", response_model=schemas.PortfolioMetricsResponse)
 def get_portfolio_metrics(
     household_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
@@ -1429,32 +1515,45 @@ def get_portfolio_metrics(
 ):
     verify_household_access(household_id, current_user, db)
 
-    _refresh_metrics_market_data(db, household_id)
+    # Best-effort ^IRX/SPY refresh happens off the request path — it only
+    # matters once a day and must never add a yfinance round trip to a page load.
+    background_tasks.add_task(_refresh_metrics_market_data_background, household_id)
 
-    # 1. Calculate overall metrics
-    overall = calculate_performance_metrics(db, household_id, start_date=start_date, end_date=end_date)
-    
-    # 2. Calculate metrics for each sub-portfolio
-    sub_portfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
-    sub_metrics = []
-    
-    for sp in sub_portfolios:
-        metrics = calculate_performance_metrics(db, household_id, sub_portfolio_id=sp.id, start_date=start_date, end_date=end_date)
-        sub_metrics.append(schemas.SubPortfolioMetricsResponse(
-            sub_portfolio_id=sp.id,
-            name=sp.name,
-            metrics=metrics
-        ))
-        
-    return schemas.PortfolioMetricsResponse(
-        household_id=household_id,
-        overall_metrics=overall,
-        sub_portfolio_metrics=sub_metrics
-    )
+    def compute() -> schemas.PortfolioMetricsResponse:
+        # Fetched once and shared across the overall + every sub-portfolio
+        # calculation below instead of once per call (same query, same result).
+        rf_bench_rows = fetch_rf_and_benchmark_rows(db, METRICS_BENCHMARK_TICKER)
+
+        overall = calculate_performance_metrics(
+            db, household_id, start_date=start_date, end_date=end_date, rf_bench_rows=rf_bench_rows
+        )
+
+        sub_portfolios = db.query(models.SubPortfolio).filter(models.SubPortfolio.household_id == household_id).all()
+        sub_metrics = []
+        for sp in sub_portfolios:
+            metrics = calculate_performance_metrics(
+                db, household_id, sub_portfolio_id=sp.id, start_date=start_date, end_date=end_date,
+                rf_bench_rows=rf_bench_rows,
+            )
+            sub_metrics.append(schemas.SubPortfolioMetricsResponse(
+                sub_portfolio_id=sp.id,
+                name=sp.name,
+                metrics=metrics
+            ))
+
+        return schemas.PortfolioMetricsResponse(
+            household_id=household_id,
+            overall_metrics=overall,
+            sub_portfolio_metrics=sub_metrics
+        )
+
+    cache_key = f"household:{household_id}:metrics:{start_date}:{end_date}"
+    return cache_get_or_compute(cache_key, compute)
 
 @router.get("/subportfolios/{subportfolio_id}/metrics", response_model=schemas.PerformanceMetrics)
 def get_subportfolio_metrics(
     subportfolio_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
@@ -1466,13 +1565,14 @@ def get_subportfolio_metrics(
 
     verify_household_access(db_subportfolio.household_id, current_user, db)
 
-    _refresh_metrics_market_data(db, db_subportfolio.household_id)
+    background_tasks.add_task(_refresh_metrics_market_data_background, db_subportfolio.household_id)
 
-    metrics = calculate_performance_metrics(
-        db, 
-        db_subportfolio.household_id, 
+    cache_key = f"household:{db_subportfolio.household_id}:subportfolio_metrics:{subportfolio_id}:{start_date}:{end_date}"
+    metrics = cache_get_or_compute(cache_key, lambda: calculate_performance_metrics(
+        db,
+        db_subportfolio.household_id,
         sub_portfolio_id=subportfolio_id,
         start_date=start_date,
         end_date=end_date
-    )
+    ))
     return metrics

@@ -1,0 +1,8 @@
+# Xcode / XcodeGen
+# The .xcodeproj is generated from project.yml — regenerate with `xcodegen generate`.
+FinanceTracker.xcodeproj/
+DerivedData/
+# `xcodebuild -target` writes products here (legacy SYMROOT).
+build/
+*.xcresult
+.DS_Store
