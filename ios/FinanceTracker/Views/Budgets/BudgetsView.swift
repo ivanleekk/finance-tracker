@@ -150,6 +150,7 @@ struct EmergencyFundSection: View {
 
     @State private var targetText = ""
     @State private var isSaving = false
+    @State private var isEditingTarget = false
 
     private var tint: Color {
         switch BudgetPresentation.runwayTone(fund) {
@@ -201,30 +202,44 @@ struct EmergencyFundSection: View {
             }
             .padding(.vertical, 4)
 
-            HStack {
-                Text("Target months")
-                Spacer()
-                TextField("6", text: $targetText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 60)
-                Button("Save") {
-                    guard let months = Double(targetText.trimmingCharacters(in: .whitespaces)) else { return }
-                    isSaving = true
-                    Task {
-                        await onTargetChanged(months)
-                        isSaving = false
+            Button {
+                targetText = String(Int(fund.targetMonths))
+                isEditingTarget = true
+            } label: {
+                HStack {
+                    Text("Target months")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Text("\(Int(fund.targetMonths)) months")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "pencil")
+                            .font(.caption)
                     }
                 }
-                .disabled(isSaving || Double(targetText.trimmingCharacters(in: .whitespaces)) == nil)
             }
+            .disabled(isSaving)
         } header: {
             Text("Emergency fund")
         } footer: {
             Text("How long your liquid cash covers recent spending. Only cash accounts count. Share purchases, transfers and balance corrections are left out of the burn rate — you'd stop investing, not starve.")
         }
-        .onAppear {
-            if targetText.isEmpty { targetText = String(Int(fund.targetMonths)) }
+        .alert("Target Months", isPresented: $isEditingTarget) {
+            TextField("Months", text: $targetText)
+                .keyboardType(.numberPad)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                guard let months = Double(targetText.trimmingCharacters(in: .whitespaces)) else { return }
+                isSaving = true
+                Task {
+                    await onTargetChanged(months)
+                    isSaving = false
+                }
+            }
+        } message: {
+            Text("Months of expenses you want held in liquid cash.")
         }
     }
 }
