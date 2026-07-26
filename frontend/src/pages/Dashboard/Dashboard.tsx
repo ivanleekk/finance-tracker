@@ -196,7 +196,7 @@ export default function Dashboard() {
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <TopBar title="Dashboard" commandPlaceholder="Log or find…" />
-            <div className="flex-1 overflow-y-auto space-y-6 p-8">
+            <div className="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:p-8">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-base-500 dark:text-base-400">Overview of your household financial health.</p>
                     <TimeframeSelector />
@@ -270,7 +270,9 @@ export default function Dashboard() {
                 )}
 
                 {/* Middle Row: Charts & Goals */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+                {/* [&>*]:min-w-0 — without it the charts' intrinsic width stops these
+                    grid items shrinking, and the cards spill past the viewport. */}
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7 [&>*]:min-w-0">
                     <Card className="col-span-4">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0">
                             <div>

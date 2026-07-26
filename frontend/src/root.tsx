@@ -14,10 +14,17 @@ import { ThemeProvider } from "./lib/ThemeContext";
 import { HouseholdProvider } from "./lib/HouseholdContext";
 import { ViewModeProvider } from "./lib/ViewModeContext";
 import { CommandBarProvider } from "./lib/CommandBarContext";
-import Sidebar from "./components/sidebar";
+import Sidebar, { MobileNav } from "./components/sidebar";
 import { CommandBar } from "./components/CommandBar/CommandBar";
+import { QuickAddButton } from "./components/QuickAddButton";
 import { getSSRContext } from "./lib/ssr-helpers";
 import type { HouseholdResponse, UserResponse } from "./types/types";
+
+// Default document title for every route. Routes that want their own (e.g. the
+// landing page) export their own `meta`, which replaces this one.
+export function meta() {
+    return [{ title: "Waypoint" }];
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
     const { ssrFetch, combineHeaders } = await getSSRContext(request);
@@ -72,7 +79,6 @@ export function Layout({
                 <meta charSet="UTF-8" />
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>Finance-Tracker</title>
                 <link rel="preconnect" href="https://fonts.googleapis.com" />
                 <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
                 <link
@@ -90,10 +96,16 @@ export function Layout({
                                 <CommandBarProvider>
                                     <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300 print:block print:h-auto print:overflow-visible print:bg-white">
                                         <Sidebar />
-                                        <main className="flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
-                                            {children}
-                                        </main>
+                                        {/* min-w-0 lets this column shrink below its content's intrinsic
+                                            width — without it a wide table pushes the whole shell sideways. */}
+                                        <div className="flex min-w-0 flex-1 flex-col print:block">
+                                            <MobileNav />
+                                            <main className="min-w-0 flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
+                                                {children}
+                                            </main>
+                                        </div>
                                     </div>
+                                    <QuickAddButton />
                                     <CommandBar />
                                 </CommandBarProvider>
                             </ViewModeProvider>

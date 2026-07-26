@@ -53,7 +53,7 @@ export default function Goals() {
                 commandPlaceholder="Log or find…"
                 cta={<Button variant="cta" onClick={() => setIsCreateOpen(true)}>+ Add goal</Button>}
             />
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
                 <p className="text-base-500 dark:text-base-400 -mt-2 mb-6">Track progress toward each milestone, funded automatically or with one-off contributions.</p>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -30,7 +30,7 @@ targets:
     info:
       path: FinanceTracker/Info.plist
       properties:
-        CFBundleDisplayName: Finance Tracker
+        CFBundleDisplayName: Waypoint
         UILaunchScreen: {}
         # iPhone stays portrait-only; iPad must declare all four or it forfeits Split View
         # and Stage Manager (iPadOS only offers multitasking to fully rotatable apps).

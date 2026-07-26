@@ -410,7 +410,7 @@ export default function Transactions() {
                     </Button>
                 }
             />
-            <div className="flex-1 overflow-y-auto space-y-6 p-8 relative">
+            <div className="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:p-8 relative">
             {isLoading && (
                 <div className="absolute top-4 right-8 z-10 flex items-center gap-2 text-sm text-base-500 bg-white/80 dark:bg-base-800/80 px-3 py-1 rounded-full border border-base-200 dark:border-base-800">
                     <div className="w-3 h-3 rounded-full border-2 border-primary-500 border-t-transparent animate-spin" />

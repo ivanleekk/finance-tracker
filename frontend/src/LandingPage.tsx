@@ -1,48 +1,79 @@
 import { useNavigate, Link } from "react-router"
 import { Button } from "./components/ui/Button"
+import { BrandMark } from "./components/BrandMark"
 import {
-    Wallet,
     ArrowRight,
     Globe,
+    Home,
+    LifeBuoy,
     Users,
+    Target,
     TrendingUp,
     ShieldCheck,
-    Activity,
     LineChart,
     ChevronRight,
-    Zap
+    Table2
 } from "lucide-react"
 import { cn } from "./lib/utils"
+
+export function meta() {
+    const title = "Waypoint — Know where you stand, and when you get there"
+    const description =
+        "Bring your accounts, investments, property and loans into one number, then see when the deposit lands, when the debt clears, and how long your savings would last."
+
+    return [
+        { title },
+        { name: "description", content: description },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: "summary" },
+    ]
+}
 
 export default function LandingPage() {
     const navigate = useNavigate()
 
     const features = [
         {
-            title: "Multi-Currency Tracking",
-            description: "Track assets across any currency with automated historical exchange rate conversion to your reporting base currency.",
-            icon: <Globe className="h-6 w-6" />,
+            title: "Goals with a real date",
+            description: "Name what you're saving for and when you need it. Waypoint tracks your pace, projects the date you'll actually get there, and tells you the monthly number that lands it on time.",
+            icon: <Target className="h-6 w-6" />,
             color: "text-blue-600",
             bg: "bg-blue-50"
         },
         {
-            title: "Portfolio Performance",
-            description: "Deep dive into your returns with TWR, MWR/IRR, and risk-adjusted ratios like Sharpe and Sortino.",
-            icon: <TrendingUp className="h-6 w-6" />,
+            title: "A runway you can trust",
+            description: "Budgets and recurring bills roll into an honest burn rate and an emergency fund measured in months covered. Investing is excluded from the maths, so the number isn't flattering you.",
+            icon: <LifeBuoy className="h-6 w-6" />,
             color: "text-emerald-600",
             bg: "bg-emerald-50"
         },
         {
-            title: "Household Management",
-            description: "Collaborate with family members, manage shared accounts, and view consolidated net worth in one place.",
+            title: "Property and the loan that bought it",
+            description: "Record the house next to its mortgage. Waypoint amortizes every payment down to the last cent, then tells you your debt-free date and the month your net worth turns positive.",
+            icon: <Home className="h-6 w-6" />,
+            color: "text-amber-600",
+            bg: "bg-amber-50"
+        },
+        {
+            title: "Money you share, money you don't",
+            description: "Invite a partner for one household picture. Private accounts stay private — on every screen, every report, and every export.",
             icon: <Users className="h-6 w-6" />,
             color: "text-purple-600",
             bg: "bg-purple-50"
         },
         {
-            title: "Advanced Trade Logging",
-            description: "Log trades with automated price fetching and exchange rate pre-filling for a seamless experience.",
-            icon: <Activity className="h-6 w-6" />,
+            title: "One currency, whatever you hold",
+            description: "Assets in any currency, converted at the rates that actually applied on the day. Your net worth reads as one number instead of four.",
+            icon: <Globe className="h-6 w-6" />,
+            color: "text-sky-600",
+            bg: "bg-sky-50"
+        },
+        {
+            title: "Returns you can actually judge",
+            description: "TWR, IRR, Sharpe and Sortino computed from your real trades — plus dividends tracked and credited to the right portfolio as they land.",
+            icon: <TrendingUp className="h-6 w-6" />,
             color: "text-rose-600",
             bg: "bg-rose-50"
         }
@@ -54,8 +85,8 @@ export default function LandingPage() {
             {/* <nav className="fixed top-0 z-50 w-full border-b border-base-200/50 bg-white/70 backdrop-blur-xl">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
                     <Link to="/" className="flex items-center gap-2 text-2xl font-bold tracking-tight text-primary-600">
-                        <Wallet className="h-8 w-8" />
-                        FinTracker
+                        <BrandMark className="h-8 w-8" />
+                        Waypoint
                     </Link>
                     <div className="flex items-center gap-6">
                         <Link to="/login" className="text-sm font-medium text-base-600 hover:text-base-900 transition-colors">Log In</Link>
@@ -74,21 +105,27 @@ export default function LandingPage() {
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="flex flex-col items-center text-center">
                         <div className="inline-flex items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-sm font-medium text-primary-700 ring-1 ring-inset ring-primary-600/20 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <Zap className="h-3 w-3" />
-                            <span>v2.0 is now live</span>
+                            <Target className="h-3 w-3" />
+                            <span>Every goal gets a date</span>
                             <ChevronRight className="h-3 w-3" />
                         </div>
                         <h1 className="text-5xl font-extrabold tracking-tight text-base-900 dark:text-base-50 sm:text-7xl mb-8 max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
-                            Master Your Wealth with <span className="bg-gradient-to-r from-primary-600 to-indigo-600 bg-clip-text text-transparent">Precision Analytics</span>
+                            Know where you stand — <span className="bg-gradient-to-r from-primary-600 to-indigo-600 bg-clip-text text-transparent">and when you get there.</span>
                         </h1>
                         <p className="text-xl text-base-500 max-w-2xl mb-12 animate-in fade-in slide-in-from-bottom-10 duration-1000">
-                            The modern financial tracker for young adults. Track global assets, analyze performance, and plan your life milestones in one beautiful dashboard.
+                            Waypoint brings your accounts, investments, property and loans into one number — then projects it forward, so you know when the deposit lands, when the debt clears, and how long your savings would really last.
                         </p>
-                        <div className="flex flex-wrap items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-12 duration-1000">
-                            <Button size="lg" onClick={() => navigate('/dashboard')} className="h-14 px-8 text-lg bg-primary-600 hover:bg-primary-700 shadow-xl shadow-primary-200 group">
-                                Start Your Journey
+                        <div className="flex flex-col items-center gap-6 animate-in fade-in slide-in-from-bottom-12 duration-1000">
+                            <Button size="lg" onClick={() => navigate('/signup')} className="h-14 px-8 text-lg bg-primary-600 hover:bg-primary-700 shadow-xl shadow-primary-200 group">
+                                Create your account
                                 <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
                             </Button>
+                            <p className="text-sm text-base-500">
+                                Already have an account?{" "}
+                                <Link to="/login" className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+                                    Log in
+                                </Link>
+                            </p>
                         </div>
 
                     </div>
@@ -99,10 +136,10 @@ export default function LandingPage() {
             <section className="py-24 bg-base-50/50 dark:bg-base-900/20">
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="mb-20 text-center">
-                        <h2 className="text-sm font-semibold tracking-wide text-primary-600 dark:text-primary-400 uppercase mb-3">Capabilities</h2>
-                        <h3 className="text-4xl font-bold text-base-900 dark:text-base-50">Built for modern portfolios</h3>
+                        <h2 className="text-sm font-semibold tracking-wide text-primary-600 dark:text-primary-400 uppercase mb-3">What you get</h2>
+                        <h3 className="text-4xl font-bold text-base-900 dark:text-base-50">Answers, not just numbers</h3>
                     </div>
-                    <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                         {features.map((feature, idx) => (
                             <Card key={idx} className="group border-none shadow-md hover:shadow-xl transition-all duration-300 bg-white/80 dark:bg-base-900/80 backdrop-blur-sm overflow-hidden">
                                 <div className="p-8">
@@ -130,22 +167,22 @@ export default function LandingPage() {
                         <div className="relative grid gap-12 lg:grid-cols-2 items-center">
                             <div className="space-y-8">
                                 <div className="inline-flex items-center gap-2 rounded-lg bg-primary-500/10 px-3 py-1 text-sm font-medium text-primary-400">
-                                    <Activity className="h-4 w-4" />
-                                    <span>Real-time Market Insights</span>
+                                    <Table2 className="h-4 w-4" />
+                                    <span>What a spreadsheet can't do</span>
                                 </div>
-                                <h3 className="text-4xl font-bold text-white sm:text-5xl">Your Net Worth, <br />Everywhere, Simplified.</h3>
+                                <h3 className="text-4xl font-bold text-white sm:text-5xl">Spreadsheets know today. <br />Waypoint knows when.</h3>
                                 <p className="text-lg text-base-400">
-                                    Stop manually updating spreadsheets. FinTracker connects your accounts and investments to provide a unified view of your financial health across currencies and asset classes.
+                                    A sheet holds today's balances. It won't convert last March's purchase at last March's rate, amortize a mortgage to its final payment, or warn you that at your current pace the deposit lands eight months late. Waypoint keeps the history and does the arithmetic.
                                 </p>
                                 <ul className="space-y-4">
                                     {[
-                                        "Automated Equity Curve Calculation",
-                                        "Historical Dividend Tracking",
-                                        "Risk/Return Ratio Analysis",
-                                        "Bank Account Integration"
+                                        "Historical FX applied at the date of every record",
+                                        "Amortization schedules down to the final payment",
+                                        "Dividends tracked and credited to the right portfolio",
+                                        "Printable reports and a full CSV export, any time"
                                     ].map((item, idx) => (
                                         <li key={idx} className="flex items-center gap-3 text-white/80">
-                                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                                            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
                                                 <Check className="h-3 w-3" />
                                             </div>
                                             {item}
@@ -181,18 +218,18 @@ export default function LandingPage() {
             <section className="py-24">
                 <div className="mx-auto max-w-7xl px-6">
                     <div className="flex flex-col items-center text-center space-y-8">
-                        <h2 className="text-4xl font-bold text-base-900 dark:text-base-50 sm:text-5xl">Ready to take control?</h2>
+                        <h2 className="text-4xl font-bold text-base-900 dark:text-base-50 sm:text-5xl">Start with one account and one goal.</h2>
                         <p className="text-lg text-base-500 max-w-xl">
-                            Join thousands of investors using FinTracker to build their future. Sign up today and get your financial journey started.
+                            That's enough for Waypoint to give you a net worth that's actually current and a date attached to the thing you're saving for. Everything else can come later.
                         </p>
                         <div className="flex gap-4">
                             <Button size="lg" onClick={() => navigate('/signup')} className="h-14 px-12 text-lg bg-primary-600 hover:bg-primary-700 shadow-xl shadow-primary-200">
-                                Create Your Account
+                                Create your account
                             </Button>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-base-400 mt-4">
-                            <ShieldCheck className="h-4 w-4" />
-                            No credit card required • Free forever version • Secure & Private
+                            <ShieldCheck className="h-4 w-4 shrink-0" />
+                            Private accounts stay private • Export everything as CSV, any time • Your data, your call
                         </div>
                     </div>
                 </div>
@@ -201,14 +238,12 @@ export default function LandingPage() {
             <footer className="border-t border-base-200 dark:border-base-800 py-12">
                 <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-6">
                     <div className="flex items-center gap-2 text-xl font-bold text-base-900 dark:text-base-50">
-                        <Wallet className="h-6 w-6 text-primary-600" />
-                        FinTracker
+                        <BrandMark className="h-6 w-6 text-primary-600" />
+                        Waypoint
                     </div>
-                    <p className="text-sm text-base-500">© 2026 FinTracker Inc. All rights reserved.</p>
+                    <p className="text-sm text-base-500">© 2026 Waypoint. All rights reserved.</p>
                     <div className="flex gap-6">
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Privacy</Link>
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Terms</Link>
-                        <Link to="#" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Contact</Link>
+                        <a href="mailto:ivanleekaikiat@gmail.com" className="text-sm text-base-400 hover:text-base-600 dark:hover:text-base-300">Contact</a>
                     </div>
                 </div>
             </footer>

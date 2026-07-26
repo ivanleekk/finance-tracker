@@ -132,7 +132,7 @@ export default function Recurring() {
                     </Button>
                 }
             />
-            <div className="flex-1 overflow-y-auto space-y-6 p-8">
+            <div className="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:p-8">
                 <p className="text-base-500 dark:text-base-400 -mt-2">
                     Salary, rent, subscriptions — set them once and they post themselves.
                 </p>

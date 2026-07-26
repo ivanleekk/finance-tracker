@@ -130,7 +130,7 @@ export default function GoalDetail() {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
                 <div className="grid gap-4 lg:grid-cols-2">
                     <Card className="bg-gradient-to-br from-secondary-50 to-white dark:from-secondary-950/40 dark:to-base-900 border-secondary-100 dark:border-secondary-900">
                         <CardContent className="pt-6 flex flex-col items-center text-center">

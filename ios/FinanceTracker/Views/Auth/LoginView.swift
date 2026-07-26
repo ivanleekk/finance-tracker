@@ -90,9 +90,9 @@ struct LoginView: View {
                     .foregroundStyle(.white)
             }
             VStack(spacing: 6) {
-                Text("Finance Tracker")
+                Text("Waypoint")
                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                Text("Plan your milestones. Grow your net worth.")
+                Text("Know where you stand. And when you get there.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -225,13 +225,13 @@ export default function Households() {
     }
 
     return (
-        <div className="flex-1 space-y-6 p-8 relative">
-            <div className="flex items-center justify-between">
+        <div className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8 relative">
+            <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Household Management</h2>
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-base-900 dark:text-base-50">Household Management</h2>
                     <p className="text-base-500 dark:text-base-400 mt-1">Switch between households and manage members.</p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                     <Button variant="secondary" onClick={() => setIsCreateModalOpen(true)}>
                         <Plus className="w-4 h-4 mr-2" />
                         New Household
@@ -250,7 +250,7 @@ export default function Households() {
                             <Home className="w-12 h-12" />
                         </div>
                         <div className="flex-1 text-center md:text-left">
-                            <h3 className="text-2xl font-bold text-primary-900 dark:text-primary-50 mb-2">Welcome to Finance Tracker!</h3>
+                            <h3 className="text-2xl font-bold text-primary-900 dark:text-primary-50 mb-2">Welcome to Waypoint!</h3>
                             <p className="text-primary-700 dark:text-primary-300 max-w-2xl">
                                 To get started, you'll need to create your first household. A household is where you manage your accounts, transactions, and portfolios together with your family or for yourself.
                             </p>

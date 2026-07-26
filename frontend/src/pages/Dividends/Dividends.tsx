@@ -141,7 +141,7 @@ export default function Dividends() {
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <TopBar title="Dividends" commandPlaceholder="div AAPL 48…" />
-            <div className="flex-1 overflow-y-auto space-y-6 p-8">
+            <div className="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:p-8">
                 <p className="text-base-500 dark:text-base-400 -mt-2">
                     Received and upcoming dividends, annual income, and yield on cost across your holdings.
                 </p>
@@ -244,7 +244,9 @@ export default function Dividends() {
                     </CardContent>
                 </Card>
 
-                <div className="grid gap-4 lg:grid-cols-2">
+                {/* [&>*]:min-w-0 — grid items default to min-width:auto, which lets the
+                    wide holdings table stretch the column instead of scrolling inside it. */}
+                <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
                     <Card>
                         <CardHeader>
                             <CardTitle>Upcoming</CardTitle>
@@ -278,7 +280,8 @@ export default function Dividends() {
                             <CardTitle>Per-holding yield</CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
-                            <table className="w-full text-left text-sm">
+                            <div className="overflow-x-auto">
+                            <table className="w-full min-w-[520px] text-left text-sm">
                                 <thead className="text-base-500 dark:text-base-400 uppercase text-[10px] font-bold tracking-wider border-b border-base-100 dark:border-base-800">
                                     <tr>
                                         <th className="px-4 py-2">Holding</th>
@@ -303,6 +306,7 @@ export default function Dividends() {
                                     )}
                                 </tbody>
                             </table>
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
