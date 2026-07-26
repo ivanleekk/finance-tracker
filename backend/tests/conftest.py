@@ -5,6 +5,14 @@ from pathlib import Path
 import pytest
 import sys
 
+# docker-compose.yml sets AUTH_COOKIE_DOMAIN=localhost on the backend service so
+# browsers can share the auth cookie across the frontend/backend ports in local
+# dev. Starlette's TestClient talks to http://testserver by default, and
+# httpx's cookie jar enforces RFC 6265 domain matching, so a Domain=localhost
+# cookie silently fails to persist for a testserver request. Tests must stay
+# hermetic regardless of the parent shell's env, so strip it here.
+os.environ.pop("AUTH_COOKIE_DOMAIN", None)
+
 # Prevent the local 'alembic' directory from shadowing the alembic library
 cwd = os.getcwd()
 if cwd in sys.path:
