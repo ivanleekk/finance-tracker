@@ -128,11 +128,16 @@ class User(Base):
     hide_private_from_household: Mapped[bool] = mapped_column(Boolean, default=True)
     require_face_id_for_vault: Mapped[bool] = mapped_column(Boolean, default=True)
     default_new_items_private: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Preselected account for new expense/income transactions (web quick-add, CommandBar, iOS QuickAdd).
+    # Nullable: falls back to first accessible account when unset. ON DELETE SET NULL so
+    # closing the account just clears the preference instead of blocking the delete.
+    default_account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     household_memberships = relationship("HouseholdMember", back_populates="user")
     account_accesses = relationship("AccountAccess", back_populates="user")
     portfolio_accesses = relationship("PortfolioAccess", back_populates="user")
+    default_account = relationship("FinancialAccount", foreign_keys=[default_account_id])
 
 
 class Household(Base):

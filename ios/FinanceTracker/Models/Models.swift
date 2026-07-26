@@ -191,6 +191,8 @@ struct UserResponse: Codable, Identifiable {
     let defaultNewItemsPrivate: Bool?
     /// When true, private (vault) items require a biometric/passcode unlock to be shown.
     let requireFaceIdForVault: Bool?
+    /// Preselected account for new expense/income transactions (QuickAdd, New Transaction).
+    let defaultAccountId: String?
 
     var hidesPrivateFromHousehold: Bool { hidePrivateFromHousehold ?? true }
     var defaultsNewItemsPrivate: Bool { defaultNewItemsPrivate ?? true }
@@ -214,6 +216,10 @@ struct UserUpdate: Encodable {
     var hidePrivateFromHousehold: Bool? = nil
     var defaultNewItemsPrivate: Bool? = nil
     var requireFaceIdForVault: Bool? = nil
+    var defaultAccountId: String? = nil
+    /// Set true to explicitly clear defaultAccountId back to "always ask" — a nil
+    /// defaultAccountId alone is indistinguishable from "not sending this field".
+    var clearDefaultAccount: Bool? = nil
 }
 
 struct HouseholdResponse: Codable, Identifiable, Hashable {

@@ -15,6 +15,10 @@ struct ProfileSettingsView: View {
     @State private var isSaving = false
     @State private var status: SaveStatus = .idle
 
+    @State private var accounts: [AccountResponse] = []
+    @State private var defaultAccountId: String?
+    @State private var isSavingDefaultAccount = false
+
     private var isDirty: Bool {
         guard let user = session.user else { return false }
         return name.trimmingCharacters(in: .whitespaces) != user.name
@@ -42,6 +46,24 @@ struct ProfileSettingsView: View {
                 Text("Your timezone is used when dates are recorded. Change your email or password under Security.")
             }
 
+            Section {
+                NavigationLink {
+                    DefaultAccountPicker(accounts: accounts, selection: defaultAccountId) { newValue in
+                        defaultAccountId = newValue
+                        saveDefaultAccount(newValue)
+                    }
+                } label: {
+                    LabeledContent(
+                        "Default Expense Account",
+                        value: accounts.first { $0.id == defaultAccountId }?.name ?? "None — always ask"
+                    )
+                }
+            } header: {
+                Text("Quick Add")
+            } footer: {
+                Text("Preselected when logging a transaction or using Quick Add.")
+            }
+
             StatusSection(status: status)
         }
         .navigationTitle("Profile")
@@ -55,6 +77,11 @@ struct ProfileSettingsView: View {
         .onAppear {
             name = session.user?.name ?? ""
             timezone = session.user?.preferredTimezone ?? "UTC"
+            defaultAccountId = session.user?.defaultAccountId
+        }
+        .task {
+            guard accounts.isEmpty, let householdId = session.activeHousehold?.id else { return }
+            accounts = (try? await APIClient.shared.get("/accounts/household/\(householdId)")) ?? []
         }
     }
 
@@ -69,6 +96,67 @@ struct ProfileSettingsView: View {
                 status = .success("Profile updated.")
             } catch {
                 status = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    private func saveDefaultAccount(_ accountId: String?) {
+        isSavingDefaultAccount = true
+        status = .idle
+        Task {
+            defer { isSavingDefaultAccount = false }
+            do {
+                if let accountId {
+                    try await session.updateUser(UserUpdate(defaultAccountId: accountId))
+                } else {
+                    try await session.updateUser(UserUpdate(clearDefaultAccount: true))
+                }
+            } catch {
+                status = .failure(error.localizedDescription)
+                defaultAccountId = session.user?.defaultAccountId
+            }
+        }
+    }
+}
+
+/// Single-select list for the "Default Expense Account" preference, with a "None" option
+/// that clears it back to "always ask".
+private struct DefaultAccountPicker: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let accounts: [AccountResponse]
+    let selection: String?
+    let onSelect: (String?) -> Void
+
+    var body: some View {
+        List {
+            Button {
+                onSelect(nil)
+                dismiss()
+            } label: {
+                row(title: "None — always ask", selected: selection == nil)
+            }
+            ForEach(accounts) { account in
+                Button {
+                    onSelect(account.id)
+                    dismiss()
+                } label: {
+                    row(title: account.name, selected: selection == account.id)
+                }
+            }
+        }
+        .navigationTitle("Default Expense Account")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func row(title: String, selected: Bool) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.primary)
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.tint)
             }
         }
     }

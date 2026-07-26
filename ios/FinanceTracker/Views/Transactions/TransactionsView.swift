@@ -206,6 +206,7 @@ struct TransactionsView: View {
 /// Add or edit a transaction. `existing == nil` creates; otherwise edits in place.
 struct TransactionFormView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(SessionStore.self) private var session
 
     let accounts: [AccountResponse]
     let householdId: String
@@ -325,7 +326,10 @@ struct TransactionFormView: View {
                 }
             }
             .onAppear {
-                if accountId == nil { accountId = accounts.first?.id }
+                if accountId == nil {
+                    let defaultAccount = accounts.first { $0.id == session.user?.defaultAccountId }
+                    accountId = (defaultAccount ?? accounts.first)?.id
+                }
                 if categoryId == nil { categoryId = filteredCategories.first?.id }
             }
             .sheet(isPresented: $showingNewCategory) {

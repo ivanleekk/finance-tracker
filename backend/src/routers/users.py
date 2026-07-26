@@ -9,6 +9,7 @@ from src.auth import (
     verify_password,
     get_current_user,
     verify_household_access,
+    verify_private_owner_visibility,
 )
 import uuid
 
@@ -183,6 +184,20 @@ def update_user(
         existing_user.require_face_id_for_vault = user_update.require_face_id_for_vault
     if user_update.default_new_items_private is not None:
         existing_user.default_new_items_private = user_update.default_new_items_private
+
+    if user_update.clear_default_account:
+        existing_user.default_account_id = None
+    elif user_update.default_account_id is not None:
+        db_account = (
+            db.query(models.FinancialAccount)
+            .filter(models.FinancialAccount.id == user_update.default_account_id)
+            .first()
+        )
+        if not db_account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        verify_household_access(db_account.household_id, current_user, db)
+        verify_private_owner_visibility(db_account.owner_user_id, current_user)
+        existing_user.default_account_id = user_update.default_account_id
 
     if user_update.email is not None:
         # Check if the new email is already taken by another user

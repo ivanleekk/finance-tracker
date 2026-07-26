@@ -315,11 +315,12 @@ export function CommandBar() {
      * private account if "private" is chosen, otherwise a shared (owner_user_id null) account.
      * Falls back to whatever the parser matched if no account of the right kind exists. */
     const routedAccount = (fallback: AccountResponse | null): AccountResponse | null => {
-        if (!hasHousehold) return fallback;
+        const userDefault = accounts.find(a => a.id === user?.default_account_id) || null;
+        if (!hasHousehold) return fallback || userDefault;
         if (ownership === "private") {
-            return accounts.find(a => a.owner_user_id === user?.id) || fallback;
+            return accounts.find(a => a.owner_user_id === user?.id) || fallback || userDefault;
         }
-        return accounts.find(a => !a.owner_user_id) || fallback;
+        return accounts.find(a => !a.owner_user_id) || fallback || userDefault;
     };
 
     const finishSuccess = (big: string, sub: string, undo: { path: string } | null) => {

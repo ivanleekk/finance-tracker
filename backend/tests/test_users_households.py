@@ -105,6 +105,56 @@ def test_update_user_email_conflict(client, headers_a, user_b):
     assert response.status_code == 400
 
 
+def test_update_user_default_account(client, headers_a, household_a):
+    account = client.post(
+        "/accounts/",
+        headers=headers_a,
+        json={
+            "household_id": household_a["id"],
+            "name": "Checking",
+            "liquidity": "liquid",
+            "tax_status": "taxable",
+            "currency": "USD",
+        },
+    ).json()
+
+    response = client.put("/users", headers=headers_a, json={"default_account_id": account["id"]})
+    assert response.status_code == 200
+    assert response.json()["default_account_id"] == account["id"]
+
+    response = client.put("/users", headers=headers_a, json={"clear_default_account": True})
+    assert response.status_code == 200
+    assert response.json()["default_account_id"] is None
+
+
+def test_update_user_default_account_rejects_inaccessible_account(client, headers_a, headers_b, household_a):
+    # user_b has no membership in household_a, so its accounts aren't theirs to default to.
+    other_household = client.post(
+        "/users/households",
+        headers=headers_b,
+        json={"name": "B's Household", "base_currency": "USD", "country_code": "US"},
+    ).json()
+    other_account = client.post(
+        "/accounts/",
+        headers=headers_b,
+        json={
+            "household_id": other_household["id"],
+            "name": "B Checking",
+            "liquidity": "liquid",
+            "tax_status": "taxable",
+            "currency": "USD",
+        },
+    ).json()
+
+    response = client.put("/users", headers=headers_a, json={"default_account_id": other_account["id"]})
+    assert response.status_code == 403
+
+
+def test_update_user_default_account_rejects_missing_account(client, headers_a):
+    response = client.put("/users", headers=headers_a, json={"default_account_id": str(uuid.uuid7())})
+    assert response.status_code == 404
+
+
 def test_update_password_changes_login(client):
     client.post("/users", json={"email": "pwchange@example.com", "name": "PW", "password": "oldpass1!"})
     token = client.post(

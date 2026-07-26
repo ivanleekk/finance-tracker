@@ -361,10 +361,12 @@ struct QuickAddView: View {
     }
 
     /// Pick sensible defaults, preferring the household's configured funding account and
-    /// sub-portfolio (mirrors the web/mobile quick-add routing).
+    /// sub-portfolio (mirrors the web/mobile quick-add routing). Expense/income starts
+    /// from the user's own default expense account instead, when one is set.
     private func applyDefaults() {
         let funding = accounts.first { $0.id == household?.defaultFundingAccountId } ?? accounts.first
-        if accountId == nil { accountId = funding?.id }
+        let expenseDefault = accounts.first { $0.id == session.user?.defaultAccountId } ?? funding
+        if accountId == nil { accountId = (mode == .expense || mode == .income) ? expenseDefault?.id : funding?.id }
         if fromAccountId == nil { fromAccountId = funding?.id }
         if toAccountId == nil { toAccountId = accounts.first { $0.id != fromAccountId }?.id }
         if categoryId == nil { categoryId = filteredCategories.first?.id }
