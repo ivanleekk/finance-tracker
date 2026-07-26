@@ -552,7 +552,7 @@ class Dividend(Base):
     per_share_amount = Column(Numeric, nullable=True)  # Per-share dividend in asset currency
     quantity = Column(Float, nullable=True)  # Shares held on the ex-dividend date
     exchange_rate = Column(Float)
-    is_manual = Column(Boolean, default=True)  # False for auto-tracked dividends
+    is_manual = Column(Boolean, nullable=False, default=True)  # False for auto-tracked dividends
     # The buy trade of the sub-portfolio's cash pseudo-asset that credits this
     # payout as cash (see services/dividend_engine.sync_dividend_cash_credit).
     cash_trade_id = Column(UUID(as_uuid=True), ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
