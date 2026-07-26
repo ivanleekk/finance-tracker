@@ -77,9 +77,14 @@ export default function Transactions() {
     const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
     const [isSavingCategory, setIsSavingCategory] = useState(false);
 
+    // Preselect the user's default expense account when it's still visible in this household's list.
+    const defaultAccountId = () => (user?.default_account_id && accounts.some(a => a.id === user.default_account_id))
+        ? user.default_account_id
+        : "";
+
     // Form state for normal transactions
     const [formData, setFormData] = useState({
-        accountId: "",
+        accountId: defaultAccountId(),
         categoryId: "",
         amount: "",
         currency: activeHousehold?.base_currency || "USD",
@@ -158,7 +163,7 @@ export default function Transactions() {
             });
             setIsLogModalOpen(false);
             setFormData({
-                accountId: "",
+                accountId: defaultAccountId(),
                 categoryId: "",
                 amount: "",
                 currency: activeHousehold?.base_currency || "USD",

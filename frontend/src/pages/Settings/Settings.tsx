@@ -41,7 +41,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 export default function Settings() {
     const { activeHousehold } = useHousehold();
-    const { user, currencies, timezones } = (useLoaderData() as SettingsLoaderData) || {};
+    const { user, currencies, timezones, accounts = [] } = (useLoaderData() as SettingsLoaderData) || {};
     const revalidator = useRevalidator();
     const {
         themeMode, primaryColor, secondaryColor, baseColor,
@@ -68,6 +68,10 @@ export default function Settings() {
     const [hidePrivate, setHidePrivate] = useState(user.hide_private_from_household);
     const [defaultPrivate, setDefaultPrivate] = useState(user.default_new_items_private);
     const [savingPrivacy, setSavingPrivacy] = useState(false);
+
+    // Default expense account (preselected in Transactions and ⌘K quick-add)
+    const [defaultAccountId, setDefaultAccountId] = useState(user.default_account_id || "");
+    const [savingDefaultAccount, setSavingDefaultAccount] = useState(false);
 
     // FX preview
     const baseCurrency = activeHousehold?.base_currency;
@@ -169,6 +173,17 @@ export default function Settings() {
         }
     };
 
+    const saveDefaultAccount = async (accountId: string) => {
+        setDefaultAccountId(accountId);
+        setSavingDefaultAccount(true);
+        try {
+            await api.put("/users", accountId ? { default_account_id: accountId } : { clear_default_account: true });
+            revalidator.revalidate();
+        } finally {
+            setSavingDefaultAccount(false);
+        }
+    };
+
     const [exporting, setExporting] = useState(false);
     const exportCsv = async () => {
         if (!activeHousehold) return;
@@ -264,6 +279,22 @@ export default function Settings() {
                                                     options={timezones.map(tz => ({ value: tz.name, label: tz.label }))}
                                                 />
                                             </div>
+                                            {activeHousehold && (
+                                                <div className="space-y-2 sm:col-span-2">
+                                                    <label className="text-sm font-medium text-base-700 dark:text-base-300">Default Expense Account</label>
+                                                    <p className="text-xs text-base-500 dark:text-base-400 -mt-1 mb-2">Preselected when logging a transaction or using ⌘K.</p>
+                                                    <Select
+                                                        value={defaultAccountId}
+                                                        onChange={saveDefaultAccount}
+                                                        disabled={savingDefaultAccount}
+                                                        placeholder="None — always ask"
+                                                        options={[
+                                                            { value: "", label: "None — always ask" },
+                                                            ...accounts.map(a => ({ value: a.id, label: a.name })),
+                                                        ]}
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex justify-end">
                                             <Button

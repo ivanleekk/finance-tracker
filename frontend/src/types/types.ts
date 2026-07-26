@@ -82,6 +82,7 @@ export type UserResponse = {
   hide_private_from_household: boolean;
   require_face_id_for_vault: boolean;
   default_new_items_private: boolean;
+  default_account_id?: string;
 };
 
 export type HouseholdResponse = {

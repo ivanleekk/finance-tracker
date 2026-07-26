@@ -1,32 +1,35 @@
 import { redirect } from "react-router";
 import { getSSRContext } from "../../lib/ssr-helpers";
-import type { UserResponse, CurrencyResponse } from "../../types/types";
+import type { UserResponse, CurrencyResponse, AccountResponse } from "../../types/types";
 
 export type SettingsLoaderData = {
     user: UserResponse;
     currencies: CurrencyResponse[];
     timezones: { name: string; label: string }[];
+    accounts: AccountResponse[];
 };
 
 export async function settingsLoader({ request }: { request: Request }): Promise<SettingsLoaderData | Response> {
-    const { ssrFetch } = await getSSRContext(request);
+    const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
-        const [userRes, currenciesRes, timezonesRes] = await Promise.all([
+        const [userRes, currenciesRes, timezonesRes, accountsRes] = await Promise.all([
             ssrFetch("/users"),
             ssrFetch("/reference/currencies"),
             ssrFetch("/reference/timezones"),
+            householdId ? ssrFetch(`/accounts/household/${householdId}`) : Promise.resolve(null),
         ]);
 
         if (!userRes.ok) return redirect("/login");
 
-        const [user, currencies, timezones] = await Promise.all([
+        const [user, currencies, timezones, accounts] = await Promise.all([
             userRes.json(),
             currenciesRes.ok ? currenciesRes.json() : [],
             timezonesRes.ok ? timezonesRes.json() : [],
+            accountsRes?.ok ? accountsRes.json() : [],
         ]);
 
-        return { user, currencies, timezones };
+        return { user, currencies, timezones, accounts };
     } catch (error) {
         if (error instanceof Response) throw error;
         console.error("Settings loader failed:", error);
