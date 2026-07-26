@@ -1,42 +1,35 @@
 import { describe, it, expect } from "vitest";
 import { valueHistoryForGoal, projectGoal } from "./goals";
-import type { PortfolioSnapshotResponse } from "../types/types";
+import type { PortfolioTimeseriesPoint } from "../types/types";
 
 // Goal projections drive the headline "you're on track" UI. Malformed or
 // missing snapshot values, absurd targets, and past target dates must degrade
 // gracefully to finite numbers — never NaN/Infinity leaking into the display.
 
-const snap = (over: Partial<PortfolioSnapshotResponse>): PortfolioSnapshotResponse => ({
-    id: Math.random().toString(),
-    household_id: "h",
-    sub_portfolio_id: "sp",
-    asset_id: "a",
+const point = (over: Partial<PortfolioTimeseriesPoint>): PortfolioTimeseriesPoint => ({
     date: "2026-01-01",
-    quantity: 1,
-    price: 1 as unknown as never,
-    exchange_rate_used: 1,
-    current_value_home_currency: 100 as unknown as never,
-    average_cost_basis: null as unknown as never,
+    sub_portfolio_id: "sp",
+    total_value_home_currency: 100 as unknown as never,
     ...over,
 });
 
 describe("valueHistoryForGoal", () => {
-    it("coerces missing/null snapshot values to 0 instead of NaN", () => {
+    it("coerces missing/null timeseries values to 0 instead of NaN", () => {
         const history = valueHistoryForGoal([
-            snap({ date: "2026-01-01", current_value_home_currency: undefined as unknown as never }),
-            snap({ date: "2026-01-02", current_value_home_currency: null as unknown as never }),
-            snap({ date: "2026-01-03", current_value_home_currency: 250 as unknown as never }),
+            point({ date: "2026-01-01", total_value_home_currency: undefined as unknown as never }),
+            point({ date: "2026-01-02", total_value_home_currency: null as unknown as never }),
+            point({ date: "2026-01-03", total_value_home_currency: 250 as unknown as never }),
         ], "sp");
-        for (const point of history) {
-            expect(Number.isFinite(point.value)).toBe(true);
+        for (const p of history) {
+            expect(Number.isFinite(p.value)).toBe(true);
         }
         expect(history[history.length - 1].value).toBe(250);
     });
 
-    it("ignores snapshots from other sub-portfolios", () => {
+    it("ignores points from other sub-portfolios", () => {
         const history = valueHistoryForGoal([
-            snap({ sub_portfolio_id: "other", current_value_home_currency: 999 as unknown as never }),
-            snap({ sub_portfolio_id: "sp", current_value_home_currency: 100 as unknown as never }),
+            point({ sub_portfolio_id: "other", total_value_home_currency: 999 as unknown as never }),
+            point({ sub_portfolio_id: "sp", total_value_home_currency: 100 as unknown as never }),
         ], "sp");
         expect(history).toHaveLength(1);
         expect(history[0].value).toBe(100);
@@ -92,5 +85,14 @@ describe("projectGoal — finite output guarantees", () => {
     it("handles an empty history without throwing", () => {
         expect(() => projectGoal([], 1000)).not.toThrow();
         expect(projectGoal([], 1000).currentValue).toBe(0);
+    });
+
+    it("coerces a string target_amount (Decimal serialized as JSON string by the backend)", () => {
+        const p = projectGoal(
+            [{ date: "2026-01-01", value: 13104 }],
+            "20000",
+        );
+        expect(p.percentComplete).toBeCloseTo(65.52, 1);
+        expect(p.remaining).toBeCloseTo(6896, 1);
     });
 });
