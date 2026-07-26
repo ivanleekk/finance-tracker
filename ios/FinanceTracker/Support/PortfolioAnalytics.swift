@@ -55,14 +55,34 @@ func growthBin(forSpanDays days: Double) -> GrowthBin {
     return .monthly
 }
 
+/// A per-date, per-sub-portfolio value point. Lets `equityCurve` and `valueHistory` (in
+/// GoalProjection.swift) work identically over raw `PortfolioSnapshotResponse` rows (summed
+/// across assets client-side) or pre-aggregated `PortfolioTimeseriesPoint`s from the
+/// `/timeseries` endpoint (already summed server-side) — same math, different source.
+protocol SnapshotValuePoint {
+    var date: Date { get }
+    var subPortfolioId: String { get }
+    /// Home-currency value, coerced to 0 if the underlying field was non-finite so nothing
+    /// downstream (deltas, percentages) turns NaN.
+    var value: Double { get }
+}
+
+extension PortfolioSnapshotResponse: SnapshotValuePoint {
+    var value: Double { currentValueHomeCurrency.isFinite ? currentValueHomeCurrency : 0 }
+}
+
+extension PortfolioTimeseriesPoint: SnapshotValuePoint {
+    var value: Double { totalValueHomeCurrency.isFinite ? totalValueHomeCurrency : 0 }
+}
+
 /// Total home-currency value per date for one sub-portfolio — or the whole household when
 /// `subPortfolioId` is nil — windowed to `range` and binned so long spans stay readable.
 ///
 /// Within a bucket the latest point wins rather than a sum or mean: an equity curve is a
 /// running balance, so adding two days together would double-count and averaging would
 /// understate the close. This matches the web's `binHistory`.
-func equityCurve(
-    snapshots: [PortfolioSnapshotResponse],
+func equityCurve<T: SnapshotValuePoint>(
+    snapshots: [T],
     subPortfolioId: String? = nil,
     range: GrowthRange = .all,
     now: Date = Date()
@@ -70,9 +90,7 @@ func equityCurve(
     var byDate: [Date: Double] = [:]
     for snapshot in snapshots {
         if let subPortfolioId, snapshot.subPortfolioId != subPortfolioId { continue }
-        // Coerce non-finite to 0 so nothing downstream (deltas, percentages) turns NaN.
-        let value = snapshot.currentValueHomeCurrency.isFinite ? snapshot.currentValueHomeCurrency : 0
-        byDate[snapshot.date, default: 0] += value
+        byDate[snapshot.date, default: 0] += snapshot.value
     }
 
     var points = byDate

@@ -29,7 +29,12 @@ struct SubPortfolioDetailView: View {
     @State private var sp: SubPortfolioResponse
     @State private var section: DetailSection = .growth
     @State private var range: GrowthRange = .all
+    /// Latest-date-only, per-asset rows (fetched with latest_only=true) — feeds the
+    /// holdings list, which never needs history.
     @State private var snapshots: [PortfolioSnapshotResponse] = []
+    /// Pre-aggregated (date, sub-portfolio) totals across full history — feeds the
+    /// equity curve, which never needs per-asset detail.
+    @State private var timeseries: [PortfolioTimeseriesPoint] = []
     @State private var assets: [AssetResponse] = []
     @State private var dividends: [DividendResponse] = []
     @State private var accounts: [AccountResponse] = []
@@ -83,7 +88,7 @@ struct SubPortfolioDetailView: View {
     }
 
     private var curve: [GoalHistoryPoint] {
-        equityCurve(snapshots: ownSnapshots, subPortfolioId: sp.id, range: range)
+        equityCurve(snapshots: timeseries, subPortfolioId: sp.id, range: range)
     }
 
     private var ownDividends: [DividendResponse] {
@@ -348,15 +353,16 @@ struct SubPortfolioDetailView: View {
         defer { isLoading = false }
         do {
             async let spReq: SubPortfolioResponse = APIClient.shared.get("/portfolio/subportfolios/\(sp.id)")
-            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
+            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)?latest_only=true")
+            async let timeseriesReq: [PortfolioTimeseriesPoint] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)/timeseries")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
             async let dividendsReq: [DividendResponse] = APIClient.shared.get("/portfolio/dividends/household/\(household.id)")
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let metricsReq: PortfolioMetricsResponse = APIClient.shared.get("/portfolio/household/\(household.id)/metrics")
 
             let all: PortfolioMetricsResponse
-            (sp, snapshots, assets, dividends, accounts, all) =
-                try await (spReq, snapshotsReq, assetsReq, dividendsReq, accountsReq, metricsReq)
+            (sp, snapshots, timeseries, assets, dividends, accounts, all) =
+                try await (spReq, snapshotsReq, timeseriesReq, assetsReq, dividendsReq, accountsReq, metricsReq)
             metrics = all.subPortfolioMetrics.first { $0.subPortfolioId == sp.id }?.metrics
         } catch {
             errorMessage = error.localizedDescription

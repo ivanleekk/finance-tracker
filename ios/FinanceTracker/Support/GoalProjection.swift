@@ -34,13 +34,13 @@ struct GoalProjection {
     var etaVsTargetMonths: Int?
 }
 
-/// Sums snapshot values across all assets in a sub-portfolio, per date, ascending.
-func valueHistory(for snapshots: [PortfolioSnapshotResponse], subPortfolioId: String) -> [GoalHistoryPoint] {
+/// Sums values across all assets in a sub-portfolio, per date, ascending. Generic over
+/// `SnapshotValuePoint` (PortfolioAnalytics.swift) so it works with raw snapshots or the
+/// pre-aggregated `/timeseries` points — see that protocol's doc comment.
+func valueHistory<T: SnapshotValuePoint>(for snapshots: [T], subPortfolioId: String) -> [GoalHistoryPoint] {
     var byDate: [Date: Double] = [:]
     for s in snapshots where s.subPortfolioId == subPortfolioId {
-        // Coerce non-finite to 0 so nothing downstream (percentages, pace, ETA) turns NaN.
-        let value = s.currentValueHomeCurrency.isFinite ? s.currentValueHomeCurrency : 0
-        byDate[s.date, default: 0] += value
+        byDate[s.date, default: 0] += s.value
     }
     return byDate
         .map { GoalHistoryPoint(date: $0.key, value: $0.value) }

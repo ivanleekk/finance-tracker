@@ -6,7 +6,12 @@ struct PortfolioView: View {
     @Environment(QuickAddStore.self) private var quickAdd
     @Environment(ViewModeStore.self) private var viewModeStore
 
+    /// Latest-date-only, per-asset rows (fetched with latest_only=true) — feeds the
+    /// holdings table, allocation and FX exposure, which never need history.
     @State private var snapshots: [PortfolioSnapshotResponse] = []
+    /// Pre-aggregated (date, sub-portfolio) totals across full history — feeds the
+    /// equity curve, which never needs per-asset detail.
+    @State private var timeseries: [PortfolioTimeseriesPoint] = []
     @State private var assets: [AssetResponse] = []
     @State private var subPortfolios: [SubPortfolioResponse] = []
     @State private var accounts: [AccountResponse] = []
@@ -18,6 +23,7 @@ struct PortfolioView: View {
     @State private var pricingAsset: AssetResponse?
     @State private var range: GrowthRange = .all
     @State private var errorMessage: String?
+    @State private var lastLoadedAt: Date?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -45,9 +51,14 @@ struct PortfolioView: View {
         latestHoldings.reduce(0) { $0 + $1.currentValueHomeCurrency }
     }
 
+    /// Timeseries points belonging to a sub-portfolio that's visible in the current view mode.
+    private var visibleTimeseries: [PortfolioTimeseriesPoint] {
+        timeseries.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+    }
+
     /// Total equity value over time across every visible sub-portfolio.
     private var curve: [GoalHistoryPoint] {
-        equityCurve(snapshots: visibleSnapshots, range: range)
+        equityCurve(snapshots: visibleTimeseries, range: range)
     }
 
     /// One group per sub-portfolio that either holds something or is a goal with a
@@ -158,7 +169,7 @@ struct PortfolioView: View {
                         }
 
                         ForEach(group.holdings) { holding in
-                            let asset = assets.first { $0.id == holding.assetId }
+                            let asset = assetsById[holding.assetId]
                             let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
                             // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
                             if let asset, asset.isManualPriced {
@@ -271,8 +282,20 @@ struct PortfolioView: View {
                 }
             }
             .quickAddPull(quickAdd, onReload: load)
-            .task { await load() }
+            .task { await loadIfNeeded() }
         }
+    }
+
+    /// Mirrors Dashboard's staleness guard: skip refetching on every tab
+    /// reselect when the data was loaded moments ago. `onReload` (Quick Add)
+    /// bypasses this and always forces a real reload after an edit.
+    private static let stalenessWindow: TimeInterval = 30
+
+    private func loadIfNeeded() async {
+        if let lastLoadedAt, Date().timeIntervalSince(lastLoadedAt) < Self.stalenessWindow {
+            return
+        }
+        await load()
     }
 
     private func load() async {
@@ -280,12 +303,14 @@ struct PortfolioView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
+            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)?latest_only=true")
+            async let timeseriesReq: [PortfolioTimeseriesPoint] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)/timeseries")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
             async let subPortfoliosReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let metricsReq: PortfolioMetricsResponse = APIClient.shared.get("/portfolio/household/\(household.id)/metrics")
-            (snapshots, assets, subPortfolios, accounts, metrics) = try await (snapshotsReq, assetsReq, subPortfoliosReq, accountsReq, metricsReq)
+            (snapshots, timeseries, assets, subPortfolios, accounts, metrics) = try await (snapshotsReq, timeseriesReq, assetsReq, subPortfoliosReq, accountsReq, metricsReq)
+            lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
         }

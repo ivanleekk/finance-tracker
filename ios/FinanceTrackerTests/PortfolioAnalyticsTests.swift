@@ -80,7 +80,7 @@ struct PortfolioAnalyticsTests {
     }
 
     @Test func emptySnapshotsGiveAnEmptyCurve() {
-        #expect(equityCurve(snapshots: []).isEmpty)
+        #expect(equityCurve(snapshots: [PortfolioSnapshotResponse]()).isEmpty)
     }
 
     // MARK: equityCurve — range window

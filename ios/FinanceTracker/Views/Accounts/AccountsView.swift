@@ -14,6 +14,7 @@ struct AccountsListView: View {
     @State private var isLoading = true
     @State private var showingAddAccount = false
     @State private var errorMessage: String?
+    @State private var lastLoadedAt: Date?
 
     /// Accounts visible under the current view mode (private/household/blended).
     private var visibleAccounts: [AccountResponse] {
@@ -38,6 +39,9 @@ struct AccountsListView: View {
     }
 
     var body: some View {
+        // Computed once per body evaluation and reused for every account row
+        // below, instead of each row re-scanning the whole balance history.
+        let latestByAccount = latestBalanceByAccount
         List {
             QuickAddPullSensor()
 
@@ -55,7 +59,7 @@ struct AccountsListView: View {
                         NavigationLink {
                             AccountDetailView(account: account, onChanged: load)
                         } label: {
-                            AccountRow(account: account, latestBalance: latestBalance(for: account))
+                            AccountRow(account: account, latestBalance: latestByAccount[account.id])
                         }
                     }
                 }
@@ -91,7 +95,7 @@ struct AccountsListView: View {
             }
         }
         .quickAddPull(quickAdd, onReload: load)
-        .task { await load() }
+        .task { await loadIfNeeded() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -102,8 +106,25 @@ struct AccountsListView: View {
         }
     }
 
-    private func latestBalance(for account: AccountResponse) -> BalanceResponse? {
-        balances.filter { $0.accountId == account.id }.max { $0.date < $1.date }
+    /// One pass over the whole balance history instead of re-filtering it per
+    /// account row (`.filter { ... }.max { ... }` was O(accounts × balances)).
+    private var latestBalanceByAccount: [String: BalanceResponse] {
+        balances.reduce(into: [:]) { result, balance in
+            if let existing = result[balance.accountId], existing.date >= balance.date { return }
+            result[balance.accountId] = balance
+        }
+    }
+
+    /// Mirrors Dashboard's staleness guard: skip refetching on every tab
+    /// reselect when the list was loaded moments ago. `onReload`/`onChanged`
+    /// callbacks bypass this and always force a real reload after an edit.
+    private static let stalenessWindow: TimeInterval = 30
+
+    private func loadIfNeeded() async {
+        if let lastLoadedAt, Date().timeIntervalSince(lastLoadedAt) < Self.stalenessWindow {
+            return
+        }
+        await load()
     }
 
     private func load() async {
@@ -117,6 +138,7 @@ struct AccountsListView: View {
             // Equity is a supplementary panel — a failure here shouldn't blank
             // the accounts list the user came for.
             equity = (try? await APIClient.shared.get("/accounts/household/\(household.id)/equity")) ?? []
+            lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
         }

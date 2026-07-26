@@ -6,6 +6,7 @@ from datetime import date
 import uuid
 from src import models
 from src.services.market_data import fetch_and_cache_exchange_rates, fetch_and_cache_exchange_rates_range
+from src.services.cache import invalidate_household
 
 def propagate_balance_change(db: Session, account_id: uuid.UUID, start_date: date, amount_delta: Decimal):
     """
@@ -22,9 +23,13 @@ def propagate_balance_change(db: Session, account_id: uuid.UUID, start_date: dat
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == account_id).first()
     if not db_account:
         return
-    
+
     acc_curr = db_account.currency or "USD"
     home_curr = db_account.household.base_currency or "USD"
+    # Any balance change invalidates cached metrics/projections for the
+    # household, whether it came from a manual edit (called directly) or a
+    # transaction/trade sync (called via sync_transaction_to_balances below).
+    invalidate_household(db_account.household_id)
 
     subsequent_balances = db.query(models.AccountBalance).filter(
         models.AccountBalance.account_id == account_id,

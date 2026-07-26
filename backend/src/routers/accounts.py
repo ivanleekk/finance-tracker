@@ -7,7 +7,7 @@ from src.auth import get_current_user, verify_household_access, verify_private_o
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from src.services import loan_service
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, select
 from decimal import Decimal
 from datetime import datetime, timezone
 import uuid
@@ -661,18 +661,25 @@ def _visible_portfolio_value(db: Session, household_id: uuid.UUID, current_user:
     if not sub_portfolio_ids:
         return Decimal("0")
 
-    snapshots = (
-        db.query(models.PortfolioSnapshot)
-        .filter(models.PortfolioSnapshot.sub_portfolio_id.in_(sub_portfolio_ids))
-        .order_by(models.PortfolioSnapshot.date)
-        .all()
-    )
-    latest = {}
-    for s in snapshots:
-        latest[(s.sub_portfolio_id, s.asset_id)] = s
+    # A sold-to-zero holding stops getting new snapshot rows (see
+    # snapshot_engine.run_snapshot_range), so different (sub_portfolio_id,
+    # asset_id) pairs can have different "latest" dates — we can't just filter
+    # to a single MAX(date). DISTINCT ON picks the newest row per pair without
+    # pulling the household's entire snapshot history into Python first, which
+    # otherwise grows unboundedly with account age.
+    latest_snapshots = db.execute(
+        select(models.PortfolioSnapshot)
+        .where(models.PortfolioSnapshot.sub_portfolio_id.in_(sub_portfolio_ids))
+        .distinct(models.PortfolioSnapshot.sub_portfolio_id, models.PortfolioSnapshot.asset_id)
+        .order_by(
+            models.PortfolioSnapshot.sub_portfolio_id,
+            models.PortfolioSnapshot.asset_id,
+            models.PortfolioSnapshot.date.desc(),
+        )
+    ).scalars().all()
 
     total = Decimal("0")
-    for s in latest.values():
+    for s in latest_snapshots:
         if s.current_value_home_currency is not None:
             total += Decimal(str(s.current_value_home_currency))
     return total

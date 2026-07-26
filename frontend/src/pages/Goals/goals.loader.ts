@@ -1,10 +1,10 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { SubPortfolioResponse, PortfolioSnapshotResponse, CurrencyResponse } from "../../types/types";
+import type { SubPortfolioResponse, PortfolioTimeseriesPoint, CurrencyResponse } from "../../types/types";
 
 export type GoalsLoaderData = {
     subportfolios: SubPortfolioResponse[];
-    snapshots: PortfolioSnapshotResponse[];
+    timeseries: PortfolioTimeseriesPoint[];
     currencies: CurrencyResponse[];
 };
 
@@ -12,21 +12,21 @@ export async function goalsLoader({ request }: LoaderFunctionArgs): Promise<Goal
     const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
-        const [spRes, snRes, curRes] = await Promise.all([
+        const [spRes, tsRes, curRes] = await Promise.all([
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
-            ssrFetch(`/portfolio/snapshots/household/${householdId}`),
+            ssrFetch(`/portfolio/snapshots/household/${householdId}/timeseries`),
             ssrFetch(`/reference/currencies`),
         ]);
-        const [subportfolios, snapshots, currencies] = await Promise.all([
+        const [subportfolios, timeseries, currencies] = await Promise.all([
             spRes.ok ? spRes.json() : [],
-            snRes.ok ? snRes.json() : [],
+            tsRes.ok ? tsRes.json() : [],
             curRes.ok ? curRes.json() : [],
         ]);
-        return { subportfolios, snapshots, currencies };
+        return { subportfolios, timeseries, currencies };
     } catch (error) {
         if (error instanceof Response) throw error;
         console.error("Failed to load goals", error);
-        return { subportfolios: [], snapshots: [], currencies: [] };
+        return { subportfolios: [], timeseries: [], currencies: [] };
     }
 }
 

@@ -14,6 +14,7 @@ struct TransactionsView: View {
     @State private var showingTransferSheet = false
     @State private var editingTransaction: TransactionResponse?
     @State private var errorMessage: String?
+    @State private var lastLoadedAt: Date?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -25,13 +26,25 @@ struct TransactionsView: View {
             .map(\.id))
     }
 
+    /// O(1) lookups instead of `.first { $0.id == ... }` scans — `filtered` reruns
+    /// per search keystroke and `byMonth`/row rendering reruns per row per render,
+    /// so a linear scan here is redone constantly as transaction history grows.
+    private var categoriesById: [String: CategoryResponse] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
+    }
+    private var accountsById: [String: AccountResponse] {
+        Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+    }
+
     private var filtered: [TransactionResponse] {
         let visible = transactions.filter { visibleAccountIds.contains($0.accountId) }
         let sorted = visible.sorted { $0.date > $1.date }
         guard !searchText.isEmpty else { return sorted }
+        let categoriesById = categoriesById
+        let accountsById = accountsById
         return sorted.filter { txn in
-            let category = categories.first { $0.id == txn.categoryId }?.name ?? ""
-            let account = accounts.first { $0.id == txn.accountId }?.name ?? ""
+            let category = categoriesById[txn.categoryId]?.name ?? ""
+            let account = accountsById[txn.accountId]?.name ?? ""
             return (txn.description ?? "").localizedCaseInsensitiveContains(searchText)
                 || category.localizedCaseInsensitiveContains(searchText)
                 || account.localizedCaseInsensitiveContains(searchText)
@@ -56,8 +69,8 @@ struct TransactionsView: View {
                         ForEach(group.transactions) { txn in
                             let row = TransactionRow(
                                 transaction: txn,
-                                categoryName: categories.first { $0.id == txn.categoryId }?.name,
-                                accountName: accounts.first { $0.id == txn.accountId }?.name,
+                                categoryName: categoriesById[txn.categoryId]?.name,
+                                accountName: accountsById[txn.accountId]?.name,
                                 baseCurrency: baseCurrency
                             )
                             // Transfers are two linked legs; edit them where they're created, not here.
@@ -136,7 +149,7 @@ struct TransactionsView: View {
                 }
             }
             .quickAddPull(quickAdd, onReload: load)
-            .task { await load() }
+            .task { await loadIfNeeded() }
             .alert("Error", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -162,6 +175,18 @@ struct TransactionsView: View {
         }
     }
 
+    /// Mirrors Dashboard's staleness guard: skip refetching on every tab
+    /// reselect when the list was loaded moments ago. `onReload` (Quick Add)
+    /// bypasses this and always forces a real reload after an edit.
+    private static let stalenessWindow: TimeInterval = 30
+
+    private func loadIfNeeded() async {
+        if let lastLoadedAt, Date().timeIntervalSince(lastLoadedAt) < Self.stalenessWindow {
+            return
+        }
+        await load()
+    }
+
     private func load() async {
         guard let household = session.activeHousehold else { return }
         isLoading = true
@@ -171,6 +196,7 @@ struct TransactionsView: View {
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
             (transactions, accounts, categories) = try await (txnsReq, accountsReq, categoriesReq)
+            lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
         }

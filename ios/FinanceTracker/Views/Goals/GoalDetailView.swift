@@ -14,7 +14,9 @@ struct GoalDetailView: View {
     var onChanged: () async -> Void = {}
 
     @State private var goalState: SubPortfolioResponse
-    @State private var snapshots: [PortfolioSnapshotResponse] = []
+    /// Pre-aggregated (date, sub-portfolio) totals — goal history only ever needs this
+    /// sub-portfolio's per-date total, never per-asset detail.
+    @State private var timeseries: [PortfolioTimeseriesPoint] = []
     @State private var trades: [TradeResponse] = []
     @State private var accounts: [AccountResponse] = []
     @State private var assets: [AssetResponse] = []
@@ -39,7 +41,7 @@ struct GoalDetailView: View {
     }
 
     private var history: [GoalHistoryPoint] {
-        valueHistory(for: snapshots, subPortfolioId: goalState.id)
+        valueHistory(for: timeseries, subPortfolioId: goalState.id)
     }
 
     private var proj: GoalProjection {
@@ -146,7 +148,7 @@ struct GoalDetailView: View {
             Text("Goals with trades or funding activity can't be deleted.")
         }
         .overlay {
-            if isLoading && snapshots.isEmpty && trades.isEmpty {
+            if isLoading && timeseries.isEmpty && trades.isEmpty {
                 LoadingSkeleton(showsHeader: true)
             }
         }
@@ -382,13 +384,13 @@ struct GoalDetailView: View {
         defer { isLoading = false }
         do {
             async let goalReq: SubPortfolioResponse = APIClient.shared.get("/portfolio/subportfolios/\(goalState.id)")
-            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
+            async let timeseriesReq: [PortfolioTimeseriesPoint] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)/timeseries")
             async let tradesReq: [TradeResponse] = APIClient.shared.get("/portfolio/trades/household/\(household.id)")
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
             async let membersReq: [HouseholdMemberUserResponse] = APIClient.shared.get("/users/householdmember/\(household.id)")
-            (goalState, snapshots, trades, accounts, assets, members) =
-                try await (goalReq, snapshotsReq, tradesReq, accountsReq, assetsReq, membersReq)
+            (goalState, timeseries, trades, accounts, assets, members) =
+                try await (goalReq, timeseriesReq, tradesReq, accountsReq, assetsReq, membersReq)
         } catch {
             errorMessage = error.localizedDescription
         }

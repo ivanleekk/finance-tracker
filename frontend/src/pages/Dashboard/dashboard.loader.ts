@@ -1,11 +1,11 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { 
-    AccountResponse, 
-    BalanceResponse, 
-    SubPortfolioResponse, 
-    TransactionResponse, 
-    PortfolioSnapshotResponse,
+import type {
+    AccountResponse,
+    BalanceResponse,
+    SubPortfolioResponse,
+    TransactionResponse,
+    PortfolioTimeseriesPoint,
     PortfolioMetricsResponse,
     NetWorthProjectionResponse,
     EmergencyFundResponse
@@ -16,7 +16,9 @@ export type DashboardLoaderData = {
     balances: Record<string, BalanceResponse[]>;
     subPortfolios: SubPortfolioResponse[];
     transactions: TransactionResponse[];
-    snapshots: PortfolioSnapshotResponse[];
+    // Pre-aggregated (date, sub_portfolio) totals — the dashboard only ever charts or
+    // sums by date/sub-portfolio, never per-asset, so it doesn't need raw snapshot rows.
+    timeseries: PortfolioTimeseriesPoint[];
     metrics: PortfolioMetricsResponse | null;
     // Forward net worth trajectory: loans amortize down, property appreciates.
     // Null when the household has nothing to project (or the call failed).
@@ -39,22 +41,22 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [accountsRes, subPortfoliosRes, transactionsRes, snapshotsRes, metricsRes, allBalancesRes, projectionRes, emergencyFundRes] = await Promise.all([
+        const [accountsRes, subPortfoliosRes, transactionsRes, timeseriesRes, metricsRes, allBalancesRes, projectionRes, emergencyFundRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
-            ssrFetch(`/portfolio/snapshots/household/${householdId}`),
+            ssrFetch(`/portfolio/snapshots/household/${householdId}/timeseries`),
             ssrFetch(metricsUrl),
             ssrFetch(`/accounts/balances/household/${householdId}`),
             ssrFetch(`/accounts/household/${householdId}/projection?months=360`),
             ssrFetch(`/cashflow/household/${householdId}/emergency-fund`)
         ]);
 
-        const [accounts, subPortfolios, transactions, snapshots, metrics] = await Promise.all([
+        const [accounts, subPortfolios, transactions, timeseries, metrics] = await Promise.all([
             accountsRes.ok ? accountsRes.json() : [],
             subPortfoliosRes.ok ? subPortfoliosRes.json() : [],
             transactionsRes.ok ? transactionsRes.json() : [],
-            snapshotsRes.ok ? snapshotsRes.json() : [],
+            timeseriesRes.ok ? timeseriesRes.json() : [],
             metricsRes.ok ? metricsRes.json() : null
         ]);
 
@@ -74,7 +76,7 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             balances: balanceMap,
             subPortfolios,
             transactions,
-            snapshots,
+            timeseries,
             metrics,
             projection,
             emergencyFund
@@ -82,12 +84,12 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
         console.error("Dashboard loader failed", error);
-        return { 
-            accounts: [], 
-            balances: {}, 
-            subPortfolios: [], 
-            transactions: [], 
-            snapshots: [],
+        return {
+            accounts: [],
+            balances: {},
+            subPortfolios: [],
+            transactions: [],
+            timeseries: [],
             metrics: null,
             projection: null,
             emergencyFund: null

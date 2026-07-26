@@ -735,6 +735,18 @@ class PortfolioSnapshotResponse(PortfolioSnapshotBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PortfolioTimeseriesPoint(BaseModel):
+    """
+    One (date, sub_portfolio) total — the per-asset rows of PortfolioSnapshot summed
+    server-side. Chart/projection consumers (net worth trend, goal pace) only ever need this
+    granularity; see `get_household_portfolio_timeseries`.
+    """
+    date: date
+    sub_portfolio_id: uuid.UUID
+    total_value_home_currency: FiniteDecimal
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DividendBase(BaseModel):
     date: datetime
     amount: PositiveDecimal

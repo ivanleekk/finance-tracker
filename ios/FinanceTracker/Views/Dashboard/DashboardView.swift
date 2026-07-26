@@ -15,7 +15,12 @@ struct DashboardView: View {
     @State private var balances: [BalanceResponse] = []
     @State private var transactions: [TransactionResponse] = []
     @State private var categories: [CategoryResponse] = []
+    /// Latest-date-only, per-asset rows (fetched with latest_only=true) — feeds
+    /// latestHoldings/topHoldings, which never need history.
     @State private var snapshots: [PortfolioSnapshotResponse] = []
+    /// Pre-aggregated (date, sub-portfolio) totals across full history — feeds the
+    /// net-worth chart, which never needs per-asset detail.
+    @State private var timeseries: [PortfolioTimeseriesPoint] = []
     @State private var subPortfolios: [SubPortfolioResponse] = []
     @State private var assets: [AssetResponse] = []
     @State private var metrics: PortfolioMetricsResponse?
@@ -23,6 +28,7 @@ struct DashboardView: View {
     @State private var projection: NetWorthProjectionResponse?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var lastLoadedAt: Date?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -47,6 +53,20 @@ struct DashboardView: View {
     }
     private var visibleSnapshots: [PortfolioSnapshotResponse] {
         snapshots.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+    }
+    private var visibleTimeseries: [PortfolioTimeseriesPoint] {
+        timeseries.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+    }
+
+    /// O(1) row lookups instead of `.first { $0.id == ... }` scans re-run per row per render.
+    private var assetsById: [String: AssetResponse] {
+        Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
+    }
+    private var categoriesById: [String: CategoryResponse] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
+    }
+    private var accountsById: [String: AccountResponse] {
+        Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
     }
 
     /// Liability accounts (loans, mortgages) hold their outstanding balance as a
@@ -95,15 +115,15 @@ struct DashboardView: View {
         let cal = Calendar.current
         let dates = Set(
             visibleBalances.map { cal.startOfDay(for: $0.date) } +
-            visibleSnapshots.map { cal.startOfDay(for: $0.date) }
+            visibleTimeseries.map { cal.startOfDay(for: $0.date) }
         ).sorted()
         guard !dates.isEmpty else { return [] }
 
         let byAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
             .mapValues { $0.sorted { $0.date < $1.date } }
         let portfolioByDate = Dictionary(
-            grouping: visibleSnapshots, by: { cal.startOfDay(for: $0.date) }
-        ).mapValues { $0.reduce(0.0) { $0 + $1.currentValueHomeCurrency } }
+            grouping: visibleTimeseries, by: { cal.startOfDay(for: $0.date) }
+        ).mapValues { $0.reduce(0.0) { $0 + $1.value } }
         let snapshotDates = portfolioByDate.keys.sorted()
 
         return dates.flatMap { date -> [NetWorthPoint] in
@@ -121,8 +141,6 @@ struct DashboardView: View {
         }
     }
 
-    private var chartDateCount: Int { Set(netWorthSeries.map(\.date)).count }
-
     private var recentTransactions: [TransactionResponse] {
         Array(transactions
             .filter { visibleAccountIds.contains($0.accountId) }
@@ -131,6 +149,14 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        // Computed once per body evaluation and reused for every account row
+        // below, instead of each row re-scanning the whole balance history.
+        let latestByAccount = latestBalanceByAccount
+        // netWorthSeries does an O(dates × accounts) forward-fill; bind it once
+        // instead of triggering it separately for the date-count gate and the
+        // chart itself.
+        let series = netWorthSeries
+        let seriesDateCount = Set(series.map(\.date)).count
         NavigationStack {
             List {
                 QuickAddPullSensor()
@@ -145,8 +171,8 @@ struct DashboardView: View {
                     }
                     .padding(.vertical, 4)
 
-                    if chartDateCount > 1 {
-                        Chart(netWorthSeries) { point in
+                    if seriesDateCount > 1 {
+                        Chart(series) { point in
                             AreaMark(
                                 x: .value("Date", point.date),
                                 y: .value("Value", point.value)
@@ -249,7 +275,7 @@ struct DashboardView: View {
                         ForEach(topHoldings) { holding in
                             HoldingRow(
                                 holding: holding,
-                                asset: assets.first { $0.id == holding.assetId },
+                                asset: assetsById[holding.assetId],
                                 baseCurrency: baseCurrency
                             )
                         }
@@ -276,7 +302,7 @@ struct DashboardView: View {
                         NavigationLink {
                             AccountDetailView(account: account, onChanged: load)
                         } label: {
-                            AccountRow(account: account, latestBalance: latestBalance(for: account))
+                            AccountRow(account: account, latestBalance: latestByAccount[account.id])
                         }
                     }
                 } header: {
@@ -293,8 +319,8 @@ struct DashboardView: View {
                     ForEach(recentTransactions) { txn in
                         TransactionRow(
                             transaction: txn,
-                            categoryName: categories.first { $0.id == txn.categoryId }?.name,
-                            accountName: accounts.first { $0.id == txn.accountId }?.name,
+                            categoryName: categoriesById[txn.categoryId]?.name,
+                            accountName: accountsById[txn.accountId]?.name,
                             baseCurrency: baseCurrency
                         )
                     }
@@ -309,7 +335,7 @@ struct DashboardView: View {
                 if isLoading && balances.isEmpty { LoadingSkeleton(showsHeader: true) }
             }
             .quickAddPull(quickAdd, onReload: load)
-            .task { await load() }
+            .task { await loadIfNeeded() }
             .alert("Couldn’t Load Dashboard", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -321,8 +347,31 @@ struct DashboardView: View {
         }
     }
 
-    private func latestBalance(for account: AccountResponse) -> BalanceResponse? {
-        balances.filter { $0.accountId == account.id }.max { $0.date < $1.date }
+    /// One pass over the whole balance history instead of re-filtering it per
+    /// account row (`.filter { ... }.max { ... }` was O(accounts × balances)).
+    private var latestBalanceByAccount: [String: BalanceResponse] {
+        balances.reduce(into: [:]) { result, balance in
+            if let existing = result[balance.accountId], existing.date >= balance.date { return }
+            result[balance.accountId] = balance
+        }
+    }
+
+    /// Re-fetching all 10 dashboard requests on every tab reselect made switching
+    /// Dashboard → Portfolio → Dashboard visibly re-spin the whole screen even
+    /// though nothing had changed in the last few seconds. Skip the refetch when
+    /// the data is still fresh; `onReload`/`onChanged` callbacks below bypass this
+    /// and always force a real reload after an edit.
+    private static let stalenessWindow: TimeInterval = 30
+
+    private func loadIfNeeded() async {
+        if let lastLoadedAt, Date().timeIntervalSince(lastLoadedAt) < Self.stalenessWindow {
+            return
+        }
+        await load()
+    }
+
+    private func optionalGet<T: Decodable>(_ path: String) async -> T? {
+        try? await APIClient.shared.get(path)
     }
 
     private func load() async {
@@ -334,19 +383,21 @@ struct DashboardView: View {
             async let balancesReq: [BalanceResponse] = APIClient.shared.get("/accounts/balances/household/\(household.id)")
             async let txnsReq: [TransactionResponse] = APIClient.shared.get("/cashflow/transactions/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
-            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)")
+            async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)?latest_only=true")
+            async let timeseriesReq: [PortfolioTimeseriesPoint] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)/timeseries")
             async let subPortfoliosReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
-            (accounts, balances, transactions, categories, snapshots, subPortfolios, assets) =
-                try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, subPortfoliosReq, assetsReq)
-            // Metrics are secondary — don't fail the whole dashboard if they error out.
-            if let m: PortfolioMetricsResponse = try? await APIClient.shared.get("/portfolio/household/\(household.id)/metrics") {
-                metrics = m
-            }
-            // Same for the runway and the forward projection: supplementary
-            // panels that must never blank the dashboard the user came for.
-            emergencyFund = try? await APIClient.shared.get("/cashflow/household/\(household.id)/emergency-fund")
-            projection = try? await APIClient.shared.get("/accounts/household/\(household.id)/projection?months=360")
+            // Metrics, emergency fund, and projection are supplementary — never
+            // fail the whole dashboard if one of them errors out — and fetched
+            // concurrently with each other instead of one after another.
+            async let metricsReq: PortfolioMetricsResponse? = optionalGet("/portfolio/household/\(household.id)/metrics")
+            async let emergencyFundReq: EmergencyFundResponse? = optionalGet("/cashflow/household/\(household.id)/emergency-fund")
+            async let projectionReq: NetWorthProjectionResponse? = optionalGet("/accounts/household/\(household.id)/projection?months=360")
+
+            (accounts, balances, transactions, categories, snapshots, timeseries, subPortfolios, assets) =
+                try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, timeseriesReq, subPortfoliosReq, assetsReq)
+            (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
+            lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
         }

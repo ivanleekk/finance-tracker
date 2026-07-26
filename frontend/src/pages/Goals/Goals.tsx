@@ -17,7 +17,7 @@ export default function Goals() {
     const { activeHousehold } = useHousehold();
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { subportfolios: allGoals = [], snapshots = [] } = (useLoaderData() as GoalsLoaderData) || {};
+    const { subportfolios: allGoals = [], timeseries = [] } = (useLoaderData() as GoalsLoaderData) || {};
     const createFetcher = useFetcher();
 
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -58,7 +58,7 @@ export default function Goals() {
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {goals.map(g => {
-                        const history = valueHistoryForGoal(snapshots, g.id);
+                        const history = valueHistoryForGoal(timeseries, g.id);
                         const proj = projectGoal(history, g.target_amount, g.target_date);
                         const pct = Math.round(proj.percentComplete);
                         return (

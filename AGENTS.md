@@ -19,7 +19,7 @@ This document provides a high-level overview and instructions for AI agents work
 
 - `backend/`: FastAPI application, database models, migrations, and tests.
 - `frontend/`: React (web) application, UI components, and assets.
-- `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change).
+- `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` (native SwiftUI) is the active mobile client; see `mobile/AGENTS.md` for what that means before touching this directory.
 - `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
 - `docker-compose.prod.yml` + `deploy/` + `DEPLOYMENT.md`: Fully dockerized VPS production stack (Caddy auto-HTTPS proxy, Postgres, cron container for the daily snapshot job, nightly pg_dump backups). The old Cloud Run flow (`cloudbuild.yaml`) is deprecated.
 

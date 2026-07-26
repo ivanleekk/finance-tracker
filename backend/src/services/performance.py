@@ -10,17 +10,40 @@ from typing import List, Optional, Dict
 from src.models import Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio, Dividend
 from src import schemas
 
+def fetch_rf_and_benchmark_rows(db: Session, benchmark_ticker: str = "SPY"):
+    """
+    Fetches the risk-free-rate (^IRX) and benchmark price series once so
+    callers computing metrics for several sub-portfolios in one request don't
+    each re-run the identical query (see get_portfolio_metrics).
+    """
+    rf_rows = db.execute(
+        select(MarketPrice.date, MarketPrice.close_price).where(MarketPrice.ticker == "^IRX")
+    ).all()
+    bench_rows = db.execute(
+        select(MarketPrice.date, MarketPrice.close_price)
+        .where(MarketPrice.ticker == benchmark_ticker)
+        .order_by(MarketPrice.date)
+    ).all()
+    return rf_rows, bench_rows
+
+
 def calculate_performance_metrics(
-    db: Session, 
-    household_id: uuid.UUID, 
+    db: Session,
+    household_id: uuid.UUID,
     sub_portfolio_id: Optional[uuid.UUID] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     risk_free_rate: float = 0.04,
-    benchmark_ticker: str = "SPY"
+    benchmark_ticker: str = "SPY",
+    rf_bench_rows: Optional[tuple] = None,
 ) -> schemas.PerformanceMetrics:
     """
     Calculates comprehensive performance metrics using Polars and NumPy.
+
+    ``rf_bench_rows``, when given, is the ``(rf_rows, bench_rows)`` pair from
+    `fetch_rf_and_benchmark_rows` — pass it when computing metrics for several
+    sub-portfolios in the same request so the risk-free-rate and benchmark
+    series (identical across all of them) are only queried once.
     """
     
     # 1. Fetch Snapshots (Daily Equity Curve)
@@ -151,8 +174,13 @@ def calculate_performance_metrics(
     annualized_vol = float(daily_vol) * np.sqrt(252) if daily_vol is not None else 0.0
 
     # Risk-Free Rate Fetching
-    rf_query = select(MarketPrice.date, MarketPrice.close_price).where(MarketPrice.ticker == "^IRX")
-    rf_results = db.execute(rf_query).all()
+    if rf_bench_rows is not None:
+        rf_results, bench_rows = rf_bench_rows
+    else:
+        rf_results = db.execute(
+            select(MarketPrice.date, MarketPrice.close_price).where(MarketPrice.ticker == "^IRX")
+        ).all()
+        bench_rows = None
     effective_rf = 0.02 # Default
     if rf_results:
         df_rf = pl.DataFrame([{"date": r.date, "rf_rate": float(r.close_price)} for r in rf_results])
@@ -179,12 +207,12 @@ def calculate_performance_metrics(
     beta: Optional[float] = None
     alpha: Optional[float] = None
     treynor: Optional[float] = None
-    bench_query = (
-        select(MarketPrice.date, MarketPrice.close_price)
-        .where(MarketPrice.ticker == benchmark_ticker)
-        .order_by(MarketPrice.date)
-    )
-    bench_rows = db.execute(bench_query).all()
+    if bench_rows is None:
+        bench_rows = db.execute(
+            select(MarketPrice.date, MarketPrice.close_price)
+            .where(MarketPrice.ticker == benchmark_ticker)
+            .order_by(MarketPrice.date)
+        ).all()
     if bench_rows:
         df_bench_prices = pl.DataFrame([
             {"date": r.date, "bench_price": float(r.close_price)} for r in bench_rows

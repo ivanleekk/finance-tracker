@@ -12,6 +12,7 @@ from sqlalchemy import (
     Numeric,
     UUID,
     UniqueConstraint,
+    Index,
     Boolean,
     func
 )
@@ -172,6 +173,12 @@ class Household(Base):
 
 class HouseholdMember(Base):
     __tablename__ = "household_members"
+    # verify_household_access filters on (user_id, household_id) together on
+    # nearly every authenticated request, so this is the single hottest lookup
+    # in the app.
+    __table_args__ = (
+        Index("ix_household_members_user_household", "user_id", "household_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
@@ -184,6 +191,9 @@ class HouseholdMember(Base):
 
 class HouseholdInvite(Base):
     __tablename__ = "household_invites"
+    __table_args__ = (
+        Index("ix_household_invites_email_status", "email", "status"),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
@@ -217,8 +227,8 @@ class AccountAccess(Base):
     __tablename__ = "account_access"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
-    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"), index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     role = Column(Enum(AccountRoleType, name="account_role_type", schema="finance_tracker"))
 
     account = relationship("FinancialAccount", back_populates="access_controls")
@@ -229,8 +239,8 @@ class PortfolioAccess(Base):
     __tablename__ = "portfolio_access"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
-    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"), index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     role = Column(String)
 
     sub_portfolio = relationship("SubPortfolio", back_populates="access_controls")
@@ -244,7 +254,7 @@ class FinancialAccount(Base):
     __tablename__ = "financial_accounts"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
-    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
     name = Column(String)
     liquidity = Column(Enum(LiquidityStatus, name="liquidity_status", schema="finance_tracker"))
     tax_status = Column(Enum(TaxTreatment, name="tax_treatment", schema="finance_tracker"))
@@ -286,6 +296,12 @@ class FinancialAccount(Base):
 
 class AccountBalance(Base):
     __tablename__ = "account_balances"
+    # sync_transaction_to_balances / propagate_balance_change filter by
+    # account_id plus a date comparison on every single transaction/trade
+    # posted, so this composite is on the hottest write path in the app.
+    __table_args__ = (
+        Index("ix_account_balances_account_date", "account_id", "date"),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
@@ -304,7 +320,7 @@ class Category(Base):
     __tablename__ = "categories"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
-    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
     name = Column(String)
     type = Column(String)
 
@@ -314,10 +330,13 @@ class Category(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        Index("ix_transactions_account_date", "account_id", "date"),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
-    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), index=True)
     date = Column(DateTime(timezone=True))
     amount = Column(Numeric)
     amount_home_currency = Column(Numeric, nullable=True) # Converted amount in household base currency
@@ -395,7 +414,7 @@ class Budget(Base):
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
-    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), index=True)
     amount = Column(Numeric)  # the limit, in the household base currency
     period = Column(Enum(BudgetPeriod, native_enum=False), nullable=False, default=BudgetPeriod.monthly)
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -464,7 +483,7 @@ class SubPortfolio(Base):
     __tablename__ = "sub_portfolios"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
-    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
     name = Column(String)
     risk_profile = Column(String)
     target_date = Column(Date, nullable=True)
@@ -484,13 +503,17 @@ class SubPortfolio(Base):
 
 class Trade(Base):
     __tablename__ = "trades"
+    __table_args__ = (
+        Index("ix_trades_household_date", "household_id", "date"),
+        Index("ix_trades_sub_portfolio_asset", "sub_portfolio_id", "asset_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
-    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
-    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"), index=True)
+    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True, index=True)
     trade_type = Column(Enum(TradeType, name="trade_type", schema="finance_tracker"))
     date = Column(DateTime(timezone=True))
     quantity = Column(Float)
@@ -514,12 +537,15 @@ class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
     __table_args__ = (
         UniqueConstraint('sub_portfolio_id', 'asset_id', 'date', name='uq_portfolio_snapshot_sub_portfolio_asset_date'),
+        # calculate_performance_metrics / snapshot_engine group and range-filter
+        # by (household_id, date) on every dashboard and portfolio metrics load.
+        Index("ix_portfolio_snapshots_household_date", "household_id", "date"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
-    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), index=True)
     date = Column(Date)
     quantity = Column(Float)
     current_price = Column(Numeric)
@@ -538,14 +564,15 @@ class Dividend(Base):
     __tablename__ = "dividends"
     __table_args__ = (
         UniqueConstraint('sub_portfolio_id', 'asset_id', 'date', name='uq_dividend_sub_portfolio_asset_date'),
+        Index("ix_dividends_household_date", "household_id", "date"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"))
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
-    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
-    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
-    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True)
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), index=True)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"), index=True)
+    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True, index=True)
     date = Column(DateTime(timezone=True))
     amount = Column(Numeric)  # Total payout in asset currency (per_share * quantity)
     amount_home_currency = Column(Numeric, nullable=True)  # Converted to household base currency
@@ -576,13 +603,13 @@ class ScheduledDividend(Base):
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
-    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"))
-    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
-    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"))
-    date = Column(Date)  # payment date
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id"), index=True)
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), index=True)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id"), index=True)
+    date = Column(Date, index=True)  # payment date
     amount = Column(Numeric)  # total payout in asset currency
     description = Column(String, nullable=True)
-    dividend_id = Column(UUID(as_uuid=True), ForeignKey("dividends.id", ondelete="SET NULL"), nullable=True)
+    dividend_id = Column(UUID(as_uuid=True), ForeignKey("dividends.id", ondelete="SET NULL"), nullable=True, index=True)
     materialized_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

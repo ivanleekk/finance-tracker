@@ -316,6 +316,15 @@ export type PortfolioSnapshotResponse = {
   average_cost_basis_home_currency: number;
 };
 
+// One (date, sub_portfolio) total — the per-asset PortfolioSnapshot rows summed
+// server-side. Use this instead of PortfolioSnapshotResponse for chart/projection
+// use cases (net worth trend, equity curve, goal pace) that don't need per-asset detail.
+export type PortfolioTimeseriesPoint = {
+  date: string;
+  sub_portfolio_id: string;
+  total_value_home_currency: number;
+};
+
 export type DividendResponse = {
   id: string;
   household_id: string;

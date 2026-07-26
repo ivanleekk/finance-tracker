@@ -604,6 +604,16 @@ struct PortfolioSnapshotResponse: Codable, Identifiable {
     @MoneyAmount var averageCostBasisHomeCurrency: Double
 }
 
+/// One (date, sub-portfolio) total — the per-asset PortfolioSnapshot rows summed
+/// server-side. Chart/goal-history consumers use this instead of raw snapshots since they
+/// never need per-asset detail; see `equityCurve`/`valueHistory` in PortfolioAnalytics.swift
+/// and GoalProjection.swift, which are generic over `SnapshotValuePoint` so either model works.
+struct PortfolioTimeseriesPoint: Codable {
+    let date: Date
+    let subPortfolioId: String
+    @MoneyAmount var totalValueHomeCurrency: Double
+}
+
 struct DividendResponse: Codable, Identifiable {
     let id: String
     let assetId: String

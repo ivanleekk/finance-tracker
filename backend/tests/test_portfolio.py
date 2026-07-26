@@ -468,6 +468,116 @@ def test_get_household_portfolio_snapshots(client, auth_headers, test_household,
     assert len(data) >= 1
     assert any(s["quantity"] == 75.0 for s in data)
 
+def test_get_household_portfolio_snapshots_date_range(client, auth_headers, test_household, test_subportfolio, test_asset, db_session):
+    for d, qty in [(date(2023, 9, 1), 10.0), (date(2023, 10, 1), 20.0), (date(2023, 11, 1), 30.0)]:
+        db_session.add(models.PortfolioSnapshot(
+            id=uuid.uuid7(),
+            household_id=test_household.id,
+            sub_portfolio_id=test_subportfolio.id,
+            asset_id=test_asset.id,
+            date=d,
+            quantity=qty,
+            current_price=Decimal("10.0"),
+            exchange_rate_used=1.0,
+            current_value_home_currency=Decimal(str(qty * 10)),
+            average_cost_basis=Decimal("9.0"),
+        ))
+    db_session.commit()
+
+    response = client.get(
+        f"/portfolio/snapshots/household/{test_household.id}",
+        params={"start_date": "2023-10-01", "end_date": "2023-10-31"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [s["quantity"] for s in data] == [20.0]
+
+def test_get_household_portfolio_snapshots_latest_only(client, auth_headers, test_household, test_subportfolio, test_asset, db_session):
+    other_asset = models.Asset(id=uuid.uuid7(), ticker="MSFT", name="Microsoft", type="stock", currency="USD")
+    db_session.add(other_asset)
+    db_session.flush()
+
+    # Two assets on the latest date, one stale row from an earlier date — latest_only
+    # should return exactly the two current-date rows and drop the stale one.
+    db_session.add_all([
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=test_subportfolio.id,
+            asset_id=test_asset.id, date=date(2023, 10, 1), quantity=5.0, current_price=Decimal("10.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("50.0"), average_cost_basis=Decimal("9.0"),
+        ),
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=test_subportfolio.id,
+            asset_id=test_asset.id, date=date(2023, 11, 1), quantity=8.0, current_price=Decimal("10.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("80.0"), average_cost_basis=Decimal("9.0"),
+        ),
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=test_subportfolio.id,
+            asset_id=other_asset.id, date=date(2023, 11, 1), quantity=3.0, current_price=Decimal("20.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("60.0"), average_cost_basis=Decimal("18.0"),
+        ),
+    ])
+    db_session.commit()
+
+    response = client.get(
+        f"/portfolio/snapshots/household/{test_household.id}",
+        params={"latest_only": "true"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert all(s["date"] == "2023-11-01" for s in data)
+    assert {s["quantity"] for s in data} == {8.0, 3.0}
+
+def test_get_household_portfolio_snapshots_latest_only_empty(client, auth_headers, test_household):
+    response = client.get(
+        f"/portfolio/snapshots/household/{test_household.id}",
+        params={"latest_only": "true"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+def test_get_household_portfolio_timeseries(client, auth_headers, test_household, test_subportfolio, test_asset, db_session):
+    other_sub = models.SubPortfolio(id=uuid.uuid7(), household_id=test_household.id, name="Retirement", risk_profile="low")
+    other_asset = models.Asset(id=uuid.uuid7(), ticker="MSFT", name="Microsoft", type="stock", currency="USD")
+    db_session.add_all([other_sub, other_asset])
+    db_session.flush()
+
+    db_session.add_all([
+        # Two assets in test_subportfolio on the same date should sum into one point.
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=test_subportfolio.id,
+            asset_id=test_asset.id, date=date(2023, 10, 1), quantity=5.0, current_price=Decimal("10.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("50.0"), average_cost_basis=Decimal("9.0"),
+        ),
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=test_subportfolio.id,
+            asset_id=other_asset.id, date=date(2023, 10, 1), quantity=2.0, current_price=Decimal("25.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("50.0"), average_cost_basis=Decimal("20.0"),
+        ),
+        # A different sub-portfolio on the same date stays a separate point.
+        models.PortfolioSnapshot(
+            id=uuid.uuid7(), household_id=test_household.id, sub_portfolio_id=other_sub.id,
+            asset_id=test_asset.id, date=date(2023, 10, 1), quantity=1.0, current_price=Decimal("10.0"),
+            exchange_rate_used=1.0, current_value_home_currency=Decimal("10.0"), average_cost_basis=Decimal("9.0"),
+        ),
+    ])
+    db_session.commit()
+
+    response = client.get(
+        f"/portfolio/snapshots/household/{test_household.id}/timeseries",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    by_sub = {row["sub_portfolio_id"]: Decimal(row["total_value_home_currency"]) for row in data}
+    assert by_sub[str(test_subportfolio.id)] == Decimal("100.0")
+    assert by_sub[str(other_sub.id)] == Decimal("10.0")
+    assert all(row["date"] == "2023-10-01" for row in data)
+
 
 # --- DIVIDENDS ---
 

@@ -56,7 +56,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], snapshots = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], latestSnapshots = [], timeseries = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -305,32 +305,20 @@ export default function Portfolio() {
             };
         };
 
-        const calculateFromSnapshots = (snaps: typeof snapshots) => {
-            if (snaps.length === 0) return { holdings: [], realizedPnL: 0, history: [], currentEquity: 0 };
-
-            const dailyEquity = new Map<string, number>();
-            snaps.forEach(s => {
-                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
-                dailyEquity.set(dateKey, (dailyEquity.get(dateKey) || 0) + Number(s.current_value_home_currency));
-            });
-
-            const history = Array.from(dailyEquity.entries())
-                // ⚡ Bolt: Fast string comparison instead of localeCompare
-                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
-                .map(([date, equity]) => ({
-                    date,
-                    equity
-                }))
+        // Equity curve from pre-aggregated (date, sub_portfolio) totals — already summed
+        // across assets server-side, so this just sorts/bins/windows.
+        const buildHistory = (points: typeof timeseries) => {
+            const history = points
+                .slice()
+                .sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)))
+                .map(t => ({ date: t.date, equity: Number(t.total_value_home_currency) }))
                 .filter(item => !startDate || item.date >= startDate);
+            return binHistory(history);
+        };
 
-            // ⚡ Bolt Performance Optimization: Replace O(N log N) sorting with an O(N) single-pass reduce
-            const datesArr = Array.from(dailyEquity.keys());
-            const latestDate = datesArr.length > 0 ? datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]) : null;
-            const latestSnaps = snaps.filter(s => {
-                const dateKey = typeof s.date === 'string' ? s.date.split('T')[0] : s.date;
-                return dateKey === latestDate;
-            });
-
+        // Holdings table from the latest-date-only per-asset rows (server-filtered via
+        // latest_only=true, so every row here is already "current").
+        const buildHoldings = (latestSnaps: typeof latestSnapshots) => {
             const assetMap = new Map(assets.map(a => [a.id, a]));
             const holdingMap = new Map<string, Holding>();
 
@@ -382,35 +370,34 @@ export default function Portfolio() {
 
             const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
 
-            return { holdings, realizedPnL: 0, history: binHistory(history), currentEquity };
+            return { holdings, currentEquity };
         };
 
         // Overall
-        const overallResult = calculateFromSnapshots(snapshots);
+        const overallHoldings = buildHoldings(latestSnapshots);
         dataMap["Overall"] = computeStats(
-            overallResult.holdings,
-            overallResult.realizedPnL,
-            overallResult.history,
-            overallResult.currentEquity,
+            overallHoldings.holdings,
+            0,
+            buildHistory(timeseries),
+            overallHoldings.currentEquity,
             metrics?.overall_metrics
         );
 
         // Subportfolios
         for (const sp of subportfolios) {
-            const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
-            const spResult = calculateFromSnapshots(spSnaps);
+            const spHoldings = buildHoldings(latestSnapshots.filter(s => s.sub_portfolio_id === sp.id));
             const spMetric = metrics?.sub_portfolio_metrics.find(m => m.sub_portfolio_id === sp.id);
             dataMap[sp.name] = computeStats(
-                spResult.holdings,
-                spResult.realizedPnL,
-                spResult.history,
-                spResult.currentEquity,
+                spHoldings.holdings,
+                0,
+                buildHistory(timeseries.filter(t => t.sub_portfolio_id === sp.id)),
+                spHoldings.currentEquity,
                 spMetric?.metrics
             );
         }
 
         return dataMap;
-    }, [snapshots, assets, subportfolios, timeframe, metrics]);
+    }, [latestSnapshots, timeseries, assets, subportfolios, timeframe, metrics, startDate]);
 
     // Dividends for the active tab (all sub-portfolios when "Overall"), newest first.
     // Kept above the early return so hook order stays stable across renders.

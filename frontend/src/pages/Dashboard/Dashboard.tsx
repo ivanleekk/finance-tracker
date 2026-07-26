@@ -8,6 +8,7 @@ import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
 import { cn } from "../../lib/utils"
 import { Area, AreaChart, Line, ReferenceLine, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
+import type { PortfolioTimeseriesPoint } from "../../types/types"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
 import { sampleProjection } from "../../lib/networth"
@@ -23,7 +24,7 @@ export default function Dashboard() {
         balances = {},
         subPortfolios = [],
         transactions = [],
-        snapshots = [],
+        timeseries = [],
         metrics = null,
         projection = null,
         emergencyFund = null
@@ -79,21 +80,21 @@ export default function Dashboard() {
     }, [balances, liabilityIds]);
 
     const currentPortfolioValue = useMemo(() => {
-        if (!snapshots || snapshots.length === 0) return 0;
+        if (!timeseries || timeseries.length === 0) return 0;
 
-        // Group snapshots by date and find the latest date
-        const snapshotsByDate: Record<string, number> = {};
-        snapshots.forEach(s => {
-            snapshotsByDate[s.date] = (snapshotsByDate[s.date] || 0) + Number(s.current_value_home_currency);
+        // Group by date (summing across sub-portfolios) and find the latest date
+        const totalsByDate: Record<string, number> = {};
+        timeseries.forEach(t => {
+            totalsByDate[t.date] = (totalsByDate[t.date] || 0) + Number(t.total_value_home_currency);
         });
 
-        const datesArr = Object.keys(snapshotsByDate);
+        const datesArr = Object.keys(totalsByDate);
         if (datesArr.length === 0) return 0;
 
         const latestDate = datesArr.reduce((max, current) => current > max ? current : max, datesArr[0]);
 
-        return snapshotsByDate[latestDate] || 0;
-    }, [snapshots]);
+        return totalsByDate[latestDate] || 0;
+    }, [timeseries]);
 
     const netWorth = currentCash + currentPortfolioValue;
 
@@ -116,11 +117,11 @@ export default function Dashboard() {
     const chartData = useMemo(() => {
         const allDatesSet = new Set<string>();
 
-        // Pre-compute daily portfolio snapshots
+        // Pre-compute daily portfolio totals (already summed per sub-portfolio server-side)
         const snapshotsByDate = new Map<string, number>();
-        snapshots.forEach(s => {
-            allDatesSet.add(s.date);
-            snapshotsByDate.set(s.date, (snapshotsByDate.get(s.date) || 0) + Number(s.current_value_home_currency));
+        timeseries.forEach(t => {
+            allDatesSet.add(t.date);
+            snapshotsByDate.set(t.date, (snapshotsByDate.get(t.date) || 0) + Number(t.total_value_home_currency));
         });
 
         // Pre-compute daily balance updates
@@ -182,7 +183,7 @@ export default function Dashboard() {
         });
 
         return Array.from(binned.values()).sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)));
-    }, [balances, snapshots, timeframe, startDate, liabilityIds]);
+    }, [balances, timeseries, timeframe, startDate, liabilityIds]);
 
     if (!activeHousehold) {
         return (
@@ -399,14 +400,12 @@ export default function Dashboard() {
                         <CardContent className="flex flex-col gap-4">
                             {subPortfolios.length > 0 ? (
                                 subPortfolios.slice(0, 3).map(sp => {
-                                    const spSnaps = snapshots.filter(s => s.sub_portfolio_id === sp.id);
-                                    const latestDate = spSnaps.length > 0
-                                        ? spSnaps.reduce((max, s) => s.date > max ? s.date : max, spSnaps[0].date)
-                                        : null;
-
-                                    const current = spSnaps
-                                        .filter(s => s.date === latestDate)
-                                        .reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
+                                    const spPoints = timeseries.filter(t => t.sub_portfolio_id === sp.id);
+                                    const latest = spPoints.reduce<PortfolioTimeseriesPoint | null>(
+                                        (max, t) => (!max || t.date > max.date ? t : max),
+                                        null
+                                    );
+                                    const current = Number(latest?.total_value_home_currency ?? 0);
                                     return (
                                         <GoalCard
                                             key={sp.id}
