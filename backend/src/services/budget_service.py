@@ -90,16 +90,18 @@ def _spend_by_category(
     user: models.User,
     start: date,
     end: date,
-) -> Dict[uuid.UUID, Decimal]:
+) -> tuple[Dict[uuid.UUID, Decimal], Dict[uuid.UUID, set[date]]]:
     """
-    Expense totals per category over [start, end], in the base currency.
+    Expense totals per category over [start, end], in the base currency, plus
+    the distinct calendar months (each as its first-of-month date) each
+    category has a qualifying transaction in.
 
     Transfers are excluded: moving money between your own accounts is not
     spending, and counting it would make every budget look blown.
     """
     account_ids = _visible_account_ids(db, household_id, user)
     if not account_ids:
-        return {}
+        return {}, {}
 
     rows = (
         db.query(models.Transaction)
@@ -115,12 +117,15 @@ def _spend_by_category(
     )
 
     totals: Dict[uuid.UUID, Decimal] = {}
+    months: Dict[uuid.UUID, set[date]] = {}
     for row in rows:
         amount = row.amount_home_currency
         if amount is None:
             amount = row.amount
         totals[row.category_id] = totals.get(row.category_id, Decimal("0")) + _dec(amount)
-    return totals
+        row_date = row.date.date()
+        months.setdefault(row.category_id, set()).add(date(row_date.year, row_date.month, 1))
+    return totals, months
 
 
 def _one_day():
@@ -180,7 +185,8 @@ def budget_statuses(
     for budget in budgets:
         start, end = period_bounds(budget.period, on)
         if (start, end) not in spend_cache:
-            spend_cache[(start, end)] = _spend_by_category(db, household_id, user, start, end)
+            totals, _ = _spend_by_category(db, household_id, user, start, end)
+            spend_cache[(start, end)] = totals
         spent = spend_cache[(start, end)].get(budget.category_id, Decimal("0"))
 
         limit = _dec(budget.amount)
@@ -278,17 +284,25 @@ def emergency_fund_status(
     months_of_history = 0
     total_expenses = Decimal("0")
     if period_end >= lookback_start:
-        spend = _spend_by_category(db, household_id, user, lookback_start, period_end)
+        spend, months_by_category = _spend_by_category(db, household_id, user, lookback_start, period_end)
         # Skip the app's own bookkeeping categories. Buying shares is not a
         # survival cost — if the income stopped you would simply stop investing,
         # and counting it can easily double the fund the user is told to hold.
         # Budgets are per-category and still count these normally.
         excluded = _system_category_ids(db, household_id)
-        total_expenses = sum(
-            (amount for category_id, amount in spend.items() if category_id not in excluded),
-            Decimal("0"),
-        )
-        months_of_history = RUNWAY_LOOKBACK_MONTHS
+        included_category_ids = [cid for cid in spend if cid not in excluded]
+        total_expenses = sum((spend[cid] for cid in included_category_ids), Decimal("0"))
+
+        if total_expenses > 0:
+            # Average over the calendar months that actually have real
+            # spending, not a flat 6 — a household with one month of history
+            # divided by 6 would report a fifth of its real burn rate.
+            # Counting distinct spend-months (rather than the span from the
+            # earliest to the latest one) also keeps a single old, unrelated
+            # charge from stretching the window across months the household
+            # spent nothing at all in.
+            spend_months = set().union(*(months_by_category[cid] for cid in included_category_ids))
+            months_of_history = min(RUNWAY_LOOKBACK_MONTHS, len(spend_months))
 
     average_monthly = (
         total_expenses / Decimal(months_of_history) if months_of_history > 0 else Decimal("0")
