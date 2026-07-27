@@ -77,3 +77,42 @@ gcloud database, backups/restore, and decommissioning Cloud Run — lives in
 > **Deprecated**: the Cloud Run / Cloud Build flow (`cloudbuild.yaml`) is no
 > longer the production path; the file is kept for reference until the gcloud
 > project is wound down.
+
+## 📱 Native Mobile Clients
+
+`ios/` (SwiftUI) and `android/` (Jetpack Compose) are the active mobile clients — deliberate
+ports of each other, sharing the same backend and the same behavioural rules. `mobile/` (Expo)
+is frozen.
+
+### Android
+
+```bash
+cd android
+./gradlew :app:installDebug        # build + install on a running device/emulator
+./gradlew :app:testDebugUnitTest   # unit tests
+```
+
+`local.properties` needs `sdk.dir=$HOME/Library/Android/sdk`. Debug builds point at
+`http://10.0.2.2:8000` — the host's loopback as seen from the emulator — so a
+`docker compose up` backend is reachable with no configuration. For a physical device on the
+LAN, set the override in **More ▸ API server** (debug builds only). See
+[android/AGENTS.md](android/AGENTS.md).
+
+### iOS Release Build & On-Device Install
+
+To test a Release build on your own iPhone/iPad:
+
+```bash
+cd ios
+xcodebuild archive \
+  -project FinanceTracker.xcodeproj -scheme FinanceTracker -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath build/FinanceTracker.xcarchive
+xcodebuild -exportArchive -archivePath build/FinanceTracker.xcarchive \
+  -exportOptionsPlist exportOptions.plist -exportPath build/export   # method: development
+xcrun devicectl device install app --device <device-udid> build/export/FinanceTracker.ipa
+```
+
+For the fastest path (no archive/IPA at all — just a Release build run over a cable), the
+`exportOptions.plist` template, and how a device gets registered with the signing team in the
+first place, see the **Release Build & Install on Your Own Device** section in
+[ios/AGENTS.md](ios/AGENTS.md).

@@ -12,14 +12,24 @@ This document provides a high-level overview and instructions for AI agents work
 
 - **Backend:** Python 3.14, FastAPI, SQLAlchemy, Alembic, Polars, uv.
 - **Frontend (web):** React 19, TypeScript, Vite 8, Tailwind CSS 4, pnpm.
-- **Mobile:** Expo / React Native, TypeScript.
+- **iOS:** Swift / SwiftUI, XcodeGen.
+- **Android:** Kotlin / Jetpack Compose (Material 3), Gradle.
+- **Mobile (legacy):** Expo / React Native, TypeScript — frozen.
 - **Database:** PostgreSQL 18.
 
 ## 3. Directory Structure
 
 - `backend/`: FastAPI application, database models, migrations, and tests.
 - `frontend/`: React (web) application, UI components, and assets.
-- `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` (native SwiftUI) is the active mobile client; see `mobile/AGENTS.md` for what that means before touching this directory.
+- `ios/`: Native SwiftUI app — same backend, independent codebase. See `ios/AGENTS.md`.
+- `android/`: Native Jetpack Compose app — same backend, independent codebase. See `android/AGENTS.md`.
+- `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` and `android/` are the active mobile clients; see `mobile/AGENTS.md` for what that means before touching this directory.
+- **Native-client parity:** `ios/` and `android/` are deliberate ports of each other, down to the
+  shared judgement calls (goal projection, budget tone, growth-chart binning, the
+  Private/Household/Blended rules, the pull-to-Quick-Add gesture). A behaviour change to one of
+  those rules is a change to *three* codebases — `frontend/src/lib/`, `ios/FinanceTracker/Support/`,
+  and `android/.../logic/` — plus the unit tests each keeps over it. If they disagree, that's a
+  bug in one of them, not a platform difference.
 - `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
 - `docker-compose.prod.yml` + `deploy/` + `DEPLOYMENT.md`: Fully dockerized VPS production stack (Caddy auto-HTTPS proxy, Postgres, cron container for the daily snapshot job, nightly pg_dump backups). The old Cloud Run flow (`cloudbuild.yaml`) is deprecated.
 

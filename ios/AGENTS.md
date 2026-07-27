@@ -141,6 +141,64 @@ CLI build: `xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker 
 
 Backend must be running (`docker compose up` at repo root).
 
+## Release Build & Install on Your Own Device
+
+Two ways to get a Release build onto your iPhone/iPad, depending on what you need:
+
+**Quick iteration (most testing)** — run a Release-configured build straight from Xcode with a
+cable attached: `open FinanceTracker.xcodeproj` → Product ▸ Scheme ▸ Edit Scheme… ▸ Run ▸ Build
+Configuration → **Release** → pick your device as the destination → Cmd+R. This exercises the
+real `Release` `API_BASE_URL` (`https://financeapi.ivanleekaikiat.com` per `project.yml`) and
+optimizations, without producing a distributable artifact. The first time you do this for a given
+device, Xcode auto-registers its UDID with the `9SA33W38S2` team and provisions it — required
+before the archive/export route below will work for that device.
+
+**Archive + install an IPA (to test off-cable, or hand the build to the device without Xcode
+attached)**:
+
+1.  Confirm the device is paired and note its identifier:
+    ```sh
+    xcrun devicectl list devices
+    ```
+2.  Archive in Release:
+    ```sh
+    xcodebuild archive \
+      -project FinanceTracker.xcodeproj -scheme FinanceTracker -configuration Release \
+      -destination 'generic/platform=iOS' -archivePath build/FinanceTracker.xcarchive
+    ```
+3.  Create `ios/exportOptions.plist` (one-time; not checked in — add it to `.gitignore` if you
+    keep it in the repo tree) for **development** distribution, which signs for devices already
+    registered to the team rather than the App Store:
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>method</key><string>development</string>
+      <key>teamID</key><string>9SA33W38S2</string>
+      <key>signingStyle</key><string>automatic</string>
+    </dict>
+    </plist>
+    ```
+4.  Export the `.ipa`:
+    ```sh
+    xcodebuild -exportArchive -archivePath build/FinanceTracker.xcarchive \
+      -exportOptionsPlist exportOptions.plist -exportPath build/export
+    ```
+5.  Install onto the paired device from step 1 (swap in its `Identifier`):
+    ```sh
+    xcrun devicectl device install app --device <device-udid> build/export/FinanceTracker.ipa
+    ```
+    Launch it immediately, optionally:
+    ```sh
+    xcrun devicectl device process launch --device <device-udid> com.ivanlee.financetracker
+    ```
+
+Dragging the `.ipa` onto Xcode's Window ▸ Devices and Simulators panel works the same way as step
+5, if you prefer the GUI. A `development`-method export only installs on devices already
+registered with the team (see the Quick Iteration note above) — it is not a TestFlight/App Store
+build and does not need App Store Connect at all.
+
 ## Testing
 
 Logic unit tests live in `FinanceTrackerTests/` and use **Swift Testing** (`import Testing`,
