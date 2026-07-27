@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android blocks cleartext HTTP by default. The dev backend is plain http on the host
+  machine (10.0.2.2 from the emulator) or a LAN address, so those are opted back in —
+  everything else stays HTTPS-only. Mirrors NSAllowsLocalNetworking on iOS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <!-- Private LAN ranges, for a physical device pointed at a Mac running the stack. -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">10.0.0.0</domain>
+    </domain-config>
+</network-security-config>
