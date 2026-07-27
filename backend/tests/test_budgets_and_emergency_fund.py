@@ -560,6 +560,34 @@ def test_early_system_category_spend_does_not_stretch_the_history_window(
     assert status.average_monthly_expenses == Decimal("600.00")
 
 
+def test_a_single_old_transaction_does_not_dilute_concentrated_recent_spending(
+    db_session, household, account, dining, owner
+):
+    """
+    One old, unrelated charge (e.g. an annual subscription renewal) must not
+    stretch the averaging window across the months in between where nothing
+    else was spent. It should count as one extra spend-month, not pull the
+    whole window back to its own date the way averaging over the
+    earliest-to-latest span would.
+    """
+    on = date(2026, 7, 15)
+    software = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Software", type="expense"
+    )
+    db_session.add(software)
+    db_session.commit()
+
+    _balance(db_session, account, 6000, date(2026, 7, 1))
+    _expense(db_session, account, software, 12, date(2026, 2, 5))
+    _expense(db_session, account, dining, 3000, date(2026, 6, 10))
+
+    status = budget_service.emergency_fund_status(db_session, household.id, owner, on)
+
+    # 2 distinct spend-months (Feb, Jun) — total/2, not the 5-month span
+    # between them, which would understate the real recent burn rate.
+    assert status.average_monthly_expenses == Decimal("1506.00")
+
+
 def test_investment_purchases_do_not_inflate_the_burn_rate(
     db_session, household, account, dining, owner
 ):
