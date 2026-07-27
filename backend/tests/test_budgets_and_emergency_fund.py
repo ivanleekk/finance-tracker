@@ -501,6 +501,65 @@ def test_overdrawn_household_has_zero_runway_not_a_negative_one(
     assert status.on_track is False
 
 
+def test_new_household_with_one_month_of_history_is_not_averaged_over_six(
+    db_session, household, account, dining, owner
+):
+    """
+    A household that only started logging expenses last month must get that
+    month's real total, not total/6 (which would understate the burn rate by
+    5x for anyone who just signed up).
+    """
+    on = date(2026, 7, 15)
+    _balance(db_session, account, 6000, date(2026, 7, 1))
+    _expense(db_session, account, dining, 600, date(2026, 6, 10))
+
+    status = budget_service.emergency_fund_status(db_session, household.id, owner, on)
+
+    assert status.average_monthly_expenses == Decimal("600.00")
+    assert status.months_covered == Decimal("10.0")
+
+
+def test_partial_history_divides_by_actual_months_not_the_full_lookback(
+    db_session, household, account, dining, owner
+):
+    on = date(2026, 7, 15)
+    _balance(db_session, account, 6000, date(2026, 7, 1))
+    # Two of the six lookback months have spending; the other four have none.
+    _expense(db_session, account, dining, 1000, date(2026, 5, 10))
+    _expense(db_session, account, dining, 1000, date(2026, 6, 10))
+
+    status = budget_service.emergency_fund_status(db_session, household.id, owner, on)
+
+    assert status.average_monthly_expenses == Decimal("1000.00")
+
+
+def test_early_system_category_spend_does_not_stretch_the_history_window(
+    db_session, household, account, dining, owner
+):
+    """
+    An Investment purchase four months ago must not make a household look
+    like it has four months of real spending history when the only actual
+    (non-system) expense is from last month.
+    """
+    on = date(2026, 7, 15)
+    investment = models.Category(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name=models.SYSTEM_CATEGORY_INVESTMENT,
+        type="expense",
+    )
+    db_session.add(investment)
+    db_session.commit()
+
+    _balance(db_session, account, 6000, date(2026, 7, 1))
+    _expense(db_session, account, investment, 5000, date(2026, 3, 10))
+    _expense(db_session, account, dining, 600, date(2026, 6, 10))
+
+    status = budget_service.emergency_fund_status(db_session, household.id, owner, on)
+
+    assert status.average_monthly_expenses == Decimal("600.00")
+
+
 def test_investment_purchases_do_not_inflate_the_burn_rate(
     db_session, household, account, dining, owner
 ):
