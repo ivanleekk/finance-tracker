@@ -31,8 +31,8 @@ class BudgetPresentationTest {
         daysTotal: Int = 30,
     ) = BudgetStatusRow(
         budgetId = "b1",
-        categoryId = "c1",
-        categoryName = "Groceries",
+        categoryIds = listOf("c1"),
+        categoryNames = listOf("Groceries"),
         period = BudgetPeriod.MONTHLY,
         isPrivate = false,
         limit = limit,

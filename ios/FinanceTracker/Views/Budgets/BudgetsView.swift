@@ -22,10 +22,10 @@ struct BudgetsView: View {
 
     private var rows: [BudgetStatusRow] { status?.budgets ?? [] }
 
-    /// Only expense categories can be budgeted, and one that already has a
-    /// budget shouldn't be offered again.
+    /// Only expense categories can be budgeted, and one that already belongs to
+    /// a budget shouldn't be offered again.
     private var budgetableCategories: [CategoryResponse] {
-        let taken = Set(rows.map(\.categoryId))
+        let taken = Set(rows.flatMap(\.categoryIds))
         return categories.filter { $0.type == .expense && !taken.contains($0.id) }
     }
 
@@ -263,7 +263,7 @@ struct BudgetRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(row.categoryName)
+                Text(row.categoryNames.joined(separator: ", "))
                 if row.isPrivate {
                     Image(systemName: "lock.fill")
                         .font(.caption2)
@@ -316,7 +316,7 @@ struct BudgetFormView: View {
     let categories: [CategoryResponse]
     let onSaved: () async -> Void
 
-    @State private var categoryId: String
+    @State private var categoryIds: Set<String>
     @State private var amountText: String
     @State private var period: BudgetPeriod
     @State private var isSaving = false
@@ -326,7 +326,7 @@ struct BudgetFormView: View {
         self.existing = existing
         self.categories = categories
         self.onSaved = onSaved
-        _categoryId = State(initialValue: existing?.categoryId ?? categories.first?.id ?? "")
+        _categoryIds = State(initialValue: existing.map { Set($0.categoryIds) } ?? [])
         _amountText = State(initialValue: existing.map { String($0.limit) } ?? "")
         _period = State(initialValue: existing?.period ?? .monthly)
     }
@@ -342,11 +342,25 @@ struct BudgetFormView: View {
             Form {
                 Section {
                     if existing == nil {
-                        Picker("Category", selection: $categoryId) {
-                            ForEach(categories) { Text($0.name).tag($0.id) }
+                        ForEach(categories) { category in
+                            Button {
+                                if categoryIds.contains(category.id) {
+                                    categoryIds.remove(category.id)
+                                } else {
+                                    categoryIds.insert(category.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(category.name).foregroundStyle(.primary)
+                                    Spacer()
+                                    if categoryIds.contains(category.id) {
+                                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    }
+                                }
+                            }
                         }
                     } else {
-                        LabeledContent("Category", value: existing?.categoryName ?? "")
+                        LabeledContent("Categories", value: existing?.categoryNames.joined(separator: ", ") ?? "")
                     }
                     TextField("Limit", text: $amountText)
                         .keyboardType(.decimalPad)
@@ -355,7 +369,7 @@ struct BudgetFormView: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("Only expense categories can be budgeted.")
+                    Text("Only expense categories can be budgeted, and one or more can share a limit.")
                 }
 
                 if let errorMessage {
@@ -373,7 +387,7 @@ struct BudgetFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(amount == nil || categoryId.isEmpty || isSaving)
+                        .disabled(amount == nil || categoryIds.isEmpty || isSaving)
                 }
             }
         }
@@ -396,7 +410,7 @@ struct BudgetFormView: View {
                         "/cashflow/budgets",
                         body: BudgetCreate(
                             householdId: household.id,
-                            categoryId: categoryId,
+                            categoryIds: Array(categoryIds),
                             amount: amount,
                             period: period,
                             ownerUserId: nil

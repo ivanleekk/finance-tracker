@@ -147,16 +147,29 @@ def _expense(db_session, account, category, amount, on, *, transfer_id=None, inc
     return txn
 
 
-def _budget(db_session, household, category, amount, period=models.BudgetPeriod.monthly, owner_user_id=None):
+def _budget(db_session, household, categories, amount, period=models.BudgetPeriod.monthly, owner_user_id=None):
+    """`categories` may be a single Category or a list/tuple of them."""
+    if not isinstance(categories, (list, tuple)):
+        categories = [categories]
     budget = models.Budget(
         id=uuid.uuid7(),
         household_id=household.id,
-        category_id=category.id,
         amount=Decimal(str(amount)),
         period=period,
         owner_user_id=owner_user_id,
     )
     db_session.add(budget)
+    db_session.flush()
+    for category in categories:
+        db_session.add(
+            models.BudgetCategory(
+                id=uuid.uuid7(),
+                budget_id=budget.id,
+                category_id=category.id,
+                household_id=household.id,
+                owner_user_id=owner_user_id,
+            )
+        )
     db_session.commit()
     db_session.refresh(budget)
     return budget
@@ -316,7 +329,7 @@ def test_create_budget(client, owner_headers, household, dining):
         headers=owner_headers,
         json={
             "household_id": str(household.id),
-            "category_id": str(dining.id),
+            "category_ids": [str(dining.id)],
             "amount": "600",
             "period": "monthly",
         },
@@ -325,13 +338,46 @@ def test_create_budget(client, owner_headers, household, dining):
     assert Decimal(response.json()["amount"]) == Decimal("600")
 
 
+def test_create_budget_spanning_multiple_categories(client, owner_headers, household, dining, db_session):
+    groceries = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Groceries", type="expense"
+    )
+    db_session.add(groceries)
+    db_session.commit()
+
+    response = client.post(
+        "/cashflow/budgets",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "category_ids": [str(dining.id), str(groceries.id)],
+            "amount": "900",
+        },
+    )
+    assert response.status_code == 201
+    assert sorted(response.json()["category_ids"]) == sorted([str(dining.id), str(groceries.id)])
+
+
+def test_create_budget_requires_at_least_one_category(client, owner_headers, household):
+    response = client.post(
+        "/cashflow/budgets",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "category_ids": [],
+            "amount": "600",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_income_categories_cannot_be_budgeted(client, owner_headers, household, salary):
     response = client.post(
         "/cashflow/budgets",
         headers=owner_headers,
         json={
             "household_id": str(household.id),
-            "category_id": str(salary.id),
+            "category_ids": [str(salary.id)],
             "amount": "600",
         },
     )
@@ -345,7 +391,30 @@ def test_duplicate_budget_for_a_category_is_refused(client, owner_headers, house
         headers=owner_headers,
         json={
             "household_id": str(household.id),
-            "category_id": str(dining.id),
+            "category_ids": [str(dining.id)],
+            "amount": "900",
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_duplicate_is_refused_if_any_requested_category_is_taken(
+    client, owner_headers, household, dining, db_session
+):
+    """One of several requested categories already belongs to another budget."""
+    groceries = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Groceries", type="expense"
+    )
+    db_session.add(groceries)
+    db_session.commit()
+    _budget(db_session, household, groceries, 300)
+
+    response = client.post(
+        "/cashflow/budgets",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "category_ids": [str(dining.id), str(groceries.id)],
             "amount": "900",
         },
     )
@@ -364,7 +433,36 @@ def test_budget_status_endpoint(client, owner_headers, db_session, household, ac
     data = response.json()
     assert Decimal(data["total_limit"]) == Decimal("600.00")
     assert Decimal(data["total_spent"]) == Decimal("150.00")
-    assert data["budgets"][0]["category_name"] == "Dining"
+    assert data["budgets"][0]["category_names"] == ["Dining"]
+
+
+def test_budget_status_sums_spend_across_its_categories(
+    db_session, household, account, dining, owner
+):
+    groceries = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Groceries", type="expense"
+    )
+    db_session.add(groceries)
+    db_session.commit()
+    db_session.refresh(groceries)
+
+    _budget(db_session, household, [dining, groceries], 800)
+    _expense(db_session, account, dining, 100, date(2026, 3, 3))
+    _expense(db_session, account, groceries, 250, date(2026, 3, 4))
+
+    [status] = budget_service.budget_statuses(db_session, household.id, owner, date(2026, 3, 10))
+
+    assert status.spent == Decimal("350.00")
+    assert sorted(status.category_names) == ["Dining", "Groceries"]
+
+
+def test_deleting_a_category_still_used_by_a_budget_is_refused(
+    client, owner_headers, household, dining, db_session
+):
+    """Guards through the new join table the same way it did through the old column."""
+    _budget(db_session, household, dining, 600)
+    response = client.delete(f"/cashflow/categories/{dining.id}", headers=owner_headers)
+    assert response.status_code == 409
 
 
 def test_budget_endpoints_require_household_access(client, stranger_headers, household):

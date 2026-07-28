@@ -55,13 +55,13 @@ export default function Budgets() {
     const targetFetcher = useFetcher();
 
     const [isAddOpen, setIsAddOpen] = useState(false);
-    const [newBudget, setNewBudget] = useState({ category_id: "", amount: "", period: BudgetPeriod.Monthly as string });
+    const [newBudget, setNewBudget] = useState({ category_ids: [] as string[], amount: "", period: BudgetPeriod.Monthly as string });
     const [editingId, setEditingId] = useState<string | null>(null);
 
     useEffect(() => {
         if (createFetcher.state === "idle" && createFetcher.data?.success) {
             setIsAddOpen(false);
-            setNewBudget({ category_id: "", amount: "", period: BudgetPeriod.Monthly });
+            setNewBudget({ category_ids: [], amount: "", period: BudgetPeriod.Monthly });
         }
     }, [createFetcher.state, createFetcher.data]);
 
@@ -82,9 +82,9 @@ export default function Budgets() {
         }).format(value);
 
     // Only expense categories can carry a budget, and a category that already
-    // has one shouldn't be offered again.
+    // belongs to a budget shouldn't be offered again.
     const budgetableCategories = useMemo(() => {
-        const taken = new Set((status?.budgets ?? []).map(b => b.category_id));
+        const taken = new Set((status?.budgets ?? []).flatMap(b => b.category_ids));
         return categories.filter(c => c.type === TransactionType.Expense && !taken.has(c.id));
     }, [categories, status]);
 
@@ -241,7 +241,7 @@ export default function Budgets() {
                                 <CardContent className="p-4 space-y-2.5">
                                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                                         <div className="flex items-center gap-2">
-                                            <span className="font-medium text-base-900 dark:text-base-50">{row.category_name}</span>
+                                            <span className="font-medium text-base-900 dark:text-base-50">{row.category_names.join(", ")}</span>
                                             <span className="text-[10px] font-mono uppercase tracking-wide text-base-400">
                                                 {row.period}
                                             </span>
@@ -341,22 +341,45 @@ export default function Budgets() {
                         <Card className="w-full max-w-md bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800">
                             <CardHeader>
                                 <CardTitle>Set a budget</CardTitle>
-                                <CardDescription>A spending limit for one expense category.</CardDescription>
+                                <CardDescription>A spending limit for one or more expense categories.</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <createFetcher.Form method="post" className="space-y-4">
                                     <input type="hidden" name="_intent" value="createBudget" />
+                                    {newBudget.category_ids.map(id => (
+                                        <input key={id} type="hidden" name="category_ids" value={id} />
+                                    ))}
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Category</label>
-                                        <Select
-                                            name="category_id"
-                                            value={newBudget.category_id}
-                                            onChange={(category_id) => setNewBudget({ ...newBudget, category_id })}
-                                            options={[
-                                                { value: "", label: "Choose a category…" },
-                                                ...budgetableCategories.map(c => ({ value: c.id, label: c.name })),
-                                            ]}
-                                        />
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Categories</label>
+                                        <div className="max-h-48 overflow-y-auto rounded-md border border-base-200 dark:border-base-800 divide-y divide-base-100 dark:divide-base-800">
+                                            {budgetableCategories.length === 0 && (
+                                                <p className="p-3 text-sm text-base-400">No expense categories left to budget.</p>
+                                            )}
+                                            {budgetableCategories.map(c => {
+                                                const checked = newBudget.category_ids.includes(c.id);
+                                                return (
+                                                    <label
+                                                        key={c.id}
+                                                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-base-900 dark:text-base-50 cursor-pointer hover:bg-base-50 dark:hover:bg-base-800/50"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={() =>
+                                                                setNewBudget({
+                                                                    ...newBudget,
+                                                                    category_ids: checked
+                                                                        ? newBudget.category_ids.filter(id => id !== c.id)
+                                                                        : [...newBudget.category_ids, c.id],
+                                                                })
+                                                            }
+                                                            className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500 dark:border-base-700"
+                                                        />
+                                                        {c.name}
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
@@ -395,7 +418,7 @@ export default function Budgets() {
                                         <Button
                                             variant="primary"
                                             type="submit"
-                                            disabled={createFetcher.state !== "idle" || !newBudget.category_id}
+                                            disabled={createFetcher.state !== "idle" || newBudget.category_ids.length === 0}
                                         >
                                             {createFetcher.state !== "idle" ? "Saving…" : "Set budget"}
                                         </Button>

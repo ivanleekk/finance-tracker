@@ -9,12 +9,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,7 +56,6 @@ import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.ConfirmDialog
 import com.ivanlee.financetracker.ui.components.DetailScaffold
-import com.ivanlee.financetracker.ui.components.DropdownField
 import com.ivanlee.financetracker.ui.components.EmptyState
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
@@ -209,10 +212,14 @@ fun BudgetsScreen(
     }
 
     if (creating || editing != null) {
+        val takenCategoryIds = remember(status) {
+            status?.budgets.orEmpty().flatMap { it.categoryIds }.toSet()
+        }
         BudgetFormDialog(
             existing = editing,
             householdId = household?.id.orEmpty(),
-            categories = categories.filter { it.type == TransactionType.EXPENSE },
+            allCategories = categories,
+            takenCategoryIds = takenCategoryIds,
             currencyCode = baseCurrency,
             defaultPrivate = sessionVm.user?.defaultsNewItemsPrivate ?: false,
             userId = sessionVm.user?.id,
@@ -262,7 +269,7 @@ fun BudgetsScreen(
 
     pendingDelete?.let { row ->
         ConfirmDialog(
-            title = "Delete the ${row.categoryName} budget?",
+            title = "Delete the ${row.categoryNames.joinToString(", ")} budget?",
             message = "Your transactions are untouched — only the cap goes away.",
             onConfirm = {
                 scope.launch {
@@ -308,7 +315,7 @@ private fun BudgetRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(row.categoryName, style = MaterialTheme.typography.bodyLarge)
+                Text(row.categoryNames.joinToString(", "), style = MaterialTheme.typography.bodyLarge)
                 if (row.isPrivate) PrivateBadge()
             }
             Text(
@@ -356,14 +363,25 @@ private fun BudgetRow(
 private fun BudgetFormDialog(
     existing: BudgetResponse?,
     householdId: String,
-    categories: List<CategoryResponse>,
+    allCategories: List<CategoryResponse>,
+    takenCategoryIds: Set<String>,
     currencyCode: String,
     defaultPrivate: Boolean,
     userId: String?,
     onDismiss: () -> Unit,
     onSaved: () -> Unit,
 ) {
-    var categoryId by remember { mutableStateOf(existing?.categoryId ?: categories.firstOrNull()?.id) }
+    // A category can only belong to one budget, so the picker excludes categories already
+    // taken by another budget — but never hides the ones this budget itself already owns.
+    val ownCategoryIds = existing?.categoryIds.orEmpty().toSet()
+    val selectableCategories = remember(allCategories, takenCategoryIds, ownCategoryIds) {
+        allCategories.filter {
+            it.type == TransactionType.EXPENSE && (it.id !in takenCategoryIds || it.id in ownCategoryIds)
+        }
+    }
+    val categoryNamesById = remember(allCategories) { allCategories.associateBy({ it.id }, { it.name }) }
+
+    var categoryIds by remember { mutableStateOf(ownCategoryIds) }
     var amountText by remember { mutableStateOf(existing?.amount?.toString().orEmpty()) }
     var period by remember { mutableStateOf(existing?.period ?: BudgetPeriod.MONTHLY) }
     var isPrivate by remember { mutableStateOf(existing?.ownerUserId != null || (existing == null && defaultPrivate)) }
@@ -378,14 +396,45 @@ private fun BudgetFormDialog(
         title = { Text(if (existing == null) "New budget" else "Edit budget") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                DropdownField(
-                    label = "Category",
-                    selected = categories.firstOrNull { it.id == categoryId },
-                    options = categories,
-                    optionLabel = { it.name },
-                    onSelect = { categoryId = it.id },
-                    enabled = existing == null,
-                )
+                Text("Categories", style = MaterialTheme.typography.labelLarge)
+                if (existing == null) {
+                    if (selectableCategories.isEmpty()) {
+                        Text(
+                            "No expense categories left to budget.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            selectableCategories.forEach { category ->
+                                val checked = categoryIds.contains(category.id)
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            categoryIds = if (checked) categoryIds - category.id else categoryIds + category.id
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Checkbox(checked = checked, onCheckedChange = null)
+                                    Text(category.name)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        categoryIds.mapNotNull { categoryNamesById[it] }.joinToString(", "),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
                 MoneyField("Limit", amountText, { amountText = it }, currencyCode = currencyCode)
                 SegmentedChoice(
                     options = BudgetPeriod.entries,
@@ -398,7 +447,7 @@ private fun BudgetFormDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = (amount ?: 0.0) > 0 && categoryId != null && !saving,
+                enabled = (amount ?: 0.0) > 0 && categoryIds.isNotEmpty() && !saving,
                 onClick = {
                     saving = true
                     scope.launch {
@@ -408,7 +457,7 @@ private fun BudgetFormDialog(
                                     "/cashflow/budgets",
                                     BudgetCreate(
                                         householdId = householdId,
-                                        categoryId = categoryId!!,
+                                        categoryIds = categoryIds.toList(),
                                         amount = amount!!,
                                         period = period,
                                         ownerUserId = if (isPrivate) userId else null,

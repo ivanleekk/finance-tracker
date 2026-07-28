@@ -24,7 +24,7 @@ struct BudgetPresentationTests {
     ) throws -> BudgetStatusRow {
         let json = """
         {
-          "budget_id": "b", "category_id": "c", "category_name": "Dining",
+          "budget_id": "b", "category_ids": ["c"], "category_names": ["Dining"],
           "period": "monthly", "is_private": false,
           "limit": "\(limit)", "spent": "\(spent)", "remaining": "\(remaining)",
           "percent_used": \(percentUsed),
@@ -83,7 +83,7 @@ struct BudgetPresentationTests {
         // JSON has no infinity literal, so this can't arrive over the wire —
         // build the row directly to exercise the defensive guard.
         let broken = BudgetStatusRow(
-            budgetId: "b", categoryId: "c", categoryName: "Dining",
+            budgetId: "b", categoryIds: ["c"], categoryNames: ["Dining"],
             period: .monthly, isPrivate: false,
             limit: 600, spent: 200, remaining: 400,
             percentUsed: .infinity,

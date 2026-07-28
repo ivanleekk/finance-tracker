@@ -982,7 +982,7 @@ enum BudgetPeriod: String, Codable, CaseIterable, Identifiable {
 struct BudgetResponse: Codable, Identifiable, Hashable {
     let id: String
     let householdId: String
-    let categoryId: String
+    let categoryIds: [String]
     @MoneyAmount var amount: Double
     let period: BudgetPeriod
     let ownerUserId: String?
@@ -990,7 +990,7 @@ struct BudgetResponse: Codable, Identifiable, Hashable {
 
 struct BudgetCreate: Encodable {
     let householdId: String
-    let categoryId: String
+    let categoryIds: [String]
     let amount: Double
     let period: BudgetPeriod
     let ownerUserId: String?
@@ -1003,8 +1003,8 @@ struct BudgetUpdate: Encodable {
 
 struct BudgetStatusRow: Codable, Identifiable, Hashable {
     let budgetId: String
-    let categoryId: String
-    let categoryName: String
+    let categoryIds: [String]
+    let categoryNames: [String]
     let period: BudgetPeriod
     let isPrivate: Bool
     @MoneyAmount var limit: Double

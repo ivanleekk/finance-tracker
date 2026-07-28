@@ -365,7 +365,7 @@ def delete_category(
             detail=f"{rule_count} recurring transaction(s) still use this category. Delete them first.",
         )
 
-    budget_count = db.query(models.Budget).filter(models.Budget.category_id == category_id).count()
+    budget_count = db.query(models.BudgetCategory).filter(models.BudgetCategory.category_id == category_id).count()
     if budget_count:
         raise HTTPException(
             status_code=409,
@@ -646,30 +646,52 @@ def create_budget(
 ):
     verify_household_access(payload.household_id, current_user, db)
 
-    category = db.query(models.Category).filter(models.Category.id == payload.category_id).first()
-    if not category or category.household_id != payload.household_id:
+    categories = db.query(models.Category).filter(models.Category.id.in_(payload.category_ids)).all()
+    found_ids = {c.id for c in categories}
+    missing = set(payload.category_ids) - found_ids
+    if missing or any(c.household_id != payload.household_id for c in categories):
         raise HTTPException(status_code=404, detail="Category not found")
-    if category.type != models.TransactionType.expense.value:
+    non_expense = [c.name for c in categories if c.type != models.TransactionType.expense.value]
+    if non_expense:
         raise HTTPException(status_code=400, detail="Only expense categories can be budgeted")
 
-    existing = db.query(models.Budget).filter(
-        models.Budget.household_id == payload.household_id,
-        models.Budget.category_id == payload.category_id,
-        models.Budget.owner_user_id.is_(None) if payload.owner_user_id is None
-        else models.Budget.owner_user_id == payload.owner_user_id,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="A budget already exists for this category")
+    owner_filter = (
+        models.BudgetCategory.owner_user_id.is_(None) if payload.owner_user_id is None
+        else models.BudgetCategory.owner_user_id == payload.owner_user_id
+    )
+    conflicting = (
+        db.query(models.Category.name)
+        .join(models.BudgetCategory, models.BudgetCategory.category_id == models.Category.id)
+        .filter(
+            models.BudgetCategory.household_id == payload.household_id,
+            models.BudgetCategory.category_id.in_(payload.category_ids),
+            owner_filter,
+        )
+        .all()
+    )
+    if conflicting:
+        names = ", ".join(sorted(c.name for c in conflicting))
+        raise HTTPException(status_code=409, detail=f"A budget already exists for: {names}")
 
     db_budget = models.Budget(
         id=uuid.uuid7(),
         household_id=payload.household_id,
-        category_id=payload.category_id,
         amount=payload.amount,
         period=payload.period,
         owner_user_id=payload.owner_user_id,
     )
     db.add(db_budget)
+    db.flush()
+    for category_id in payload.category_ids:
+        db.add(
+            models.BudgetCategory(
+                id=uuid.uuid7(),
+                budget_id=db_budget.id,
+                category_id=category_id,
+                household_id=payload.household_id,
+                owner_user_id=payload.owner_user_id,
+            )
+        )
     db.commit()
     db.refresh(db_budget)
     return db_budget
@@ -714,8 +736,8 @@ def get_budget_status(
     rows = [
         schemas.BudgetStatusRow(
             budget_id=s.budget.id,
-            category_id=s.budget.category_id,
-            category_name=s.category_name,
+            category_ids=s.budget.category_ids,
+            category_names=s.category_names,
             period=s.budget.period,
             is_private=s.budget.owner_user_id is not None,
             limit=s.limit,

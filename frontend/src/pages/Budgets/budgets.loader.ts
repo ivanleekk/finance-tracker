@@ -43,7 +43,7 @@ export async function action({ request }: ActionFunctionArgs) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 household_id: householdId,
-                category_id: formData.get("category_id"),
+                category_ids: formData.getAll("category_ids"),
                 amount: Number(formData.get("amount")),
                 period: formData.get("period") || "monthly",
             }),

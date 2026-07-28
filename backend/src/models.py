@@ -406,28 +406,61 @@ class RecurringTransaction(Base):
 
 class Budget(Base):
     """
-    A spending limit for one category over a repeating period.
+    A spending limit for one or more categories over a repeating period.
 
-    One budget per (household, category, owner) so a shared budget and a private
-    one can coexist for the same category without silently overwriting.
+    A category can only belong to one budget per (household, owner) scope —
+    see BudgetCategory's own unique constraint — so a shared budget and a
+    private one can coexist for the same category without silently overwriting,
+    and two budgets can't double-count the same category's spend.
     """
 
     __tablename__ = "budgets"
-    __table_args__ = (
-        UniqueConstraint("household_id", "category_id", "owner_user_id", name="uq_budget_household_category_owner"),
-    )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
     household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True)
-    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), index=True)
     amount = Column(Numeric)  # the limit, in the household base currency
     period = Column(Enum(BudgetPeriod, native_enum=False), nullable=False, default=BudgetPeriod.monthly)
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     household = relationship("Household", back_populates="budgets")
-    category = relationship("Category")
     owner = relationship("User", foreign_keys=[owner_user_id])
+    budget_categories = relationship(
+        "BudgetCategory", back_populates="budget", cascade="all, delete-orphan"
+    )
+
+    @property
+    def category_ids(self) -> list:
+        return [bc.category_id for bc in self.budget_categories]
+
+
+class BudgetCategory(Base):
+    """
+    One category attached to a Budget.
+
+    household_id/owner_user_id are denormalized from the parent Budget (both
+    are immutable after creation) so Postgres — not application code — can
+    enforce that a category belongs to at most one budget per (household,
+    owner) scope, the same guarantee the old single-category Budget row gave
+    us via its own unique constraint.
+    """
+
+    __tablename__ = "budget_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "household_id", "category_id", "owner_user_id",
+            name="uq_budget_category_household_category_owner",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    budget_id = Column(UUID(as_uuid=True), ForeignKey("budgets.id"), index=True, nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), index=True, nullable=False)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True, nullable=False)
+    owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    budget = relationship("Budget", back_populates="budget_categories")
+    category = relationship("Category")
 
 
 # --- 4. ASSETS, TRADES & PORTFOLIO ---

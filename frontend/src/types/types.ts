@@ -524,7 +524,7 @@ export type UpcomingOccurrence = {
 export type BudgetResponse = {
   id: string;
   household_id: string;
-  category_id: string;
+  category_ids: string[];
   amount: number;
   period: BudgetPeriod;
   owner_user_id?: string | null;
@@ -532,8 +532,8 @@ export type BudgetResponse = {
 
 export type BudgetStatusRow = {
   budget_id: string;
-  category_id: string;
-  category_name: string;
+  category_ids: string[];
+  category_names: string[];
   period: BudgetPeriod;
   is_private: boolean;
   limit: number;

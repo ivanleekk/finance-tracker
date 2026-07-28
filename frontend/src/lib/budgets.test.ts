@@ -17,8 +17,8 @@ import type { BudgetStatusRow, EmergencyFundResponse, UpcomingOccurrence } from 
 
 const row = (over: Partial<BudgetStatusRow> = {}): BudgetStatusRow => ({
     budget_id: "b",
-    category_id: "c",
-    category_name: "Dining",
+    category_ids: ["c"],
+    category_names: ["Dining"],
     period: "monthly",
     is_private: false,
     limit: 600,

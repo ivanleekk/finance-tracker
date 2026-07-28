@@ -217,7 +217,7 @@ struct LoanAndRecurringDecodingTests {
           "household_id": "hh", "base_currency": "SGD", "as_of": "2026-07-25",
           "total_limit": "1200.00", "total_spent": "448.00",
           "budgets": [{
-            "budget_id": "b", "category_id": "c", "category_name": "Dining",
+            "budget_id": "b", "category_ids": ["c"], "category_names": ["Dining"],
             "period": "monthly", "is_private": false,
             "limit": "500.00", "spent": "448.00", "remaining": "52.00",
             "percent_used": 89.6, "period_start": "2026-07-01",

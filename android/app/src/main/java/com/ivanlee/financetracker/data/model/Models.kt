@@ -914,7 +914,7 @@ data class RecurringRunResponse(val posted: Int)
 data class BudgetResponse(
     val id: String,
     val householdId: String,
-    val categoryId: String,
+    val categoryIds: List<String>,
     @Serializable(with = MoneySerializer::class)
     val amount: Double,
     val period: BudgetPeriod,
@@ -924,7 +924,7 @@ data class BudgetResponse(
 @Serializable
 data class BudgetCreate(
     val householdId: String,
-    val categoryId: String,
+    val categoryIds: List<String>,
     val amount: Double,
     val period: BudgetPeriod,
     val ownerUserId: String? = null,
@@ -939,8 +939,8 @@ data class BudgetUpdate(
 @Serializable
 data class BudgetStatusRow(
     val budgetId: String,
-    val categoryId: String,
-    val categoryName: String,
+    val categoryIds: List<String>,
+    val categoryNames: List<String>,
     val period: BudgetPeriod,
     val isPrivate: Boolean = false,
     @Serializable(with = MoneySerializer::class)

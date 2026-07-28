@@ -495,7 +495,7 @@ class RecurringRunResponse(BaseModel):
 
 
 class BudgetBase(BaseModel):
-    category_id: uuid.UUID
+    category_ids: List[uuid.UUID] = Field(min_length=1)
     amount: PositiveDecimal  # the limit, in the household base currency
     period: BudgetPeriod = BudgetPeriod.monthly
     owner_user_id: Optional[uuid.UUID] = None
@@ -518,8 +518,8 @@ class BudgetResponse(BudgetBase):
 
 class BudgetStatusRow(BaseModel):
     budget_id: uuid.UUID
-    category_id: uuid.UUID
-    category_name: str
+    category_ids: List[uuid.UUID]
+    category_names: List[str]
     period: BudgetPeriod
     is_private: bool
     limit: Decimal

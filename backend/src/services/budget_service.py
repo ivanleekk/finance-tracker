@@ -19,7 +19,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from src import models
 from src.services.date_utils import add_months
@@ -57,7 +57,7 @@ def period_bounds(period: models.BudgetPeriod, on: date) -> tuple[date, date]:
 @dataclass
 class BudgetStatus:
     budget: models.Budget
-    category_name: str
+    category_names: List[str]
     limit: Decimal
     spent: Decimal
     remaining: Decimal
@@ -164,6 +164,7 @@ def budget_statuses(
 
     budgets = (
         db.query(models.Budget)
+        .options(joinedload(models.Budget.budget_categories))
         .filter(
             models.Budget.household_id == household_id,
             (models.Budget.owner_user_id.is_(None)) | (models.Budget.owner_user_id == user.id),
@@ -187,7 +188,11 @@ def budget_statuses(
         if (start, end) not in spend_cache:
             totals, _ = _spend_by_category(db, household_id, user, start, end)
             spend_cache[(start, end)] = totals
-        spent = spend_cache[(start, end)].get(budget.category_id, Decimal("0"))
+        category_ids = budget.category_ids
+        spent = sum(
+            (spend_cache[(start, end)].get(cid, Decimal("0")) for cid in category_ids),
+            Decimal("0"),
+        )
 
         limit = _dec(budget.amount)
         days_total = (end - start).days + 1
@@ -202,7 +207,7 @@ def budget_statuses(
         statuses.append(
             BudgetStatus(
                 budget=budget,
-                category_name=category_names.get(budget.category_id, "Unknown"),
+                category_names=[category_names.get(cid, "Unknown") for cid in category_ids],
                 limit=_money(limit),
                 spent=_money(spent),
                 remaining=_money(limit - spent),

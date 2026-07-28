@@ -2,6 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "backend",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "CORS_ORIGINS=http://localhost:5173,http://localhost:5174 uv run uvicorn src.main:app --host 0.0.0.0 --port 8000"],
+      "cwd": "backend",
+      "port": 8000,
+      "autoPort": false
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "node_modules/.bin/react-router",
       "runtimeArgs": ["dev"],
