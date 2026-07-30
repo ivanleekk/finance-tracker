@@ -1,0 +1,1882 @@
+{
+  ".claude/launch.json": {
+    "mtime": 1785242547.5296485,
+    "ast_hash": "396e28b8a8be3b7c46f5393ccf7cbb5f",
+    "semantic_hash": "396e28b8a8be3b7c46f5393ccf7cbb5f"
+  },
+  "android/app/build.gradle.kts": {
+    "mtime": 1785168108.595895,
+    "ast_hash": "bc841a283ff81d8d73820ad1c3b9bc5d",
+    "semantic_hash": "bc841a283ff81d8d73820ad1c3b9bc5d"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/MainActivity.kt": {
+    "mtime": 1785168108.596842,
+    "ast_hash": "d18727b7b8f90dc4c1e92e9743c12e2b",
+    "semantic_hash": "d18727b7b8f90dc4c1e92e9743c12e2b"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/WaypointApp.kt": {
+    "mtime": 1785168108.5970032,
+    "ast_hash": "d52d381b3f8d3c5850571ad12343aeaa",
+    "semantic_hash": "d52d381b3f8d3c5850571ad12343aeaa"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/model/Enums.kt": {
+    "mtime": 1785168108.5972946,
+    "ast_hash": "dd9f1ac771f403547e2add7a0734b66f",
+    "semantic_hash": "dd9f1ac771f403547e2add7a0734b66f"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/model/Models.kt": {
+    "mtime": 1785243497.7224927,
+    "ast_hash": "46a116ebe0ff74305cefd43539a7422a",
+    "semantic_hash": "46a116ebe0ff74305cefd43539a7422a"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/model/SnapshotValuePoint.kt": {
+    "mtime": 1785168108.5977013,
+    "ast_hash": "810e792ff7fe6d8c93cbe1e16bf6d931",
+    "semantic_hash": "810e792ff7fe6d8c93cbe1e16bf6d931"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/net/ApiClient.kt": {
+    "mtime": 1785168108.5979745,
+    "ast_hash": "8945f3dc2e417c465e3e24c781d01898",
+    "semantic_hash": "8945f3dc2e417c465e3e24c781d01898"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/net/Serializers.kt": {
+    "mtime": 1785168108.5981345,
+    "ast_hash": "3ba388b28a28d282f697fffd643334ae",
+    "semantic_hash": "3ba388b28a28d282f697fffd643334ae"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/data/net/TokenStore.kt": {
+    "mtime": 1785168108.598268,
+    "ast_hash": "08cac3f0bf00c1eabf051a27823dae6a",
+    "semantic_hash": "08cac3f0bf00c1eabf051a27823dae6a"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/logic/BudgetPresentation.kt": {
+    "mtime": 1785168108.5984893,
+    "ast_hash": "831c002505a18e560f91142f56fd01a8",
+    "semantic_hash": "831c002505a18e560f91142f56fd01a8"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/logic/Formatters.kt": {
+    "mtime": 1785168108.5986297,
+    "ast_hash": "39ecc029334c8984404839c9dbe30502",
+    "semantic_hash": "39ecc029334c8984404839c9dbe30502"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/logic/GoalProjection.kt": {
+    "mtime": 1785168108.5987792,
+    "ast_hash": "87f2d837c16e88f4c60e61850ffbbfeb",
+    "semantic_hash": "87f2d837c16e88f4c60e61850ffbbfeb"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/logic/PortfolioAnalytics.kt": {
+    "mtime": 1785168108.598934,
+    "ast_hash": "a0a3c69cc0ff230287579b8f7c83a757",
+    "semantic_hash": "a0a3c69cc0ff230287579b8f7c83a757"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/logic/ViewModeVisibility.kt": {
+    "mtime": 1785168108.599078,
+    "ast_hash": "02579d0e8fe286092c6d90871ae7fa8b",
+    "semantic_hash": "02579d0e8fe286092c6d90871ae7fa8b"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/security/BiometricAuth.kt": {
+    "mtime": 1785168108.5992646,
+    "ast_hash": "078054d034b2e55cc8aee960169abd38",
+    "semantic_hash": "078054d034b2e55cc8aee960169abd38"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/state/QuickAddViewModel.kt": {
+    "mtime": 1785168108.5994492,
+    "ast_hash": "44efb929437711b352572106c1e87eaf",
+    "semantic_hash": "44efb929437711b352572106c1e87eaf"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/state/SessionViewModel.kt": {
+    "mtime": 1785168108.5996122,
+    "ast_hash": "4905f3b9ad01e753b21230ee7b0b60a9",
+    "semantic_hash": "4905f3b9ad01e753b21230ee7b0b60a9"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/state/ViewModeViewModel.kt": {
+    "mtime": 1785168108.5997672,
+    "ast_hash": "98e310c3b6e8c7d46872062633ae7d79",
+    "semantic_hash": "98e310c3b6e8c7d46872062633ae7d79"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/MainScaffold.kt": {
+    "mtime": 1785168108.5999677,
+    "ast_hash": "1f0b85671ef8ca05cb608cf0aa1972f8",
+    "semantic_hash": "1f0b85671ef8ca05cb608cf0aa1972f8"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/Navigation.kt": {
+    "mtime": 1785168108.600131,
+    "ast_hash": "2aadab8ca1a68a3d12e77e24e2c58b2f",
+    "semantic_hash": "2aadab8ca1a68a3d12e77e24e2c58b2f"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/WaypointNavHost.kt": {
+    "mtime": 1785168108.600284,
+    "ast_hash": "a48fd1b54cda529cf9cd64dd3c32228c",
+    "semantic_hash": "a48fd1b54cda529cf9cd64dd3c32228c"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/accounts/AccountDetailScreen.kt": {
+    "mtime": 1785168108.6004844,
+    "ast_hash": "a8ac03e7099a771887d5d07113a7b100",
+    "semantic_hash": "a8ac03e7099a771887d5d07113a7b100"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/accounts/AccountFormScreen.kt": {
+    "mtime": 1785168108.600636,
+    "ast_hash": "8fffe341430f67991d78108d82781f79",
+    "semantic_hash": "8fffe341430f67991d78108d82781f79"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/accounts/AccountsScreen.kt": {
+    "mtime": 1785168108.6007872,
+    "ast_hash": "7444b3c75629f2e092608dcf18090122",
+    "semantic_hash": "7444b3c75629f2e092608dcf18090122"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/accounts/AddBalanceScreen.kt": {
+    "mtime": 1785168108.6009264,
+    "ast_hash": "ff8b580fc953bba0285b1c8231e013f6",
+    "semantic_hash": "ff8b580fc953bba0285b1c8231e013f6"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/accounts/LoanScheduleScreen.kt": {
+    "mtime": 1785168108.6010625,
+    "ast_hash": "66002feb3aa90ac2e4a1313a9fdf1c65",
+    "semantic_hash": "66002feb3aa90ac2e4a1313a9fdf1c65"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/auth/LoginScreen.kt": {
+    "mtime": 1785168108.6012669,
+    "ast_hash": "beff437e9f7a892de73a84643a1996f7",
+    "semantic_hash": "beff437e9f7a892de73a84643a1996f7"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/auth/OnboardingScreen.kt": {
+    "mtime": 1785168108.6014228,
+    "ast_hash": "5ea6648710e43449fd2ceb578fc7b119",
+    "semantic_hash": "5ea6648710e43449fd2ceb578fc7b119"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/Charts.kt": {
+    "mtime": 1785168108.6016734,
+    "ast_hash": "8208b44de260267990ce2d1c0054665b",
+    "semantic_hash": "8208b44de260267990ce2d1c0054665b"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/Common.kt": {
+    "mtime": 1785168108.601826,
+    "ast_hash": "452f13a07e2cfd1221757303707b2d92",
+    "semantic_hash": "452f13a07e2cfd1221757303707b2d92"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/Forms.kt": {
+    "mtime": 1785168108.6021423,
+    "ast_hash": "4ebc31a96670f44b02cdb8ec2a3ffd45",
+    "semantic_hash": "4ebc31a96670f44b02cdb8ec2a3ffd45"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/Haptics.kt": {
+    "mtime": 1785168108.602271,
+    "ast_hash": "d333a69790100313d15445beb321055b",
+    "semantic_hash": "d333a69790100313d15445beb321055b"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/QuickAddPull.kt": {
+    "mtime": 1785168108.602434,
+    "ast_hash": "e861e4408552cec396d7eb2cb30c09d5",
+    "semantic_hash": "e861e4408552cec396d7eb2cb30c09d5"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/ScreenScaffold.kt": {
+    "mtime": 1785168108.6025875,
+    "ast_hash": "ea2f32467e054b2c7aeb9f613ab28ec6",
+    "semantic_hash": "ea2f32467e054b2c7aeb9f613ab28ec6"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/SwipeRow.kt": {
+    "mtime": 1785168108.6027358,
+    "ast_hash": "294fdd6df738b1bdd442788665006e81",
+    "semantic_hash": "294fdd6df738b1bdd442788665006e81"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/components/Toolbar.kt": {
+    "mtime": 1785168108.6028934,
+    "ast_hash": "c0f0c9cc895e4a825c280e29a88acc1d",
+    "semantic_hash": "c0f0c9cc895e4a825c280e29a88acc1d"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/dashboard/DashboardScreen.kt": {
+    "mtime": 1785168108.6031165,
+    "ast_hash": "392e31e2cef25481400e5659c78924cf",
+    "semantic_hash": "392e31e2cef25481400e5659c78924cf"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/goals/GoalDetailScreen.kt": {
+    "mtime": 1785168108.6033502,
+    "ast_hash": "c1fc01eaeb3fe24161606b3b66cad019",
+    "semantic_hash": "c1fc01eaeb3fe24161606b3b66cad019"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/goals/GoalFormScreen.kt": {
+    "mtime": 1785168108.6036596,
+    "ast_hash": "1365bff2eb22a4ad0e1b33f6780afa6a",
+    "semantic_hash": "1365bff2eb22a4ad0e1b33f6780afa6a"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/BudgetsScreen.kt": {
+    "mtime": 1785243619.195938,
+    "ast_hash": "a9c84011e9a091059cc7e5d86287a087",
+    "semantic_hash": "a9c84011e9a091059cc7e5d86287a087"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/MembersScreen.kt": {
+    "mtime": 1785168108.6041853,
+    "ast_hash": "01e666b212a6754eb02748007ebff5b4",
+    "semantic_hash": "01e666b212a6754eb02748007ebff5b4"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/MoreScreen.kt": {
+    "mtime": 1785168108.6043282,
+    "ast_hash": "33642fa8adc1e7bf4285f1c388b37370",
+    "semantic_hash": "33642fa8adc1e7bf4285f1c388b37370"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/RecurringScreen.kt": {
+    "mtime": 1785168108.6044886,
+    "ast_hash": "3c342f3c34301b3604e67fe5c1cba0c4",
+    "semantic_hash": "3c342f3c34301b3604e67fe5c1cba0c4"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/ReportsScreen.kt": {
+    "mtime": 1785168108.6047897,
+    "ast_hash": "46300cf4d3dadbd0e536e3382ea13418",
+    "semantic_hash": "46300cf4d3dadbd0e536e3382ea13418"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/more/SettingsScreens.kt": {
+    "mtime": 1785168108.6049542,
+    "ast_hash": "38f69146bea42f3b030e3046b0aa6968",
+    "semantic_hash": "38f69146bea42f3b030e3046b0aa6968"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/AssetCreateDialog.kt": {
+    "mtime": 1785168108.6051972,
+    "ast_hash": "0a617a08d9582ca19d2585617db387a8",
+    "semantic_hash": "0a617a08d9582ca19d2585617db387a8"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/DividendsScreen.kt": {
+    "mtime": 1785168108.60535,
+    "ast_hash": "043d51912271a49ed1e41e5a4abd7a2e",
+    "semantic_hash": "043d51912271a49ed1e41e5a4abd7a2e"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/PortfolioScreen.kt": {
+    "mtime": 1785168108.6055121,
+    "ast_hash": "2809b8d13b21b6144988b1360e65c546",
+    "semantic_hash": "2809b8d13b21b6144988b1360e65c546"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/SubPortfolioCashScreen.kt": {
+    "mtime": 1785168108.6056838,
+    "ast_hash": "59387e4a3e14f36df30f335c7278a125",
+    "semantic_hash": "59387e4a3e14f36df30f335c7278a125"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/SubPortfolioDetailScreen.kt": {
+    "mtime": 1785168108.605959,
+    "ast_hash": "c18097b85e95b3f64157196822b5cec9",
+    "semantic_hash": "c18097b85e95b3f64157196822b5cec9"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/TradeFormScreen.kt": {
+    "mtime": 1785168108.6062543,
+    "ast_hash": "9246c6e4a19a0d489e3d2807a1a6fbc1",
+    "semantic_hash": "9246c6e4a19a0d489e3d2807a1a6fbc1"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/portfolio/TradesScreen.kt": {
+    "mtime": 1785168108.6064072,
+    "ast_hash": "bb0a5bb70c4721abf081ebd6cfbd3d9a",
+    "semantic_hash": "bb0a5bb70c4721abf081ebd6cfbd3d9a"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/quickadd/QuickAddSheet.kt": {
+    "mtime": 1785168108.606785,
+    "ast_hash": "458d63edcc120727e5419dfa1ff4ed2e",
+    "semantic_hash": "458d63edcc120727e5419dfa1ff4ed2e"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/theme/Theme.kt": {
+    "mtime": 1785168108.6073956,
+    "ast_hash": "38b2b6f7969de076a7971307f8259dea",
+    "semantic_hash": "38b2b6f7969de076a7971307f8259dea"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/theme/ThemePalettes.kt": {
+    "mtime": 1785168108.607556,
+    "ast_hash": "70084c51768577d336ec2eb0b57a8a55",
+    "semantic_hash": "70084c51768577d336ec2eb0b57a8a55"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/theme/Type.kt": {
+    "mtime": 1785168108.60769,
+    "ast_hash": "c2c6a1dbaceb1961cabc0f97071121ac",
+    "semantic_hash": "c2c6a1dbaceb1961cabc0f97071121ac"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/transactions/CategoriesScreen.kt": {
+    "mtime": 1785168108.6080482,
+    "ast_hash": "a27936a2854f620d35615e2ea17a6e36",
+    "semantic_hash": "a27936a2854f620d35615e2ea17a6e36"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/transactions/TransactionFormScreen.kt": {
+    "mtime": 1785168108.608243,
+    "ast_hash": "4ed318ba6e89bf2fc983378f32cc76a6",
+    "semantic_hash": "4ed318ba6e89bf2fc983378f32cc76a6"
+  },
+  "android/app/src/main/java/com/ivanlee/financetracker/ui/transactions/TransactionsScreen.kt": {
+    "mtime": 1785168108.6085725,
+    "ast_hash": "c38e465c17fe2840973028e81685faf5",
+    "semantic_hash": "c38e465c17fe2840973028e81685faf5"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/ApiUrlTest.kt": {
+    "mtime": 1785168108.6106946,
+    "ast_hash": "656a2ac6e12bc3aeb4811ab27a15b5bd",
+    "semantic_hash": "656a2ac6e12bc3aeb4811ab27a15b5bd"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/BudgetPresentationTest.kt": {
+    "mtime": 1785243641.306582,
+    "ast_hash": "47e4b03d2bcb2dce6bc4da0dec9ad499",
+    "semantic_hash": "47e4b03d2bcb2dce6bc4da0dec9ad499"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/FormattersTest.kt": {
+    "mtime": 1785168108.6109707,
+    "ast_hash": "7ffb226bce3048765e939783f5306b73",
+    "semantic_hash": "7ffb226bce3048765e939783f5306b73"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/GoalProjectionTest.kt": {
+    "mtime": 1785168108.6110985,
+    "ast_hash": "b62b3a0202f7f684270f2577b8c97887",
+    "semantic_hash": "b62b3a0202f7f684270f2577b8c97887"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/ModelDecodingTest.kt": {
+    "mtime": 1785168108.6112459,
+    "ast_hash": "788e8c355c2d885a6058b3879391f6fb",
+    "semantic_hash": "788e8c355c2d885a6058b3879391f6fb"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/PortfolioAnalyticsTest.kt": {
+    "mtime": 1785168108.6113749,
+    "ast_hash": "10de7fd74d9b70976b71811c159d8411",
+    "semantic_hash": "10de7fd74d9b70976b71811c159d8411"
+  },
+  "android/app/src/test/java/com/ivanlee/financetracker/ViewModeVisibilityTest.kt": {
+    "mtime": 1785168108.6114955,
+    "ast_hash": "ad2957898f7abcbeb5affec56157be11",
+    "semantic_hash": "ad2957898f7abcbeb5affec56157be11"
+  },
+  "android/build.gradle.kts": {
+    "mtime": 1785168108.6116016,
+    "ast_hash": "2d26f5eadaa05f755bab54e1071b4c23",
+    "semantic_hash": "2d26f5eadaa05f755bab54e1071b4c23"
+  },
+  "android/gradlew": {
+    "mtime": 1785168108.6127,
+    "ast_hash": "48fe0bd77a66bbb62c1150926ab1332c",
+    "semantic_hash": "48fe0bd77a66bbb62c1150926ab1332c"
+  },
+  "android/scripts/gen_palettes.py": {
+    "mtime": 1785168108.6130443,
+    "ast_hash": "e01d65e987dea40cc51205c26d1ce2f9",
+    "semantic_hash": "e01d65e987dea40cc51205c26d1ce2f9"
+  },
+  "android/settings.gradle.kts": {
+    "mtime": 1785168108.6131535,
+    "ast_hash": "b38ca621a4fa9d986c1317d43d1a1202",
+    "semantic_hash": "b38ca621a4fa9d986c1317d43d1a1202"
+  },
+  "backend/alembic/env.py": {
+    "mtime": 1778239295.8711796,
+    "ast_hash": "738ecfb339c5d7d2c949dfe5ce13bfc3",
+    "semantic_hash": "738ecfb339c5d7d2c949dfe5ce13bfc3"
+  },
+  "backend/alembic/versions/0b51bc0dd274_add_target_amount_to_subportfolio.py": {
+    "mtime": 1783310891.1160462,
+    "ast_hash": "428783dff1830719ed3af0d9208bc4a2",
+    "semantic_hash": "428783dff1830719ed3af0d9208bc4a2"
+  },
+  "backend/alembic/versions/1754a7384d79_budgets_support_multiple_categories.py": {
+    "mtime": 1785242121.0303888,
+    "ast_hash": "90c4a411d764a96ffac3dfa7fb15e7fd",
+    "semantic_hash": "90c4a411d764a96ffac3dfa7fb15e7fd"
+  },
+  "backend/alembic/versions/2ea5dd401ec6_add_market_prices_and_snapshot_.py": {
+    "mtime": 1778239295.8714619,
+    "ast_hash": "3324b18833e7ad68fdabf3d4b3508f31",
+    "semantic_hash": "3324b18833e7ad68fdabf3d4b3508f31"
+  },
+  "backend/alembic/versions/3a8dd8f39502_update_household_to_have_owner_column.py": {
+    "mtime": 1778239295.8716204,
+    "ast_hash": "9ce4a6492260f744b5d82ea89531650e",
+    "semantic_hash": "9ce4a6492260f744b5d82ea89531650e"
+  },
+  "backend/alembic/versions/67229e0d9c94_add_missing_performance_indexes.py": {
+    "mtime": 1785074076.5332422,
+    "ast_hash": "9b1cdf7ed4e06d647559778b4407b83c",
+    "semantic_hash": "9b1cdf7ed4e06d647559778b4407b83c"
+  },
+  "backend/alembic/versions/7966345b6cf5_add_household_defaults.py": {
+    "mtime": 1783310891.1161594,
+    "ast_hash": "796f9983737c2c1a9f9ef3aed2140c71",
+    "semantic_hash": "796f9983737c2c1a9f9ef3aed2140c71"
+  },
+  "backend/alembic/versions/8ef3a3270986_initial_schema_with_uuids.py": {
+    "mtime": 1778239295.871804,
+    "ast_hash": "53c4a8242e400b22e1097b480aff01fc",
+    "semantic_hash": "53c4a8242e400b22e1097b480aff01fc"
+  },
+  "backend/alembic/versions/956575644b4d_add_user_default_account.py": {
+    "mtime": 1785074076.533429,
+    "ast_hash": "9bb52a53bbeedc978887fd77d2ba0cfe",
+    "semantic_hash": "9bb52a53bbeedc978887fd77d2ba0cfe"
+  },
+  "backend/alembic/versions/9d0dae805819_add_unique_constraint_to_snapshots.py": {
+    "mtime": 1783310891.1162746,
+    "ast_hash": "a98dcd539e526abdd62c299450dbd9db",
+    "semantic_hash": "a98dcd539e526abdd62c299450dbd9db"
+  },
+  "backend/alembic/versions/9f1a2b3c4d5e_add_transaction_id_to_trades.py": {
+    "mtime": 1783310672.666966,
+    "ast_hash": "611c768a9c4b8a059dc4fdaa3162756c",
+    "semantic_hash": "611c768a9c4b8a059dc4fdaa3162756c"
+  },
+  "backend/alembic/versions/a1b2c3d4e5f6_add_is_manual_to_account_balances.py": {
+    "mtime": 1783310672.6671584,
+    "ast_hash": "cb490d477df001c83168f8c3a56ce20a",
+    "semantic_hash": "cb490d477df001c83168f8c3a56ce20a"
+  },
+  "backend/alembic/versions/a3b4c5d6e7f8_add_private_shared_ownership_invites_.py": {
+    "mtime": 1784474419.0085187,
+    "ast_hash": "3488909444d7db9afa6c173d015f713d",
+    "semantic_hash": "3488909444d7db9afa6c173d015f713d"
+  },
+  "backend/alembic/versions/aa11bb22cc33_add_account_kind.py": {
+    "mtime": 1784474419.0086048,
+    "ast_hash": "f29362a029e1abb981a7288202bdd705",
+    "semantic_hash": "f29362a029e1abb981a7288202bdd705"
+  },
+  "backend/alembic/versions/b2c3d4e5f6a7_add_transfer_id_to_transaction.py": {
+    "mtime": 1783310672.6673412,
+    "ast_hash": "f76deb835f2ef3aef58fdb7f6b8ab49a",
+    "semantic_hash": "f76deb835f2ef3aef58fdb7f6b8ab49a"
+  },
+  "backend/alembic/versions/bb22cc33dd44_add_asset_pricing_mode.py": {
+    "mtime": 1784474419.0086823,
+    "ast_hash": "cdff7557e364b042fa3857c9b1995f84",
+    "semantic_hash": "cdff7557e364b042fa3857c9b1995f84"
+  },
+  "backend/alembic/versions/c3d4e5f6a7b8_add_multi_currency_columns.py": {
+    "mtime": 1783310672.6674163,
+    "ast_hash": "5c7197fed0135f8c0ea95a9687d26149",
+    "semantic_hash": "5c7197fed0135f8c0ea95a9687d26149"
+  },
+  "backend/alembic/versions/c428099cf186_add_transaction_amount_home_currency.py": {
+    "mtime": 1783310891.1163843,
+    "ast_hash": "03f6063ec27f56f6c471e3d00c957376",
+    "semantic_hash": "03f6063ec27f56f6c471e3d00c957376"
+  },
+  "backend/alembic/versions/c7d8e9f0a1b2_add_cash_settlement_and_dividend_cash_.py": {
+    "mtime": 1784474419.008763,
+    "ast_hash": "734115c2c8c412d87da423f1d4287f5e",
+    "semantic_hash": "734115c2c8c412d87da423f1d4287f5e"
+  },
+  "backend/alembic/versions/cc33dd44ee55_add_scheduled_dividends.py": {
+    "mtime": 1784474419.0088422,
+    "ast_hash": "bf2ea430b84352e97a694181e87a7de3",
+    "semantic_hash": "bf2ea430b84352e97a694181e87a7de3"
+  },
+  "backend/alembic/versions/d4e5f6a7b8c9_add_currency_to_trades.py": {
+    "mtime": 1783310672.6675656,
+    "ast_hash": "955bb68afd14fadf35cec2d66dc2f2aa",
+    "semantic_hash": "955bb68afd14fadf35cec2d66dc2f2aa"
+  },
+  "backend/alembic/versions/d8e9f0a1b2c3_add_hot_path_indexes.py": {
+    "mtime": 1784474419.0089178,
+    "ast_hash": "a81ddf0d439a654c56f5a04fec23fd75",
+    "semantic_hash": "a81ddf0d439a654c56f5a04fec23fd75"
+  },
+  "backend/alembic/versions/dd44ee55ff66_add_property_and_loan_terms.py": {
+    "mtime": 1785074076.533677,
+    "ast_hash": "94400399e25cf65e4c4f4ca2b35af4c3",
+    "semantic_hash": "94400399e25cf65e4c4f4ca2b35af4c3"
+  },
+  "backend/alembic/versions/de68ad645234_fix_household_foreign_keys.py": {
+    "mtime": 1783310891.1164908,
+    "ast_hash": "56f5b52b57659d7b4edc897438173499",
+    "semantic_hash": "56f5b52b57659d7b4edc897438173499"
+  },
+  "backend/alembic/versions/e5f6a7b8c9d0_add_theme_settings_to_user.py": {
+    "mtime": 1783310672.6676958,
+    "ast_hash": "364c96d75ee48e03df154f3a8c1ae48b",
+    "semantic_hash": "364c96d75ee48e03df154f3a8c1ae48b"
+  },
+  "backend/alembic/versions/eb107a14bb34_add_description_to_trades.py": {
+    "mtime": 1783310891.116623,
+    "ast_hash": "35734897c36ec6b9614f90af3b00ac63",
+    "semantic_hash": "35734897c36ec6b9614f90af3b00ac63"
+  },
+  "backend/alembic/versions/ee55ff66aa77_add_recurring_budgets_emergency_fund.py": {
+    "mtime": 1785074076.5339708,
+    "ast_hash": "be338afde4e15e00ecf625be1bb73475",
+    "semantic_hash": "be338afde4e15e00ecf625be1bb73475"
+  },
+  "backend/alembic/versions/f6a7b8c9d0e1_add_created_at_to_snapshots.py": {
+    "mtime": 1783310891.1167378,
+    "ast_hash": "482fe1b7f0ab488f999b797014034227",
+    "semantic_hash": "482fe1b7f0ab488f999b797014034227"
+  },
+  "backend/alembic/versions/f7b8c9d0e1a2_add_auto_dividend_tracking.py": {
+    "mtime": 1783330802.113503,
+    "ast_hash": "ea310038bdb41b993aa3e58cccade61c",
+    "semantic_hash": "ea310038bdb41b993aa3e58cccade61c"
+  },
+  "backend/debug_alembic.py": {
+    "mtime": 1783310672.668096,
+    "ast_hash": "5972ba35513ef61e374fc5ac18b2046b",
+    "semantic_hash": "5972ba35513ef61e374fc5ac18b2046b"
+  },
+  "backend/pyproject.toml": {
+    "mtime": 1783310891.1168847,
+    "ast_hash": "6bc08d7ad371e69a7265134f837f0d0f",
+    "semantic_hash": "6bc08d7ad371e69a7265134f837f0d0f"
+  },
+  "backend/scratch/fix_db.py": {
+    "mtime": 1783310891.1169944,
+    "ast_hash": "23b78acefa262c54ea27d1eb567450bf",
+    "semantic_hash": "23b78acefa262c54ea27d1eb567450bf"
+  },
+  "backend/scratch/inspect_db.py": {
+    "mtime": 1783310672.668941,
+    "ast_hash": "8e9fd4fb238e3a5f1bb8870a1e20a0c2",
+    "semantic_hash": "8e9fd4fb238e3a5f1bb8870a1e20a0c2"
+  },
+  "backend/src/__init__.py": {
+    "mtime": 1778239295.8765547,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "backend/src/auth.py": {
+    "mtime": 1784474419.0090287,
+    "ast_hash": "77e4e300bbd210b94b9e9a1dd2fe034c",
+    "semantic_hash": "77e4e300bbd210b94b9e9a1dd2fe034c"
+  },
+  "backend/src/database.py": {
+    "mtime": 1783310891.1172814,
+    "ast_hash": "e1fb79733f8b1200d6c17f85b7c9ad17",
+    "semantic_hash": "e1fb79733f8b1200d6c17f85b7c9ad17"
+  },
+  "backend/src/main.py": {
+    "mtime": 1785074076.5343134,
+    "ast_hash": "ac1500c7cdacf64a0a596074bafc1bfa",
+    "semantic_hash": "ac1500c7cdacf64a0a596074bafc1bfa"
+  },
+  "backend/src/models.py": {
+    "mtime": 1785242056.26136,
+    "ast_hash": "b89d87b1a86d37c2d45ad3e29e2aece7",
+    "semantic_hash": "b89d87b1a86d37c2d45ad3e29e2aece7"
+  },
+  "backend/src/routers/accounts.py": {
+    "mtime": 1785074076.5349088,
+    "ast_hash": "9181708f6bbf214809709305da4ade02",
+    "semantic_hash": "9181708f6bbf214809709305da4ade02"
+  },
+  "backend/src/routers/auth.py": {
+    "mtime": 1784474419.0095263,
+    "ast_hash": "099bfbd083753184399eec7cdfa56585",
+    "semantic_hash": "099bfbd083753184399eec7cdfa56585"
+  },
+  "backend/src/routers/cashflow.py": {
+    "mtime": 1785242194.3947802,
+    "ast_hash": "04ba3ff13a3459d12ada345678506380",
+    "semantic_hash": "04ba3ff13a3459d12ada345678506380"
+  },
+  "backend/src/routers/exports.py": {
+    "mtime": 1784474419.0097985,
+    "ast_hash": "236c799429bf2ccce3855abf20d8a498",
+    "semantic_hash": "236c799429bf2ccce3855abf20d8a498"
+  },
+  "backend/src/routers/internal.py": {
+    "mtime": 1785074076.5357661,
+    "ast_hash": "8ff43188552d37f0c95d5116ffc99d77",
+    "semantic_hash": "8ff43188552d37f0c95d5116ffc99d77"
+  },
+  "backend/src/routers/portfolio.py": {
+    "mtime": 1785074076.5362256,
+    "ast_hash": "4b74bd1477b08de5536ed9e1b031c2ad",
+    "semantic_hash": "4b74bd1477b08de5536ed9e1b031c2ad"
+  },
+  "backend/src/routers/reference.py": {
+    "mtime": 1783310672.6711862,
+    "ast_hash": "f65d6725911f91e919a68ed73772283b",
+    "semantic_hash": "f65d6725911f91e919a68ed73772283b"
+  },
+  "backend/src/routers/users.py": {
+    "mtime": 1785074076.5364676,
+    "ast_hash": "e04d2ea8efa46a0315831985e1e32293",
+    "semantic_hash": "e04d2ea8efa46a0315831985e1e32293"
+  },
+  "backend/src/schemas.py": {
+    "mtime": 1785242151.1448143,
+    "ast_hash": "9ddb534c202dbb8f4c2e7d773def2ae6",
+    "semantic_hash": "9ddb534c202dbb8f4c2e7d773def2ae6"
+  },
+  "backend/src/services/account_service.py": {
+    "mtime": 1785074076.5371144,
+    "ast_hash": "ff0e207f821ea84ba404857957312cf0",
+    "semantic_hash": "ff0e207f821ea84ba404857957312cf0"
+  },
+  "backend/src/services/budget_service.py": {
+    "mtime": 1785242172.3688636,
+    "ast_hash": "46fb641208534c6432e5b1872c8a6834",
+    "semantic_hash": "46fb641208534c6432e5b1872c8a6834"
+  },
+  "backend/src/services/cache.py": {
+    "mtime": 1785074076.5376987,
+    "ast_hash": "db388061ff1b3f2876910a3ba06f8cc3",
+    "semantic_hash": "db388061ff1b3f2876910a3ba06f8cc3"
+  },
+  "backend/src/services/cash_service.py": {
+    "mtime": 1784474419.01144,
+    "ast_hash": "33bf54052360e8b6d2baab9ff9ea7769",
+    "semantic_hash": "33bf54052360e8b6d2baab9ff9ea7769"
+  },
+  "backend/src/services/date_utils.py": {
+    "mtime": 1785074076.5378695,
+    "ast_hash": "7665edef79eadedf7f25ee55d80fe97e",
+    "semantic_hash": "7665edef79eadedf7f25ee55d80fe97e"
+  },
+  "backend/src/services/dividend_engine.py": {
+    "mtime": 1784474419.0115721,
+    "ast_hash": "944dcc5de8555ed988e44ddf6aaa2cb5",
+    "semantic_hash": "944dcc5de8555ed988e44ddf6aaa2cb5"
+  },
+  "backend/src/services/loan_service.py": {
+    "mtime": 1785074076.5381238,
+    "ast_hash": "5221dc11229ca7d1f3ac62c63a68401c",
+    "semantic_hash": "5221dc11229ca7d1f3ac62c63a68401c"
+  },
+  "backend/src/services/market_data.py": {
+    "mtime": 1783328273.6645262,
+    "ast_hash": "ba110d17dcb4079ae5524134fc7e9508",
+    "semantic_hash": "ba110d17dcb4079ae5524134fc7e9508"
+  },
+  "backend/src/services/performance.py": {
+    "mtime": 1785074076.5383952,
+    "ast_hash": "7da0051345259a07bfb44fb21117a7ae",
+    "semantic_hash": "7da0051345259a07bfb44fb21117a7ae"
+  },
+  "backend/src/services/recurring_service.py": {
+    "mtime": 1785074076.5386796,
+    "ast_hash": "3bdaa9353d236a17ebbd5d46c2f3d258",
+    "semantic_hash": "3bdaa9353d236a17ebbd5d46c2f3d258"
+  },
+  "backend/src/services/snapshot_engine.py": {
+    "mtime": 1785074076.5388894,
+    "ast_hash": "6f6b9dccccb8958d7889918ff6f88309",
+    "semantic_hash": "6f6b9dccccb8958d7889918ff6f88309"
+  },
+  "backend/src/services/transaction_service.py": {
+    "mtime": 1785074076.5390193,
+    "ast_hash": "5f1c9efe08189bf99c79a69ed425629e",
+    "semantic_hash": "5f1c9efe08189bf99c79a69ed425629e"
+  },
+  "backend/tests/__init__.py": {
+    "mtime": 1778239295.879525,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "backend/tests/conftest.py": {
+    "mtime": 1785074076.539453,
+    "ast_hash": "f4575db9f43969d04751e283fc6ce8e5",
+    "semantic_hash": "f4575db9f43969d04751e283fc6ce8e5"
+  },
+  "backend/tests/test_account_balance_sync.py": {
+    "mtime": 1783310672.6723287,
+    "ast_hash": "0150290cdd92a6bf0d427a21843742a1",
+    "semantic_hash": "0150290cdd92a6bf0d427a21843742a1"
+  },
+  "backend/tests/test_accounts.py": {
+    "mtime": 1783325535.9395735,
+    "ast_hash": "2f4fd2096bcfc8ed31ba6800c0cf9771",
+    "semantic_hash": "2f4fd2096bcfc8ed31ba6800c0cf9771"
+  },
+  "backend/tests/test_adversarial.py": {
+    "mtime": 1784474419.0119984,
+    "ast_hash": "33be8c07bdbc2d4dfef075fd958f9e14",
+    "semantic_hash": "33be8c07bdbc2d4dfef075fd958f9e14"
+  },
+  "backend/tests/test_auth_routes.py": {
+    "mtime": 1784474419.0121415,
+    "ast_hash": "4db3a91fa5c7eb2e36c9f952fa78bf21",
+    "semantic_hash": "4db3a91fa5c7eb2e36c9f952fa78bf21"
+  },
+  "backend/tests/test_budgets_and_emergency_fund.py": {
+    "mtime": 1785242274.2108672,
+    "ast_hash": "247bad65418a202c4c9845a09c65b23f",
+    "semantic_hash": "247bad65418a202c4c9845a09c65b23f"
+  },
+  "backend/tests/test_cashflow.py": {
+    "mtime": 1785074076.5401206,
+    "ast_hash": "6c306bd10cc02871bb01625ce8bdfb7c",
+    "semantic_hash": "6c306bd10cc02871bb01625ce8bdfb7c"
+  },
+  "backend/tests/test_dividends.py": {
+    "mtime": 1784474419.0122643,
+    "ast_hash": "ede53fe0ce892dc99b3818b41ecba7e0",
+    "semantic_hash": "ede53fe0ce892dc99b3818b41ecba7e0"
+  },
+  "backend/tests/test_exports.py": {
+    "mtime": 1784474419.0124216,
+    "ast_hash": "4f3e13536e1d24ad8b69a9f3a49890fb",
+    "semantic_hash": "4f3e13536e1d24ad8b69a9f3a49890fb"
+  },
+  "backend/tests/test_household_roles.py": {
+    "mtime": 1778239295.8802643,
+    "ast_hash": "d74c864316d21015c529c0a56c3c5c0d",
+    "semantic_hash": "d74c864316d21015c529c0a56c3c5c0d"
+  },
+  "backend/tests/test_market_data_cache.py": {
+    "mtime": 1784474419.0125103,
+    "ast_hash": "dc614c93947125f0b4a138add5750616",
+    "semantic_hash": "dc614c93947125f0b4a138add5750616"
+  },
+  "backend/tests/test_ownership_and_invites.py": {
+    "mtime": 1784474419.0125916,
+    "ast_hash": "9f20c867e604ea2bffeb49d0609f3e03",
+    "semantic_hash": "9f20c867e604ea2bffeb49d0609f3e03"
+  },
+  "backend/tests/test_performance_math.py": {
+    "mtime": 1783310672.6727247,
+    "ast_hash": "041b14230cd69de0a6197f317272c911",
+    "semantic_hash": "041b14230cd69de0a6197f317272c911"
+  },
+  "backend/tests/test_performance_metrics_verification.py": {
+    "mtime": 1784474419.0126877,
+    "ast_hash": "2ca63af193433c768e619c176c6f3681",
+    "semantic_hash": "2ca63af193433c768e619c176c6f3681"
+  },
+  "backend/tests/test_performance_service.py": {
+    "mtime": 1784474419.0127704,
+    "ast_hash": "a49f172a96e8b615f0f0dbbab56e8686",
+    "semantic_hash": "a49f172a96e8b615f0f0dbbab56e8686"
+  },
+  "backend/tests/test_portfolio.py": {
+    "mtime": 1785074076.5404024,
+    "ast_hash": "165c5a0383b45f2060c42f85a3f68442",
+    "semantic_hash": "165c5a0383b45f2060c42f85a3f68442"
+  },
+  "backend/tests/test_portfolio_metrics_and_dividends.py": {
+    "mtime": 1784474419.0129716,
+    "ast_hash": "3b525e8d023a30be96cd758c2454abac",
+    "semantic_hash": "3b525e8d023a30be96cd758c2454abac"
+  },
+  "backend/tests/test_property_and_loans.py": {
+    "mtime": 1785074076.5406108,
+    "ast_hash": "2f066e7db315a8a4ccab134293f55abd",
+    "semantic_hash": "2f066e7db315a8a4ccab134293f55abd"
+  },
+  "backend/tests/test_recurring_transactions.py": {
+    "mtime": 1785074076.5408707,
+    "ast_hash": "3a404edc631cc3cbcf7a6afcedfaf377",
+    "semantic_hash": "3a404edc631cc3cbcf7a6afcedfaf377"
+  },
+  "backend/tests/test_reference_and_internal.py": {
+    "mtime": 1784474419.0130532,
+    "ast_hash": "5c0c3179883ed0a83259013a8ba8ec4b",
+    "semantic_hash": "5c0c3179883ed0a83259013a8ba8ec4b"
+  },
+  "backend/tests/test_snapshot_engine.py": {
+    "mtime": 1784474419.0131633,
+    "ast_hash": "78b1417975fe284b9b71cca59d8a8379",
+    "semantic_hash": "78b1417975fe284b9b71cca59d8a8379"
+  },
+  "backend/tests/test_subportfolio_cash.py": {
+    "mtime": 1784474419.0132468,
+    "ast_hash": "27d8d7370530edb22c8ff6e2eca950b9",
+    "semantic_hash": "27d8d7370530edb22c8ff6e2eca950b9"
+  },
+  "backend/tests/test_trade_cash_settlement.py": {
+    "mtime": 1784474419.013474,
+    "ast_hash": "1fdfde5266895d8f744933bffead8f23",
+    "semantic_hash": "1fdfde5266895d8f744933bffead8f23"
+  },
+  "backend/tests/test_trades_transactions.py": {
+    "mtime": 1783310672.6728423,
+    "ast_hash": "ad2bc52920b5b3e19be6501ed6b120cf",
+    "semantic_hash": "ad2bc52920b5b3e19be6501ed6b120cf"
+  },
+  "backend/tests/test_transfers.py": {
+    "mtime": 1784474419.013567,
+    "ast_hash": "975e9a43cfa4c2b8c7cb7c78e2a43bf6",
+    "semantic_hash": "975e9a43cfa4c2b8c7cb7c78e2a43bf6"
+  },
+  "backend/tests/test_users_households.py": {
+    "mtime": 1785074076.5410542,
+    "ast_hash": "949aa98f80756b4017c62b0d4a2f00db",
+    "semantic_hash": "949aa98f80756b4017c62b0d4a2f00db"
+  },
+  "frontend/eslint.config.js": {
+    "mtime": 1784474419.014422,
+    "ast_hash": "997d44103aaed398e763648c5566231b",
+    "semantic_hash": "997d44103aaed398e763648c5566231b"
+  },
+  "frontend/package.json": {
+    "mtime": 1783491528.6343174,
+    "ast_hash": "7d17cecfff2c2dd05da0f926aa512d6f",
+    "semantic_hash": "7d17cecfff2c2dd05da0f926aa512d6f"
+  },
+  "frontend/react-router.config.ts": {
+    "mtime": 1778239295.884593,
+    "ast_hash": "570b9cf38d1836d15d5ceb852008389a",
+    "semantic_hash": "570b9cf38d1836d15d5ceb852008389a"
+  },
+  "frontend/src/LandingPage.tsx": {
+    "mtime": 1785078167.664383,
+    "ast_hash": "c7728fa769a4c6db6d6c59b76de32e1d",
+    "semantic_hash": "c7728fa769a4c6db6d6c59b76de32e1d"
+  },
+  "frontend/src/catchall.tsx": {
+    "mtime": 1778239295.8854342,
+    "ast_hash": "314565e08268690939cdd65b9893658a",
+    "semantic_hash": "314565e08268690939cdd65b9893658a"
+  },
+  "frontend/src/components/BrandMark.tsx": {
+    "mtime": 1785078167.6650295,
+    "ast_hash": "257c1b32652cb9001f0b8e6f0ff27901",
+    "semantic_hash": "257c1b32652cb9001f0b8e6f0ff27901"
+  },
+  "frontend/src/components/CommandBar/CommandBar.tsx": {
+    "mtime": 1785074076.5413487,
+    "ast_hash": "f6c429d8e22e93e2c8e39a6931ae8e25",
+    "semantic_hash": "f6c429d8e22e93e2c8e39a6931ae8e25"
+  },
+  "frontend/src/components/CommandBar/receiptScan.ts": {
+    "mtime": 1784474419.0151896,
+    "ast_hash": "e618eaf368b34652dec2287235936124",
+    "semantic_hash": "e618eaf368b34652dec2287235936124"
+  },
+  "frontend/src/components/ErrorBoundary.tsx": {
+    "mtime": 1783310891.1235473,
+    "ast_hash": "c80ed3fe437b67dd1587292595582c0d",
+    "semantic_hash": "c80ed3fe437b67dd1587292595582c0d"
+  },
+  "frontend/src/components/HouseholdSelector.tsx": {
+    "mtime": 1784474419.0153017,
+    "ast_hash": "9c88dfbf3841a18d67673471129858b7",
+    "semantic_hash": "9c88dfbf3841a18d67673471129858b7"
+  },
+  "frontend/src/components/QuickAddButton.tsx": {
+    "mtime": 1785078167.6654186,
+    "ast_hash": "0e6caaecb72d89f40d04371e7afe0f82",
+    "semantic_hash": "0e6caaecb72d89f40d04371e7afe0f82"
+  },
+  "frontend/src/components/TopBar.tsx": {
+    "mtime": 1785078167.666016,
+    "ast_hash": "02c9419c79a591d4dd4718f59b57fbb8",
+    "semantic_hash": "02c9419c79a591d4dd4718f59b57fbb8"
+  },
+  "frontend/src/components/sidebar.tsx": {
+    "mtime": 1785078167.6663094,
+    "ast_hash": "227e50bebf134cd6eabe3007b5af8692",
+    "semantic_hash": "227e50bebf134cd6eabe3007b5af8692"
+  },
+  "frontend/src/components/sidebarButton.tsx": {
+    "mtime": 1783310672.679072,
+    "ast_hash": "e734c1d55c4fd5503ea4ee2688ba6568",
+    "semantic_hash": "e734c1d55c4fd5503ea4ee2688ba6568"
+  },
+  "frontend/src/components/ui/Badge.tsx": {
+    "mtime": 1784474419.0156841,
+    "ast_hash": "840ac828c22c2d1d31892943b66d6071",
+    "semantic_hash": "840ac828c22c2d1d31892943b66d6071"
+  },
+  "frontend/src/components/ui/Button.test.tsx": {
+    "mtime": 1783310891.1239767,
+    "ast_hash": "3b6872d9b85e731996cf7d332199123b",
+    "semantic_hash": "3b6872d9b85e731996cf7d332199123b"
+  },
+  "frontend/src/components/ui/Button.tsx": {
+    "mtime": 1784474419.0157828,
+    "ast_hash": "ebf1b3db3a274a3023559f96ce702400",
+    "semantic_hash": "ebf1b3db3a274a3023559f96ce702400"
+  },
+  "frontend/src/components/ui/Card.tsx": {
+    "mtime": 1783310891.1240876,
+    "ast_hash": "0ef901fe3a74a49991eb6a3e119fb5e0",
+    "semantic_hash": "0ef901fe3a74a49991eb6a3e119fb5e0"
+  },
+  "frontend/src/components/ui/Dialog.tsx": {
+    "mtime": 1783310891.1242075,
+    "ast_hash": "b18c6c00a447119d044474a59921a614",
+    "semantic_hash": "b18c6c00a447119d044474a59921a614"
+  },
+  "frontend/src/components/ui/GoalCard.tsx": {
+    "mtime": 1783310891.124311,
+    "ast_hash": "713390b3fea5519d46300b2037e18d6a",
+    "semantic_hash": "713390b3fea5519d46300b2037e18d6a"
+  },
+  "frontend/src/components/ui/Input.tsx": {
+    "mtime": 1783310891.1244361,
+    "ast_hash": "8b6086d3428663e78a832a5320ae87ac",
+    "semantic_hash": "8b6086d3428663e78a832a5320ae87ac"
+  },
+  "frontend/src/components/ui/OwnershipTag.tsx": {
+    "mtime": 1784474419.0158594,
+    "ast_hash": "1d575483ec8d2845c4808ccd911b13df",
+    "semantic_hash": "1d575483ec8d2845c4808ccd911b13df"
+  },
+  "frontend/src/components/ui/Select.test.tsx": {
+    "mtime": 1784474419.015941,
+    "ast_hash": "1c4b25fb5df08e3510a9933fa3375a78",
+    "semantic_hash": "1c4b25fb5df08e3510a9933fa3375a78"
+  },
+  "frontend/src/components/ui/Select.tsx": {
+    "mtime": 1784474419.0160391,
+    "ast_hash": "7ced2104e2266ecff3b1532a228f203c",
+    "semantic_hash": "7ced2104e2266ecff3b1532a228f203c"
+  },
+  "frontend/src/components/ui/StatCard.tsx": {
+    "mtime": 1784474419.016145,
+    "ast_hash": "3cbc50db3c4dc447ac07893320247216",
+    "semantic_hash": "3cbc50db3c4dc447ac07893320247216"
+  },
+  "frontend/src/components/ui/TimeframeSelector.tsx": {
+    "mtime": 1783310891.124671,
+    "ast_hash": "5e94bef6598c95634409c04c2d406bc6",
+    "semantic_hash": "5e94bef6598c95634409c04c2d406bc6"
+  },
+  "frontend/src/entry.client.tsx": {
+    "mtime": 1783310891.1247914,
+    "ast_hash": "4c5c0d591e5c1331722f5c6e978c60f9",
+    "semantic_hash": "4c5c0d591e5c1331722f5c6e978c60f9"
+  },
+  "frontend/src/lib/AuthContext.tsx": {
+    "mtime": 1783310672.6806545,
+    "ast_hash": "a65753323c65d1750f11bb85cca4c728",
+    "semantic_hash": "a65753323c65d1750f11bb85cca4c728"
+  },
+  "frontend/src/lib/CommandBarContext.tsx": {
+    "mtime": 1784474419.0164125,
+    "ast_hash": "d28e514776ab82b41f2be8a76cce97f6",
+    "semantic_hash": "d28e514776ab82b41f2be8a76cce97f6"
+  },
+  "frontend/src/lib/HouseholdContext.tsx": {
+    "mtime": 1783310672.6810622,
+    "ast_hash": "6a7c4007de85b4baeb9b2d1de1eb0367",
+    "semantic_hash": "6a7c4007de85b4baeb9b2d1de1eb0367"
+  },
+  "frontend/src/lib/ProtectedRoute.tsx": {
+    "mtime": 1778239295.8875844,
+    "ast_hash": "2a1dede898b236d227f81622f0086c54",
+    "semantic_hash": "2a1dede898b236d227f81622f0086c54"
+  },
+  "frontend/src/lib/ThemeContext.tsx": {
+    "mtime": 1783310891.125454,
+    "ast_hash": "f99b83d2a953a59f6f92f6c52608320a",
+    "semantic_hash": "f99b83d2a953a59f6f92f6c52608320a"
+  },
+  "frontend/src/lib/ViewModeContext.tsx": {
+    "mtime": 1784474419.0165055,
+    "ast_hash": "f6cfc6ca99de89bb3e081af92b6350c1",
+    "semantic_hash": "f6cfc6ca99de89bb3e081af92b6350c1"
+  },
+  "frontend/src/lib/api-url.ts": {
+    "mtime": 1783310891.1255875,
+    "ast_hash": "b6d208e1b84a5321a4b14eadf3570f90",
+    "semantic_hash": "b6d208e1b84a5321a4b14eadf3570f90"
+  },
+  "frontend/src/lib/api.ts": {
+    "mtime": 1783310891.1257248,
+    "ast_hash": "cbaa1e1f319540fca1e6be9c129a79a5",
+    "semantic_hash": "cbaa1e1f319540fca1e6be9c129a79a5"
+  },
+  "frontend/src/lib/budgets.test.ts": {
+    "mtime": 1785242360.6066303,
+    "ast_hash": "34a7a846d08c52e2d24a4c884249eab3",
+    "semantic_hash": "34a7a846d08c52e2d24a4c884249eab3"
+  },
+  "frontend/src/lib/budgets.ts": {
+    "mtime": 1785074076.5419621,
+    "ast_hash": "29f3922426d375eb891d431d2b5880c6",
+    "semantic_hash": "29f3922426d375eb891d431d2b5880c6"
+  },
+  "frontend/src/lib/commandParser.test.ts": {
+    "mtime": 1784474419.0166175,
+    "ast_hash": "d4807217f8547a93c3821a324f7c9b55",
+    "semantic_hash": "d4807217f8547a93c3821a324f7c9b55"
+  },
+  "frontend/src/lib/commandParser.ts": {
+    "mtime": 1784474419.016753,
+    "ast_hash": "a218f9f6080c903c0976173af3020ab2",
+    "semantic_hash": "a218f9f6080c903c0976173af3020ab2"
+  },
+  "frontend/src/lib/dividends.ts": {
+    "mtime": 1784474419.0168521,
+    "ast_hash": "f4d3ee70bfdcbf43e4ed05144d5347dd",
+    "semantic_hash": "f4d3ee70bfdcbf43e4ed05144d5347dd"
+  },
+  "frontend/src/lib/download.ts": {
+    "mtime": 1784474419.0169482,
+    "ast_hash": "591ca4e7b3e76496362dd65031ffb1ef",
+    "semantic_hash": "591ca4e7b3e76496362dd65031ffb1ef"
+  },
+  "frontend/src/lib/goals.test.ts": {
+    "mtime": 1785074076.5422156,
+    "ast_hash": "4132e3de5ab7644cbbf9bd6405c30df8",
+    "semantic_hash": "4132e3de5ab7644cbbf9bd6405c30df8"
+  },
+  "frontend/src/lib/goals.ts": {
+    "mtime": 1785074076.5424619,
+    "ast_hash": "b3de3a7e25c3e9512f57d27f59ca7fff",
+    "semantic_hash": "b3de3a7e25c3e9512f57d27f59ca7fff"
+  },
+  "frontend/src/lib/networth.test.ts": {
+    "mtime": 1785074076.5426173,
+    "ast_hash": "726f4e83d5643ff25fb2ceb7543b7929",
+    "semantic_hash": "726f4e83d5643ff25fb2ceb7543b7929"
+  },
+  "frontend/src/lib/networth.ts": {
+    "mtime": 1785074076.5427587,
+    "ast_hash": "85bc8bd13a288c6dffb572a8559e5162",
+    "semantic_hash": "85bc8bd13a288c6dffb572a8559e5162"
+  },
+  "frontend/src/lib/ssr-helpers.ts": {
+    "mtime": 1783310891.125872,
+    "ast_hash": "50c48daf1c73870645ae89f936a89b45",
+    "semantic_hash": "50c48daf1c73870645ae89f936a89b45"
+  },
+  "frontend/src/lib/utils.ts": {
+    "mtime": 1778239295.8883991,
+    "ast_hash": "5a6fd53fdcf2be529e9cc0b718fde352",
+    "semantic_hash": "5a6fd53fdcf2be529e9cc0b718fde352"
+  },
+  "frontend/src/lib/viewModeVisibility.test.ts": {
+    "mtime": 1784474419.0172849,
+    "ast_hash": "7840159d92ba2268b7b82012ed28c508",
+    "semantic_hash": "7840159d92ba2268b7b82012ed28c508"
+  },
+  "frontend/src/pages/Accounts/Accounts.tsx": {
+    "mtime": 1785078167.6667569,
+    "ast_hash": "0ae76a86a792f7b303f43b89d24528f3",
+    "semantic_hash": "0ae76a86a792f7b303f43b89d24528f3"
+  },
+  "frontend/src/pages/Accounts/accounts.loader.ts": {
+    "mtime": 1785074076.5434713,
+    "ast_hash": "2f4043486d71cef1a8b69ab580608785",
+    "semantic_hash": "2f4043486d71cef1a8b69ab580608785"
+  },
+  "frontend/src/pages/Accounts/loanSchedule.resource.ts": {
+    "mtime": 1785074076.5437229,
+    "ast_hash": "7a2d4ff5346a486795e0d4827d82d64f",
+    "semantic_hash": "7a2d4ff5346a486795e0d4827d82d64f"
+  },
+  "frontend/src/pages/Budgets/Budgets.tsx": {
+    "mtime": 1785242353.6931858,
+    "ast_hash": "2eedbc778f299cc8ba7f1a8346a9a199",
+    "semantic_hash": "2eedbc778f299cc8ba7f1a8346a9a199"
+  },
+  "frontend/src/pages/Budgets/budgets.loader.ts": {
+    "mtime": 1785242323.6755924,
+    "ast_hash": "dc5aacb181b0b3f51d1218557e2e5ac3",
+    "semantic_hash": "dc5aacb181b0b3f51d1218557e2e5ac3"
+  },
+  "frontend/src/pages/Dashboard/Dashboard.test.tsx": {
+    "mtime": 1783310891.1268306,
+    "ast_hash": "490ad42f68c5725d6573e48b3591f0ad",
+    "semantic_hash": "490ad42f68c5725d6573e48b3591f0ad"
+  },
+  "frontend/src/pages/Dashboard/Dashboard.tsx": {
+    "mtime": 1785078167.667531,
+    "ast_hash": "fcea2d4b3d1adee60b8dbf359fc701bd",
+    "semantic_hash": "fcea2d4b3d1adee60b8dbf359fc701bd"
+  },
+  "frontend/src/pages/Dashboard/dashboard.loader.ts": {
+    "mtime": 1785074076.5446882,
+    "ast_hash": "c4072ed828e620471fbf91459f065461",
+    "semantic_hash": "c4072ed828e620471fbf91459f065461"
+  },
+  "frontend/src/pages/Dividends/Dividends.test.tsx": {
+    "mtime": 1784474419.0179148,
+    "ast_hash": "31062b142f25360686f50f2ce81735b5",
+    "semantic_hash": "31062b142f25360686f50f2ce81735b5"
+  },
+  "frontend/src/pages/Dividends/Dividends.tsx": {
+    "mtime": 1785078167.6679516,
+    "ast_hash": "bb0533de78a628c23f906959bead53e0",
+    "semantic_hash": "bb0533de78a628c23f906959bead53e0"
+  },
+  "frontend/src/pages/Dividends/dividends.loader.ts": {
+    "mtime": 1784474419.0181766,
+    "ast_hash": "17649816728dcf6abc75c8d03910c8d3",
+    "semantic_hash": "17649816728dcf6abc75c8d03910c8d3"
+  },
+  "frontend/src/pages/Goals/GoalDetail.tsx": {
+    "mtime": 1785078167.6684086,
+    "ast_hash": "abb0387ecbeca3d8ae5616c8ffa8e35b",
+    "semantic_hash": "abb0387ecbeca3d8ae5616c8ffa8e35b"
+  },
+  "frontend/src/pages/Goals/Goals.test.tsx": {
+    "mtime": 1784474419.0183828,
+    "ast_hash": "1ddb01313f1ba431c4a58d78f2664a91",
+    "semantic_hash": "1ddb01313f1ba431c4a58d78f2664a91"
+  },
+  "frontend/src/pages/Goals/Goals.tsx": {
+    "mtime": 1785078167.6689336,
+    "ast_hash": "71bdbe5707072ee6aa1c29979f4ff5a5",
+    "semantic_hash": "71bdbe5707072ee6aa1c29979f4ff5a5"
+  },
+  "frontend/src/pages/Goals/goalDetail.loader.ts": {
+    "mtime": 1785074076.5454767,
+    "ast_hash": "05594432943ae316f9765d1174d5a743",
+    "semantic_hash": "05594432943ae316f9765d1174d5a743"
+  },
+  "frontend/src/pages/Goals/goals.loader.ts": {
+    "mtime": 1785074076.5457582,
+    "ast_hash": "6faed21c50122b31e246bb8088639acd",
+    "semantic_hash": "6faed21c50122b31e246bb8088639acd"
+  },
+  "frontend/src/pages/Household/Households.tsx": {
+    "mtime": 1785078167.6693723,
+    "ast_hash": "d6934690e19418d77427efccab913458",
+    "semantic_hash": "d6934690e19418d77427efccab913458"
+  },
+  "frontend/src/pages/Household/households.loader.ts": {
+    "mtime": 1784474419.0189986,
+    "ast_hash": "949e66fa8be88ea7c07bc872086b8df1",
+    "semantic_hash": "949e66fa8be88ea7c07bc872086b8df1"
+  },
+  "frontend/src/pages/Login/Login.tsx": {
+    "mtime": 1785078167.6698546,
+    "ast_hash": "9c79979ddd98a444da27e9b72f58f955",
+    "semantic_hash": "9c79979ddd98a444da27e9b72f58f955"
+  },
+  "frontend/src/pages/Logout/logout.ts": {
+    "mtime": 1784474419.0192137,
+    "ast_hash": "20692ae8af83a6ba63b4b27ee9ffcdc2",
+    "semantic_hash": "20692ae8af83a6ba63b4b27ee9ffcdc2"
+  },
+  "frontend/src/pages/Onboarding/Onboarding.tsx": {
+    "mtime": 1784474419.019366,
+    "ast_hash": "5fb46c4e94ffc7aa8bdb323c1fab3e13",
+    "semantic_hash": "5fb46c4e94ffc7aa8bdb323c1fab3e13"
+  },
+  "frontend/src/pages/Onboarding/onboarding.loader.ts": {
+    "mtime": 1784474419.0194597,
+    "ast_hash": "3117cbd4e86076d301cd5fe1d7c09b9f",
+    "semantic_hash": "3117cbd4e86076d301cd5fe1d7c09b9f"
+  },
+  "frontend/src/pages/Portfolio/Portfolio.test.tsx": {
+    "mtime": 1783310891.1275296,
+    "ast_hash": "09f8a0218278ebf68ea455f20b7f8871",
+    "semantic_hash": "09f8a0218278ebf68ea455f20b7f8871"
+  },
+  "frontend/src/pages/Portfolio/Portfolio.tsx": {
+    "mtime": 1785078167.6703103,
+    "ast_hash": "2f9ae35812107da5cf9913bf1ddccb5c",
+    "semantic_hash": "2f9ae35812107da5cf9913bf1ddccb5c"
+  },
+  "frontend/src/pages/Portfolio/portfolio.loader.ts": {
+    "mtime": 1785074076.5463893,
+    "ast_hash": "af782e33efe8f96b61b824af75971b26",
+    "semantic_hash": "af782e33efe8f96b61b824af75971b26"
+  },
+  "frontend/src/pages/Profile/profile.redirect.ts": {
+    "mtime": 1784474419.0199761,
+    "ast_hash": "ce4778edfe19cf6aacd8ff630f02a8fc",
+    "semantic_hash": "ce4778edfe19cf6aacd8ff630f02a8fc"
+  },
+  "frontend/src/pages/Recurring/Recurring.tsx": {
+    "mtime": 1785078167.6706314,
+    "ast_hash": "87098d8b6f5e9933ca9ba78b12d381e9",
+    "semantic_hash": "87098d8b6f5e9933ca9ba78b12d381e9"
+  },
+  "frontend/src/pages/Recurring/recurring.loader.ts": {
+    "mtime": 1785074076.5467246,
+    "ast_hash": "9f833ebeb5dcf5525142bf4948950751",
+    "semantic_hash": "9f833ebeb5dcf5525142bf4948950751"
+  },
+  "frontend/src/pages/Reports/Reports.tsx": {
+    "mtime": 1785078167.6711302,
+    "ast_hash": "a394f290fbb919a4e4810fb1aeefa64b",
+    "semantic_hash": "a394f290fbb919a4e4810fb1aeefa64b"
+  },
+  "frontend/src/pages/Reports/reports.loader.ts": {
+    "mtime": 1784474419.0203056,
+    "ast_hash": "a8522d0a930ff4d2f4d0e98ed3f87753",
+    "semantic_hash": "a8522d0a930ff4d2f4d0e98ed3f87753"
+  },
+  "frontend/src/pages/Settings/Settings.test.tsx": {
+    "mtime": 1784474419.0204666,
+    "ast_hash": "18dc612a72e1d43e104043adb2106e04",
+    "semantic_hash": "18dc612a72e1d43e104043adb2106e04"
+  },
+  "frontend/src/pages/Settings/Settings.tsx": {
+    "mtime": 1785078167.6714678,
+    "ast_hash": "fe19b9777e8cc7ee532669bd05c03f9b",
+    "semantic_hash": "fe19b9777e8cc7ee532669bd05c03f9b"
+  },
+  "frontend/src/pages/Settings/settings.loader.ts": {
+    "mtime": 1785074076.547132,
+    "ast_hash": "c0a57c2894765ca7caad14ae83993a44",
+    "semantic_hash": "c0a57c2894765ca7caad14ae83993a44"
+  },
+  "frontend/src/pages/Signup/Signup.tsx": {
+    "mtime": 1785078167.672755,
+    "ast_hash": "22110ae738374fe7218115d536dbce89",
+    "semantic_hash": "22110ae738374fe7218115d536dbce89"
+  },
+  "frontend/src/pages/Trade/Trade.tsx": {
+    "mtime": 1785078167.6733646,
+    "ast_hash": "1e4235d20cd7893d64b42b6ad17465be",
+    "semantic_hash": "1e4235d20cd7893d64b42b6ad17465be"
+  },
+  "frontend/src/pages/Trade/trade.loader.ts": {
+    "mtime": 1783310672.6932058,
+    "ast_hash": "e78367facf83357d8ce319b022ecc5de",
+    "semantic_hash": "e78367facf83357d8ce319b022ecc5de"
+  },
+  "frontend/src/pages/Transactions/Transactions.tsx": {
+    "mtime": 1785078167.6740067,
+    "ast_hash": "4d730a127687efa792775846c92a6411",
+    "semantic_hash": "4d730a127687efa792775846c92a6411"
+  },
+  "frontend/src/pages/Transactions/transactions.loader.ts": {
+    "mtime": 1783310672.6935034,
+    "ast_hash": "431dbf7697813b7961955490c1e0c990",
+    "semantic_hash": "431dbf7697813b7961955490c1e0c990"
+  },
+  "frontend/src/root.tsx": {
+    "mtime": 1785078167.6749618,
+    "ast_hash": "ea118d4c6a79a74e2cfe112b46ca0abd",
+    "semantic_hash": "ea118d4c6a79a74e2cfe112b46ca0abd"
+  },
+  "frontend/src/routes.ts": {
+    "mtime": 1785074076.5477417,
+    "ast_hash": "492a8551b09ca135f5f1b274d7302e4c",
+    "semantic_hash": "492a8551b09ca135f5f1b274d7302e4c"
+  },
+  "frontend/src/setupTests.ts": {
+    "mtime": 1784474419.0221813,
+    "ast_hash": "2c9e4be2a8fdf9d74e30543a450dec25",
+    "semantic_hash": "2c9e4be2a8fdf9d74e30543a450dec25"
+  },
+  "frontend/src/test-utils.tsx": {
+    "mtime": 1784474419.0222878,
+    "ast_hash": "f4bba4e6236a8668e80950a3d2579be8",
+    "semantic_hash": "f4bba4e6236a8668e80950a3d2579be8"
+  },
+  "frontend/src/types/types.ts": {
+    "mtime": 1785242317.5470984,
+    "ast_hash": "c798278b57ae3c138414131b521e36b2",
+    "semantic_hash": "c798278b57ae3c138414131b521e36b2"
+  },
+  "frontend/tsconfig.app.json": {
+    "mtime": 1783310891.1294575,
+    "ast_hash": "c48ff935c99a136f0b2519fc9ba91f3d",
+    "semantic_hash": "c48ff935c99a136f0b2519fc9ba91f3d"
+  },
+  "frontend/tsconfig.json": {
+    "mtime": 1778239295.8923957,
+    "ast_hash": "a3d39fa780ebff65444de257f291ce6c",
+    "semantic_hash": "a3d39fa780ebff65444de257f291ce6c"
+  },
+  "frontend/tsconfig.node.json": {
+    "mtime": 1778313026.0172627,
+    "ast_hash": "70bdd0a673bcfc0e828080b306e7c680",
+    "semantic_hash": "70bdd0a673bcfc0e828080b306e7c680"
+  },
+  "frontend/vite.config.ts": {
+    "mtime": 1784474419.0226119,
+    "ast_hash": "31303e569be246bf400fb8449f610433",
+    "semantic_hash": "31303e569be246bf400fb8449f610433"
+  },
+  "frontend/vitest.config.ts": {
+    "mtime": 1783310891.1297803,
+    "ast_hash": "29b37fe564b7c5e79debc725a29417a2",
+    "semantic_hash": "29b37fe564b7c5e79debc725a29417a2"
+  },
+  "ios/FinanceTracker/Assets.xcassets/AccentColor.colorset/Contents.json": {
+    "mtime": 1785074076.5489743,
+    "ast_hash": "10a04f2bd2a1d670b9641a89038ab43f",
+    "semantic_hash": "10a04f2bd2a1d670b9641a89038ab43f"
+  },
+  "ios/FinanceTracker/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+    "mtime": 1785074076.5500674,
+    "ast_hash": "4d41e8b29b6713197f46c7d0367e8b74",
+    "semantic_hash": "4d41e8b29b6713197f46c7d0367e8b74"
+  },
+  "ios/FinanceTracker/Assets.xcassets/Contents.json": {
+    "mtime": 1785074076.5502548,
+    "ast_hash": "30278d05fb9abefb0e7aec38cdca4976",
+    "semantic_hash": "30278d05fb9abefb0e7aec38cdca4976"
+  },
+  "ios/FinanceTracker/FinanceTrackerApp.swift": {
+    "mtime": 1785074076.5504866,
+    "ast_hash": "97e9898f6d87203a781523a94b19f470",
+    "semantic_hash": "97e9898f6d87203a781523a94b19f470"
+  },
+  "ios/FinanceTracker/Models/Models.swift": {
+    "mtime": 1785242782.3200688,
+    "ast_hash": "2196170d59a44c33548fded2200e0d9a",
+    "semantic_hash": "2196170d59a44c33548fded2200e0d9a"
+  },
+  "ios/FinanceTracker/Networking/APIClient.swift": {
+    "mtime": 1785074076.551482,
+    "ast_hash": "eecfcb4b706f1f31871e331753ef25c8",
+    "semantic_hash": "eecfcb4b706f1f31871e331753ef25c8"
+  },
+  "ios/FinanceTracker/Networking/Keychain.swift": {
+    "mtime": 1785074076.551737,
+    "ast_hash": "e5857b6603d4a01ff00792ddd0eeeaa3",
+    "semantic_hash": "e5857b6603d4a01ff00792ddd0eeeaa3"
+  },
+  "ios/FinanceTracker/State/QuickAddStore.swift": {
+    "mtime": 1785074076.5521183,
+    "ast_hash": "f0257ffb3531ab6ead0e1535ddd4d9a8",
+    "semantic_hash": "f0257ffb3531ab6ead0e1535ddd4d9a8"
+  },
+  "ios/FinanceTracker/State/SessionStore.swift": {
+    "mtime": 1785074076.5523856,
+    "ast_hash": "d1f6f1a072a6f4910b8543fabd076f37",
+    "semantic_hash": "d1f6f1a072a6f4910b8543fabd076f37"
+  },
+  "ios/FinanceTracker/State/ViewModeStore.swift": {
+    "mtime": 1785074076.552647,
+    "ast_hash": "341ee3fdffbf7eef7c2cbfba9812f245",
+    "semantic_hash": "341ee3fdffbf7eef7c2cbfba9812f245"
+  },
+  "ios/FinanceTracker/Support/AppConfig.swift": {
+    "mtime": 1785074076.552908,
+    "ast_hash": "dd8843a12fef565a9c451dbfdf0850a3",
+    "semantic_hash": "dd8843a12fef565a9c451dbfdf0850a3"
+  },
+  "ios/FinanceTracker/Support/AppTheme.swift": {
+    "mtime": 1785074076.5531294,
+    "ast_hash": "23593a04012fd6ef1e53e00848291652",
+    "semantic_hash": "23593a04012fd6ef1e53e00848291652"
+  },
+  "ios/FinanceTracker/Support/BiometricAuth.swift": {
+    "mtime": 1785074076.5533593,
+    "ast_hash": "036209e69472e1ddd59e93e9b68abc1e",
+    "semantic_hash": "036209e69472e1ddd59e93e9b68abc1e"
+  },
+  "ios/FinanceTracker/Support/BudgetPresentation.swift": {
+    "mtime": 1785074076.5535238,
+    "ast_hash": "982a4aee8e28646686d30a5b7814e299",
+    "semantic_hash": "982a4aee8e28646686d30a5b7814e299"
+  },
+  "ios/FinanceTracker/Support/Formatters.swift": {
+    "mtime": 1785074076.5537355,
+    "ast_hash": "21e924cced9274ff571721fef3158083",
+    "semantic_hash": "21e924cced9274ff571721fef3158083"
+  },
+  "ios/FinanceTracker/Support/GoalProjection.swift": {
+    "mtime": 1785074076.553969,
+    "ast_hash": "7f3dd6d0c58e7a70744db9be88f550ac",
+    "semantic_hash": "7f3dd6d0c58e7a70744db9be88f550ac"
+  },
+  "ios/FinanceTracker/Support/PortfolioAnalytics.swift": {
+    "mtime": 1785074076.5541518,
+    "ast_hash": "b9e932b4c8f384b557626b111af1c566",
+    "semantic_hash": "b9e932b4c8f384b557626b111af1c566"
+  },
+  "ios/FinanceTracker/Support/ThemePalettes.swift": {
+    "mtime": 1785074076.554345,
+    "ast_hash": "c669a450152c1edc26e063178e76758f",
+    "semantic_hash": "c669a450152c1edc26e063178e76758f"
+  },
+  "ios/FinanceTracker/Views/Accounts/AccountsView.swift": {
+    "mtime": 1785074076.5546885,
+    "ast_hash": "1e79df49cb1ab255d03b93a70796989f",
+    "semantic_hash": "1e79df49cb1ab255d03b93a70796989f"
+  },
+  "ios/FinanceTracker/Views/Accounts/LoanScheduleView.swift": {
+    "mtime": 1785074076.5548785,
+    "ast_hash": "57023c7d603945e447e52b8be01d0c53",
+    "semantic_hash": "57023c7d603945e447e52b8be01d0c53"
+  },
+  "ios/FinanceTracker/Views/Auth/LoginView.swift": {
+    "mtime": 1785078167.6781967,
+    "ast_hash": "74e0bd6d4c83ee05672ea5f59b7ff8f8",
+    "semantic_hash": "74e0bd6d4c83ee05672ea5f59b7ff8f8"
+  },
+  "ios/FinanceTracker/Views/Auth/OnboardingView.swift": {
+    "mtime": 1785074076.5554857,
+    "ast_hash": "ed8ad4f8f347e5ca409c8a1bd05d2f67",
+    "semantic_hash": "ed8ad4f8f347e5ca409c8a1bd05d2f67"
+  },
+  "ios/FinanceTracker/Views/Budgets/BudgetsView.swift": {
+    "mtime": 1785242835.8734205,
+    "ast_hash": "1b847e9b18780b4369f2ef237587c0e2",
+    "semantic_hash": "1b847e9b18780b4369f2ef237587c0e2"
+  },
+  "ios/FinanceTracker/Views/Components/AdaptiveLayout.swift": {
+    "mtime": 1785074076.5561032,
+    "ast_hash": "f00f4d772630caccde69353ad233a1f3",
+    "semantic_hash": "f00f4d772630caccde69353ad233a1f3"
+  },
+  "ios/FinanceTracker/Views/Components/LoadingSkeleton.swift": {
+    "mtime": 1785074076.5564246,
+    "ast_hash": "ea430a7276ccdf432d8bf604047a0030",
+    "semantic_hash": "ea430a7276ccdf432d8bf604047a0030"
+  },
+  "ios/FinanceTracker/Views/Components/QuickAddPull.swift": {
+    "mtime": 1785074076.5568883,
+    "ast_hash": "74dc686fedee23352ec25dc312081b64",
+    "semantic_hash": "74dc686fedee23352ec25dc312081b64"
+  },
+  "ios/FinanceTracker/Views/Components/VaultLockButton.swift": {
+    "mtime": 1785074076.5571032,
+    "ast_hash": "08fc341b7bd8e4afde3c894c34210278",
+    "semantic_hash": "08fc341b7bd8e4afde3c894c34210278"
+  },
+  "ios/FinanceTracker/Views/Components/ViewModeSwitcher.swift": {
+    "mtime": 1785074076.5573144,
+    "ast_hash": "23fdd41dec40d0e68e1ad0ceddab991f",
+    "semantic_hash": "23fdd41dec40d0e68e1ad0ceddab991f"
+  },
+  "ios/FinanceTracker/Views/Dashboard/DashboardView.swift": {
+    "mtime": 1785074076.5576167,
+    "ast_hash": "1abc8cb0d3964ae393dc6a3d5eb009e2",
+    "semantic_hash": "1abc8cb0d3964ae393dc6a3d5eb009e2"
+  },
+  "ios/FinanceTracker/Views/Goals/GoalDetailView.swift": {
+    "mtime": 1785074076.5581431,
+    "ast_hash": "431ec7c97acb2db6ef6077b81fdce9e8",
+    "semantic_hash": "431ec7c97acb2db6ef6077b81fdce9e8"
+  },
+  "ios/FinanceTracker/Views/Goals/GoalsView.swift": {
+    "mtime": 1785074076.558384,
+    "ast_hash": "f529d47b69c71b1283262cec3a2e6f32",
+    "semantic_hash": "f529d47b69c71b1283262cec3a2e6f32"
+  },
+  "ios/FinanceTracker/Views/Household/HouseholdMembersView.swift": {
+    "mtime": 1785074076.558734,
+    "ast_hash": "e41439809da5f260ac8070a364867109",
+    "semantic_hash": "e41439809da5f260ac8070a364867109"
+  },
+  "ios/FinanceTracker/Views/MainTabView.swift": {
+    "mtime": 1785074076.5589793,
+    "ast_hash": "d3fc9bd737ebbebbabb38bcad2ad020d",
+    "semantic_hash": "d3fc9bd737ebbebbabb38bcad2ad020d"
+  },
+  "ios/FinanceTracker/Views/More/MoreView.swift": {
+    "mtime": 1785078167.6788032,
+    "ast_hash": "ca60da3086043ff0b028e9eec0632c45",
+    "semantic_hash": "ca60da3086043ff0b028e9eec0632c45"
+  },
+  "ios/FinanceTracker/Views/More/SettingsViews.swift": {
+    "mtime": 1785074076.5593903,
+    "ast_hash": "d8aeb4ec839a871457efb8855bf45378",
+    "semantic_hash": "d8aeb4ec839a871457efb8855bf45378"
+  },
+  "ios/FinanceTracker/Views/Portfolio/DividendsView.swift": {
+    "mtime": 1785074076.5596838,
+    "ast_hash": "c6c86e0a52f3cb64c6c3861867eb6575",
+    "semantic_hash": "c6c86e0a52f3cb64c6c3861867eb6575"
+  },
+  "ios/FinanceTracker/Views/Portfolio/PortfolioView.swift": {
+    "mtime": 1785074076.5598922,
+    "ast_hash": "18709335ce3540b20d6cf65110c7ead3",
+    "semantic_hash": "18709335ce3540b20d6cf65110c7ead3"
+  },
+  "ios/FinanceTracker/Views/Portfolio/SubPortfolioDetailView.swift": {
+    "mtime": 1785074076.5601568,
+    "ast_hash": "e462b9308e61778d748c9b4f43f15e3e",
+    "semantic_hash": "e462b9308e61778d748c9b4f43f15e3e"
+  },
+  "ios/FinanceTracker/Views/Portfolio/TradeFormView.swift": {
+    "mtime": 1785074076.5604193,
+    "ast_hash": "c37ba172006122aeb45bdd406de1b073",
+    "semantic_hash": "c37ba172006122aeb45bdd406de1b073"
+  },
+  "ios/FinanceTracker/Views/Portfolio/TradesListView.swift": {
+    "mtime": 1785074076.5607855,
+    "ast_hash": "8b905326c60256e324769228a28ef3f0",
+    "semantic_hash": "8b905326c60256e324769228a28ef3f0"
+  },
+  "ios/FinanceTracker/Views/QuickAdd/QuickAddView.swift": {
+    "mtime": 1785074076.5609715,
+    "ast_hash": "a09bccb2846e9f0641e389550105958c",
+    "semantic_hash": "a09bccb2846e9f0641e389550105958c"
+  },
+  "ios/FinanceTracker/Views/Recurring/RecurringView.swift": {
+    "mtime": 1785074076.5612667,
+    "ast_hash": "94acaa980f4d1f66630859f57b172e50",
+    "semantic_hash": "94acaa980f4d1f66630859f57b172e50"
+  },
+  "ios/FinanceTracker/Views/Reports/ReportsView.swift": {
+    "mtime": 1785074076.5615458,
+    "ast_hash": "499c5ad38f2ee407e0ac437887302067",
+    "semantic_hash": "499c5ad38f2ee407e0ac437887302067"
+  },
+  "ios/FinanceTracker/Views/Transactions/CategoriesView.swift": {
+    "mtime": 1785074076.5619185,
+    "ast_hash": "4ab77653694056805b0cbf7e17a7c34a",
+    "semantic_hash": "4ab77653694056805b0cbf7e17a7c34a"
+  },
+  "ios/FinanceTracker/Views/Transactions/TransactionsView.swift": {
+    "mtime": 1785074076.5620496,
+    "ast_hash": "9453ccbf773db517131c1d641bf1e275",
+    "semantic_hash": "9453ccbf773db517131c1d641bf1e275"
+  },
+  "ios/FinanceTrackerTests/BudgetPresentationTests.swift": {
+    "mtime": 1785242863.7877967,
+    "ast_hash": "8fc6f4781828085608d98ebd2f0fe332",
+    "semantic_hash": "8fc6f4781828085608d98ebd2f0fe332"
+  },
+  "ios/FinanceTrackerTests/FormattersTests.swift": {
+    "mtime": 1785074076.562578,
+    "ast_hash": "a5fbd320636fc2794c19b75766f508b6",
+    "semantic_hash": "a5fbd320636fc2794c19b75766f508b6"
+  },
+  "ios/FinanceTrackerTests/GoalProjectionTests.swift": {
+    "mtime": 1785074076.5627692,
+    "ast_hash": "3be313293f198ef875474cdc1cc16d0c",
+    "semantic_hash": "3be313293f198ef875474cdc1cc16d0c"
+  },
+  "ios/FinanceTrackerTests/LoanAndRecurringDecodingTests.swift": {
+    "mtime": 1785242849.7144663,
+    "ast_hash": "5c03d6249371ca80dd82132e01a54e98",
+    "semantic_hash": "5c03d6249371ca80dd82132e01a54e98"
+  },
+  "ios/FinanceTrackerTests/ModelDecodingTests.swift": {
+    "mtime": 1785074076.5634012,
+    "ast_hash": "2d7227951171590e33570fb64ef5c11f",
+    "semantic_hash": "2d7227951171590e33570fb64ef5c11f"
+  },
+  "ios/FinanceTrackerTests/MoneyDecodingTests.swift": {
+    "mtime": 1785074076.5636218,
+    "ast_hash": "7192336a86dc807279c34763ee71a776",
+    "semantic_hash": "7192336a86dc807279c34763ee71a776"
+  },
+  "ios/FinanceTrackerTests/PortfolioAnalyticsTests.swift": {
+    "mtime": 1785074076.563848,
+    "ast_hash": "77f89068d94d499a8ece8025a887f27a",
+    "semantic_hash": "77f89068d94d499a8ece8025a887f27a"
+  },
+  "ios/FinanceTrackerTests/ViewModeStoreTests.swift": {
+    "mtime": 1785074076.5640225,
+    "ast_hash": "b12ff59a7775ec2348d90310946fdd3b",
+    "semantic_hash": "b12ff59a7775ec2348d90310946fdd3b"
+  },
+  "ios/scripts/gen_appicon.py": {
+    "mtime": 1785078167.6797018,
+    "ast_hash": "f1071c94b773316ae3611299e7f7a226",
+    "semantic_hash": "f1071c94b773316ae3611299e7f7a226"
+  },
+  "ios/scripts/gen_palettes.py": {
+    "mtime": 1785074076.5643551,
+    "ast_hash": "d067e06ab9a3ccc41ba771454a91b29d",
+    "semantic_hash": "d067e06ab9a3ccc41ba771454a91b29d"
+  },
+  "mobile/.claude/settings.json": {
+    "mtime": 1784474419.02278,
+    "ast_hash": "dc580fca35a0e98ed20777ede5e545a1",
+    "semantic_hash": "dc580fca35a0e98ed20777ede5e545a1"
+  },
+  "mobile/App.tsx": {
+    "mtime": 1784474419.022997,
+    "ast_hash": "3611143ccf0b8f34b0e1d8182312dc39",
+    "semantic_hash": "3611143ccf0b8f34b0e1d8182312dc39"
+  },
+  "mobile/app.json": {
+    "mtime": 1784474419.0232441,
+    "ast_hash": "c591af026307d57f042d473ebbc8e0d3",
+    "semantic_hash": "c591af026307d57f042d473ebbc8e0d3"
+  },
+  "mobile/index.ts": {
+    "mtime": 1784474419.0251808,
+    "ast_hash": "33caa6d28d87fc7e637c033d0d7124b1",
+    "semantic_hash": "33caa6d28d87fc7e637c033d0d7124b1"
+  },
+  "mobile/package.json": {
+    "mtime": 1784474419.0268576,
+    "ast_hash": "990c4c6f4d81fe67aab34370eac17153",
+    "semantic_hash": "990c4c6f4d81fe67aab34370eac17153"
+  },
+  "mobile/src/components/QuickAddSheet.tsx": {
+    "mtime": 1784474419.0270724,
+    "ast_hash": "77b0710ff1e6e743a1ddadf74e97703e",
+    "semantic_hash": "77b0710ff1e6e743a1ddadf74e97703e"
+  },
+  "mobile/src/components/ui.tsx": {
+    "mtime": 1784474419.0271838,
+    "ast_hash": "7f3aae4433c7ffd9603977e6d6439048",
+    "semantic_hash": "7f3aae4433c7ffd9603977e6d6439048"
+  },
+  "mobile/src/lib/AuthContext.tsx": {
+    "mtime": 1784474419.0273151,
+    "ast_hash": "8738df107d615d7620c0e8d6951cc013",
+    "semantic_hash": "8738df107d615d7620c0e8d6951cc013"
+  },
+  "mobile/src/lib/HouseholdContext.tsx": {
+    "mtime": 1784474419.0274343,
+    "ast_hash": "f8cb3aab405887a19c6e0602ae770661",
+    "semantic_hash": "f8cb3aab405887a19c6e0602ae770661"
+  },
+  "mobile/src/lib/QuickAddContext.tsx": {
+    "mtime": 1784474419.0275273,
+    "ast_hash": "375b8acf58254b00f0b4682453f3adb4",
+    "semantic_hash": "375b8acf58254b00f0b4682453f3adb4"
+  },
+  "mobile/src/lib/ViewModeContext.tsx": {
+    "mtime": 1784474419.0276172,
+    "ast_hash": "cc40bf2eb8091d9f727bb1f30ff0bd2f",
+    "semantic_hash": "cc40bf2eb8091d9f727bb1f30ff0bd2f"
+  },
+  "mobile/src/lib/api.ts": {
+    "mtime": 1784474419.0276973,
+    "ast_hash": "fe27ee7545525f82bb93de929dba604b",
+    "semantic_hash": "fe27ee7545525f82bb93de929dba604b"
+  },
+  "mobile/src/lib/commandParser.ts": {
+    "mtime": 1784474419.0277889,
+    "ast_hash": "89d5d36c700fedc43846d7a35c1dfa81",
+    "semantic_hash": "89d5d36c700fedc43846d7a35c1dfa81"
+  },
+  "mobile/src/lib/storage.ts": {
+    "mtime": 1784474419.0278714,
+    "ast_hash": "9d36e79cf36d44fa5c7f40fa7af683b7",
+    "semantic_hash": "9d36e79cf36d44fa5c7f40fa7af683b7"
+  },
+  "mobile/src/navigation/MainTabs.tsx": {
+    "mtime": 1784474419.027996,
+    "ast_hash": "0485f1869df08680b99c15fbfb4f94b1",
+    "semantic_hash": "0485f1869df08680b99c15fbfb4f94b1"
+  },
+  "mobile/src/navigation/RootNavigator.tsx": {
+    "mtime": 1784474419.028095,
+    "ast_hash": "c13f3d1317c0cbac515d4d203865b51b",
+    "semantic_hash": "c13f3d1317c0cbac515d4d203865b51b"
+  },
+  "mobile/src/navigation/types.ts": {
+    "mtime": 1784474419.0281653,
+    "ast_hash": "dd30829a4c89da05845725a67315f559",
+    "semantic_hash": "dd30829a4c89da05845725a67315f559"
+  },
+  "mobile/src/screens/Accounts.tsx": {
+    "mtime": 1785074076.5648458,
+    "ast_hash": "bb6587a42207d077084b951caa588dfc",
+    "semantic_hash": "bb6587a42207d077084b951caa588dfc"
+  },
+  "mobile/src/screens/Dashboard.tsx": {
+    "mtime": 1784474419.0283718,
+    "ast_hash": "74e80fe443441dda07f2b9bde1a8a5ad",
+    "semantic_hash": "74e80fe443441dda07f2b9bde1a8a5ad"
+  },
+  "mobile/src/screens/Dividends.tsx": {
+    "mtime": 1784474419.0284586,
+    "ast_hash": "b1edf7721dd819ef83c3845da7aad48b",
+    "semantic_hash": "b1edf7721dd819ef83c3845da7aad48b"
+  },
+  "mobile/src/screens/GoalDetail.tsx": {
+    "mtime": 1784474419.0285745,
+    "ast_hash": "3a2c31b5f1f91c7dfaf7140df700d40a",
+    "semantic_hash": "3a2c31b5f1f91c7dfaf7140df700d40a"
+  },
+  "mobile/src/screens/Goals.tsx": {
+    "mtime": 1784474419.0286806,
+    "ast_hash": "cbccd2cc23b44b1e3429c2fa4040cdd7",
+    "semantic_hash": "cbccd2cc23b44b1e3429c2fa4040cdd7"
+  },
+  "mobile/src/screens/Household.tsx": {
+    "mtime": 1784474419.0288105,
+    "ast_hash": "deca857708f0dfa860ccb029eca54f3d",
+    "semantic_hash": "deca857708f0dfa860ccb029eca54f3d"
+  },
+  "mobile/src/screens/Login.tsx": {
+    "mtime": 1784474419.0289118,
+    "ast_hash": "006054559d93488ff71440f95e2ea6d0",
+    "semantic_hash": "006054559d93488ff71440f95e2ea6d0"
+  },
+  "mobile/src/screens/More.tsx": {
+    "mtime": 1784474419.0290017,
+    "ast_hash": "5d10b1deedd237cb45dcca259508fa55",
+    "semantic_hash": "5d10b1deedd237cb45dcca259508fa55"
+  },
+  "mobile/src/screens/OnboardingStep1.tsx": {
+    "mtime": 1784474419.0291045,
+    "ast_hash": "5347b150bd97106462f25dce130e15d2",
+    "semantic_hash": "5347b150bd97106462f25dce130e15d2"
+  },
+  "mobile/src/screens/OnboardingStep2.tsx": {
+    "mtime": 1784474419.0293398,
+    "ast_hash": "2e5c46584ae02a22e4afdcc0d6b5bed1",
+    "semantic_hash": "2e5c46584ae02a22e4afdcc0d6b5bed1"
+  },
+  "mobile/src/screens/Portfolio.tsx": {
+    "mtime": 1784474419.029438,
+    "ast_hash": "cdeb3d6499b881d5f95b1f7e8c90d224",
+    "semantic_hash": "cdeb3d6499b881d5f95b1f7e8c90d224"
+  },
+  "mobile/src/screens/Settings.tsx": {
+    "mtime": 1784474419.0295832,
+    "ast_hash": "b0bdb9680fae9406e9321391f4f80443",
+    "semantic_hash": "b0bdb9680fae9406e9321391f4f80443"
+  },
+  "mobile/src/screens/Signup.tsx": {
+    "mtime": 1784474419.0296853,
+    "ast_hash": "3752aa04210e8b1edee7b22e9668e735",
+    "semantic_hash": "3752aa04210e8b1edee7b22e9668e735"
+  },
+  "mobile/src/screens/Transactions.tsx": {
+    "mtime": 1784474419.0297782,
+    "ast_hash": "4971f7f238e646c959d5aa48fdd9303f",
+    "semantic_hash": "4971f7f238e646c959d5aa48fdd9303f"
+  },
+  "mobile/src/theme/theme.ts": {
+    "mtime": 1784474419.0299034,
+    "ast_hash": "3a482728ee231c0cfadf692e5c19d21f",
+    "semantic_hash": "3a482728ee231c0cfadf692e5c19d21f"
+  },
+  "mobile/src/types/types.ts": {
+    "mtime": 1785074076.5653315,
+    "ast_hash": "3f53cfe6f12b3cea96cb8ce501e2f1ae",
+    "semantic_hash": "3f53cfe6f12b3cea96cb8ce501e2f1ae"
+  },
+  "mobile/tsconfig.json": {
+    "mtime": 1784474419.030116,
+    "ast_hash": "a5df9ddad82c56de332cbb7d00dd294b",
+    "semantic_hash": "a5df9ddad82c56de332cbb7d00dd294b"
+  },
+  ".jules/bolt.md": {
+    "mtime": 1783325535.939135,
+    "ast_hash": "b7aa2a820a78a59168b5a5e5e16ca591",
+    "semantic_hash": "b7aa2a820a78a59168b5a5e5e16ca591"
+  },
+  "AGENTS.md": {
+    "mtime": 1785168108.5949168,
+    "ast_hash": "fb764d19c9a2f6f2a58affd0266c6efd",
+    "semantic_hash": "fb764d19c9a2f6f2a58affd0266c6efd"
+  },
+  "CLAUDE.md": {
+    "mtime": 1784474419.007962,
+    "ast_hash": "5c27369b226fcf2be8a6cfe52224e767",
+    "semantic_hash": "5c27369b226fcf2be8a6cfe52224e767"
+  },
+  "DEPLOYMENT.md": {
+    "mtime": 1784474419.0080516,
+    "ast_hash": "6d03857824477876d45d0348164bbd23",
+    "semantic_hash": "6d03857824477876d45d0348164bbd23"
+  },
+  "DEVELOPER_GUIDE.md": {
+    "mtime": 1785168108.5951545,
+    "ast_hash": "20e5032bb1f78849a1026797bb0eb116",
+    "semantic_hash": "20e5032bb1f78849a1026797bb0eb116"
+  },
+  "README.md": {
+    "mtime": 1784474419.008309,
+    "ast_hash": "552802fadb1c6c02de79e82e630c895c",
+    "semantic_hash": "552802fadb1c6c02de79e82e630c895c"
+  },
+  "android/AGENTS.md": {
+    "mtime": 1785168108.5955837,
+    "ast_hash": "96cbb53c05e97946ac3f5654e96c84d2",
+    "semantic_hash": "96cbb53c05e97946ac3f5654e96c84d2"
+  },
+  "android/CLAUDE.md": {
+    "mtime": 1785168108.5957215,
+    "ast_hash": "5c27369b226fcf2be8a6cfe52224e767",
+    "semantic_hash": "5c27369b226fcf2be8a6cfe52224e767"
+  },
+  "backend/AGENTS.md": {
+    "mtime": 1778239295.870643,
+    "ast_hash": "23197ec9e06acb34181fd8b90eb717fd",
+    "semantic_hash": "23197ec9e06acb34181fd8b90eb717fd"
+  },
+  "backend/README.md": {
+    "mtime": 1783310891.115912,
+    "ast_hash": "935867c8efbc5c082ef7e411ce0e6d3e",
+    "semantic_hash": "935867c8efbc5c082ef7e411ce0e6d3e"
+  },
+  "cloudbuild.yaml": {
+    "mtime": 1783310891.1214836,
+    "ast_hash": "40787a16101f5d39a3113c2f48d3996f",
+    "semantic_hash": "40787a16101f5d39a3113c2f48d3996f"
+  },
+  "docker-compose.override.yml": {
+    "mtime": 1784474419.0139134,
+    "ast_hash": "45aa3e2f7bec3651605ab92d6e0f8dbf",
+    "semantic_hash": "45aa3e2f7bec3651605ab92d6e0f8dbf"
+  },
+  "docker-compose.prod.yml": {
+    "mtime": 1784474419.014081,
+    "ast_hash": "5634e800e07a8f4a18e46fb7ed241002",
+    "semantic_hash": "5634e800e07a8f4a18e46fb7ed241002"
+  },
+  "docker-compose.yml": {
+    "mtime": 1784474419.0142655,
+    "ast_hash": "17b10b515eaa1cc00fa9dfc286e74aeb",
+    "semantic_hash": "17b10b515eaa1cc00fa9dfc286e74aeb"
+  },
+  "frontend/AGENTS.md": {
+    "mtime": 1783310891.1222837,
+    "ast_hash": "6c8e20d57ba6d2edba9734be6ee7d0ea",
+    "semantic_hash": "6c8e20d57ba6d2edba9734be6ee7d0ea"
+  },
+  "frontend/README.md": {
+    "mtime": 1783310891.1224422,
+    "ast_hash": "157e68bba989ceead6d57f1f2481439c",
+    "semantic_hash": "157e68bba989ceead6d57f1f2481439c"
+  },
+  "frontend/pnpm-workspace.yaml": {
+    "mtime": 1778239295.8843203,
+    "ast_hash": "a8abf96034a47dc0802e11b9ea11042f",
+    "semantic_hash": "a8abf96034a47dc0802e11b9ea11042f"
+  },
+  "ios/AGENTS.md": {
+    "mtime": 1785168108.6135476,
+    "ast_hash": "30d87d0482282a0b548005a066b1dc52",
+    "semantic_hash": "30d87d0482282a0b548005a066b1dc52"
+  },
+  "ios/CLAUDE.md": {
+    "mtime": 1785074076.54852,
+    "ast_hash": "5c27369b226fcf2be8a6cfe52224e767",
+    "semantic_hash": "5c27369b226fcf2be8a6cfe52224e767"
+  },
+  "ios/project.yml": {
+    "mtime": 1785078167.6792958,
+    "ast_hash": "c73b0f5a17df14ebafc54858f77d45cb",
+    "semantic_hash": "c73b0f5a17df14ebafc54858f77d45cb"
+  },
+  "mobile/AGENTS.md": {
+    "mtime": 1785074076.564568,
+    "ast_hash": "a6017aedc41a268d24c22dd303b29077",
+    "semantic_hash": "a6017aedc41a268d24c22dd303b29077"
+  },
+  "mobile/CLAUDE.md": {
+    "mtime": 1784474419.0230713,
+    "ast_hash": "5c27369b226fcf2be8a6cfe52224e767",
+    "semantic_hash": "5c27369b226fcf2be8a6cfe52224e767"
+  },
+  "backend/database_schema.svg": {
+    "mtime": 1778239295.8759046,
+    "ast_hash": "c90d8303700bb214abb18e582ecd415d",
+    "semantic_hash": "c90d8303700bb214abb18e582ecd415d"
+  },
+  "frontend/public/favicon.svg": {
+    "mtime": 1785078167.6638057,
+    "ast_hash": "21a9c580c3b586d7a2e6c1d99d0cc5ea",
+    "semantic_hash": "21a9c580c3b586d7a2e6c1d99d0cc5ea"
+  },
+  "frontend/src/assets/hero.png": {
+    "mtime": 1778239295.8850293,
+    "ast_hash": "aead493361b27e7510691c5d7072dfc1",
+    "semantic_hash": "aead493361b27e7510691c5d7072dfc1"
+  },
+  "frontend/src/assets/react.svg": {
+    "mtime": 1778239295.885179,
+    "ast_hash": "f0402b67b6ce880f65666bb49e841696",
+    "semantic_hash": "f0402b67b6ce880f65666bb49e841696"
+  },
+  "frontend/src/assets/vite.svg": {
+    "mtime": 1778239295.8853543,
+    "ast_hash": "9960a24288958394ac50e57ff638b036",
+    "semantic_hash": "9960a24288958394ac50e57ff638b036"
+  },
+  "ios/FinanceTracker/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png": {
+    "mtime": 1785078167.6758835,
+    "ast_hash": "ca631c2f3db0bbd611de49da3455f056",
+    "semantic_hash": "ca631c2f3db0bbd611de49da3455f056"
+  },
+  "mobile/assets/android-icon-background.png": {
+    "mtime": 1784474419.0234258,
+    "ast_hash": "2d65569cc0e2afdcea0af9f9902d4173",
+    "semantic_hash": "2d65569cc0e2afdcea0af9f9902d4173"
+  },
+  "mobile/assets/android-icon-foreground.png": {
+    "mtime": 1784474419.0236683,
+    "ast_hash": "72e71a9c846c6aa4ae32476641a00e18",
+    "semantic_hash": "72e71a9c846c6aa4ae32476641a00e18"
+  },
+  "mobile/assets/android-icon-monochrome.png": {
+    "mtime": 1784474419.0238144,
+    "ast_hash": "1e097dab989759fc0b69440092ca22cd",
+    "semantic_hash": "1e097dab989759fc0b69440092ca22cd"
+  },
+  "mobile/assets/favicon.png": {
+    "mtime": 1784474419.0238845,
+    "ast_hash": "d9f444efbdfbe7931aa93beada07318a",
+    "semantic_hash": "d9f444efbdfbe7931aa93beada07318a"
+  },
+  "mobile/assets/icon.png": {
+    "mtime": 1784474419.0244694,
+    "ast_hash": "cb975bba2216ce10a60e6c0ffe9941a2",
+    "semantic_hash": "cb975bba2216ce10a60e6c0ffe9941a2"
+  },
+  "mobile/assets/splash-icon.png": {
+    "mtime": 1784474419.025057,
+    "ast_hash": "97dae5a0e62ad8551d8a31897b425e63",
+    "semantic_hash": "97dae5a0e62ad8551d8a31897b425e63"
+  }
+}
