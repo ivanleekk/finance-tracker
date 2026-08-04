@@ -6,16 +6,20 @@ import { useHousehold } from "../../lib/HouseholdContext"
 import { useEffect, useMemo, useState } from "react"
 import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
 import { cn } from "../../lib/utils"
-import { Area, AreaChart, Line, ReferenceLine, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Area, AreaChart, Line, ReferenceLine, ComposedChart, Pie, PieChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
 import type { PortfolioTimeseriesPoint } from "../../types/types"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
-import { sampleProjection } from "../../lib/networth"
+import { sampleProjection, netWorthBreakdown } from "../../lib/networth"
 import { runwayLabel, runwayTone } from "../../lib/budgets"
 import { Link } from "react-router"
 
 export { dashboardLoader as loader } from "./dashboard.loader";
+
+// Fixed order, not tied to the user's accent theme — category identity must
+// stay put regardless of which color the household picked for itself.
+const SPLIT_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)"];
 
 export default function Dashboard() {
     const { activeHousehold } = useHousehold();
@@ -97,6 +101,17 @@ export default function Dashboard() {
     }, [timeseries]);
 
     const netWorth = currentCash + currentPortfolioValue;
+
+    const worthBreakdown = useMemo(() => {
+        const likeAccounts = accounts.map(a => ({
+            id: a.id,
+            kind: a.kind,
+            liquidity: a.liquidity,
+            currency: a.currency,
+            history: balances[a.id] ?? [],
+        }));
+        return netWorthBreakdown(likeAccounts, currentPortfolioValue);
+    }, [accounts, balances, currentPortfolioValue]);
 
     // The outlook only says something worth reading once there is debt to
     // amortize or property to grow — otherwise it's a flat line at today's
@@ -426,6 +441,80 @@ export default function Dashboard() {
                         </CardContent>
                     </Card>
                 </div>
+
+                {/* Net worth split — the composition behind the headline number. */}
+                {worthBreakdown.slices.length > 0 && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Net Worth Split</CardTitle>
+                            <CardDescription>How your assets break down — debt is subtracted, not blended in.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-6 sm:grid-cols-2 items-center">
+                            <div className="h-[220px] w-full">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={220}>
+                                    <PieChart>
+                                        <Pie
+                                            data={worthBreakdown.slices}
+                                            dataKey="value"
+                                            nameKey="label"
+                                            innerRadius="60%"
+                                            outerRadius="90%"
+                                            paddingAngle={2}
+                                            stroke="none"
+                                        >
+                                            {worthBreakdown.slices.map((slice, i) => (
+                                                <Cell key={slice.key} fill={SPLIT_COLORS[i % SPLIT_COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            content={({ active, payload }) => {
+                                                if (!active || !payload || !payload.length) return null;
+                                                const slice = payload[0].payload as { label: string; value: number };
+                                                return (
+                                                    <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-2.5 rounded-lg shadow-xl">
+                                                        <p className="text-sm font-semibold text-base-900 dark:text-base-50">{slice.label}</p>
+                                                        <p className="text-sm font-bold text-base-900 dark:text-base-50">{formatCurrency(slice.value)}</p>
+                                                    </div>
+                                                );
+                                            }}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="space-y-2.5">
+                                {worthBreakdown.slices.map((slice, i) => (
+                                    <div key={slice.key} className="flex items-center justify-between gap-3 text-sm">
+                                        <span className="flex items-center gap-2 text-base-700 dark:text-base-300">
+                                            <span
+                                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                                style={{ backgroundColor: SPLIT_COLORS[i % SPLIT_COLORS.length] }}
+                                            />
+                                            {slice.label}
+                                        </span>
+                                        <span className="font-mono text-base-900 dark:text-base-50">
+                                            {formatCurrency(slice.value)}
+                                            <span className="text-base-400 ml-1.5">
+                                                {((slice.value / worthBreakdown.sliceTotal) * 100).toFixed(0)}%
+                                            </span>
+                                        </span>
+                                    </div>
+                                ))}
+                                {worthBreakdown.liabilities > 0 && (
+                                    <div className="flex items-center justify-between gap-3 text-sm pt-2.5 mt-2 border-t border-base-100 dark:border-base-800/70">
+                                        <span className="text-base-500 dark:text-base-400">− Liabilities</span>
+                                        <span className="font-mono text-red-600 dark:text-red-400">
+                                            {formatCurrency(worthBreakdown.liabilities)}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-between gap-3 text-sm font-semibold pt-2.5 mt-1 border-t border-base-200 dark:border-base-800">
+                                    <span className="text-base-900 dark:text-base-50">Net worth</span>
+                                    <span className="font-mono text-base-900 dark:text-base-50">{formatCurrency(netWorth)}</span>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Net worth outlook — where today's assets and debts are headed */}
                 {projectionData.length > 0 && projection && (

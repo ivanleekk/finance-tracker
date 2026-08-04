@@ -99,6 +99,24 @@
     --base-800: var(--color-mauve-800);
     --base-900: var(--color-mauve-900);
     --base-950: var(--color-mauve-950);
+
+    /* Fixed categorical palette for part-to-whole charts (net worth split,
+       allocation) — deliberately independent of the user's theme color so
+       category identity never shifts with the accent. Validated CVD-safe as
+       an adjacent (ring/stack) ordering; see dataviz skill palette.md. */
+    --chart-cat-1: #2a78d6;
+    --chart-cat-2: #eb6834;
+    --chart-cat-3: #1baf7a;
+    --chart-cat-4: #eda100;
+    --chart-cat-5: #e87ba4;
+}
+
+.dark {
+    --chart-cat-1: #3987e5;
+    --chart-cat-2: #d95926;
+    --chart-cat-3: #199e70;
+    --chart-cat-4: #c98500;
+    --chart-cat-5: #d55181;
 }
 
 html,
