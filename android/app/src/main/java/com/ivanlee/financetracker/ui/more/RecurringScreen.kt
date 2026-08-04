@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -84,6 +86,10 @@ fun RecurringScreen(
     var editing by remember { mutableStateOf<RecurringTransactionResponse?>(null) }
     var creating by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<RecurringTransactionResponse?>(null) }
+    // ConfirmDialog dismisses itself the instant Delete is tapped, before the network call
+    // even starts — this is what shows "in flight" on the row itself in the meantime, so a
+    // slow delete doesn't look like nothing happened.
+    var deletingId by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
@@ -182,21 +188,24 @@ fun RecurringScreen(
                     SectionCard(title = "Rules") {
                         rules.sortedBy { it.nextDueDate }.forEachIndexed { index, rule ->
                             if (index > 0) HorizontalDivider()
-                            SwipeActionRow(
-                                onEndAction = { pendingDelete = rule },
-                                onStartAction = {
-                                    scope.launch {
-                                        try {
-                                            Api.put<RecurringTransactionUpdate, RecurringTransactionResponse>(
-                                                "/cashflow/recurring/${rule.id}",
-                                                RecurringTransactionUpdate(isActive = !rule.isActive),
-                                            )
-                                            reloadKey++
-                                        } catch (e: Exception) {
-                                            error = e.message ?: "Couldn't update that rule."
-                                        }
+                            val isDeletingThisRule = deletingId == rule.id
+                            val requestDelete: () -> Unit = { pendingDelete = rule }
+                            val toggleActive: () -> Unit = {
+                                scope.launch {
+                                    try {
+                                        Api.put<RecurringTransactionUpdate, RecurringTransactionResponse>(
+                                            "/cashflow/recurring/${rule.id}",
+                                            RecurringTransactionUpdate(isActive = !rule.isActive),
+                                        )
+                                        reloadKey++
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Couldn't update that rule."
                                     }
-                                },
+                                }
+                            }
+                            SwipeActionRow(
+                                onEndAction = if (isDeletingThisRule) null else requestDelete,
+                                onStartAction = if (isDeletingThisRule) null else toggleActive,
                                 startIcon = if (rule.isActive) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 startLabel = if (rule.isActive) "Pause" else "Resume",
                             ) {
@@ -223,14 +232,18 @@ fun RecurringScreen(
                                         )
                                     },
                                     trailingContent = {
-                                        Text(
-                                            (if (isIncome) "+" else "−") +
-                                                rule.amount.currency(rule.currency ?: baseCurrency),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (isIncome) positiveColor() else MaterialTheme.colorScheme.onSurface,
-                                        )
+                                        if (isDeletingThisRule) {
+                                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            Text(
+                                                (if (isIncome) "+" else "−") +
+                                                    rule.amount.currency(rule.currency ?: baseCurrency),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = if (isIncome) positiveColor() else MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
                                     },
-                                    modifier = Modifier.clickable { editing = rule },
+                                    modifier = Modifier.clickable(enabled = !isDeletingThisRule) { editing = rule },
                                 )
                             }
                         }
@@ -290,11 +303,14 @@ fun RecurringScreen(
                 "occurrences stop.",
             onConfirm = {
                 scope.launch {
+                    deletingId = rule.id
                     try {
                         Api.delete("/cashflow/recurring/${rule.id}")
                         reloadKey++
                     } catch (e: Exception) {
                         error = e.message ?: "Couldn't delete that rule."
+                    } finally {
+                        deletingId = null
                     }
                 }
             },

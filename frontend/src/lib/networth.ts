@@ -67,6 +67,46 @@ export function summarizeAccounts(accounts: AccountLike[]): AccountTotals {
     };
 }
 
+export type NetWorthSlice = { key: string; label: string; value: number };
+
+export type NetWorthBreakdown = {
+    slices: NetWorthSlice[];
+    liabilities: number;
+    /** Sum of the visible (positive) slices — the right denominator for each
+     * slice's share. Not the same as gross assets when a bucket (e.g. cash,
+     * for an overdrawn household) is negative and therefore excluded below. */
+    sliceTotal: number;
+};
+
+/**
+ * Composition of net worth for the dashboard split chart: cash-like accounts
+ * bucketed by liquidity, plus portfolio holdings (tracked separately from
+ * FinancialAccount, so there's no overlap with `accounts`). Liabilities are
+ * returned alongside rather than as a slice — a pie can't render a negative
+ * wedge, and net worth is "these assets, minus that debt," not one blended
+ * bucket. A negative bucket (e.g. overdrawn cash) is dropped the same way —
+ * it still reduces net worth, just not through a pie wedge.
+ */
+export function netWorthBreakdown(accounts: AccountLike[], portfolioValue: number): NetWorthBreakdown {
+    const totals = summarizeAccounts(accounts);
+    // Anything not liquid/retirement/property (e.g. market_liquid accounts).
+    const other = totals.totalAssets - totals.liquidNow - totals.retirement - totals.property;
+
+    const slices: NetWorthSlice[] = [
+        { key: "cash", label: "Cash", value: totals.liquidNow },
+        { key: "investments", label: "Investments", value: portfolioValue },
+        { key: "retirement", label: "Retirement & locked", value: totals.retirement },
+        { key: "property", label: "Property", value: totals.property },
+        { key: "other", label: "Other assets", value: other },
+    ].filter(s => s.value > 0.01);
+
+    return {
+        slices,
+        liabilities: totals.liabilities,
+        sliceTotal: slices.reduce((sum, s) => sum + s.value, 0),
+    };
+}
+
 /** Accounts that belong on the spendable-cash chart: assets, minus property. */
 export function cashChartAccountsOf<T extends Pick<AccountResponse, "kind" | "liquidity">>(accounts: T[]): T[] {
     return accounts.filter(

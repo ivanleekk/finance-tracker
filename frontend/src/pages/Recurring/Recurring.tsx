@@ -11,6 +11,7 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { RecurrenceFrequency, TransactionType } from "../../types/types";
+import type { CategoryResponse, RecurringTransactionResponse } from "../../types/types";
 import { frequencyLabel, groupOccurrencesByMonth, netUpcoming } from "../../lib/budgets";
 import type { RecurringLoaderData } from "./recurring.loader";
 
@@ -28,8 +29,6 @@ export default function Recurring() {
     } = (useLoaderData() as RecurringLoaderData) || {};
 
     const createFetcher = useFetcher();
-    const toggleFetcher = useFetcher();
-    const deleteFetcher = useFetcher();
     const runFetcher = useFetcher();
 
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -187,65 +186,16 @@ export default function Recurring() {
                         <CardDescription>Pause one to stop it posting without losing its schedule.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-0">
-                        {rules.map(rule => {
-                            const category = categoryById.get(rule.category_id);
-                            const isIncome = category?.type === TransactionType.Income;
-                            return (
-                                <div
-                                    key={rule.id}
-                                    className={`flex flex-wrap items-center gap-3 px-4 py-3 border-b last:border-b-0 border-base-100 dark:border-base-800/70 ${rule.is_active ? "" : "opacity-55"}`}
-                                >
-                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isIncome ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-primary-500/10 text-primary-600 dark:text-primary-400"}`}>
-                                        {isIncome ? "↓" : "↑"}
-                                    </div>
-                                    <div className="flex-1 min-w-[160px]">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium text-base-900 dark:text-base-50">
-                                                {rule.description || category?.name || "Recurring"}
-                                            </span>
-                                            <OwnershipTag
-                                                ownerUserId={rule.owner_user_id}
-                                                show={hasHousehold && viewMode === "blended"}
-                                                className="text-[9px] px-1.5 py-0 h-4"
-                                            />
-                                            {!rule.is_active && (
-                                                <span className="text-[10px] font-mono uppercase tracking-wide text-base-400">paused</span>
-                                            )}
-                                        </div>
-                                        <div className="text-[11px] text-base-500 dark:text-base-400">
-                                            {frequencyLabel(rule.frequency)} · {category?.name ?? "—"} · {accountName(rule.account_id)}
-                                        </div>
-                                    </div>
-                                    <div className="text-right min-w-28 shrink-0">
-                                        <div className={`font-mono font-semibold ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-base-900 dark:text-base-50"}`}>
-                                            {isIncome ? "+" : "−"}{formatCurrency(Number(rule.amount), rule.currency || undefined)}
-                                        </div>
-                                        <div className="text-[10px] font-mono text-base-400">
-                                            {rule.is_active
-                                                ? `next ${new Date(rule.next_due_date).toLocaleDateString("default", { day: "numeric", month: "short", timeZone: "UTC" })}`
-                                                : "paused"}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 shrink-0 ml-auto">
-                                        <toggleFetcher.Form method="post" className="inline">
-                                            <input type="hidden" name="_intent" value="toggleRule" />
-                                            <input type="hidden" name="ruleId" value={rule.id} />
-                                            <input type="hidden" name="is_active" value={String(!rule.is_active)} />
-                                            <Button variant="ghost" size="sm" type="submit">
-                                                {rule.is_active ? "Pause" : "Resume"}
-                                            </Button>
-                                        </toggleFetcher.Form>
-                                        <deleteFetcher.Form method="post" className="inline">
-                                            <input type="hidden" name="_intent" value="deleteRule" />
-                                            <input type="hidden" name="ruleId" value={rule.id} />
-                                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" type="submit">
-                                                Delete
-                                            </Button>
-                                        </deleteFetcher.Form>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        {rules.map(rule => (
+                            <RuleRow
+                                key={rule.id}
+                                rule={rule}
+                                category={categoryById.get(rule.category_id)}
+                                accountLabel={accountName(rule.account_id)}
+                                formatCurrency={formatCurrency}
+                                showOwnershipTag={hasHousehold && viewMode === "blended"}
+                            />
+                        ))}
 
                         {rules.length === 0 && (
                             <div className="py-10 text-center space-y-2">
@@ -440,6 +390,96 @@ export default function Recurring() {
                         </Card>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+}
+
+function RuleRow({
+    rule,
+    category,
+    accountLabel,
+    formatCurrency,
+    showOwnershipTag,
+}: {
+    rule: RecurringTransactionResponse;
+    category: CategoryResponse | undefined;
+    accountLabel: string;
+    formatCurrency: (value: number, curr?: string) => string;
+    showOwnershipTag: boolean;
+}) {
+    // Each row gets its own fetchers — sharing one across every row in the list
+    // meant two rows' submissions could stomp on each other's pending/error state.
+    const toggleFetcher = useFetcher();
+    const deleteFetcher = useFetcher();
+    const isIncome = category?.type === TransactionType.Income;
+    const isDeleting = deleteFetcher.state !== "idle";
+
+    return (
+        <div
+            className={`flex flex-wrap items-center gap-3 px-4 py-3 border-b last:border-b-0 border-base-100 dark:border-base-800/70 ${rule.is_active ? "" : "opacity-55"}`}
+        >
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isIncome ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-primary-500/10 text-primary-600 dark:text-primary-400"}`}>
+                {isIncome ? "↓" : "↑"}
+            </div>
+            <div className="flex-1 min-w-[160px]">
+                <div className="flex items-center gap-2">
+                    <span className="font-medium text-base-900 dark:text-base-50">
+                        {rule.description || category?.name || "Recurring"}
+                    </span>
+                    <OwnershipTag
+                        ownerUserId={rule.owner_user_id}
+                        show={showOwnershipTag}
+                        className="text-[9px] px-1.5 py-0 h-4"
+                    />
+                    {!rule.is_active && (
+                        <span className="text-[10px] font-mono uppercase tracking-wide text-base-400">paused</span>
+                    )}
+                </div>
+                <div className="text-[11px] text-base-500 dark:text-base-400">
+                    {frequencyLabel(rule.frequency)} · {category?.name ?? "—"} · {accountLabel}
+                </div>
+                {deleteFetcher.data?.error && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{deleteFetcher.data.error}</p>
+                )}
+                {toggleFetcher.data?.error && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{toggleFetcher.data.error}</p>
+                )}
+            </div>
+            <div className="text-right min-w-28 shrink-0">
+                <div className={`font-mono font-semibold ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-base-900 dark:text-base-50"}`}>
+                    {isIncome ? "+" : "−"}{formatCurrency(Number(rule.amount), rule.currency || undefined)}
+                </div>
+                <div className="text-[10px] font-mono text-base-400">
+                    {rule.is_active
+                        ? `next ${new Date(rule.next_due_date).toLocaleDateString("default", { day: "numeric", month: "short", timeZone: "UTC" })}`
+                        : "paused"}
+                </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0 ml-auto">
+                <toggleFetcher.Form method="post" className="inline">
+                    <input type="hidden" name="_intent" value="toggleRule" />
+                    <input type="hidden" name="ruleId" value={rule.id} />
+                    <input type="hidden" name="is_active" value={String(!rule.is_active)} />
+                    <Button variant="ghost" size="sm" type="submit" disabled={toggleFetcher.state !== "idle"}>
+                        {rule.is_active ? "Pause" : "Resume"}
+                    </Button>
+                </toggleFetcher.Form>
+                <deleteFetcher.Form
+                    method="post"
+                    className="inline"
+                    onSubmit={(e) => {
+                        if (!window.confirm(`Delete "${rule.description || category?.name || "this recurring transaction"}"? This won't affect transactions it already posted.`)) {
+                            e.preventDefault();
+                        }
+                    }}
+                >
+                    <input type="hidden" name="_intent" value="deleteRule" />
+                    <input type="hidden" name="ruleId" value={rule.id} />
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" type="submit" disabled={isDeleting}>
+                        {isDeleting ? "Deleting…" : "Delete"}
+                    </Button>
+                </deleteFetcher.Form>
             </div>
         </div>
     );

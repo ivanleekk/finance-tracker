@@ -4,6 +4,7 @@ import {
     summarizeAccounts,
     cashChartAccountsOf,
     sampleProjection,
+    netWorthBreakdown,
     type AccountLike,
 } from "./networth";
 import { AccountKind, LiquidityStatus } from "../types/types";
@@ -106,6 +107,53 @@ describe("cashChartAccountsOf", () => {
             { id: "loan", kind: AccountKind.Liability, liquidity: LiquidityStatus.Liquid },
         ];
         expect(cashChartAccountsOf(accounts).map(a => a.id)).toEqual(["cash", "stocks"]);
+    });
+});
+
+describe("netWorthBreakdown", () => {
+    it("buckets cash, retirement and property, and adds investments as their own slice", () => {
+        const savings = account({ history: [bal("2026-01-01", 10_000)] });
+        const cpf = account({ liquidity: LiquidityStatus.TimeLocked, history: [bal("2026-01-01", 30_000)] });
+        const home = account({ liquidity: LiquidityStatus.Illiquid, history: [bal("2026-01-01", 500_000)] });
+
+        const { slices, sliceTotal } = netWorthBreakdown([savings, cpf, home], 20_000);
+
+        expect(slices).toEqual([
+            { key: "cash", label: "Cash", value: 10_000 },
+            { key: "investments", label: "Investments", value: 20_000 },
+            { key: "retirement", label: "Retirement & locked", value: 30_000 },
+            { key: "property", label: "Property", value: 500_000 },
+        ]);
+        expect(sliceTotal).toBe(560_000);
+    });
+
+    it("reports liabilities alongside the slices rather than as a negative wedge", () => {
+        const mortgage = account({ kind: AccountKind.Liability, history: [bal("2026-01-01", 400_000)] });
+        const home = account({ liquidity: LiquidityStatus.Illiquid, history: [bal("2026-01-01", 500_000)] });
+
+        const { slices, liabilities } = netWorthBreakdown([mortgage, home], 0);
+
+        expect(liabilities).toBe(400_000);
+        expect(slices.find(s => s.key === "liabilities")).toBeUndefined();
+    });
+
+    it("drops a negative bucket (an overdrawn household) instead of an impossible negative wedge", () => {
+        const overdrawn = account({ history: [bal("2026-01-01", -12_000)] });
+        const home = account({ liquidity: LiquidityStatus.Illiquid, history: [bal("2026-01-01", 500_000)] });
+
+        const { slices, sliceTotal } = netWorthBreakdown([overdrawn, home], 0);
+
+        expect(slices).toEqual([{ key: "property", label: "Property", value: 500_000 }]);
+        // sliceTotal is the denominator for each slice's %, so it must match
+        // the visible slices — not gross assets, which the excluded negative
+        // cash bucket would otherwise drag below the property total.
+        expect(sliceTotal).toBe(500_000);
+    });
+
+    it("buckets a market_liquid account as 'other' rather than dropping it", () => {
+        const brokerageCash = account({ liquidity: LiquidityStatus.MarketLiquid, history: [bal("2026-01-01", 5_000)] });
+        const { slices } = netWorthBreakdown([brokerageCash], 0);
+        expect(slices).toEqual([{ key: "other", label: "Other assets", value: 5_000 }]);
     });
 });
 

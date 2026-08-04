@@ -108,6 +108,16 @@ struct DashboardView: View {
     /// Net worth = liquid accounts (net of liabilities) + investments.
     private var netWorth: Double { currentCash + currentPortfolioValue }
 
+    /// Net worth broken into buckets for the split donut: cash, investments,
+    /// retirement/locked, property, and whatever's left over.
+    private var worthBreakdown: NetWorthBreakdown {
+        let byAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
+        let inputs = visibleAccounts.map { account in
+            NetWorthAccountInput(kind: account.kind, liquidity: account.liquidity, history: byAccount[account.id] ?? [])
+        }
+        return netWorthBreakdown(accounts: inputs, portfolioValue: currentPortfolioValue)
+    }
+
     /// One stacked-area band per (date, series). Cash is forward-filled from
     /// account balances; investments are forward-filled from snapshot totals.
     /// Together the two bands sum to net worth on every date.
@@ -226,6 +236,12 @@ struct DashboardView: View {
                         } label: {
                             RunwaySummaryRow(fund: emergencyFund, currency: baseCurrency)
                         }
+                    }
+                }
+
+                if !worthBreakdown.slices.isEmpty {
+                    Section("Net Worth Split") {
+                        NetWorthSplitChart(breakdown: worthBreakdown, netWorth: netWorth, currency: baseCurrency)
                     }
                 }
 
@@ -480,6 +496,89 @@ struct NetWorthPoint: Identifiable {
     let date: Date
     let series: Series
     let value: Double
+}
+
+/// Donut + legend for the Dashboard's Net Worth Split: gross asset composition,
+/// with liabilities and the net total as plain rows below rather than wedges
+/// (a donut can't render a negative slice). Native counterpart of the web
+/// Dashboard's "Net Worth Split" card.
+struct NetWorthSplitChart: View {
+    let breakdown: NetWorthBreakdown
+    /// The household's actual net worth (assets net of liabilities across
+    /// *every* bucket, including one dropped from the donut for being
+    /// negative) — deliberately not derived from `breakdown.sliceTotal`,
+    /// which only covers the visible (positive) slices.
+    let netWorth: Double
+    let currency: String
+
+    /// Matches the web's `--chart-cat-1..5` — a CVD-validated categorical
+    /// palette kept deliberately separate from `AllocationCard.palette` so
+    /// category identity never shifts with the household's chosen accent.
+    static let palette: [Color] = [
+        Color(red: 0.165, green: 0.471, blue: 0.839), // #2a78d6
+        Color(red: 0.922, green: 0.408, blue: 0.204), // #eb6834
+        Color(red: 0.106, green: 0.686, blue: 0.478), // #1baf7a
+        Color(red: 0.929, green: 0.631, blue: 0.000), // #eda100
+        Color(red: 0.910, green: 0.482, blue: 0.643), // #e87ba4
+    ]
+
+    private func color(_ index: Int) -> Color { Self.palette[index % Self.palette.count] }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Chart(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
+                SectorMark(
+                    angle: .value("Value", slice.value),
+                    innerRadius: .ratio(0.62),
+                    angularInset: 1.5
+                )
+                .cornerRadius(3)
+                .foregroundStyle(color(index))
+            }
+            .chartLegend(.hidden)
+            .frame(height: 150)
+
+            VStack(spacing: 8) {
+                ForEach(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(color(index))
+                            .frame(width: 11, height: 11)
+                        Text(slice.label)
+                            .font(.caption)
+                        Spacer()
+                        Text(slice.value.currencyWhole(currency))
+                            .font(.caption.monospacedDigit())
+                        Text("\(Int((slice.value / breakdown.sliceTotal * 100).rounded()))%")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                }
+
+                if breakdown.liabilities > 0 {
+                    Divider()
+                    HStack {
+                        Text("− Liabilities")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(breakdown.liabilities.currencyWhole(currency))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.red)
+                    }
+                }
+                HStack {
+                    Text("Net worth")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Text(netWorth.currencyWhole(currency))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
 }
 
 /// Small labelled figure with a colour swatch matching its chart band.
