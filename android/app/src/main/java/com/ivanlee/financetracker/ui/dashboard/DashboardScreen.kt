@@ -43,10 +43,12 @@ import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.BudgetPresentation
+import com.ivanlee.financetracker.logic.NetWorthAccountInput
 import com.ivanlee.financetracker.logic.RunwayTone
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.monthYear
+import com.ivanlee.financetracker.logic.netWorthBreakdown
 import com.ivanlee.financetracker.logic.shortDay
 import com.ivanlee.financetracker.state.QuickAddViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
@@ -57,6 +59,7 @@ import com.ivanlee.financetracker.ui.components.PrivateBadge
 import com.ivanlee.financetracker.ui.components.StatTileData
 import com.ivanlee.financetracker.ui.components.MainScreenScaffold
 import com.ivanlee.financetracker.ui.components.SectionCard
+import com.ivanlee.financetracker.ui.components.NetWorthSplitChart
 import com.ivanlee.financetracker.ui.components.StackedAreaChart
 import com.ivanlee.financetracker.ui.theme.LocalAppTheme
 import com.ivanlee.financetracker.ui.theme.luminanceIsDark
@@ -196,6 +199,14 @@ fun DashboardScreen(
     val topHoldings = latestHoldings.sortedByDescending { it.currentValueHomeCurrency }.take(4)
     val netWorth = currentCash + currentPortfolioValue
 
+    val worthBreakdown = remember(visibleAccounts, visibleBalances, currentPortfolioValue) {
+        val byAccount = visibleBalances.groupBy { it.accountId }
+        val inputs = visibleAccounts.map { account ->
+            NetWorthAccountInput(account.kind, account.liquidity, byAccount[account.id] ?: emptyList())
+        }
+        netWorthBreakdown(inputs, currentPortfolioValue)
+    }
+
     val recentTransactions = transactions
         .filter { it.accountId in visibleAccountIds }
         .sortedByDescending { it.date }
@@ -255,6 +266,20 @@ fun DashboardScreen(
             item {
                 SectionCard {
                     RunwaySummary(fund, baseCurrency, onOpenBudgets)
+                }
+            }
+        }
+
+        if (worthBreakdown.slices.isNotEmpty()) {
+            item {
+                SectionCard(title = "Net Worth Split") {
+                    NetWorthSplitChart(
+                        slices = worthBreakdown.slices,
+                        sliceTotal = worthBreakdown.sliceTotal,
+                        liabilities = worthBreakdown.liabilities,
+                        netWorth = netWorth,
+                        currencyCode = baseCurrency,
+                    )
                 }
             }
         }

@@ -35,7 +35,7 @@ android/app/src/main/java/com/ivanlee/financetracker/
   state/SessionViewModel.kt  # auth, user, households, active household (mirrors SessionStore)
   state/ViewModeViewModel.kt # Private/Household/Blended + vault lock (mirrors ViewModeStore)
   state/QuickAddViewModel.kt # command-sheet presentation + reloadToken
-  logic/                     # PURE, JVM-testable: PortfolioAnalytics, GoalProjection,
+  logic/                     # PURE, JVM-testable: PortfolioAnalytics, GoalProjection, NetWorth,
                              #   BudgetPresentation, Formatters, ViewModeVisibility
   ui/Navigation.kt           # Routes + the five TopLevelDestinations
   ui/MainScaffold.kt         # NavigationSuiteScaffold + Quick Add sheet + vault lifecycle
@@ -128,6 +128,16 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   `current_value_home_currency` rather than native value. `periodChange` returns a **null**
   fraction when the opening balance is under 1% of the closing one — a goal funded from $42 to
   $13,104 is not a +31,100% return.
+- **`logic/NetWorth.kt`** is the Kotlin port of `frontend/src/lib/networth.ts` (and iOS's
+  `Support/NetWorth.swift`) — `summarizeAccounts` / `netWorthBreakdown` behind the Dashboard's
+  net worth total and its Net Worth Split donut (`ui/components/Charts.kt`'s
+  `NetWorthSplitChart`, on its own `NetWorthSplitColors` palette so a household's accent color
+  never changes which hue a bucket wears). `netWorthBreakdown.sliceTotal` is the sum of the
+  *visible* slices only — a negative bucket (e.g. an overdrawn household's cash) is dropped
+  from the donut since a wedge can't be negative, so `sliceTotal` is deliberately not the same
+  as gross assets in that case. `DashboardScreen` passes its own independently-computed
+  `netWorth` into `NetWorthSplitChart` rather than letting the chart derive
+  `sliceTotal - liabilities`, which would silently lose that dropped bucket from the total.
 - **`logic/BudgetPresentation.kt`** is the Kotlin port of `frontend/src/lib/budgets.ts` and
   iOS's `BudgetPresentation.swift`. Keep all three in sync; both judgement calls matter: a
   budget is "at risk" the moment its *projected* spend exceeds the limit (warning on the 10th
@@ -152,6 +162,11 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   dismissal: `confirmValueChange` fires the action and returns false, so the row springs back.
   That's right here because every destructive action goes through a confirmation dialog — a row
   that had already animated away while the dialog was still open would be lying.
+  `ConfirmDialog` (`ui/components/Forms.kt`) itself dismisses the instant its confirm button is
+  tapped, before the async call it triggers even starts — so a screen that wants "in flight"
+  feedback while that call runs (`RecurringScreen`'s delete, for instance) tracks it itself
+  (a `deletingId` disabling that row's swipe actions and clicks, with a `CircularProgressIndicator`
+  swapped in for its trailing content) rather than relying on the dialog for it.
 - **Haptics** go through `ui/components/Haptics.kt` rather than Compose's `LocalHapticFeedback`,
   which only exposes LongPress and TextHandleMove — not enough vocabulary for a gesture that
   needs a distinct "armed" tick and "committed" thump. The richer constants landed in API 30,

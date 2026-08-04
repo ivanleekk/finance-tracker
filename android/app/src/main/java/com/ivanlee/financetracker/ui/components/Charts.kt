@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,11 +27,15 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.logic.AllocationSlice
 import com.ivanlee.financetracker.logic.GoalHistoryPoint
+import com.ivanlee.financetracker.logic.NetWorthSlice
+import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.ui.theme.LocalAppTheme
 import com.ivanlee.financetracker.ui.theme.luminanceIsDark
+import com.ivanlee.financetracker.ui.theme.negativeColor
 
 // Charts are drawn straight onto a Compose Canvas rather than pulled in from a charting
 // library — same rule as iOS, which uses Apple's own Charts and no third-party packages.
@@ -322,6 +327,117 @@ private fun DrawScope.drawDonut(slices: List<AllocationSlice>) {
         val sweep = (slice.pct / total * 360.0).toFloat()
         drawArc(
             color = AllocationColors[index % AllocationColors.size],
+            startAngle = startAngle,
+            sweepAngle = sweep,
+            useCenter = false,
+            topLeft = Offset(inset, inset),
+            size = Size(size.width - strokeWidth, size.height - strokeWidth),
+            style = Stroke(width = strokeWidth),
+        )
+        startAngle += sweep
+    }
+}
+
+/**
+ * Fixed categorical palette for the Net Worth Split donut — matches the web's
+ * `--chart-cat-1..5` CSS vars, deliberately separate from [AllocationColors] so a household's
+ * theme accent never shifts which color a category (Cash, Investments, …) wears.
+ */
+val NetWorthSplitColors = listOf(
+    Color(0xFF2A78D6),
+    Color(0xFFEB6834),
+    Color(0xFF1BAF7A),
+    Color(0xFFEDA100),
+    Color(0xFFE87BA4),
+)
+
+/**
+ * Net Worth Split: a donut of gross-asset composition ([slices]), plus liabilities and the
+ * net total as plain rows below — never as wedges, since a donut can't render a negative
+ * slice. [netWorth] is passed in rather than derived from `sliceTotal - liabilities`: a
+ * negative bucket (e.g. overdrawn cash) is excluded from [slices] and therefore from
+ * [sliceTotal], so subtracting liabilities from it would silently drop that bucket from the
+ * total instead of reflecting it.
+ */
+@Composable
+fun NetWorthSplitChart(
+    slices: List<NetWorthSlice>,
+    sliceTotal: Double,
+    liabilities: Double,
+    netWorth: Double,
+    currencyCode: String,
+    modifier: Modifier = Modifier,
+    diameter: androidx.compose.ui.unit.Dp = 160.dp,
+) {
+    if (slices.isEmpty()) return
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(diameter)) {
+                Canvas(Modifier.fillMaxSize()) { drawNetWorthSplit(slices, sliceTotal) }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            slices.forEachIndexed { index, slice ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(NetWorthSplitColors[index % NetWorthSplitColors.size]),
+                    )
+                    Text(slice.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text(
+                        slice.value.currencyWhole(currencyCode),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "${(slice.value / sliceTotal * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+            }
+            if (liabilities > 0) {
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        "− Liabilities",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        liabilities.currencyWhole(currencyCode),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = negativeColor(),
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Net worth", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    netWorth.currencyWhole(currencyCode),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawNetWorthSplit(slices: List<NetWorthSlice>, total: Double) {
+    if (total <= 0) return
+    val strokeWidth = size.minDimension * 0.22f
+    val inset = strokeWidth / 2
+    var startAngle = -90f
+    slices.forEachIndexed { index, slice ->
+        val sweep = (slice.value / total * 360.0).toFloat()
+        drawArc(
+            color = NetWorthSplitColors[index % NetWorthSplitColors.size],
             startAngle = startAngle,
             sweepAngle = sweep,
             useCenter = false,
