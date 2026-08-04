@@ -19,6 +19,14 @@ struct RecurringView: View {
     @State private var showingAddRule = false
     @State private var errorMessage: String?
 
+    // Delete confirmation + per-row state lives here, not on the row itself —
+    // a `.confirmationDialog` presented from a view inside a swipe-actions
+    // row can get torn down along with the row's own dismiss animation
+    // before the user ever sees it, silently skipping the confirmation.
+    @State private var pendingDelete: RecurringTransactionResponse?
+    @State private var deletingRuleId: String?
+    @State private var rowErrors: [String: String] = [:]
+
     private var currency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
     private var visibleRules: [RecurringTransactionResponse] {
@@ -99,24 +107,12 @@ struct RecurringView: View {
                         rule: rule,
                         category: categories.first { $0.id == rule.categoryId },
                         accountName: accounts.first { $0.id == rule.accountId }?.name,
-                        currency: currency
+                        currency: currency,
+                        isDeleting: deletingRuleId == rule.id,
+                        rowError: rowErrors[rule.id],
+                        onToggle: { await setActive(rule, isActive: !rule.isActive) },
+                        onRequestDelete: { pendingDelete = rule }
                     )
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await setActive(rule, isActive: !rule.isActive) }
-                        } label: {
-                            Label(rule.isActive ? "Pause" : "Resume",
-                                  systemImage: rule.isActive ? "pause" : "play")
-                        }
-                        .tint(.orange)
-                    }
-                    .swipeActions {
-                        Button(role: .destructive) {
-                            Task { await delete(rule) }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
                 }
                 if visibleRules.isEmpty && !isLoading {
                     Text("Nothing recurring yet. Add your salary and rent first — they make the rest of the picture accurate.")
@@ -170,6 +166,22 @@ struct RecurringView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .confirmationDialog(
+            "Delete this recurring transaction?",
+            isPresented: .init(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let rule = pendingDelete {
+                    Task { await confirmDelete(rule) }
+                }
+            }
+        } message: {
+            Text("Transactions it already posted stay in your history — only future occurrences stop.")
         }
     }
 
@@ -226,13 +238,20 @@ struct RecurringView: View {
         }
     }
 
-    private func delete(_ rule: RecurringTransactionResponse) async {
+    /// Keyed by rule id, not a screen-wide alert — a failure here shouldn't
+    /// block the rest of the list, and the row it happened on is the one
+    /// place the user is already looking.
+    private func confirmDelete(_ rule: RecurringTransactionResponse) async {
+        pendingDelete = nil
+        deletingRuleId = rule.id
+        rowErrors[rule.id] = nil
         do {
             try await APIClient.shared.delete("/cashflow/recurring/\(rule.id)")
             await load()
         } catch {
-            errorMessage = error.localizedDescription
+            rowErrors[rule.id] = error.localizedDescription
         }
+        deletingRuleId = nil
     }
 }
 
@@ -244,42 +263,77 @@ struct RecurringRuleRow: View {
     let category: CategoryResponse?
     let accountName: String?
     let currency: String
+    /// Driven from `RecurringView`, not local `@State` — a `.confirmationDialog`
+    /// presented from a view living inside a swipe-actions row can get torn
+    /// down along with the row's own collapse animation before it's ever
+    /// seen, which silently skips the confirmation. Keeping the pending/error
+    /// state at the screen level (mirrors the Android port) sidesteps that.
+    let isDeleting: Bool
+    let rowError: String?
+    let onToggle: () async -> Void
+    let onRequestDelete: () -> Void
 
     private var isIncome: Bool { category?.type == .income }
 
     var body: some View {
-        HStack {
-            Image(systemName: isIncome ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
-                .foregroundStyle(isIncome ? .green : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(rule.description ?? category?.name ?? "Recurring")
-                    if rule.ownerUserId != nil {
-                        Image(systemName: "lock.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: isIncome ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                    .foregroundStyle(isIncome ? .green : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(rule.description ?? category?.name ?? "Recurring")
+                        if rule.ownerUserId != nil {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if !rule.isActive {
+                            Text("PAUSED")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    if !rule.isActive {
-                        Text("PAUSED")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("\(rule.frequency.label) · \(category?.name ?? "—") · \(accountName ?? "—")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("\(rule.frequency.label) · \(category?.name ?? "—") · \(accountName ?? "—")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text((isIncome ? "+" : "−") + rule.amount.currencyWhole(rule.currency ?? currency))
+                        .font(.body.monospacedDigit())
+                        .foregroundStyle(isIncome ? .green : .primary)
+                    Text(rule.isActive ? "next \(rule.nextDueDate.shortDay)" : "paused")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text((isIncome ? "+" : "−") + rule.amount.currencyWhole(rule.currency ?? currency))
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(isIncome ? .green : .primary)
-                Text(rule.isActive ? "next \(rule.nextDueDate.shortDay)" : "paused")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            if let rowError {
+                Text(rowError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
             }
         }
         .opacity(rule.isActive ? 1 : 0.55)
+        .swipeActions(edge: .leading) {
+            Button {
+                Task { await onToggle() }
+            } label: {
+                Label(rule.isActive ? "Pause" : "Resume",
+                      systemImage: rule.isActive ? "pause" : "play")
+            }
+            .tint(.orange)
+        }
+        // `allowsFullSwipe: false` so a fast full swipe reveals the button
+        // rather than deleting outright — the confirmation dialog (shown
+        // from the parent once `onRequestDelete` fires) is the only path to
+        // an actual delete.
+        .swipeActions(allowsFullSwipe: false) {
+            Button(role: .destructive, action: onRequestDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(isDeleting)
+        }
     }
 }
 
