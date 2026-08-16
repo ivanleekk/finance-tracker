@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -430,14 +431,24 @@ fun NetWorthSplitChart(
 }
 
 private fun DrawScope.drawNetWorthSplit(slices: List<NetWorthSlice>, total: Double) {
+    drawDonutSlices(slices, total, NetWorthSplitColors, strokeFraction = 0.22f)
+}
+
+/** Shared arc math for every donut-style chart on this screen — wedges as concentric strokes. */
+private fun DrawScope.drawDonutSlices(
+    slices: List<NetWorthSlice>,
+    total: Double,
+    colors: List<Color>,
+    strokeFraction: Float,
+) {
     if (total <= 0) return
-    val strokeWidth = size.minDimension * 0.22f
+    val strokeWidth = size.minDimension * strokeFraction
     val inset = strokeWidth / 2
     var startAngle = -90f
     slices.forEachIndexed { index, slice ->
         val sweep = (slice.value / total * 360.0).toFloat()
         drawArc(
-            color = NetWorthSplitColors[index % NetWorthSplitColors.size],
+            color = colors[index % colors.size],
             startAngle = startAngle,
             sweepAngle = sweep,
             useCenter = false,
@@ -446,6 +457,63 @@ private fun DrawScope.drawNetWorthSplit(slices: List<NetWorthSlice>, total: Doub
             style = Stroke(width = strokeWidth),
         )
         startAngle += sweep
+    }
+}
+
+/**
+ * Spending-by-category donut + top-4 bars with percentages. Native counterpart of the web
+ * Transactions "Top categories" card, including its pie chart (see #251). Reuses
+ * [NetWorthSplitColors] so a category wedge here and an asset wedge on the Dashboard read from
+ * the same colour language.
+ */
+@Composable
+fun CategorySpendingChart(
+    pieSlices: List<NetWorthSlice>,
+    topRows: List<NetWorthSlice>,
+    total: Double,
+    currencyCode: String,
+    modifier: Modifier = Modifier,
+    diameter: androidx.compose.ui.unit.Dp = 140.dp,
+) {
+    if (pieSlices.isEmpty()) return
+    val maxRow = topRows.maxOfOrNull { it.value } ?: 1.0
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(diameter)) {
+                Canvas(Modifier.fillMaxSize()) {
+                    drawDonutSlices(pieSlices, pieSlices.sumOf { it.value }, NetWorthSplitColors, strokeFraction = 0.32f)
+                }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            topRows.forEach { row ->
+                val pct = if (total > 0) row.value / total * 100 else 0.0
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(row.label, style = MaterialTheme.typography.bodySmall)
+                        Row {
+                            Text(
+                                row.value.currencyWhole(currencyCode),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                " · ${pct.toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = { (row.value / maxRow).toFloat() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(CircleShape),
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -3,12 +3,15 @@ package com.ivanlee.financetracker.ui.transactions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -16,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,11 +33,13 @@ import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.logic.NetWorthSlice
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.monthYear
 import com.ivanlee.financetracker.state.QuickAddViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.state.ViewModeViewModel
+import com.ivanlee.financetracker.ui.components.CategorySpendingChart
 import com.ivanlee.financetracker.ui.components.ConfirmDialog
 import com.ivanlee.financetracker.ui.components.EmptyState
 import com.ivanlee.financetracker.ui.components.MainScreenScaffold
@@ -53,6 +59,8 @@ private enum class TxnFilter(val label: String) {
     INCOME("Income"),
     TRANSFERS("Transfers"),
 }
+
+private data class CategoryOption(val id: String, val name: String)
 
 /**
  * The Activity tab: every transaction, newest first, grouped by month.
@@ -78,6 +86,8 @@ fun TransactionsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TransactionResponse?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    var hiddenCategoryIds by remember { mutableStateOf(setOf<String>()) }
+    var showCategoryFilter by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val userId = sessionVm.user?.id
@@ -107,6 +117,34 @@ fun TransactionsScreen(
     val visibleAccountIds = accounts
         .filter { viewModeVm.isVisible(it.ownerUserId, userId) }
         .map { it.id }.toSet()
+
+    val expenseTransactions = transactions.filter {
+        it.transactionType == TransactionType.EXPENSE && it.accountId in visibleAccountIds
+    }
+
+    // Every expense category that's actually shown up, used to populate the filter chips
+    // (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
+    val expenseCategoryOptions = expenseTransactions
+        .distinctBy { it.categoryId }
+        .map { CategoryOption(it.categoryId, categoriesById[it.categoryId]?.name ?: "Uncategorized") }
+        .sortedBy { it.name }
+
+    val categoryTotals = expenseTransactions
+        .filter { it.categoryId !in hiddenCategoryIds }
+        .groupBy { it.categoryId }
+        .mapValues { (_, txns) -> txns.sumOf { kotlin.math.abs(it.amountHomeCurrency ?: it.amount) } }
+    val categoryBreakdown = categoryTotals.entries
+        .map { (id, amount) -> NetWorthSlice(id, categoriesById[id]?.name ?: "Uncategorized", amount) }
+        .sortedByDescending { it.value }
+    val categoryTotal = categoryBreakdown.sumOf { it.value }
+    val categoryTop = categoryBreakdown.take(4)
+    // Caps the pie chart at 6 slices + "Other" so it stays legible once a household has a long
+    // tail of categories.
+    val categoryPieSlices = if (categoryBreakdown.size <= 6) {
+        categoryBreakdown
+    } else {
+        categoryBreakdown.take(6) + NetWorthSlice("other", "Other", categoryBreakdown.drop(6).sumOf { it.value })
+    }
 
     val filtered = transactions
         .filter { it.accountId in visibleAccountIds }
@@ -159,6 +197,60 @@ fun TransactionsScreen(
                         onClick = { filter = option },
                         label = { Text(option.label) },
                     )
+                }
+            }
+        }
+
+        if (expenseTransactions.isNotEmpty()) {
+            item {
+                SectionCard(
+                    title = "Top Categories",
+                    trailing = {
+                        TextButton(onClick = { showCategoryFilter = !showCategoryFilter }) {
+                            Icon(Icons.Filled.FilterList, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(4.dp))
+                            Text(
+                                if (hiddenCategoryIds.isEmpty()) "Filter" else "Filter (${hiddenCategoryIds.size} hidden)",
+                            )
+                        }
+                    },
+                ) {
+                    if (showCategoryFilter) {
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            expenseCategoryOptions.forEach { option ->
+                                val hidden = option.id in hiddenCategoryIds
+                                FilterChip(
+                                    selected = !hidden,
+                                    onClick = {
+                                        hiddenCategoryIds = if (hidden) {
+                                            hiddenCategoryIds - option.id
+                                        } else {
+                                            hiddenCategoryIds + option.id
+                                        }
+                                    },
+                                    label = { Text(option.name) },
+                                )
+                            }
+                        }
+                    }
+
+                    if (categoryBreakdown.isEmpty()) {
+                        Text(
+                            if (hiddenCategoryIds.isEmpty()) "No expenses yet." else "All categories are hidden.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        CategorySpendingChart(
+                            pieSlices = categoryPieSlices,
+                            topRows = categoryTop,
+                            total = categoryTotal,
+                            currencyCode = baseCurrency,
+                        )
+                    }
                 }
             }
         }

@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct TransactionsView: View {
@@ -15,6 +16,8 @@ struct TransactionsView: View {
     @State private var editingTransaction: TransactionResponse?
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
+    @State private var hiddenCategoryIds: Set<String> = []
+    @State private var showCategoryFilter = false
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -34,6 +37,46 @@ struct TransactionsView: View {
     }
     private var accountsById: [String: AccountResponse] {
         Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+    }
+
+    /// Visible, non-transfer expense transactions — the source for the category breakdown below.
+    private var expenseTransactions: [TransactionResponse] {
+        transactions.filter { $0.transactionType == .expense && visibleAccountIds.contains($0.accountId) }
+    }
+
+    /// Every expense category that's actually shown up, used to populate the filter chips
+    /// (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
+    private var expenseCategoryOptions: [CategoryOption] {
+        var seen: [String: String] = [:]
+        for txn in expenseTransactions where seen[txn.categoryId] == nil {
+            seen[txn.categoryId] = categoriesById[txn.categoryId]?.name ?? "Uncategorized"
+        }
+        return seen.map { CategoryOption(id: $0.key, name: $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    private var categoryBreakdown: (all: [CategorySpend], top: [CategorySpend], total: Double) {
+        var totals: [String: Double] = [:]
+        for txn in expenseTransactions where !hiddenCategoryIds.contains(txn.categoryId) {
+            totals[txn.categoryId, default: 0] += abs(txn.amountHomeCurrency ?? txn.amount)
+        }
+        let all = totals
+            .map { CategorySpend(id: $0.key, name: categoriesById[$0.key]?.name ?? "Uncategorized", amount: $0.value) }
+            .sorted { $0.amount > $1.amount }
+        let total = all.reduce(0) { $0 + $1.amount }
+        return (all, Array(all.prefix(4)), total)
+    }
+
+    /// Caps the pie chart at 6 slices + "Other" so it stays legible once a household has a
+    /// long tail of categories.
+    private var pieSlices: [CategorySpend] {
+        let items = categoryBreakdown.all
+        guard items.count > 6 else { return items }
+        let otherAmount = items.dropFirst(6).reduce(0) { $0 + $1.amount }
+        return Array(items.prefix(6)) + [CategorySpend(id: "other", name: "Other", amount: otherAmount)]
+    }
+
+    private func toggleHiddenCategory(_ id: String) {
+        if hiddenCategoryIds.contains(id) { hiddenCategoryIds.remove(id) } else { hiddenCategoryIds.insert(id) }
     }
 
     private var filtered: [TransactionResponse] {
@@ -64,6 +107,23 @@ struct TransactionsView: View {
         NavigationStack {
             List {
                 QuickAddPullSensor()
+                if !expenseTransactions.isEmpty {
+                    Section {
+                        CategoryBreakdownCard(
+                            breakdown: categoryBreakdown,
+                            pieSlices: pieSlices,
+                            categoryOptions: expenseCategoryOptions,
+                            hiddenCategoryIds: hiddenCategoryIds,
+                            showFilter: $showCategoryFilter,
+                            baseCurrency: baseCurrency,
+                            onToggle: toggleHiddenCategory
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    } header: {
+                        Text("Top Categories")
+                    }
+                }
                 ForEach(byMonth, id: \.month) { group in
                     Section(group.month.monthYear) {
                         ForEach(group.transactions) { txn in
@@ -488,6 +548,141 @@ struct TransferFormView: View {
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+struct CategoryOption: Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct CategorySpend: Identifiable {
+    let id: String
+    let name: String
+    let amount: Double
+}
+
+/// Spending-by-category donut + filterable chip list + top-4 bars. Native counterpart of the
+/// web Transactions "Top categories" card, including its category filter and pie chart.
+struct CategoryBreakdownCard: View {
+    let breakdown: (all: [CategorySpend], top: [CategorySpend], total: Double)
+    let pieSlices: [CategorySpend]
+    let categoryOptions: [CategoryOption]
+    let hiddenCategoryIds: Set<String>
+    @Binding var showFilter: Bool
+    let baseCurrency: String
+    let onToggle: (String) -> Void
+
+    /// Reuses the Net Worth Split donut's palette (the web's `--chart-cat-1..5`) so a category
+    /// wedge here and an asset wedge on the Dashboard read from the same colour language.
+    private func color(_ index: Int) -> Color { NetWorthSplitChart.palette[index % NetWorthSplitChart.palette.count] }
+
+    private var topMax: Double { max(breakdown.top.map(\.amount).max() ?? 1, 1) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Spacer()
+                Button {
+                    showFilter.toggle()
+                } label: {
+                    Label(
+                        hiddenCategoryIds.isEmpty ? "Filter" : "Filter (\(hiddenCategoryIds.count) hidden)",
+                        systemImage: "line.3.horizontal.decrease.circle"
+                    )
+                    .font(.caption.weight(.semibold))
+                }
+            }
+
+            if showFilter {
+                CategoryFilterChips(options: categoryOptions, hiddenCategoryIds: hiddenCategoryIds, onToggle: onToggle)
+            }
+
+            if breakdown.all.isEmpty {
+                Text(hiddenCategoryIds.isEmpty ? "No expenses yet." : "All categories are hidden.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            } else {
+                Chart(Array(pieSlices.enumerated()), id: \.element.id) { index, slice in
+                    SectorMark(
+                        angle: .value("Amount", slice.amount),
+                        innerRadius: .ratio(0.55),
+                        angularInset: 1.5
+                    )
+                    .cornerRadius(3)
+                    .foregroundStyle(color(index))
+                }
+                .chartLegend(.hidden)
+                .frame(height: 140)
+
+                VStack(spacing: 10) {
+                    ForEach(breakdown.top) { cat in
+                        let pct = breakdown.total > 0 ? cat.amount / breakdown.total * 100 : 0
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(cat.name).font(.caption)
+                                Spacer()
+                                Text(cat.amount.currencyWhole(baseCurrency))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                Text("· \(Int(pct.rounded()))%")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(.quaternary)
+                                    Capsule()
+                                        .fill(Color.accentColor)
+                                        .frame(width: geo.size.width * (cat.amount / topMax))
+                                }
+                            }
+                            .frame(height: 6)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Toggleable capsule chips — tapping one adds/removes that category from `hiddenCategoryIds`.
+private struct CategoryFilterChips: View {
+    let options: [CategoryOption]
+    let hiddenCategoryIds: Set<String>
+    let onToggle: (String) -> Void
+
+    private let columns = [GridItem(.adaptive(minimum: 80), spacing: 8)]
+
+    var body: some View {
+        if options.isEmpty {
+            Text("No expense categories yet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                ForEach(options) { option in
+                    let hidden = hiddenCategoryIds.contains(option.id)
+                    Button {
+                        onToggle(option.id)
+                    } label: {
+                        Text(option.name)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(hidden ? Color(.tertiarySystemGroupedBackground) : Color.accentColor.opacity(0.16))
+                            .foregroundStyle(hidden ? .secondary : Color.accentColor)
+                            .strikethrough(hidden)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }

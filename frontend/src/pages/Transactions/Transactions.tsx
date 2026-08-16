@@ -3,7 +3,8 @@ import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle, ListFilter } from "lucide-react"
+import { Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import { downloadFromApi } from "../../lib/download"
@@ -18,6 +19,8 @@ import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
 import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
+
+const CATEGORY_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)"];
 
 function categoryIcon(name: string): string {
     const low = name.toLowerCase();
@@ -65,6 +68,8 @@ export default function Transactions() {
     const [filterAccount, setFilterAccount] = useState<string>("all")
     const [filterSubportfolio, setFilterSubportfolio] = useState<string>("all")
     const [filterFlow, setFilterFlow] = useState<"all" | "income" | "expense">("all")
+    const [hiddenCategoryIds, setHiddenCategoryIds] = useState<Set<string>>(new Set())
+    const [showCategoryFilter, setShowCategoryFilter] = useState(false)
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -353,24 +358,64 @@ export default function Transactions() {
         return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
     }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
 
-    const topCategories = useMemo(() => {
-        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
-        const byCategory = new Map<string, number>();
+    // Every expense category that's actually shown up, used to populate the filter chips
+    // (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
+    const expenseCategoryOptions = useMemo(() => {
+        const seen = new Map<string, string>();
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const id = tx.category_id || "uncategorized";
+            if (!seen.has(id)) {
+                const name = categories.find(c => c.id === tx.category_id)?.name || "Uncategorized";
+                seen.set(id, name);
+            }
+        });
+        return Array.from(seen.entries())
+            .map(([id, name]) => ({ id, name }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
+
+    const toggleHiddenCategory = (id: string) => {
+        setHiddenCategoryIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const categoryBreakdown = useMemo(() => {
+        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+        const byCategory = new Map<string, { name: string; amount: number }>();
+        transactions.forEach(tx => {
+            if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            const account = accounts.find(a => a.id === tx.account_id);
+            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
+            const catId = tx.category_id || "uncategorized";
+            if (hiddenCategoryIds.has(catId)) return;
             const name = categoryMap.get(tx.category_id) || "Uncategorized";
             const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
-            byCategory.set(name, (byCategory.get(name) || 0) + homeAmount);
+            const existing = byCategory.get(catId);
+            byCategory.set(catId, { name, amount: (existing?.amount ?? 0) + homeAmount });
         });
-        const items = Array.from(byCategory.entries())
-            .map(([name, amount]) => ({ name, amount, icon: categoryIcon(name) }))
-            .sort((a, b) => b.amount - a.amount)
-            .slice(0, 4);
-        const max = Math.max(1, ...items.map(c => c.amount));
-        return { items, max };
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
+        const all = Array.from(byCategory.entries())
+            .map(([id, v]) => ({ id, name: v.name, amount: v.amount, icon: categoryIcon(v.name) }))
+            .sort((a, b) => b.amount - a.amount);
+        const total = all.reduce((sum, c) => sum + c.amount, 0);
+        const top = all.slice(0, 4);
+        const max = Math.max(1, ...top.map(c => c.amount));
+        return { all, top, max, total };
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds]);
+
+    // Cap the pie chart at 6 slices + "Other" so it stays legible once a household has a long tail of categories.
+    const pieSlices = useMemo(() => {
+        const items = categoryBreakdown.all;
+        if (items.length <= 6) return items;
+        const top = items.slice(0, 6);
+        const otherAmount = items.slice(6).reduce((sum, c) => sum + c.amount, 0);
+        return [...top, { id: "other", name: "Other", amount: otherAmount, icon: "•" }];
+    }, [categoryBreakdown.all]);
 
     const getIcon = (type: string) => {
         if (type === 'deposit' || type === 'income' || type === 'transfer_in') return <ArrowDownRight className="h-5 w-5 text-green-500" />
@@ -449,23 +494,107 @@ export default function Transactions() {
                 </Card>
                 <Card>
                     <CardContent className="pt-6">
-                        <CardTitle className="text-sm mb-4">Top categories</CardTitle>
-                        {topCategories.items.length === 0 ? (
-                            <div className="text-sm text-base-500 py-4 text-center">No expenses yet.</div>
-                        ) : (
-                            <div className="space-y-3">
-                                {topCategories.items.map(cat => (
-                                    <div key={cat.name}>
-                                        <div className="flex items-center justify-between mb-1.5">
-                                            <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
-                                            <span className="font-mono text-xs text-base-500">{cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                        </div>
-                                        <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
-                                            <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / topCategories.max) * 100}%` }} />
-                                        </div>
-                                    </div>
-                                ))}
+                        <div className="flex items-center justify-between mb-4">
+                            <CardTitle className="text-sm">Top categories</CardTitle>
+                            <button
+                                type="button"
+                                onClick={() => setShowCategoryFilter(v => !v)}
+                                className={cn(
+                                    "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors",
+                                    showCategoryFilter || hiddenCategoryIds.size > 0
+                                        ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30"
+                                        : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                                )}
+                            >
+                                <ListFilter className="h-3.5 w-3.5" />
+                                Filter{hiddenCategoryIds.size > 0 ? ` (${hiddenCategoryIds.size} hidden)` : ""}
+                            </button>
+                        </div>
+                        {showCategoryFilter && (
+                            <div className="flex flex-wrap gap-1.5 mb-4 pb-4 border-b border-base-100 dark:border-base-800">
+                                {expenseCategoryOptions.length === 0 ? (
+                                    <span className="text-xs text-base-400">No expense categories yet.</span>
+                                ) : expenseCategoryOptions.map(opt => {
+                                    const hidden = hiddenCategoryIds.has(opt.id);
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() => toggleHiddenCategory(opt.id)}
+                                            className={cn(
+                                                "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
+                                                hidden
+                                                    ? "bg-base-100 dark:bg-base-900 text-base-400 dark:text-base-600 line-through"
+                                                    : "bg-secondary-100 dark:bg-secondary-900/40 text-secondary-700 dark:text-secondary-300"
+                                            )}
+                                        >
+                                            {opt.name}
+                                        </button>
+                                    );
+                                })}
                             </div>
+                        )}
+                        {categoryBreakdown.all.length === 0 ? (
+                            <div className="text-sm text-base-500 py-4 text-center">
+                                {hiddenCategoryIds.size > 0 ? "All categories are hidden." : "No expenses yet."}
+                            </div>
+                        ) : (
+                            <>
+                                <div className="h-[140px] w-full mb-4">
+                                    <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+                                        <PieChart>
+                                            <Pie
+                                                data={pieSlices}
+                                                dataKey="amount"
+                                                nameKey="name"
+                                                innerRadius="55%"
+                                                outerRadius="90%"
+                                                paddingAngle={2}
+                                                stroke="none"
+                                            >
+                                                {pieSlices.map((slice, i) => (
+                                                    <Cell key={slice.id} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip
+                                                content={({ active, payload }) => {
+                                                    if (!active || !payload || !payload.length) return null;
+                                                    const slice = payload[0].payload as { name: string; amount: number };
+                                                    const pct = categoryBreakdown.total > 0 ? (slice.amount / categoryBreakdown.total) * 100 : 0;
+                                                    return (
+                                                        <div className="bg-base-50 dark:bg-base-900 border border-base-200 dark:border-base-800 p-2.5 rounded-lg shadow-xl">
+                                                            <p className="text-sm font-semibold text-base-900 dark:text-base-50">{slice.name}</p>
+                                                            <p className="text-sm font-bold text-base-900 dark:text-base-50">
+                                                                {slice.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                <span className="text-base-400 ml-1.5 font-normal">{pct.toFixed(0)}%</span>
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                }}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div className="space-y-3">
+                                    {categoryBreakdown.top.map(cat => {
+                                        const pct = categoryBreakdown.total > 0 ? (cat.amount / categoryBreakdown.total) * 100 : 0;
+                                        return (
+                                            <div key={cat.id}>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
+                                                    <span className="font-mono text-xs text-base-500">
+                                                        {cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                        <span className="text-base-400 ml-1">· {pct.toFixed(0)}%</span>
+                                                    </span>
+                                                </div>
+                                                <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
+                                                    <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / categoryBreakdown.max) * 100}%` }} />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>
