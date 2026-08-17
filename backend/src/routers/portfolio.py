@@ -277,7 +277,33 @@ def update_asset(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     update_data = asset_update.model_dump(exclude_unset=True)
+
+    # A ticker fix (e.g. the user typo'd it when first trading) is the whole
+    # point of editing an asset, so re-enrich name/currency from yfinance the
+    # same way asset creation does. Only fill fields the caller didn't
+    # explicitly submit themselves, and only fall back to user input if the
+    # lookup fails or the new ticker isn't found.
+    new_ticker = update_data.get("ticker")
+    pricing_mode = update_data.get("pricing_mode", db_asset.pricing_mode)
+    if new_ticker and new_ticker.upper() != db_asset.ticker and pricing_mode != models.PRICING_MODE_MANUAL:
+        try:
+            t = yf.Ticker(new_ticker)
+            info = t.info
+            if info:
+                if "name" not in update_data:
+                    fetched_name = info.get('shortName') or info.get('longName')
+                    if fetched_name:
+                        update_data["name"] = fetched_name
+                if "currency" not in update_data:
+                    fetched_currency = info.get('currency')
+                    if fetched_currency:
+                        update_data["currency"] = fetched_currency
+        except Exception as e:
+            logger.warning(f"Failed to enrich asset {new_ticker} from yfinance: {e}")
+
     for key, value in update_data.items():
+        if key in ("ticker", "currency") and value:
+            value = value.upper()
         setattr(db_asset, key, value)
 
     db.commit()

@@ -1,6 +1,7 @@
 import uuid
 import pytest
 from decimal import Decimal
+from unittest.mock import patch, MagicMock
 from datetime import datetime, date, timezone
 from src import models
 
@@ -168,6 +169,76 @@ def test_update_asset_not_found(client, auth_headers):
         json={"name": "Apple Incorporated"}
     )
     assert response.status_code == 404
+
+def test_update_asset_ticker_change_enriches_from_yfinance(client, auth_headers, test_asset):
+    """Fixing a typo'd ticker should refetch name/currency, not just rename it."""
+    mock_info = {"shortName": "Microsoft Corporation", "currency": "USD"}
+    mock_ticker = MagicMock()
+    mock_ticker.info = mock_info
+    with patch("src.routers.portfolio.yf.Ticker", return_value=mock_ticker):
+        response = client.put(
+            f"/portfolio/assets/{test_asset.id}",
+            headers=auth_headers,
+            json={"ticker": "MSFT"}
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "MSFT"
+    assert data["name"] == "Microsoft Corporation"
+    assert data["currency"] == "USD"
+
+def test_update_asset_ticker_change_respects_explicit_user_input(client, auth_headers, test_asset):
+    """If the caller also supplies a name/currency, that wins over yfinance."""
+    mock_info = {"shortName": "Microsoft Corporation", "currency": "USD"}
+    mock_ticker = MagicMock()
+    mock_ticker.info = mock_info
+    with patch("src.routers.portfolio.yf.Ticker", return_value=mock_ticker):
+        response = client.put(
+            f"/portfolio/assets/{test_asset.id}",
+            headers=auth_headers,
+            json={"ticker": "MSFT", "name": "My Custom Name", "currency": "EUR"}
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "MSFT"
+    assert data["name"] == "My Custom Name"
+    assert data["currency"] == "EUR"
+
+def test_update_asset_ticker_change_falls_back_when_yfinance_fails(client, auth_headers, test_asset):
+    """If yfinance can't find the new ticker, keep whatever the user submitted."""
+    with patch("src.routers.portfolio.yf.Ticker", side_effect=Exception("network error")):
+        response = client.put(
+            f"/portfolio/assets/{test_asset.id}",
+            headers=auth_headers,
+            json={"ticker": "BADTICKER", "name": "Manually Entered Name"}
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "BADTICKER"
+    assert data["name"] == "Manually Entered Name"
+
+def test_update_asset_ticker_change_skipped_for_manual_pricing(client, auth_headers, db_session):
+    """Manually-priced assets (unlisted bonds, SSBs) have no market listing to enrich from."""
+    asset = models.Asset(
+        id=uuid.uuid7(),
+        ticker="SSB1",
+        name="Singapore Savings Bond",
+        type="bond",
+        currency="SGD",
+        pricing_mode=models.PRICING_MODE_MANUAL,
+    )
+    db_session.add(asset)
+    db_session.commit()
+
+    with patch("src.routers.portfolio.yf.Ticker") as mock_yf:
+        response = client.put(
+            f"/portfolio/assets/{asset.id}",
+            headers=auth_headers,
+            json={"ticker": "SSB2"}
+        )
+    assert response.status_code == 200
+    assert response.json()["ticker"] == "SSB2"
+    mock_yf.assert_not_called()
 
 def test_delete_asset(client, auth_headers, db_session):
     asset = models.Asset(

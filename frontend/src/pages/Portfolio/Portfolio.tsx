@@ -56,7 +56,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], latestSnapshots = [], timeseries = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], latestSnapshots = [], timeseries = [], metrics = null, dividends = [], accounts = [], currencies = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -101,6 +101,16 @@ export default function Portfolio() {
     const [priceDate, setPriceDate] = useState(new Date().toISOString().split('T')[0])
     const [isSubmittingPrice, setIsSubmittingPrice] = useState(false)
     const [priceError, setPriceError] = useState<string | null>(null)
+    // Editing an asset's own metadata (ticker/name/type/currency) — fixes a
+    // stock set up wrong at Trade time, distinct from recording a manual price.
+    const [editingAsset, setEditingAsset] = useState<Holding | null>(null)
+    const [editAssetTicker, setEditAssetTicker] = useState("")
+    const [editAssetName, setEditAssetName] = useState("")
+    const [editAssetType, setEditAssetType] = useState("Stock")
+    const [editAssetCurrency, setEditAssetCurrency] = useState("USD")
+    const [editAssetManualPricing, setEditAssetManualPricing] = useState(false)
+    const [isSubmittingAsset, setIsSubmittingAsset] = useState(false)
+    const [assetEditError, setAssetEditError] = useState<string | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -152,6 +162,48 @@ export default function Portfolio() {
             setPriceError(e.response?.data?.detail || "Failed to record price.");
         } finally {
             setIsSubmittingPrice(false);
+        }
+    };
+
+    const openEditAsset = (h: Holding) => {
+        setEditingAsset(h);
+        setEditAssetTicker(h.ticker);
+        setEditAssetName(h.name);
+        setEditAssetType(h.assetType);
+        setEditAssetCurrency(h.currency);
+        setEditAssetManualPricing(h.pricingMode === "manual");
+        setAssetEditError(null);
+    };
+
+    const handleUpdateAsset = async () => {
+        if (!editingAsset) return;
+        if (!editAssetTicker.trim() || !editAssetName.trim()) {
+            setAssetEditError("Ticker and name are required.");
+            return;
+        }
+        setIsSubmittingAsset(true);
+        setAssetEditError(null);
+        try {
+            const payload: Record<string, string> = {
+                ticker: editAssetTicker.toUpperCase(),
+                type: editAssetType,
+                pricing_mode: editAssetManualPricing ? "manual" : "market",
+            };
+            // Only send name/currency if the user actually edited them here —
+            // otherwise leave them out so the backend can re-enrich from
+            // yfinance when the ticker changed, falling back to the existing
+            // values if the lookup fails or the asset is manually priced.
+            if (editAssetName !== editingAsset.name) payload.name = editAssetName;
+            if (editAssetCurrency !== editingAsset.currency) payload.currency = editAssetCurrency;
+
+            await api.put(`/portfolio/assets/${editingAsset.assetId}`, payload);
+            setEditingAsset(null);
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setAssetEditError(e.response?.data?.detail || "Failed to update asset.");
+        } finally {
+            setIsSubmittingAsset(false);
         }
     };
 
@@ -765,6 +817,79 @@ export default function Portfolio() {
                 </Card>
             )}
 
+            {editingAsset && (
+                <Card className="bg-primary-50/30 border-primary-200 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                        {assetEditError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {assetEditError}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input
+                                label="Ticker Symbol"
+                                className="uppercase"
+                                value={editAssetTicker}
+                                onChange={e => setEditAssetTicker(e.target.value.toUpperCase())}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Asset Type</label>
+                                <Select
+                                    value={editAssetType}
+                                    onChange={setEditAssetType}
+                                    options={["Stock", "ETF", "Bond", "Other"].map(t => ({ value: t, label: t }))}
+                                />
+                            </div>
+                        </div>
+
+                        <label className="flex items-center gap-2.5 rounded-lg border border-base-200 dark:border-base-800 px-3 py-2.5 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500"
+                                checked={editAssetManualPricing}
+                                onChange={e => setEditAssetManualPricing(e.target.checked)}
+                            />
+                            <span className="text-sm text-base-600 dark:text-base-400">
+                                No market listing — I'll price this manually <span className="text-base-400 dark:text-base-500">(SSBs, unlisted bonds)</span>
+                            </span>
+                        </label>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input
+                                label="Name"
+                                value={editAssetName}
+                                onChange={e => setEditAssetName(e.target.value)}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
+                                <Select
+                                    value={editAssetCurrency}
+                                    onChange={setEditAssetCurrency}
+                                    options={currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <Button
+                                variant="primary"
+                                className="h-[42px]"
+                                onClick={handleUpdateAsset}
+                                disabled={isSubmittingAsset}
+                            >
+                                {isSubmittingAsset ? "Saving..." : "Save Changes"}
+                            </Button>
+                            <Button variant="ghost" className="h-[42px]" onClick={() => setEditingAsset(null)}>Cancel</Button>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {editAssetManualPricing
+                                ? "Manually-priced assets aren't looked up on Yahoo Finance."
+                                : "Leave Name and Currency untouched after changing the ticker to have them re-fetched from Yahoo Finance automatically; edit them yourself if the lookup can't find it."}
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
             {isEditing && activeSubportfolioObj && (
                 <Card className="bg-primary-50/30 border-primary-200 border-dashed">
                     <CardContent className="pt-6 flex items-end gap-4">
@@ -1086,6 +1211,9 @@ export default function Portfolio() {
                                                                 Price
                                                             </Button>
                                                         )}
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditAsset(h)}>
+                                                            Edit
+                                                        </Button>
                                                         <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
                                                             <Button variant="ghost" size="sm">Trade</Button>
                                                         </Link>
