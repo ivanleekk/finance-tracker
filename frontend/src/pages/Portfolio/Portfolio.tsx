@@ -6,7 +6,7 @@ import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
-import { cn } from "../../lib/utils"
+import { cn, returnBasis } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
@@ -298,7 +298,8 @@ export default function Portfolio() {
                     beta: m?.beta !== undefined && m?.beta !== null ? m.beta.toFixed(2) : "N/A",
                     drawdown: m?.volatility !== undefined && m?.volatility !== null ? formatPercent(m.volatility) : "N/A",
                     twr: m?.time_weighted_return !== undefined && m?.time_weighted_return !== null ? formatPercent(m.time_weighted_return) : "N/A",
-                    irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A"
+                    irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A",
+                    returnBasis: returnBasis(m?.annualized)
                 },
                 history,
                 holdings: hlds
@@ -808,8 +809,8 @@ export default function Portfolio() {
                     <StatCard title="Cash" value={formatCurrency(cashValue)} trend="neutral" description="Uninvested cash" />
                 )}
                 <StatCard title="Unrealized P&L" value={currentData.stats.unrealized} trend={currentData.stats.unrealized.startsWith('-') ? 'down' : 'up'} changePercent={currentData.stats.unrealizedPercent} />
-                <StatCard title="TWR (Ann.)" value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
-                <StatCard title="IRR / MWR" value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title={`TWR (${currentData.stats.returnBasis})`} value={currentData.stats.twr} trend={currentData.stats.twr.startsWith('-') ? 'down' : 'up'} />
+                <StatCard title={`IRR / MWR (${currentData.stats.returnBasis})`} value={currentData.stats.irr} trend={currentData.stats.irr.startsWith('-') ? 'down' : 'up'} />
                 <StatCard title="Div Yield" value={activeMetrics?.dividend_yield != null ? `${(activeMetrics.dividend_yield * 100).toFixed(1)}%` : "—"} />
                 {activeSubportfolioObj?.target_amount && (
                     <StatCard 

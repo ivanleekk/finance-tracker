@@ -68,8 +68,10 @@ def test_metrics_simple_growth_no_flows(db_session, seeded):
 
     # simple_return over the window: (11000 - 10000) / 10000 = 10%
     assert metrics.simple_return == pytest.approx(0.10, abs=1e-6)
-    # annualized TWR must be positive and large (10% in 10 days)
-    assert metrics.time_weighted_return > 0.5
+    # A 10-day window is reported as the period return, not annualized up to
+    # the ~3400%/yr that compounding 10% over 10 days would imply.
+    assert metrics.annualized is False
+    assert metrics.time_weighted_return == pytest.approx(0.10, abs=1e-6)
     assert metrics.volatility >= 0.0
     # No benchmark (SPY) data seeded, so benchmark-relative metrics are unknown
     assert metrics.beta is None

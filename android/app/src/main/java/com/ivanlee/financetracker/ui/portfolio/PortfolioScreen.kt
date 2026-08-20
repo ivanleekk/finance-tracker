@@ -62,6 +62,7 @@ import com.ivanlee.financetracker.ui.components.chartAccent
 import com.ivanlee.financetracker.ui.dashboard.HoldingRow
 import com.ivanlee.financetracker.ui.dashboard.percentString
 import com.ivanlee.financetracker.ui.dashboard.ratioString
+import com.ivanlee.financetracker.ui.dashboard.returnBasis
 import com.ivanlee.financetracker.ui.theme.amountColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -307,8 +308,8 @@ fun PerformanceTileGrid(
             StatTileData("Unrealized P&L", unrealizedGain.currency(currencyCode), signal = unrealizedGain),
             StatTileData("Div Yield", percentString(metrics?.dividendYield)),
             StatTileData("Overall Return", percentString(metrics?.simpleReturn), signal = metrics?.simpleReturn),
-            StatTileData("TWR (Ann.)", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
-            StatTileData("IRR / MWR", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
+            StatTileData("TWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
+            StatTileData("IRR / MWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
             StatTileData("Sharpe", ratioString(metrics?.sharpeRatio)),
             StatTileData("Sortino", ratioString(metrics?.sortinoRatio)),
             StatTileData(

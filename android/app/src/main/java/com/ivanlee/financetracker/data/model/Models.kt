@@ -585,6 +585,12 @@ data class PerformanceMetrics(
     val simpleReturn: Double = 0.0,
     val timeWeightedReturn: Double = 0.0,
     val moneyWeightedReturn: Double = 0.0,
+    /**
+     * True when the window was long enough (>= 1 year) for the two returns
+     * above to be annualized; false when they are plain period returns over
+     * the window.
+     */
+    val annualized: Boolean = false,
     val volatility: Double = 0.0,
     val sharpeRatio: Double = 0.0,
     val sortinoRatio: Double = 0.0,

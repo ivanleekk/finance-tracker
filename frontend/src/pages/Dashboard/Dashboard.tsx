@@ -5,7 +5,7 @@ import { Badge } from "../../components/ui/Badge"
 import { useHousehold } from "../../lib/HouseholdContext"
 import { useEffect, useMemo, useState } from "react"
 import { useLoaderData, useRevalidator, useSearchParams } from "react-router"
-import { cn } from "../../lib/utils"
+import { cn, returnBasis } from "../../lib/utils"
 import { Area, AreaChart, Line, ReferenceLine, ComposedChart, Pie, PieChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import type { DashboardLoaderData } from "./dashboard.loader"
 import type { PortfolioTimeseriesPoint } from "../../types/types"
@@ -235,12 +235,12 @@ export default function Dashboard() {
                         trend={(metrics?.overall_metrics?.simple_return || 0) >= 0 ? "up" : "down"}
                     />
                     <StatCard
-                        title="TWR (Ann.)"
+                        title={`TWR (${returnBasis(metrics?.overall_metrics?.annualized)})`}
                         value={`${((metrics?.overall_metrics?.time_weighted_return || 0) * 100).toFixed(2)}%`}
                         trend={(metrics?.overall_metrics?.time_weighted_return || 0) >= 0 ? "up" : "down"}
                     />
                     <StatCard
-                        title="IRR / MWR"
+                        title={`IRR / MWR (${returnBasis(metrics?.overall_metrics?.annualized)})`}
                         value={`${((metrics?.overall_metrics?.money_weighted_return || 0) * 100).toFixed(2)}%`}
                         trend={(metrics?.overall_metrics?.money_weighted_return || 0) >= 0 ? "up" : "down"}
                     />

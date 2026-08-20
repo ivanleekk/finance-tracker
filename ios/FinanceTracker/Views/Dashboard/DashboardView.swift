@@ -270,8 +270,8 @@ struct DashboardView: View {
                         LazyVGrid(columns: statColumns, spacing: 10) {
                             let m = metrics?.overallMetrics
                             StatTile(title: "Overall Return", value: StatTile.percentString(m?.simpleReturn), tint: StatTile.returnTint(m?.simpleReturn))
-                            StatTile(title: "TWR (Ann.)", value: StatTile.percentString(m?.timeWeightedReturn), tint: StatTile.returnTint(m?.timeWeightedReturn))
-                            StatTile(title: "IRR / MWR", value: StatTile.percentString(m?.moneyWeightedReturn), tint: StatTile.returnTint(m?.moneyWeightedReturn))
+                            StatTile(title: "TWR (\(StatTile.returnBasis(m?.annualized)))", value: StatTile.percentString(m?.timeWeightedReturn), tint: StatTile.returnTint(m?.timeWeightedReturn))
+                            StatTile(title: "IRR / MWR (\(StatTile.returnBasis(m?.annualized)))", value: StatTile.percentString(m?.moneyWeightedReturn), tint: StatTile.returnTint(m?.moneyWeightedReturn))
                             StatTile(title: "Sharpe", value: StatTile.ratioString(m?.sharpeRatio))
                         }
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))

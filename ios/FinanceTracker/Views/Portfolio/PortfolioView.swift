@@ -357,6 +357,14 @@ struct StatTile: View {
         value.map(\.signedPercent) ?? "N/A"
     }
 
+    /// Label for the basis a return is quoted on. The backend only annualizes
+    /// TWR and MWR once the window spans at least a year; shorter windows carry
+    /// the plain period return, and calling that "Ann." is how a 2% week ended
+    /// up displayed as +180% (issue #256).
+    static func returnBasis(_ annualized: Bool?) -> String {
+        (annualized ?? false) ? "Ann." : "Period"
+    }
+
     /// Green for gains, red for losses, primary for zero/absent.
     static func returnTint(_ value: Double?) -> Color {
         guard let value, value != 0 else { return .primary }
@@ -397,8 +405,8 @@ struct PerformanceTileGrid: View {
                 tint: unrealizedPL >= 0 ? .green : .red
             )
             StatTile(title: "Div Yield", value: divYieldString)
-            StatTile(title: "TWR (Ann.)", value: StatTile.percentString(metrics?.timeWeightedReturn), tint: StatTile.returnTint(metrics?.timeWeightedReturn))
-            StatTile(title: "IRR / MWR", value: StatTile.percentString(metrics?.moneyWeightedReturn), tint: StatTile.returnTint(metrics?.moneyWeightedReturn))
+            StatTile(title: "TWR (\(StatTile.returnBasis(metrics?.annualized)))", value: StatTile.percentString(metrics?.timeWeightedReturn), tint: StatTile.returnTint(metrics?.timeWeightedReturn))
+            StatTile(title: "IRR / MWR (\(StatTile.returnBasis(metrics?.annualized)))", value: StatTile.percentString(metrics?.moneyWeightedReturn), tint: StatTile.returnTint(metrics?.moneyWeightedReturn))
             StatTile(title: "Sharpe", value: StatTile.ratioString(metrics?.sharpeRatio))
             StatTile(title: "Sortino", value: StatTile.ratioString(metrics?.sortinoRatio))
             StatTile(title: "Treynor", value: StatTile.ratioString(metrics?.treynorRatio), subtitle: "Beta \(StatTile.ratioString(metrics?.beta))")

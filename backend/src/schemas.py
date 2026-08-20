@@ -858,6 +858,11 @@ class PerformanceMetrics(BaseModel):
     simple_return: float
     time_weighted_return: float
     money_weighted_return: float
+    # True when the window was long enough (>= 1 year) for time_weighted_return
+    # and money_weighted_return to be annualized; False when they are the plain
+    # period returns over the window. Clients label the stat accordingly —
+    # annualizing a two-week window produced the nonsense figures in issue #256.
+    annualized: bool = False
     volatility: float
     sharpe_ratio: float
     sortino_ratio: float

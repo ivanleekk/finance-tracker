@@ -21,7 +21,7 @@ describe('Portfolio Component Integration', () => {
 
         await waitFor(() => {
             expect(container.textContent).toContain('Overall Growth');
-            expect(container.textContent).toContain('TWR (Ann.)');
+            expect(container.textContent).toMatch(/TWR \((Ann\.|Period)\)/);
             expect(container.textContent).toContain('Sharpe Ratio');
         });
     });
