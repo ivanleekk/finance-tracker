@@ -18,6 +18,8 @@ FinanceTracker/
   State/SessionStore.swift   # @Observable: user, households, activeHousehold (mirrors mobile AuthContext + HouseholdContext)
   Support/Formatters.swift   # currency/percent/date formatting helpers
   Support/GoalProjection.swift # Swift port of web lib/goals.ts (projectGoal / valueHistory) — keep in sync
+  Support/HistoryGroups.swift # Swift port of web lib/historyGroups.ts — day/month/year bucketing
+                             #   and the per-section income/spend totals on the Transactions list
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
@@ -235,6 +237,9 @@ where tests pay off without a running backend:
   sub-portfolio scoping, range windows, the daily/weekly/monthly bin thresholds and
   last-in-bucket rule, `periodChange`'s small-base guard, allocation and FX exposure. Dates
   are built with an explicit UTC calendar so results don't depend on the machine's timezone.
+- `HistoryGroupsTests` — `Support/HistoryGroups.swift`: day/month/year bucketing, the
+  section totals (transfers excluded on both legs, unconverted rows counted rather than
+  summed), and the Today/Yesterday labels. Dates use an explicit UTC calendar.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).

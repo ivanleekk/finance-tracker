@@ -62,16 +62,17 @@ const historyGranularityStorageKey = (householdId: string) => `ft:tx-group-by:${
 
 /**
  * Best guess at a row's value in the household's base currency: the figure the
- * backend already converted, or the account amount when that account is already
+ * backend already converted, or the row's own amount when it was already booked
  * in the base currency. Anything else stays `null` — a foreign-currency row with
  * no stored conversion is left out of the group totals rather than distorting them.
+ * The iOS and Android ports of this rule live in `HistoryGroups.swift` / `HistoryGroups.kt`.
  */
-function homeValueOf(storedHomeAmount: number | null | undefined, accountAmount: number, accountCurrency: string | null | undefined, baseCurrency?: string): number | null {
+function homeValueOf(storedHomeAmount: number | null | undefined, nativeAmount: number, nativeCurrency: string | null | undefined, baseCurrency: string): number | null {
     if (storedHomeAmount !== null && storedHomeAmount !== undefined) {
         const n = Math.abs(Number(storedHomeAmount));
         if (Number.isFinite(n)) return n;
     }
-    if (accountCurrency && baseCurrency && accountCurrency === baseCurrency) return Math.abs(accountAmount);
+    if (nativeCurrency && nativeCurrency === baseCurrency) return Math.abs(nativeAmount);
     return null;
 }
 
@@ -332,7 +333,7 @@ export default function Transactions() {
             // settled against. Cash-settled trades (settle_from_cash) never create one, so
             // they stay out of the group totals rather than being summed in the wrong currency.
             const fundingTx = t.transaction_id ? transactionMap.get(t.transaction_id) : undefined;
-            const homeAmount = homeValueOf(fundingTx?.amount_home_currency, accountAmount, account?.currency, baseCurrency);
+            const homeAmount = homeValueOf(fundingTx?.amount_home_currency, nativeAmount, t.currency || account?.currency, baseCurrency);
 
             return {
                 id: `trade-${t.id}`,
@@ -373,7 +374,7 @@ export default function Transactions() {
 
                 const nativeAmount = Math.abs(Number(tx.amount));
                 const accountAmount = nativeAmount * (Number(tx.exchange_rate) || 1);
-                const homeAmount = homeValueOf(tx.amount_home_currency, accountAmount, account?.currency, baseCurrency);
+                const homeAmount = homeValueOf(tx.amount_home_currency, nativeAmount, tx.currency || account?.currency, baseCurrency);
 
                 return {
                     id: `tx-${tx.id}`,

@@ -26,7 +26,8 @@ This document provides a high-level overview and instructions for AI agents work
 - `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` and `android/` are the active mobile clients; see `mobile/AGENTS.md` for what that means before touching this directory.
 - **Native-client parity:** `ios/` and `android/` are deliberate ports of each other, down to the
   shared judgement calls (goal projection, budget tone, growth-chart binning, the
-  Private/Household/Blended rules, the pull-to-Quick-Add gesture). A behaviour change to one of
+  transactions-list group totals, the Private/Household/Blended rules, the pull-to-Quick-Add
+  gesture). A behaviour change to one of
   those rules is a change to *three* codebases — `frontend/src/lib/`, `ios/FinanceTracker/Support/`,
   and `android/.../logic/` — plus the unit tests each keeps over it. If they disagree, that's a
   bug in one of them, not a platform difference.
@@ -81,6 +82,15 @@ This document provides a high-level overview and instructions for AI agents work
 - **Data Export & Reports** (`backend/src/routers/exports.py`):
     - `GET /exports/household/{id}/csv` returns a ZIP of denormalized CSVs (accounts, balances, transactions, trades, dividends, scheduled_dividends, holdings, goals, categories); `GET /exports/household/{id}/csv/{dataset}` returns one of them. Both filter through the private-ownership rule, so another member's private accounts/sub-portfolios never appear in an export.
     - `GET /exports/household/{id}/report` returns the aggregated `HouseholdReportResponse` (net worth from latest balances, latest-snapshot holdings, cash flow by category over `start`/`end` — default current calendar year, transfers excluded — dividends, goal progress) consumed by the web `/reports` page (`frontend/src/pages/Reports`). That page renders a print-styled "paper" sheet; **Save as PDF** is just `window.print()` plus the `@media print` rules in `frontend/src/index.css` and `print:` utility classes on the app shell/sidebar.
+    - **Transactions list group totals**: the activity list buckets by day / month / year and each
+      group header carries what moved inside it. The rules live in `frontend/src/lib/historyGroups.ts`,
+      `ios/FinanceTracker/Support/HistoryGroups.swift` and `android/.../logic/HistoryGroups.kt` — three
+      ports of one thing, each with its own unit tests. Two of those rules are deliberate: transfers
+      are excluded from both sides (money between your own accounts is neither income nor spending —
+      the same rule the budget/runway rollups use), and a row with no known base-currency value is
+      left out of the total and flagged "partial" rather than summed at face value, which would mix
+      currencies into a meaningless number.
+
     - Client-side file downloads go through `downloadFromApi` in `frontend/src/lib/download.ts` (axios blob + Content-Disposition filename).
 
 ## 5. Global Agent Guidelines

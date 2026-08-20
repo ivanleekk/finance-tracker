@@ -138,6 +138,13 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   as gross assets in that case. `DashboardScreen` passes its own independently-computed
   `netWorth` into `NetWorthSplitChart` rather than letting the chart derive
   `sliceTotal - liabilities`, which would silently lose that dropped bucket from the total.
+- **`logic/HistoryGroups.kt`** is the Kotlin port of `frontend/src/lib/historyGroups.ts` and
+  iOS's `Support/HistoryGroups.swift` — the Activity list's day/month/year bucketing and the
+  income/spend totals on each section header. Two judgement calls it encodes: transfers count
+  on neither side (money between your own accounts is not income and not spending, the same
+  rule the budget rollups use), and a row with no known base-currency value is left out of the
+  total and surfaced as "partial" rather than summed at face value, which would mix currencies
+  into a meaningless number. Bucketing is UTC, like every other date in this client.
 - **`logic/BudgetPresentation.kt`** is the Kotlin port of `frontend/src/lib/budgets.ts` and
   iOS's `BudgetPresentation.swift`. Keep all three in sync; both judgement calls matter: a
   budget is "at risk" the moment its *projected* spend exceeds the limit (warning on the 10th
@@ -216,6 +223,7 @@ where tests pay off without a backend or an emulator:
 - `BudgetPresentationTest` — budget tone, runway tone/label, normalized monthly commitments,
   UTC month bucketing.
 - `ViewModeVisibilityTest` — the Private/Household/Blended rules and the vault's fail-open.
+- `HistoryGroupsTest` — Activity-list bucketing and section totals (`logic/HistoryGroups.kt`).
 - `ApiUrlTest` — query-string splitting.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.
@@ -227,7 +235,9 @@ spin up `Api` network calls.
 
 Things this app does that iOS does **not**, and why:
 
-- The **Activity** tab shows income/expense/transfer filter chips and a per-month net total.
+- The **Activity** tab shows income/expense/transfer filter chips (iOS has a search field
+  instead). The day/month/year grouping and the per-section totals above it are shared with
+  iOS and web — see `logic/HistoryGroups.kt`.
 - **Reports** exports through a `FileProvider` + system share sheet (Android won't let another
   app read a raw `file://` path).
 - The Portfolio tab's growth/allocation split is one scrolling screen; iOS's sub-portfolio
