@@ -371,6 +371,21 @@ data class AssetCreate(
 )
 
 /**
+ * PUT /portfolio/assets/{id} (schemas.AssetUpdate). Fixes a mistyped ticker or the rest of an
+ * asset's details after the fact. Every field is optional and `explicitNulls = false` drops the
+ * null ones from the body, which is what lets the backend re-enrich name and currency from
+ * Yahoo Finance when only the ticker changed.
+ */
+@Serializable
+data class AssetUpdate(
+    val ticker: String? = null,
+    val name: String? = null,
+    val type: String? = null,
+    val currency: String? = null,
+    val pricingMode: String? = null,
+)
+
+/**
  * POST /portfolio/trades (schemas.TradeCreate). Buy/sell of an asset into a sub-portfolio,
  * funded from an account (or the sub-portfolio's own cash).
  */

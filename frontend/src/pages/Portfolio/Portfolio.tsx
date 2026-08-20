@@ -165,6 +165,17 @@ export default function Portfolio() {
         }
     };
 
+    // Assets created on iOS/Android (or by the ⌘K bar) carry lowercase types like "stock"
+    // or "equity". Without an entry of its own the Select falls back to its "Select…"
+    // placeholder, making an untouched type look unset — so always include the current one.
+    const editAssetTypeOptions = useMemo(() => {
+        const base = ["Stock", "ETF", "Bond", "Other"];
+        const options = base.includes(editAssetType) || !editAssetType
+            ? base
+            : [...base, editAssetType];
+        return options.map(t => ({ value: t, label: t }));
+    }, [editAssetType]);
+
     const openEditAsset = (h: Holding) => {
         setEditingAsset(h);
         setEditAssetTicker(h.ticker);
@@ -837,7 +848,7 @@ export default function Portfolio() {
                                 <Select
                                     value={editAssetType}
                                     onChange={setEditAssetType}
-                                    options={["Stock", "ETF", "Bond", "Other"].map(t => ({ value: t, label: t }))}
+                                    options={editAssetTypeOptions}
                                 />
                             </div>
                         </div>

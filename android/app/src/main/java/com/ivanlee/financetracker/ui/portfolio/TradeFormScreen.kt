@@ -261,12 +261,12 @@ fun TradeFormScreen(
     }
 
     if (showNewAsset) {
-        AssetCreateDialog(
+        AssetFormDialog(
             defaultCurrency = selectedAsset?.currency
                 ?: sessionVm.activeHousehold?.baseCurrency
                 ?: "USD",
             onDismiss = { showNewAsset = false },
-            onCreated = { created ->
+            onSaved = { created ->
                 assets = assets + created
                 assetId = created.id
             },

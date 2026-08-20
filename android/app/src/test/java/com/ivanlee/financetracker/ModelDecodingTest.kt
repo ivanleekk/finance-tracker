@@ -1,6 +1,7 @@
 package com.ivanlee.financetracker
 
 import com.ivanlee.financetracker.data.model.AccountResponse
+import com.ivanlee.financetracker.data.model.AssetUpdate
 import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.model.EmergencyFundResponse
 import com.ivanlee.financetracker.data.model.LiquidityStatus
@@ -195,6 +196,19 @@ class ModelDecodingTest {
     fun `null fields are omitted from a partial update body`() {
         val body = json.encodeToString(UserUpdate(name = "Ada"))
         assertEquals("""{"name":"Ada"}""", body)
+    }
+
+    @Test
+    fun `an asset edit sends the pricing mode values the backend accepts`() {
+        // schemas.AssetBase.pricing_mode is Literal["market", "manual"] — "auto" is a 422.
+        val body = json.encodeToString(AssetUpdate(ticker = "AAPL", pricingMode = "market"))
+        assertTrue(body, body.contains(""""pricing_mode":"market""""))
+    }
+
+    @Test
+    fun `a ticker-only asset fix omits name and currency so the backend re-enriches them`() {
+        val body = json.encodeToString(AssetUpdate(ticker = "AAPL", type = "stock"))
+        assertEquals("""{"ticker":"AAPL","type":"stock"}""", body)
     }
 
     @Test

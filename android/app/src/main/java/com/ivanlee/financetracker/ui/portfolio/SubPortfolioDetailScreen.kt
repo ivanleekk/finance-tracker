@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
@@ -44,6 +46,7 @@ import com.ivanlee.financetracker.ui.components.DonutChart
 import com.ivanlee.financetracker.ui.components.LineChart
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
+import com.ivanlee.financetracker.ui.components.SwipeActionRow
 import com.ivanlee.financetracker.ui.components.chartAccent
 import com.ivanlee.financetracker.ui.dashboard.trimQuantity
 import com.ivanlee.financetracker.ui.theme.amountColor
@@ -76,6 +79,7 @@ fun SubPortfolioDetailScreen(
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var tab by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
+    var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
 
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
 
@@ -242,36 +246,49 @@ fun SubPortfolioDetailScreen(
                                 val asset = assetsById[holding.assetId]
                                 val gain = holding.currentValueHomeCurrency -
                                     holding.averageCostBasisHomeCurrency * holding.quantity
-                                ListItem(
-                                    colors = cardListItemColors(),
-                                    headlineContent = {
-                                        Text(asset?.ticker ?: "—", fontWeight = FontWeight.Medium)
+                                // Swipe right to correct the asset behind this holding — a
+                                // mistyped ticker is the usual reason. Not destructive, so it
+                                // takes the start slot; cash pseudo-assets aren't editable.
+                                SwipeActionRow(
+                                    onStartAction = if (asset != null && !asset.isCash) {
+                                        { editingAsset = asset }
+                                    } else {
+                                        null
                                     },
-                                    supportingContent = {
-                                        Text(
-                                            // Native currency for per-asset detail, home currency
-                                            // for the aggregate — the same rule as web and iOS.
-                                            "${trimQuantity(holding.quantity)} @ " +
-                                                "${holding.averageCostBasis.currency(asset?.currency ?: baseCurrency)} avg · " +
-                                                "now ${holding.price.currency(asset?.currency ?: baseCurrency)}",
-                                            maxLines = 2,
-                                        )
-                                    },
-                                    trailingContent = {
-                                        Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                                    startIcon = Icons.Filled.Edit,
+                                    startLabel = "Edit asset",
+                                ) {
+                                    ListItem(
+                                        colors = cardListItemColors(),
+                                        headlineContent = {
+                                            Text(asset?.ticker ?: "—", fontWeight = FontWeight.Medium)
+                                        },
+                                        supportingContent = {
                                             Text(
-                                                holding.currentValueHomeCurrency.currency(baseCurrency),
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                // Native currency for per-asset detail, home currency
+                                                // for the aggregate — the same rule as web and iOS.
+                                                "${trimQuantity(holding.quantity)} @ " +
+                                                    "${holding.averageCostBasis.currency(asset?.currency ?: baseCurrency)} avg · " +
+                                                    "now ${holding.price.currency(asset?.currency ?: baseCurrency)}",
+                                                maxLines = 2,
                                             )
-                                            Text(
-                                                gain.currency(baseCurrency),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = amountColor(gain),
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.clickable { onRecordTrade(subPortfolioId) },
-                                )
+                                        },
+                                        trailingContent = {
+                                            Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                                                Text(
+                                                    holding.currentValueHomeCurrency.currency(baseCurrency),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                )
+                                                Text(
+                                                    gain.currency(baseCurrency),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = amountColor(gain),
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.clickable { onRecordTrade(subPortfolioId) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -282,5 +299,16 @@ fun SubPortfolioDetailScreen(
                 else -> DividendsContent(sessionVm, subPortfolioId, Modifier.fillMaxSize())
             }
         }
+    }
+
+    editingAsset?.let { asset ->
+        AssetFormDialog(
+            defaultCurrency = baseCurrency,
+            existing = asset,
+            onDismiss = { editingAsset = null },
+            // An asset edit doesn't move any holding, so swapping the saved row into the
+            // already-loaded list is enough — no need to refetch the whole screen.
+            onSaved = { saved -> assets = assets.map { if (it.id == saved.id) saved else it } },
+        )
     }
 }

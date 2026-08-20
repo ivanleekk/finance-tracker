@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ import com.ivanlee.financetracker.ui.components.PrivateBadge
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.StatTileData
+import com.ivanlee.financetracker.ui.components.SwipeActionRow
 import com.ivanlee.financetracker.ui.components.chartAccent
 import com.ivanlee.financetracker.ui.dashboard.HoldingRow
 import com.ivanlee.financetracker.ui.dashboard.percentString
@@ -65,6 +68,7 @@ import com.ivanlee.financetracker.ui.dashboard.ratioString
 import com.ivanlee.financetracker.ui.theme.amountColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import com.ivanlee.financetracker.ui.components.cardListItemColors
 
 /**
@@ -96,6 +100,8 @@ fun PortfolioScreen(
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
+    val scope = rememberCoroutineScope()
 
     val userId = sessionVm.user?.id
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
@@ -275,17 +281,42 @@ fun PortfolioScreen(
                     trailing = { TextButton(onClick = onOpenDividends) { Text("Dividends") } },
                 ) {
                     holdings.forEach { holding ->
-                        HoldingRow(
-                            ticker = assetsById[holding.assetId]?.ticker ?: "—",
-                            name = assetsById[holding.assetId]?.name,
-                            quantity = holding.quantity,
-                            value = holding.currentValueHomeCurrency,
-                            currencyCode = baseCurrency,
-                        )
+                        val asset = assetsById[holding.assetId]
+                        val row: @Composable () -> Unit = {
+                            HoldingRow(
+                                ticker = asset?.ticker ?: "—",
+                                name = asset?.name,
+                                quantity = holding.quantity,
+                                value = holding.currentValueHomeCurrency,
+                                currencyCode = baseCurrency,
+                            )
+                        }
+                        // Swipe right to fix a mistyped ticker (or the rest of the asset's
+                        // details). Editing isn't destructive, so it takes the start slot;
+                        // cash pseudo-assets aren't user-editable at all.
+                        if (asset != null && !asset.isCash) {
+                            SwipeActionRow(
+                                onStartAction = { editingAsset = asset },
+                                startIcon = Icons.Filled.Edit,
+                                startLabel = "Edit asset",
+                                content = row,
+                            )
+                        } else {
+                            row()
+                        }
                     }
                 }
             }
         }
+    }
+
+    editingAsset?.let { asset ->
+        AssetFormDialog(
+            defaultCurrency = baseCurrency,
+            existing = asset,
+            onDismiss = { editingAsset = null },
+            onSaved = { scope.launch { load() } },
+        )
     }
 }
 
