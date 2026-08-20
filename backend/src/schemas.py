@@ -1,6 +1,6 @@
 # src/schemas.py
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -49,6 +49,7 @@ from src.models import (
     SplitMode,
     RecurrenceFrequency,
     BudgetPeriod,
+    PRICING_MODE_MARKET,
 )
 
 # ----------------------------------------
@@ -574,6 +575,29 @@ class TransferCreate(BaseModel):
 # ----------------------------------------
 
 
+# Spellings of ``pricing_mode`` that a client may send for a canonical value. The
+# Android app shipped with "auto" where the backend says "market", so every
+# non-manual asset it created came back 422. Folding the synonym in here keeps a
+# single canonical value in the column: widening the Literal instead would let
+# both spellings reach the database, and then every reader (snapshot_engine,
+# dividend_engine, and all three clients' `isManualPriced`) would have to learn
+# the synonym too. Applied on the way out as well, since AssetResponse inherits
+# AssetBase — a legacy row would normalize rather than fail response validation.
+PRICING_MODE_ALIASES = {"auto": PRICING_MODE_MARKET}
+
+
+def normalize_pricing_mode(value: object) -> object:
+    """Fold a client's pricing_mode spelling onto the canonical one.
+
+    Non-strings pass through untouched so Pydantic still reports its normal type
+    error, and ``None`` keeps meaning "leave this field alone" on an update.
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().lower()
+    return PRICING_MODE_ALIASES.get(cleaned, cleaned)
+
+
 class AssetBase(BaseModel):
     ticker: str
     name: str
@@ -581,7 +605,12 @@ class AssetBase(BaseModel):
     currency: str
     # "market" = priced from yfinance; "manual" = priced from user-recorded
     # prices (unlisted bonds, Singapore Savings Bonds, ...).
-    pricing_mode: Literal["market", "manual"] = "market"
+    pricing_mode: Literal["market", "manual"] = PRICING_MODE_MARKET
+
+    @field_validator("pricing_mode", mode="before")
+    @classmethod
+    def _fold_pricing_mode_aliases(cls, value: object) -> object:
+        return normalize_pricing_mode(value)
 
 
 class AssetCreate(AssetBase):
@@ -594,6 +623,11 @@ class AssetUpdate(BaseModel):
     type: Optional[str] = None
     currency: Optional[str] = None
     pricing_mode: Optional[Literal["market", "manual"]] = None
+
+    @field_validator("pricing_mode", mode="before")
+    @classmethod
+    def _fold_pricing_mode_aliases(cls, value: object) -> object:
+        return normalize_pricing_mode(value)
 
 
 class AssetResponse(AssetBase):

@@ -162,6 +162,54 @@ def test_update_asset(client, auth_headers, test_asset):
     assert response.status_code == 200
     assert response.json()["name"] == "Apple Incorporated"
 
+def test_create_asset_accepts_the_legacy_auto_pricing_mode(client, auth_headers):
+    """Android shipped with "auto" where the backend says "market".
+
+    Those builds are on people's phones, so the value is folded onto the canonical
+    one instead of being rejected — but only one spelling ever reaches the column.
+    """
+    # A concrete name and currency mean create_asset skips the yfinance enrichment,
+    # so this stays a pure schema test.
+    response = client.post(
+        "/portfolio/assets",
+        headers=auth_headers,
+        json={
+            "id": str(uuid.uuid7()),
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "type": "stock",
+            "currency": "USD",
+            "pricing_mode": "auto",
+        }
+    )
+    assert response.status_code == 201
+    assert response.json()["pricing_mode"] == "market"
+
+def test_create_asset_rejects_an_unknown_pricing_mode(client, auth_headers):
+    """Folding a known synonym must not turn the field into free text."""
+    response = client.post(
+        "/portfolio/assets",
+        headers=auth_headers,
+        json={
+            "id": str(uuid.uuid7()),
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "type": "stock",
+            "currency": "USD",
+            "pricing_mode": "whatever",
+        }
+    )
+    assert response.status_code == 422
+
+def test_update_asset_accepts_the_legacy_auto_pricing_mode(client, auth_headers, test_asset):
+    response = client.put(
+        f"/portfolio/assets/{test_asset.id}",
+        headers=auth_headers,
+        json={"pricing_mode": "auto"}
+    )
+    assert response.status_code == 200
+    assert response.json()["pricing_mode"] == "market"
+
 def test_update_asset_not_found(client, auth_headers):
     response = client.put(
         f"/portfolio/assets/{uuid.uuid7()}",
