@@ -67,13 +67,21 @@ FinanceTracker/
                              #     PerformanceMetrics + (when a target is set) goal progress linking on to
                              #     GoalDetailView. Holdings = scoped AllocationCard + DetailedHoldingRow
                              #     (shares / avg cost / price in native *and* home currency, return, and a
-                             #     trade / record-price / manage-cash menu). Dividends = scoped payouts with
+                             #     trade / record-price / edit-asset / manage-cash menu). Dividends = scoped payouts with
                              #     total received, trailing yield and per-share detail.
                              #   Portfolio/ also has an AllocationCard (donut by asset type + legend + FX-exposure
                              #     chips, colours matched to the web ALLOCATION_COLORS), plus TradesListView
                              #     tap to edit (TradeFormView in edit mode → PUT /portfolio/trades/{id}), swipe to
                              #     delete; the CASH pseudo-asset legs are filtered out. Trade editing needs the backend
                              #     TradeUpdate UUID fix (schemas.py) — the ID fields were Optional[int].
+                             #   Asset details are correctable after the fact (a typo'd ticker is the usual
+                             #     reason): AssetFormView doubles as create (POST /portfolio/assets) and edit
+                             #     (PUT /portfolio/assets/{id}), reached by swiping a Portfolio holding row or
+                             #     from DetailedHoldingRow's menu. Same rule as web Portfolio.tsx: name and
+                             #     currency are only sent when the user actually retyped them, so a ticker-only
+                             #     fix lets the backend re-enrich both from yfinance. Cash pseudo-assets are
+                             #     excluded. The edit follows the asset, so every trade/dividend/holding
+                             #     already filed against it is corrected too.
                              #   More/     = MoreView (the tab) + SettingsViews.swift, the native counterpart of the
                              #     web /settings sections: ProfileSettingsView (name + timezone),
                              #     SecuritySettingsView (change email / password), PrivacySettingsView (the private

@@ -21,6 +21,7 @@ struct PortfolioView: View {
     @State private var showingMoveCash = false
     @State private var showingNewGoal = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingAsset: AssetResponse?
     @State private var range: GrowthRange = .all
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
@@ -171,12 +172,24 @@ struct PortfolioView: View {
                         ForEach(group.holdings) { holding in
                             let asset = assetsById[holding.assetId]
                             let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
-                            // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
-                            if let asset, asset.isManualPriced {
-                                Button { pricingAsset = asset } label: { row }
-                                    .buttonStyle(.plain)
-                            } else {
-                                row
+                            Group {
+                                // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
+                                if let asset, asset.isManualPriced {
+                                    Button { pricingAsset = asset } label: { row }
+                                        .buttonStyle(.plain)
+                                } else {
+                                    row
+                                }
+                            }
+                            // Swipe to fix a mistyped ticker (or the rest of the asset's
+                            // details). Cash pseudo-assets aren't user-editable.
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if let asset, !asset.isCash {
+                                    Button { editingAsset = asset } label: {
+                                        Label("Edit Asset", systemImage: "pencil")
+                                    }
+                                    .tint(session.theme.primary.accent)
+                                }
                             }
                         }
                     } header: {
@@ -268,6 +281,11 @@ struct PortfolioView: View {
                     RecordPriceView(asset: asset, householdId: household.id) {
                         await load()
                     }
+                }
+            }
+            .sheet(item: $editingAsset) { asset in
+                AssetFormView(existing: asset, defaultCurrency: baseCurrency) { _ in
+                    Task { await load() }
                 }
             }
             .overlay {

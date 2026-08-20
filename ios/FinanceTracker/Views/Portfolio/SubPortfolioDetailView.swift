@@ -44,6 +44,7 @@ struct SubPortfolioDetailView: View {
     @State private var showingMoveCash = false
     @State private var showingEdit = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingAsset: AssetResponse?
     @State private var errorMessage: String?
 
     init(subPortfolio: SubPortfolioResponse, onChanged: @escaping () async -> Void = {}) {
@@ -154,6 +155,11 @@ struct SubPortfolioDetailView: View {
         .sheet(item: $pricingAsset) { asset in
             if let household = session.activeHousehold {
                 RecordPriceView(asset: asset, householdId: household.id) { await reloadAll() }
+            }
+        }
+        .sheet(item: $editingAsset) { asset in
+            AssetFormView(existing: asset, defaultCurrency: baseCurrency) { _ in
+                Task { await reloadAll() }
             }
         }
         .overlay {
@@ -293,6 +299,7 @@ struct SubPortfolioDetailView: View {
                         baseCurrency: baseCurrency,
                         onTrade: { showingAddTrade = true },
                         onRecordPrice: { pricingAsset = assetsById[holding.assetId] },
+                        onEditAsset: { editingAsset = assetsById[holding.assetId] },
                         onManageCash: { showingMoveCash = true }
                     )
                 }
@@ -380,6 +387,7 @@ struct DetailedHoldingRow: View {
     let baseCurrency: String
     var onTrade: () -> Void
     var onRecordPrice: () -> Void
+    var onEditAsset: () -> Void
     var onManageCash: () -> Void
 
     private var isCash: Bool { asset?.isCash == true }
@@ -432,6 +440,9 @@ struct DetailedHoldingRow: View {
                         if asset?.isManualPriced == true {
                             Button { onRecordPrice() } label: { Label("Record Price", systemImage: "tag") }
                         }
+                        // Fixes a mistyped ticker after the fact — the correction follows
+                        // through to every trade and dividend filed against this asset.
+                        Button { onEditAsset() } label: { Label("Edit Asset", systemImage: "pencil") }
                     } label: {
                         Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
                     }

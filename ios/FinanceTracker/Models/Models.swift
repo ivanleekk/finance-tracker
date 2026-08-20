@@ -475,6 +475,18 @@ struct AssetCreate: Encodable {
     let pricingMode: String
 }
 
+/// PUT /portfolio/assets/{id} (schemas.AssetUpdate). Fixes a mistyped ticker or the
+/// rest of an asset's details after the fact. Every field is optional and `nil` fields
+/// are left out of the request body, which is what lets the backend re-enrich name and
+/// currency from Yahoo Finance when only the ticker changed.
+struct AssetUpdate: Encodable {
+    var ticker: String? = nil
+    var name: String? = nil
+    var type: String? = nil
+    var currency: String? = nil
+    var pricingMode: String? = nil
+}
+
 /// POST /portfolio/trades (schemas.TradeCreate). Buy/sell of an asset into a
 /// sub-portfolio, funded from an account (or the sub-portfolio's own cash).
 struct TradeCreate: Encodable {
