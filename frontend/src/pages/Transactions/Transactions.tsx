@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle, ListFilter } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle, ListFilter, RotateCcw } from "lucide-react"
 import { Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
@@ -21,6 +21,22 @@ import { cn } from "../../lib/utils"
 export { transactionsLoader as loader } from "./transactions.loader";
 
 const CATEGORY_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)"];
+// Neutral fallback for buckets that aren't a real household category (the "Other" rollup slice, "Uncategorized").
+const OTHER_SLICE_COLOR = "var(--base-400)";
+
+type CategoryPeriodPreset = "all" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "this_year" | "custom";
+
+const CATEGORY_PERIOD_OPTIONS: { value: CategoryPeriodPreset; label: string }[] = [
+    { value: "all", label: "All time" },
+    { value: "this_month", label: "This month" },
+    { value: "last_month", label: "Last month" },
+    { value: "last_3_months", label: "Last 3 months" },
+    { value: "last_6_months", label: "Last 6 months" },
+    { value: "this_year", label: "This year" },
+    { value: "custom", label: "Custom range" },
+];
+
+const categoryFilterStorageKey = (householdId: string) => `ft:tx-category-filter:${householdId}`;
 
 function categoryIcon(name: string): string {
     const low = name.toLowerCase();
@@ -70,6 +86,38 @@ export default function Transactions() {
     const [filterFlow, setFilterFlow] = useState<"all" | "income" | "expense">("all")
     const [hiddenCategoryIds, setHiddenCategoryIds] = useState<Set<string>>(new Set())
     const [showCategoryFilter, setShowCategoryFilter] = useState(false)
+    const [categoryPeriod, setCategoryPeriod] = useState<CategoryPeriodPreset>("all")
+    const [categoryPeriodStart, setCategoryPeriodStart] = useState("")
+    const [categoryPeriodEnd, setCategoryPeriodEnd] = useState("")
+
+    // Restore the saved top-categories filter/period whenever the active household changes,
+    // so a user doesn't have to re-hide the same categories every time they come back.
+    useEffect(() => {
+        if (!activeHousehold) return;
+        try {
+            const raw = localStorage.getItem(categoryFilterStorageKey(activeHousehold.id));
+            const saved = raw ? JSON.parse(raw) : null;
+            setHiddenCategoryIds(new Set(saved?.hiddenCategoryIds || []));
+            setCategoryPeriod(saved?.categoryPeriod || "all");
+            setCategoryPeriodStart(saved?.categoryPeriodStart || "");
+            setCategoryPeriodEnd(saved?.categoryPeriodEnd || "");
+        } catch {
+            setHiddenCategoryIds(new Set());
+            setCategoryPeriod("all");
+            setCategoryPeriodStart("");
+            setCategoryPeriodEnd("");
+        }
+    }, [activeHousehold?.id])
+
+    useEffect(() => {
+        if (!activeHousehold) return;
+        localStorage.setItem(categoryFilterStorageKey(activeHousehold.id), JSON.stringify({
+            hiddenCategoryIds: Array.from(hiddenCategoryIds),
+            categoryPeriod,
+            categoryPeriodStart,
+            categoryPeriodEnd,
+        }));
+    }, [activeHousehold?.id, hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd])
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -358,12 +406,45 @@ export default function Transactions() {
         return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
     }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
 
-    // Every expense category that's actually shown up, used to populate the filter chips
-    // (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
+    // Date window the top-categories card (chips + pie chart) is scoped to. Kept separate from
+    // the "Activity Type/Account/Sub-Portfolio" filters below, which apply to the full history list.
+    const categoryPeriodRange = useMemo(() => {
+        const now = new Date();
+        switch (categoryPeriod) {
+            case "this_month":
+                return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: null as Date | null };
+            case "last_month":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: new Date(now.getFullYear(), now.getMonth(), 1) };
+            case "last_3_months":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 2, 1), end: null };
+            case "last_6_months":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 5, 1), end: null };
+            case "this_year":
+                return { start: new Date(now.getFullYear(), 0, 1), end: null };
+            case "custom":
+                return {
+                    start: categoryPeriodStart ? new Date(`${categoryPeriodStart}T00:00:00`) : null,
+                    end: categoryPeriodEnd ? new Date(`${categoryPeriodEnd}T23:59:59.999`) : null,
+                };
+            default:
+                return null;
+        }
+    }, [categoryPeriod, categoryPeriodStart, categoryPeriodEnd]);
+
+    const isInCategoryPeriod = (date: Date) => {
+        if (!categoryPeriodRange) return true;
+        if (categoryPeriodRange.start && date < categoryPeriodRange.start) return false;
+        if (categoryPeriodRange.end && date >= categoryPeriodRange.end) return false;
+        return true;
+    };
+
+    // Every expense category that's actually shown up in the selected period, used to populate the
+    // filter chips (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
     const expenseCategoryOptions = useMemo(() => {
         const seen = new Map<string, string>();
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            if (!isInCategoryPeriod(new Date(tx.date))) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const id = tx.category_id || "uncategorized";
@@ -375,7 +456,22 @@ export default function Transactions() {
         return Array.from(seen.entries())
             .map(([id, name]) => ({ id, name }))
             .sort((a, b) => a.name.localeCompare(b.name));
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, categoryPeriodRange]);
+
+    // Stable id -> color mapping derived from the household's full expense-category list (sorted by
+    // id, not by amount), so a category keeps the same pie/legend color no matter what's hidden or
+    // which period is selected. "Other"/"Uncategorized" always get the same neutral fallback.
+    const categoryColorMap = useMemo(() => {
+        const expenseCats = categories
+            .filter(c => c.type === 'expense')
+            .slice()
+            .sort((a, b) => a.id.localeCompare(b.id));
+        const map = new Map<string, string>();
+        expenseCats.forEach((c, i) => map.set(c.id, CATEGORY_COLORS[i % CATEGORY_COLORS.length]));
+        return map;
+    }, [categories]);
+
+    const colorForSlice = (id: string) => categoryColorMap.get(id) ?? OTHER_SLICE_COLOR;
 
     const toggleHiddenCategory = (id: string) => {
         setHiddenCategoryIds(prev => {
@@ -385,11 +481,14 @@ export default function Transactions() {
         });
     };
 
+    const resetCategoryFilter = () => setHiddenCategoryIds(new Set());
+
     const categoryBreakdown = useMemo(() => {
         const categoryMap = new Map(categories.map(c => [c.id, c.name]));
         const byCategory = new Map<string, { name: string; amount: number }>();
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            if (!isInCategoryPeriod(new Date(tx.date))) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const catId = tx.category_id || "uncategorized";
@@ -406,7 +505,7 @@ export default function Transactions() {
         const top = all.slice(0, 4);
         const max = Math.max(1, ...top.map(c => c.amount));
         return { all, top, max, total };
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds]);
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds, categoryPeriodRange]);
 
     // Cap the pie chart at 6 slices + "Other" so it stays legible once a household has a long tail of categories.
     const pieSlices = useMemo(() => {
@@ -494,26 +593,51 @@ export default function Transactions() {
                 </Card>
                 <Card>
                     <CardContent className="pt-6">
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                             <CardTitle className="text-sm">Top categories</CardTitle>
-                            <button
-                                type="button"
-                                onClick={() => setShowCategoryFilter(v => !v)}
-                                className={cn(
-                                    "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors",
-                                    showCategoryFilter || hiddenCategoryIds.size > 0
-                                        ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30"
-                                        : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
-                                )}
-                            >
-                                <ListFilter className="h-3.5 w-3.5" />
-                                Filter{hiddenCategoryIds.size > 0 ? ` (${hiddenCategoryIds.size} hidden)` : ""}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <Select
+                                    className="min-w-32"
+                                    value={categoryPeriod}
+                                    onChange={(v) => setCategoryPeriod(v as CategoryPeriodPreset)}
+                                    options={CATEGORY_PERIOD_OPTIONS}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCategoryFilter(v => !v)}
+                                    className={cn(
+                                        "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors",
+                                        showCategoryFilter || hiddenCategoryIds.size > 0
+                                            ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30"
+                                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                                    )}
+                                >
+                                    <ListFilter className="h-3.5 w-3.5" />
+                                    Filter{hiddenCategoryIds.size > 0 ? ` (${hiddenCategoryIds.size} hidden)` : ""}
+                                </button>
+                            </div>
                         </div>
+                        {categoryPeriod === "custom" && (
+                            <div className="flex items-center gap-2 mb-4">
+                                <Input
+                                    type="date"
+                                    className="text-xs"
+                                    value={categoryPeriodStart}
+                                    onChange={(e) => setCategoryPeriodStart(e.target.value)}
+                                />
+                                <span className="text-xs text-base-400">to</span>
+                                <Input
+                                    type="date"
+                                    className="text-xs"
+                                    value={categoryPeriodEnd}
+                                    onChange={(e) => setCategoryPeriodEnd(e.target.value)}
+                                />
+                            </div>
+                        )}
                         {showCategoryFilter && (
-                            <div className="flex flex-wrap gap-1.5 mb-4 pb-4 border-b border-base-100 dark:border-base-800">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-4 pb-4 border-b border-base-100 dark:border-base-800">
                                 {expenseCategoryOptions.length === 0 ? (
-                                    <span className="text-xs text-base-400">No expense categories yet.</span>
+                                    <span className="text-xs text-base-400">No expense categories in this period.</span>
                                 ) : expenseCategoryOptions.map(opt => {
                                     const hidden = hiddenCategoryIds.has(opt.id);
                                     return (
@@ -522,21 +646,35 @@ export default function Transactions() {
                                             type="button"
                                             onClick={() => toggleHiddenCategory(opt.id)}
                                             className={cn(
-                                                "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
+                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
                                                 hidden
                                                     ? "bg-base-100 dark:bg-base-900 text-base-400 dark:text-base-600 line-through"
                                                     : "bg-secondary-100 dark:bg-secondary-900/40 text-secondary-700 dark:text-secondary-300"
                                             )}
                                         >
+                                            <span
+                                                className="h-2 w-2 rounded-full shrink-0"
+                                                style={{ backgroundColor: hidden ? undefined : colorForSlice(opt.id) }}
+                                            />
                                             {opt.name}
                                         </button>
                                     );
                                 })}
+                                {hiddenCategoryIds.size > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={resetCategoryFilter}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors"
+                                    >
+                                        <RotateCcw className="h-3 w-3" />
+                                        Reset
+                                    </button>
+                                )}
                             </div>
                         )}
                         {categoryBreakdown.all.length === 0 ? (
                             <div className="text-sm text-base-500 py-4 text-center">
-                                {hiddenCategoryIds.size > 0 ? "All categories are hidden." : "No expenses yet."}
+                                {hiddenCategoryIds.size > 0 ? "All categories are hidden." : "No expenses in this period."}
                             </div>
                         ) : (
                             <>
@@ -552,8 +690,8 @@ export default function Transactions() {
                                                 paddingAngle={2}
                                                 stroke="none"
                                             >
-                                                {pieSlices.map((slice, i) => (
-                                                    <Cell key={slice.id} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
+                                                {pieSlices.map((slice) => (
+                                                    <Cell key={slice.id} fill={colorForSlice(slice.id)} />
                                                 ))}
                                             </Pie>
                                             <Tooltip
@@ -581,14 +719,17 @@ export default function Transactions() {
                                         return (
                                             <div key={cat.id}>
                                                 <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
+                                                    <span className="flex items-center gap-1.5 text-sm text-base-700 dark:text-base-300">
+                                                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: colorForSlice(cat.id) }} />
+                                                        {cat.icon} {cat.name}
+                                                    </span>
                                                     <span className="font-mono text-xs text-base-500">
                                                         {cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                         <span className="text-base-400 ml-1">· {pct.toFixed(0)}%</span>
                                                     </span>
                                                 </div>
                                                 <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
-                                                    <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / categoryBreakdown.max) * 100}%` }} />
+                                                    <div className="h-full" style={{ width: `${(cat.amount / categoryBreakdown.max) * 100}%`, backgroundColor: colorForSlice(cat.id) }} />
                                                 </div>
                                             </div>
                                         );
