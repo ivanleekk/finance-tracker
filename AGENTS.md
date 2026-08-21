@@ -31,6 +31,14 @@ This document provides a high-level overview and instructions for AI agents work
   those rules is a change to *three* codebases — `frontend/src/lib/`, `ios/FinanceTracker/Support/`,
   and `android/.../logic/` — plus the unit tests each keeps over it. If they disagree, that's a
   bug in one of them, not a platform difference.
+- **Nonsense numbers are reported as absent, never as numbers.** A recurring judgement call across
+  all three clients: `periodChange` returns no percentage when the opening balance is under 1% of
+  the closing one, `monthsCovered` renders "Not enough data" rather than "∞", and `projectGoal`
+  reports **no ETA** past `MAX_PROJECTABLE_MONTHS` (1200 = 100 years) instead of a date. That last
+  one is also a crash fix: a near-zero pace against a large target yields a months count in the
+  millions, which traps `Int(_:)` on iOS, throws `DateTimeException` from `plusMonths` on Android,
+  and renders "QNaN 'aN" on web. Keep the cap identical in `frontend/src/lib/goals.ts`,
+  `ios/.../GoalProjection.swift` and `android/.../logic/GoalProjection.kt`.
 - `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
 - `docker-compose.prod.yml` + `deploy/` + `DEPLOYMENT.md`: Fully dockerized VPS production stack (Caddy auto-HTTPS proxy, Postgres, cron container for the daily snapshot job, nightly pg_dump backups). The old Cloud Run flow (`cloudbuild.yaml`) is deprecated.
 

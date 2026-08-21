@@ -192,4 +192,40 @@ class GoalProjectionTest {
         assertEquals(0.0, p.currentValue, 1e-9)
         assertEquals(1000.0, p.remaining, 1e-9)
     }
+
+    // A near-zero pace against a large target produces a months count in the millions, which
+    // overflows plusMonths' year field and throws DateTimeException — taking the Goals screen
+    // down. Past a century out we report no ETA rather than a fabricated one.
+    @Test
+    fun `reports no ETA when the pace would take longer than a century`() {
+        val p = projectGoal(
+            history("2026-04-02" to 0.0, "2026-07-01" to 0.01),
+            targetAmount = 1_000_000.0,
+            targetDate = null,
+            now = now,
+        )
+        assertTrue(p.monthlyPace > 0)
+        assertNull(p.etaLabel)
+    }
+
+    @Test
+    fun `still reports an ETA for a pace that lands within the horizon`() {
+        val p = projectGoal(
+            history("2026-04-02" to 0.0, "2026-07-01" to 3000.0),
+            targetAmount = 20_000.0,
+            targetDate = null,
+            now = now,
+        )
+        assertTrue(p.etaLabel!!.matches(Regex("""Q[1-4] '\d{2}""")))
+    }
+
+    @Test
+    fun `an extreme target with a target date does not throw`() {
+        projectGoal(
+            history("2026-04-02" to 0.0, "2026-07-01" to 0.000001),
+            targetAmount = 5_000_000.0,
+            targetDate = day("2027-07-01"),
+            now = now,
+        )
+    }
 }

@@ -16,6 +16,12 @@ import kotlin.math.roundToInt
 private const val SECONDS_PER_DAY = 24.0 * 60 * 60
 private const val DAYS_PER_MONTH = 30.44
 
+/**
+ * Past this many months an ETA stops being a projection and becomes noise — see the clamp in
+ * [projectGoal]. 100 years; the Swift twin uses the same figure.
+ */
+private const val MAX_PROJECTABLE_MONTHS = 1200.0
+
 data class GoalProjection(
     val currentValue: Double,
     val percentComplete: Double,
@@ -82,11 +88,17 @@ fun projectGoal(
     var etaTime: Instant? = null
     if (target != null && monthlyPace > 0 && remaining > 0) {
         val monthsToGo = remaining / monthlyPace
-        val eta = now.atZone(ZoneOffset.UTC).plusMonths(ceil(monthsToGo).toLong()).toInstant()
-        val zoned = eta.atZone(ZoneOffset.UTC)
-        val quarter = (zoned.monthValue - 1) / 3 + 1
-        etaLabel = "Q$quarter '${zoned.year.toString().takeLast(2)}"
-        etaTime = eta
+        // A trickle against a large target produces a months count in the millions, which
+        // overflows plusMonths' year field and throws DateTimeException — taking the Goals
+        // screen down. Even short of that, "Q3 '4718" is noise dressed as an answer, so past
+        // the cap we report no ETA at all: the same call periodChange and monthsCovered make.
+        if (monthsToGo.isFinite() && monthsToGo <= MAX_PROJECTABLE_MONTHS) {
+            val eta = now.atZone(ZoneOffset.UTC).plusMonths(ceil(monthsToGo).toLong()).toInstant()
+            val zoned = eta.atZone(ZoneOffset.UTC)
+            val quarter = (zoned.monthValue - 1) / 3 + 1
+            etaLabel = "Q$quarter '${zoned.year.toString().takeLast(2)}"
+            etaTime = eta
+        }
     }
 
     var monthsToTarget: Double? = null
