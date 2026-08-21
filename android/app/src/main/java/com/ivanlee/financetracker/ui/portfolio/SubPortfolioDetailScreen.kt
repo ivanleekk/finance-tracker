@@ -35,6 +35,7 @@ import com.ivanlee.financetracker.data.model.PortfolioSnapshotResponse
 import com.ivanlee.financetracker.data.model.PortfolioTimeseriesPoint
 import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.GrowthRange
 import com.ivanlee.financetracker.logic.allocationSlices
 import com.ivanlee.financetracker.logic.compactCurrency
@@ -78,6 +79,11 @@ fun SubPortfolioDetailScreen(
     var timeseries by remember { mutableStateOf<List<PortfolioTimeseriesPoint>>(emptyList()) }
     var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
     var metrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    // `metrics` scoped to `range`'s own window, for the Growth badge's percentage — see the
+    // LaunchedEffect below. Paired with the range it was fetched for so a slow response landing
+    // after the user has already flipped to a different range is never shown as if current.
+    var rangeMetrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    var rangeMetricsRange by remember { mutableStateOf<GrowthRange?>(null) }
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var tab by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -131,6 +137,26 @@ fun SubPortfolioDetailScreen(
     val slices = remember(holdings, assetsById) { allocationSlices(holdings, assetsById) }
     val scopedMetrics = metrics?.subPortfolioMetrics?.firstOrNull { it.subPortfolioId == subPortfolioId }?.metrics
 
+    // periodChange's own fraction is start-vs-end on the curve alone, so a monthly
+    // contribution counts as "growth" the same as market gains over any window. `scopedMetrics`
+    // (ALL) / `rangeScopedMetrics` (shorter ranges) are already flow-adjusted the same way
+    // TWR/IRR are (issue #256's Modified Dietz fix), scoped to this same window, so this is
+    // what the Growth badge shows instead of periodChange's fraction whenever it's available.
+    LaunchedEffect(range, subPortfolioId, sessionVm.activeHousehold?.id) {
+        val h = sessionVm.activeHousehold ?: return@LaunchedEffect
+        val cutoff = range.cutoffDate() ?: return@LaunchedEffect // ALL is covered by `metrics`
+        val result = runCatching {
+            Api.get<PortfolioMetricsResponse>("/portfolio/household/${h.id}/metrics?start_date=${cutoff.apiDateOnly()}")
+        }.getOrNull()
+        if (result != null) {
+            rangeMetrics = result
+            rangeMetricsRange = range
+        }
+    }
+    val rangeScopedMetrics = (if (rangeMetricsRange == range) rangeMetrics else null)
+        ?.subPortfolioMetrics?.firstOrNull { it.subPortfolioId == subPortfolioId }?.metrics
+    val scopedReturn = if (range == GrowthRange.ALL) scopedMetrics?.simpleReturn else rangeScopedMetrics?.simpleReturn
+
     DetailScaffold(
         title = sub?.name ?: "Sub-portfolio",
         subtitle = totalValue.currency(baseCurrency),
@@ -161,13 +187,11 @@ fun SubPortfolioDetailScreen(
                     item {
                         SectionCard(title = "Growth") {
                             change?.let { delta ->
-                                // delta.fraction is start-vs-end on the curve alone, so a monthly
-                                // contribution counts as "growth" the same as market gains — for
-                                // ALL that's the whole contribution history, not performance.
-                                // scopedMetrics.simpleReturn is already flow-adjusted (issue #256's
-                                // Modified Dietz fix) over that same all-time window, so it replaces
-                                // the fraction here; the dollar delta is still the true value change.
-                                val fraction = if (range == GrowthRange.ALL) scopedMetrics?.simpleReturn else delta.fraction
+                                // scopedReturn (computed above) is the flow-adjusted figure for
+                                // this same window when it's available; delta.fraction (the naive
+                                // curve ratio) is the fallback while that fetch is in flight or
+                                // has failed.
+                                val fraction = scopedReturn ?: delta.fraction
                                 Text(
                                     buildString {
                                         append(delta.delta.compactCurrency(baseCurrency))

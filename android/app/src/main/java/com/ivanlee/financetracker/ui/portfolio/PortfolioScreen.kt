@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import com.ivanlee.financetracker.data.model.PortfolioSnapshotResponse
 import com.ivanlee.financetracker.data.model.PortfolioTimeseriesPoint
 import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.GrowthRange
 import com.ivanlee.financetracker.logic.allocationSlices
 import com.ivanlee.financetracker.logic.compactCurrency
@@ -95,6 +97,11 @@ fun PortfolioScreen(
     var subPortfolios by remember { mutableStateOf<List<SubPortfolioResponse>>(emptyList()) }
     var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
     var metrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    // `metrics` scoped to `range`'s own window, for the Growth badge's percentage — see the
+    // LaunchedEffect below. Paired with the range it was fetched for so a slow response landing
+    // after the user has already flipped to a different range is never shown as if current.
+    var rangeMetrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    var rangeMetricsRange by remember { mutableStateOf<GrowthRange?>(null) }
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -154,6 +161,30 @@ fun PortfolioScreen(
     val slices = remember(holdings, assetsById) { allocationSlices(holdings, assetsById) }
     val fx = remember(holdings, assetsById) { fxExposure(holdings, assetsById, baseCurrency) }
 
+    // periodChange's own fraction is start-vs-end on the curve alone, so a monthly
+    // contribution counts as "growth" the same as market gains over any window. `metrics`
+    // (ALL) / `rangeMetrics` (shorter ranges) are already flow-adjusted the same way TWR/IRR
+    // are (issue #256's Modified Dietz fix), scoped to this same window, so this is what the
+    // Growth badge shows instead of periodChange's fraction whenever it's available.
+    LaunchedEffect(range, sessionVm.activeHousehold?.id) {
+        val h = sessionVm.activeHousehold ?: return@LaunchedEffect
+        val cutoff = range.cutoffDate() ?: return@LaunchedEffect // ALL is covered by `metrics`
+        val result = runCatching {
+            Api.get<PortfolioMetricsResponse>("/portfolio/household/${h.id}/metrics?start_date=${cutoff.apiDateOnly()}")
+        }.getOrNull()
+        if (result != null) {
+            rangeMetrics = result
+            rangeMetricsRange = range
+        }
+    }
+    val scopedReturn = if (range == GrowthRange.ALL) {
+        metrics?.overallMetrics?.simpleReturn
+    } else if (rangeMetricsRange == range) {
+        rangeMetrics?.overallMetrics?.simpleReturn
+    } else {
+        null
+    }
+
     // Sub-portfolio totals from the same latest snapshot, so a row and the header agree.
     val valueBySub = holdings.groupBy { it.subPortfolioId }
         .mapValues { entry -> entry.value.sumOf { it.currentValueHomeCurrency } }
@@ -195,13 +226,10 @@ fun PortfolioScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 change?.let { delta ->
-                    // delta.fraction is start-vs-end on the curve alone, so a monthly
-                    // contribution counts as "growth" the same as market gains — for ALL
-                    // that's the household's whole contribution history, not performance.
-                    // metrics.overallMetrics.simpleReturn is already flow-adjusted (issue #256's
-                    // Modified Dietz fix) over that same all-time window, so it replaces the
-                    // fraction here; the dollar delta is still the true value change either way.
-                    val fraction = if (range == GrowthRange.ALL) metrics?.overallMetrics?.simpleReturn else delta.fraction
+                    // scopedReturn (computed above) is the flow-adjusted figure for this same
+                    // window when it's available; delta.fraction (the naive curve ratio) is the
+                    // fallback while that fetch is in flight or has failed.
+                    val fraction = scopedReturn ?: delta.fraction
                     Text(
                         buildString {
                             append(delta.delta.compactCurrency(baseCurrency))
