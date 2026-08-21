@@ -212,6 +212,9 @@ class AccountBase(AccountLoanTerms):
     kind: AccountKind = AccountKind.asset
     currency: str
     owner_user_id: Optional[uuid.UUID] = None
+    # Earmarks the account to a sub-portfolio/goal (#252). The balance still counts
+    # once towards net worth; this additionally counts it towards that goal.
+    sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class AccountCreate(AccountBase):
@@ -225,6 +228,9 @@ class AccountUpdate(AccountLoanTerms):
     kind: Optional[AccountKind] = None
     currency: Optional[str] = None
     owner_user_id: Optional[uuid.UUID] = None
+    # Send an explicit null to un-earmark; omitting the key leaves the link alone
+    # (update_account uses exclude_unset).
+    sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class AccountResponse(AccountBase):

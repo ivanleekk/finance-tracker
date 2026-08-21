@@ -7,7 +7,10 @@ from sqlalchemy import select, func
 import uuid
 from typing import List, Optional, Dict
 
-from src.models import Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio, Dividend
+from src.models import (
+    Trade, PortfolioSnapshot, Asset, MarketPrice, TradeType, SubPortfolio, Dividend,
+    LINKED_ACCOUNT_ASSET_TYPE,
+)
 from src import schemas
 
 def fetch_rf_and_benchmark_rows(db: Session, benchmark_ticker: str = "SPY"):
@@ -47,11 +50,22 @@ def calculate_performance_metrics(
     """
     
     # 1. Fetch Snapshots (Daily Equity Curve)
+    #
+    # Earmarked-account rows (#252) are excluded from every metric below. A CPF OA
+    # balance counts towards the goal's *value*, but a contribution landing in it
+    # is a deposit, not investment performance -- leaving it in would let the
+    # equity curve jump on payday and report that as return, inflating TWR, Sharpe
+    # and alpha for a portfolio that did nothing. Cash pseudo-assets stay in: that
+    # money was genuinely moved into the portfolio and is part of its capital base.
     snapshot_query = select(
         PortfolioSnapshot.date,
         func.sum(PortfolioSnapshot.current_value_home_currency).label("total_value")
-    ).where(PortfolioSnapshot.household_id == household_id)
-    
+    ).where(PortfolioSnapshot.household_id == household_id).where(
+        PortfolioSnapshot.asset_id.notin_(
+            select(Asset.id).where(Asset.type == LINKED_ACCOUNT_ASSET_TYPE)
+        )
+    )
+
     if sub_portfolio_id:
         snapshot_query = snapshot_query.where(PortfolioSnapshot.sub_portfolio_id == sub_portfolio_id)
     

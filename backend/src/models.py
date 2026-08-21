@@ -289,9 +289,17 @@ class FinancialAccount(Base):
     # app treats the pair symmetrically). Drives the "home equity" figure.
     linked_account_id = Column(UUID(as_uuid=True), ForeignKey("financial_accounts.id", ondelete="SET NULL"), nullable=True)
 
+    # Earmarks this account to a sub-portfolio/goal (#252): the balance still
+    # belongs to the account for net-worth purposes, but also counts towards that
+    # sub-portfolio's value and goal progress. For money you can't move into the
+    # portfolio proper -- CPF OA towards a housing goal being the motivating case.
+    # SET NULL on delete: dropping a goal must never take a real account with it.
+    sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id", ondelete="SET NULL"), nullable=True, index=True)
+
     household = relationship("Household", back_populates="accounts", foreign_keys=[household_id])
     owner = relationship("User", foreign_keys=[owner_user_id])
     linked_account = relationship("FinancialAccount", remote_side=[id], foreign_keys=[linked_account_id])
+    sub_portfolio = relationship("SubPortfolio", back_populates="linked_accounts", foreign_keys=[sub_portfolio_id])
     access_controls = relationship("AccountAccess", back_populates="account")
     balances = relationship("AccountBalance", back_populates="account")
     transactions = relationship("Transaction", back_populates="account")
@@ -471,6 +479,23 @@ class BudgetCategory(Base):
 # market-data lookups (prices, dividends).
 CASH_ASSET_TYPE = "cash"
 
+# Assets with this type stand in for a real household account that has been
+# earmarked to a sub-portfolio (FinancialAccount.sub_portfolio_id) -- e.g. a
+# Singapore CPF OA balance counting towards a housing goal. One pseudo-asset per
+# linked account, valued each day at that account's own balance rather than at a
+# market price, so the money shows up in the sub-portfolio's value, goal progress
+# and equity curve without any trade ever being recorded (see #252).
+#
+# These are DELIBERATELY excluded from the return metrics (TWR, IRR, Sharpe,
+# Sortino, Treynor, alpha/beta) in services/performance.py: a CPF contribution is
+# a deposit, not investment performance, and counting it as one silently inflates
+# every ratio on the Portfolio tab.
+LINKED_ACCOUNT_ASSET_TYPE = "linked_account"
+
+# Asset types that are stand-ins for money rather than tradable instruments.
+# Neither gets a yfinance price or dividend lookup.
+PSEUDO_ASSET_TYPES = frozenset({CASH_ASSET_TYPE, LINKED_ACCOUNT_ASSET_TYPE})
+
 # Asset.pricing_mode values. Market assets get prices from yfinance; manual
 # assets (unlisted bonds, SSBs) are valued from user-recorded prices in
 # market_prices, falling back to average cost when none is recorded.
@@ -480,6 +505,14 @@ PRICING_MODE_MANUAL = "manual"
 
 def cash_ticker(currency: str) -> str:
     return f"CASH.{currency.upper()}"
+
+
+def linked_account_ticker(account_id) -> str:
+    """
+    Ticker for a linked account's pseudo-asset. Keyed by account id rather than
+    name so renaming an account doesn't orphan its snapshot history.
+    """
+    return f"ACCT.{account_id}"
 
 
 class Asset(Base):
@@ -537,6 +570,12 @@ class SubPortfolio(Base):
         "PortfolioSnapshot", back_populates="sub_portfolio"
     )
     dividends = relationship("Dividend", back_populates="sub_portfolio")
+    # Real household accounts earmarked to this sub-portfolio (#252).
+    linked_accounts = relationship(
+        "FinancialAccount",
+        back_populates="sub_portfolio",
+        foreign_keys="FinancialAccount.sub_portfolio_id",
+    )
 
 
 class Trade(Base):
