@@ -32,6 +32,17 @@ def annualize(cumulative: float, days: int) -> float:
     return (1.0 + cumulative) ** (DAYS_PER_YEAR / days) - 1.0
 
 
+def arith_annualize(daily_returns) -> float:
+    """Risk-ratio numerator: mean daily return * 252.
+
+    Risk ratios pair an annualized return with an annualized (std * sqrt(252))
+    denominator, so the return is annualized arithmetically. Compounding a
+    handful of days up to a year instead is what made every ratio explode on
+    short windows (issue #256).
+    """
+    return float(np.mean(daily_returns)) * TRADING_DAYS
+
+
 @pytest.fixture
 def seeded(db_session):
     user = models.User(
@@ -104,8 +115,9 @@ def test_simple_return_and_cumulative_twr_no_flows(db_session, seeded):
 
     expected_cum = VALUES[-1] / VALUES[0] - 1.0  # 3%
     assert m.simple_return == pytest.approx(expected_cum, rel=1e-9)
-    # TWR is reported annualized over the 5-day window
-    assert m.time_weighted_return == pytest.approx(annualize(expected_cum, 5), rel=1e-6)
+    # A 5-day window is reported as the period return, not annualized
+    assert m.annualized is False
+    assert m.time_weighted_return == pytest.approx(expected_cum, rel=1e-6)
 
 
 def test_twr_ignores_mid_window_deposit(db_session, seeded):
@@ -127,7 +139,7 @@ def test_twr_ignores_mid_window_deposit(db_session, seeded):
 
     # Only real performance: 15000 -> 15300 = +2%
     expected_cum = 15_300.0 / 15_000.0 - 1.0
-    assert m.time_weighted_return == pytest.approx(annualize(expected_cum, 9), rel=1e-6)
+    assert m.time_weighted_return == pytest.approx(expected_cum, rel=1e-6)
     # Simple return: gain of 300 over (10000 start + 5000 contributed)
     assert m.simple_return == pytest.approx(300.0 / 15_000.0, rel=1e-9)
 
@@ -142,7 +154,7 @@ def test_mwr_equals_twr_when_no_flows(db_session, seeded):
 
     m = calculate_performance_metrics(db_session, household.id, start_date=DATES[0], end_date=DATES[-1])
 
-    expected = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
+    expected = VALUES[-1] / VALUES[0] - 1.0
     assert m.money_weighted_return == pytest.approx(expected, rel=1e-3)
     assert m.money_weighted_return == pytest.approx(m.time_weighted_return, rel=1e-3)
 
@@ -160,7 +172,7 @@ def test_mwr_initial_investment_not_double_counted(db_session, seeded):
 
     m = calculate_performance_metrics(db_session, household.id)  # no start_date on purpose
 
-    expected = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
+    expected = VALUES[-1] / VALUES[0] - 1.0
     assert m.money_weighted_return == pytest.approx(expected, rel=1e-3)
 
 
@@ -215,10 +227,10 @@ def test_sharpe_matches_formula(db_session, seeded):
 
     m = calculate_performance_metrics(db_session, household.id, start_date=DATES[0], end_date=DATES[-1])
 
-    ann_twr = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
+    ann_return = arith_annualize(DAILY_RETURNS)
     expected_vol = float(np.std(DAILY_RETURNS, ddof=1)) * np.sqrt(TRADING_DAYS)
     assert m.volatility == pytest.approx(expected_vol, rel=1e-9)
-    assert m.sharpe_ratio == pytest.approx((ann_twr - RISK_FREE) / expected_vol, rel=1e-6)
+    assert m.sharpe_ratio == pytest.approx((ann_return - RISK_FREE) / expected_vol, rel=1e-6)
 
 
 def test_sharpe_zero_for_flat_portfolio(db_session, seeded):
@@ -242,10 +254,10 @@ def test_sortino_uses_downside_deviation(db_session, seeded):
 
     m = calculate_performance_metrics(db_session, household.id, start_date=DATES[0], end_date=DATES[-1])
 
-    ann_twr = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
+    ann_return = arith_annualize(DAILY_RETURNS)
     downside = np.minimum(np.array(DAILY_RETURNS), 0.0)
     expected_dd = float(np.sqrt(np.mean(downside**2)) * np.sqrt(TRADING_DAYS))
-    assert m.sortino_ratio == pytest.approx((ann_twr - RISK_FREE) / expected_dd, rel=1e-6)
+    assert m.sortino_ratio == pytest.approx((ann_return - RISK_FREE) / expected_dd, rel=1e-6)
 
 
 def test_sortino_negative_for_steady_losses(db_session, seeded):
@@ -289,11 +301,12 @@ def test_beta_two_when_portfolio_doubles_benchmark_moves(db_session, seeded):
 
     assert m.beta == pytest.approx(2.0, rel=1e-9)
 
-    ann_twr = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
-    bench_cum = float(np.prod([1.0 + r for r in bench_returns])) - 1.0
-    bench_ann = annualize(bench_cum, 5)
-    assert m.treynor_ratio == pytest.approx((ann_twr - RISK_FREE) / 2.0, rel=1e-6)
-    assert m.alpha == pytest.approx(ann_twr - (RISK_FREE + 2.0 * (bench_ann - RISK_FREE)), rel=1e-6)
+    # Benchmark-relative metrics are measured over the dates both series
+    # cover, i.e. every day but the first (which has no benchmark return).
+    ann_return = arith_annualize(DAILY_RETURNS[1:])
+    bench_ann = arith_annualize(bench_returns)
+    assert m.treynor_ratio == pytest.approx((ann_return - RISK_FREE) / 2.0, rel=1e-6)
+    assert m.alpha == pytest.approx(ann_return - (RISK_FREE + 2.0 * (bench_ann - RISK_FREE)), rel=1e-6)
 
 
 def test_alpha_zero_when_portfolio_tracks_benchmark(db_session, seeded):
@@ -306,8 +319,8 @@ def test_alpha_zero_when_portfolio_tracks_benchmark(db_session, seeded):
 
     assert m.beta == pytest.approx(1.0, rel=1e-9)
     assert m.alpha == pytest.approx(0.0, abs=1e-6)
-    ann_twr = annualize(VALUES[-1] / VALUES[0] - 1.0, 5)
-    assert m.treynor_ratio == pytest.approx(ann_twr - RISK_FREE, rel=1e-6)
+    ann_return = arith_annualize(DAILY_RETURNS[1:])
+    assert m.treynor_ratio == pytest.approx(ann_return - RISK_FREE, rel=1e-6)
 
 
 def test_benchmark_metrics_none_without_benchmark_data(db_session, seeded):

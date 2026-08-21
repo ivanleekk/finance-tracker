@@ -666,6 +666,10 @@ struct PerformanceMetrics: Codable {
     let simpleReturn: Double
     let timeWeightedReturn: Double
     let moneyWeightedReturn: Double
+    /// True when the window was long enough (>= 1 year) for the two returns
+    /// above to be annualized; false when they are plain period returns over
+    /// the window. Optional so older backends still decode.
+    let annualized: Bool?
     let volatility: Double
     let sharpeRatio: Double
     let sortinoRatio: Double
