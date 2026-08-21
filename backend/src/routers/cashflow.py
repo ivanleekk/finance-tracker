@@ -7,7 +7,7 @@ import uuid
 
 from src.database import get_db
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_account_ids
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from src.services.transaction_service import create_transaction
@@ -165,9 +165,12 @@ def get_household_transactions(
 ):
     verify_household_access(household_id, current_user, db)
 
-    # Get all accounts for this household
-    accounts = db.query(models.FinancialAccount).filter(models.FinancialAccount.household_id == household_id).all()
-    account_ids = [account.id for account in accounts]
+    # Only accounts this user may see. Filtering on household alone would return the
+    # transactions of another member's *private* accounts — amounts, descriptions and all —
+    # to anyone in the household. The clients filter these out for display, but the API is
+    # where the rule has to hold (see AGENTS.md 4a); `update_transaction` below already
+    # enforces it per-row, so read and write would otherwise disagree on the same data.
+    account_ids = visible_account_ids(db, household_id, current_user)
 
     if not account_ids:
         return []

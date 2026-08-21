@@ -7,7 +7,7 @@ from datetime import datetime, date
 
 from src.database import get_db, SessionLocal
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_sub_portfolio_ids
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
@@ -637,7 +637,13 @@ def get_household_trades(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    trades = db.query(models.Trade).filter(models.Trade.household_id == household_id).all()
+    # Sub-portfolio scoping: a private goal's trades reveal what another member holds.
+    trades = db.query(models.Trade).filter(
+        models.Trade.household_id == household_id,
+        models.Trade.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    ).all()
     # transform for schema
     return [
         schemas.TradeResponse(
@@ -948,7 +954,14 @@ def get_household_portfolio_snapshots(
 ):
     verify_household_access(household_id, current_user, db)
 
-    query = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.household_id == household_id)
+    # Scope to sub-portfolios this user may see -- filtering on household alone hands back
+    # another member's private holdings (quantities, cost basis and current value).
+    query = db.query(models.PortfolioSnapshot).filter(
+        models.PortfolioSnapshot.household_id == household_id,
+        models.PortfolioSnapshot.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    )
     query = _filter_by_date_range(query, start_date, end_date)
     if latest_only:
         query = _restrict_to_latest_date(query)
@@ -994,7 +1007,12 @@ def get_household_portfolio_timeseries(
         models.PortfolioSnapshot.date,
         models.PortfolioSnapshot.sub_portfolio_id,
         func.coalesce(func.sum(models.PortfolioSnapshot.current_value_home_currency), 0).label("total_value_home_currency"),
-    ).filter(models.PortfolioSnapshot.household_id == household_id)
+    ).filter(
+        models.PortfolioSnapshot.household_id == household_id,
+        models.PortfolioSnapshot.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    )
     query = _filter_by_date_range(query, start_date, end_date)
     rows = query.group_by(models.PortfolioSnapshot.date, models.PortfolioSnapshot.sub_portfolio_id).all()
 
@@ -1228,7 +1246,13 @@ def get_household_dividends(
     # is current whenever the Dividends or Portfolio page is opened. Cheap no-op
     # (one indexed query) when nothing is due.
     materialize_scheduled_dividends(db, household_id)
-    dividends = db.query(models.Dividend).filter(models.Dividend.household_id == household_id).all()
+    # Sub-portfolio scoping: payouts disclose the positions behind them.
+    dividends = db.query(models.Dividend).filter(
+        models.Dividend.household_id == household_id,
+        models.Dividend.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    ).all()
     return dividends
 
 @router.put("/dividends/{dividend_id}", response_model=schemas.DividendResponse)
