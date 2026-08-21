@@ -1,5 +1,6 @@
 package com.ivanlee.financetracker.ui.transactions
 
+import android.content.Context
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -37,10 +42,15 @@ import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.CategoryPeriod
+import com.ivanlee.financetracker.logic.HistoryEntry
+import com.ivanlee.financetracker.logic.HistoryGranularity
+import com.ivanlee.financetracker.logic.HistoryGroupSummary
 import com.ivanlee.financetracker.logic.NetWorthSlice
 import com.ivanlee.financetracker.logic.TopCategoryFilterPrefs
 import com.ivanlee.financetracker.logic.currency
-import com.ivanlee.financetracker.logic.monthYear
+import com.ivanlee.financetracker.logic.groupHistory
+import com.ivanlee.financetracker.logic.historyGroupLabel
+import com.ivanlee.financetracker.logic.homeValue
 import com.ivanlee.financetracker.logic.range
 import com.ivanlee.financetracker.state.QuickAddViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
@@ -55,9 +65,12 @@ import com.ivanlee.financetracker.ui.components.MainScreenScaffold
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SwipeActionRow
 import com.ivanlee.financetracker.ui.dashboard.TransactionRow
+import com.ivanlee.financetracker.ui.theme.negativeColor
+import com.ivanlee.financetracker.ui.theme.positiveColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Month
@@ -74,6 +87,8 @@ private enum class TxnFilter(val label: String) {
 }
 
 private data class CategoryOption(val id: String, val name: String)
+
+private const val GRANULARITY_KEY = "activityGranularity"
 
 /**
  * Month + year dropdowns for the "Specific month" period.
@@ -114,7 +129,8 @@ private fun MonthYearPicker(anchor: Instant?, onChange: (Instant) -> Unit) {
 }
 
 /**
- * The Activity tab: every transaction, newest first, grouped by month.
+ * The Activity tab: every transaction, newest first, grouped by day, month or year — each
+ * section header carrying the income and spending that landed inside it.
  *
  * Rows are tap-to-edit and swipe-to-delete, except transfers — a transfer is a linked pair of
  * transactions, so editing one half in isolation would silently break the other. Same rule as
@@ -139,6 +155,14 @@ fun TransactionsScreen(
     var reloadKey by remember { mutableStateOf(0) }
     var hiddenCategoryIds by remember { mutableStateOf(setOf<String>()) }
     var showCategoryFilter by remember { mutableStateOf(false) }
+    // Remembered across launches, the same way the web page remembers it per household.
+    val prefs = LocalContext.current.getSharedPreferences("waypoint_prefs", Context.MODE_PRIVATE)
+    var granularity by remember {
+        mutableStateOf(
+            runCatching { HistoryGranularity.valueOf(prefs.getString(GRANULARITY_KEY, "") ?: "") }
+                .getOrDefault(HistoryGranularity.MONTH),
+        )
+    }
     var categoryPeriod by remember { mutableStateOf(CategoryPeriod.ALL) }
     var categoryPeriodStart by remember { mutableStateOf<Instant?>(null) }
     var categoryPeriodEnd by remember { mutableStateOf<Instant?>(null) }
@@ -261,11 +285,22 @@ fun TransactionsScreen(
         }
         .sortedByDescending { it.date }
 
-    // Grouped in UTC, matching how the backend means these dates — a local-time grouping
-    // would push month-end transactions into the wrong month for anyone west of Greenwich.
-    val byMonth = filtered.groupBy {
-        it.date.atZone(ZoneOffset.UTC).toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant()
-    }.toList().sortedByDescending { it.first }
+    // Bucketed by day/month/year with each header carrying what moved inside it; `filtered` is
+    // already newest-first, so the sections come out in that order too. The grouping and the
+    // totals live in logic/HistoryGroups.kt, shared with the web and iOS ports.
+    val groups = groupHistory(filtered, granularity) { txn ->
+        HistoryEntry(
+            date = txn.date,
+            isTransfer = txn.transferId != null,
+            isInflow = txn.transactionType == TransactionType.INCOME,
+            homeAmount = homeValue(
+                stored = txn.amountHomeCurrency,
+                nativeAmount = txn.amount,
+                nativeCurrency = txn.currency ?: accountsById[txn.accountId]?.currency,
+                baseCurrency = baseCurrency,
+            ),
+        )
+    }
 
     MainScreenScaffold(
         title = "Activity",
@@ -410,6 +445,22 @@ fun TransactionsScreen(
             }
         }
 
+        item {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                HistoryGranularity.entries.forEachIndexed { index, option ->
+                    SegmentedButton(
+                        selected = granularity == option,
+                        onClick = {
+                            granularity = option
+                            prefs.edit().putString(GRANULARITY_KEY, option.name).apply()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index, HistoryGranularity.entries.size),
+                        label = { Text(option.label) },
+                    )
+                }
+            }
+        }
+
         if (!isLoading && filtered.isEmpty()) {
             item {
                 EmptyState(
@@ -420,28 +471,16 @@ fun TransactionsScreen(
             }
         }
 
-        byMonth.forEach { (month, items) ->
-            item(key = "header-$month") {
-                val net = items.sumOf {
-                    when {
-                        it.transferId != null -> 0.0
-                        it.transactionType == TransactionType.INCOME -> it.amountHomeCurrency ?: it.amount
-                        else -> -(it.amountHomeCurrency ?: it.amount)
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(month.monthYear(), style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        net.currency(baseCurrency),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        groups.forEach { group ->
+            val items = group.items
+            item(key = "header-${group.start}") {
+                HistorySectionHeader(
+                    label = historyGroupLabel(group.start, granularity),
+                    summary = group.summary,
+                    baseCurrency = baseCurrency,
+                )
             }
-            item(key = "body-$month") {
+            item(key = "body-${group.start}") {
                 SectionCard {
                     items.forEachIndexed { index, txn ->
                         if (index > 0) HorizontalDivider()
@@ -480,5 +519,55 @@ fun TransactionsScreen(
             },
             onDismiss = { pendingDelete = null },
         )
+    }
+}
+
+/**
+ * Section header for one day/month/year bucket: its label, plus the money that moved inside it.
+ * Mirrors the web Transactions group header and iOS's `HistorySectionHeader`.
+ */
+@Composable
+private fun HistorySectionHeader(
+    label: String,
+    summary: HistoryGroupSummary,
+    baseCurrency: String,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (summary.inflow > 0) {
+                Text(
+                    "+" + summary.inflow.currency(baseCurrency),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = positiveColor(),
+                )
+            }
+            if (summary.outflow > 0) {
+                Text(
+                    "\u2212" + summary.outflow.currency(baseCurrency),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = negativeColor(),
+                )
+            }
+            if (summary.showsNet) {
+                Text(
+                    "net " + (if (summary.net < 0) "\u2212" else "+") + abs(summary.net).currency(baseCurrency),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (summary.net < 0) negativeColor() else positiveColor(),
+                )
+            }
+            if (summary.unconverted > 0) {
+                // Say so rather than quietly reporting a total that's missing rows.
+                Text(
+                    "partial",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

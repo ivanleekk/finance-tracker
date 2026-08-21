@@ -26,8 +26,8 @@ This document provides a high-level overview and instructions for AI agents work
 - `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` and `android/` are the active mobile clients; see `mobile/AGENTS.md` for what that means before touching this directory.
 - **Native-client parity:** `ios/` and `android/` are deliberate ports of each other, down to the
   shared judgement calls (goal projection, budget tone, growth-chart binning, the
-  Private/Household/Blended rules, the pull-to-Quick-Add gesture, the Top-Categories period
-  window). A behaviour change to one of
+  transactions-list group totals, the Private/Household/Blended rules, the pull-to-Quick-Add
+  gesture, the Top-Categories period window). A behaviour change to one of
   those rules is a change to *three* codebases — `frontend/src/lib/`, `ios/FinanceTracker/Support/`,
   and `android/.../logic/` — plus the unit tests each keeps over it. If they disagree, that's a
   bug in one of them, not a platform difference.
@@ -93,9 +93,26 @@ This document provides a high-level overview and instructions for AI agents work
     - `Household.emergency_fund_target_months` is set on the Budgets page. `update_household` in `routers/users.py` assigns fields **explicitly**, so any new household column must be wired in there as well as in the schema.
     - A `Budget` can span **multiple categories** via the `BudgetCategory` join table (`backend/src/models.py`), not a single `category_id` column. `BudgetCategory` denormalizes `household_id`/`owner_user_id` from the parent budget so its own unique constraint (`household_id`, `category_id`, `owner_user_id`) can still enforce "a category belongs to at most one budget per owner scope" at the DB level, the same guarantee the old column-level constraint gave. `budget_service.budget_statuses` sums spend across a budget's `category_ids`. A budget's category set is fixed at creation — `BudgetUpdate` only ever covers `amount`/`period`, matching the old behavior where category was already immutable post-creation — so changing categories means deleting and recreating the budget. `BudgetResponse.category_ids` / `BudgetStatusRow.category_ids`+`category_names` are lists in the API and in all three clients' models; each client's create form is a multi-select (checkbox list) rather than the old single-select dropdown, and each excludes categories already claimed by another budget the same way `Budgets.tsx`'s `budgetableCategories` always has.
 
+- **Performance Metrics** (`backend/src/services/performance.py`):
+    - Daily returns are **Modified Dietz with the flow weighted at the start of the day**: `(V_t - V_t-1 - F_t) / (V_t-1 + F_t)`. The full weight is not a guess about intraday timing — `snapshot_engine` applies a trade to the holdings on its trade date and values the position at that day's close, so contributed money is invested for the whole day in our own books and belongs in the denominator too. Dividing by `V_t-1` alone levers the gap between a trade's fill price and the same day's close by the ratio of the deposit to the prior balance, which is what made a large cash injection report a triple-digit "daily return".
+    - A day whose base is zero or negative (empty or fully-withdrawn portfolio) has **no defined return** and contributes 0, never an infinity. `_finite()` guards every metric on the way out for the same reason.
+    - `time_weighted_return` / `money_weighted_return` are annualized **only when the window spans at least a year** (`ANNUALIZATION_MIN_DAYS`); shorter windows carry the plain period return and `PerformanceMetrics.annualized` tells the clients which they got. All three clients label the tile from that flag ("TWR (Ann.)" vs "TWR (Period)") — `frontend/src/lib/utils.ts` `returnBasis`, `StatTile.returnBasis` on iOS, `returnBasis` in Android's `DashboardScreen.kt`.
+    - Risk ratios (Sharpe, Sortino, Treynor, alpha) annualize the return **arithmetically** (`mean daily * 252`) to pair with a `std * sqrt(252)` denominator. They must not reuse the geometric TWR: compounding a week up to a year put a five-digit number in every numerator. Beta, alpha and Treynor are measured over the dates the portfolio and benchmark series **both** cover.
+    - External cash flows come from trades, minus the ones that never crossed the portfolio boundary: **both legs of a cash-settled trade** (`settlement_trade_id` set) and the **dividend cash credit** (`Dividend.cash_trade_id`). A dividend paid into sub-portfolio cash is return, not a contribution.
+    - `_calculate_xirr` only reports a rate it actually solved for — Newton, then a bisection fallback, then 0.0. It used to hand back its last iterate on non-convergence, i.e. the 100.0 clamp shown as a 10,000% return.
+
 - **Data Export & Reports** (`backend/src/routers/exports.py`):
     - `GET /exports/household/{id}/csv` returns a ZIP of denormalized CSVs (accounts, balances, transactions, trades, dividends, scheduled_dividends, holdings, goals, categories); `GET /exports/household/{id}/csv/{dataset}` returns one of them. Both filter through the private-ownership rule, so another member's private accounts/sub-portfolios never appear in an export.
     - `GET /exports/household/{id}/report` returns the aggregated `HouseholdReportResponse` (net worth from latest balances, latest-snapshot holdings, cash flow by category over `start`/`end` — default current calendar year, transfers excluded — dividends, goal progress) consumed by the web `/reports` page (`frontend/src/pages/Reports`). That page renders a print-styled "paper" sheet; **Save as PDF** is just `window.print()` plus the `@media print` rules in `frontend/src/index.css` and `print:` utility classes on the app shell/sidebar.
+    - **Transactions list group totals**: the activity list buckets by day / month / year and each
+      group header carries what moved inside it. The rules live in `frontend/src/lib/historyGroups.ts`,
+      `ios/FinanceTracker/Support/HistoryGroups.swift` and `android/.../logic/HistoryGroups.kt` — three
+      ports of one thing, each with its own unit tests. Two of those rules are deliberate: transfers
+      are excluded from both sides (money between your own accounts is neither income nor spending —
+      the same rule the budget/runway rollups use), and a row with no known base-currency value is
+      left out of the total and flagged "partial" rather than summed at face value, which would mix
+      currencies into a meaningless number.
+
     - Client-side file downloads go through `downloadFromApi` in `frontend/src/lib/download.ts` (axios blob + Content-Disposition filename).
 
 ## 5. Global Agent Guidelines

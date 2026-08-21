@@ -39,6 +39,11 @@ struct SubPortfolioDetailView: View {
     @State private var dividends: [DividendResponse] = []
     @State private var accounts: [AccountResponse] = []
     @State private var metrics: PerformanceMetrics?
+    /// `metrics` scoped to `range`'s window, for the Growth badge's percentage — see
+    /// `loadRangeMetrics()`. Paired with the range it was fetched for so a stale response from
+    /// a range the user has since flipped away from is never shown as if it were current.
+    @State private var rangeMetrics: PerformanceMetrics?
+    @State private var rangeMetricsRange: GrowthRange?
     @State private var isLoading = true
     @State private var showingAddTrade = false
     @State private var showingMoveCash = false
@@ -167,6 +172,7 @@ struct SubPortfolioDetailView: View {
         }
         .quickAddPull(quickAdd, onReload: reload)
         .task { await reload() }
+        .task(id: range) { await loadRangeMetrics() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -203,7 +209,19 @@ struct SubPortfolioDetailView: View {
                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
                 HStack(spacing: 10) {
                     if let change = periodChange(for: curve) {
-                        let percent = change.fraction.map { " (\($0.signedPercent))" } ?? ""
+                        // periodChange's own fraction is start-vs-end on the curve alone, so a
+                        // monthly contribution counts as "growth" the same as market gains over
+                        // any window. `metrics` (.all) / `rangeMetrics` (shorter ranges) are
+                        // already flow-adjusted the same way TWR/IRR are (issue #256's Modified
+                        // Dietz fix), scoped to this same window, so one of them replaces the
+                        // fraction here whenever it's available; the dollar delta is still the
+                        // true value change either way. `rangeMetricsRange == range` guards
+                        // against showing a fetch that hasn't caught up with the latest flip yet.
+                        let scopedReturn = range == .all
+                            ? metrics?.simpleReturn
+                            : (rangeMetricsRange == range ? rangeMetrics?.simpleReturn : nil)
+                        let fraction = scopedReturn ?? change.fraction
+                        let percent = fraction.map { " (\($0.signedPercent))" } ?? ""
                         Text("\(change.delta >= 0 ? "+" : "")\(change.delta.currency(baseCurrency))\(percent)")
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(change.delta >= 0 ? .green : .red)
@@ -381,6 +399,29 @@ struct SubPortfolioDetailView: View {
             metrics = all.subPortfolioMetrics.first { $0.subPortfolioId == sp.id }?.metrics
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Backend metrics scoped to `range`'s own window, for the Growth badge's percentage.
+    /// `.all` needs no separate fetch — `metrics` above already covers the whole history — so
+    /// this only runs for the shorter ranges. `.task(id: range)` cancels the in-flight request
+    /// when `range` changes again before it returns; `rangeMetricsRange` is a second guard
+    /// against the same case (a slow response landing after a further flip), since a cancelled
+    /// Swift Task still runs any code after an `await` that doesn't itself check cancellation.
+    /// Silent on failure — the badge falls back to the curve's own (unadjusted) percentage
+    /// rather than blocking on a transient network error for a secondary figure.
+    private func loadRangeMetrics() async {
+        guard let household = session.activeHousehold, let cutoff = range.cutoffDate() else { return }
+        do {
+            let all: PortfolioMetricsResponse = try await APIClient.shared.get(
+                "/portfolio/household/\(household.id)/metrics?start_date=\(cutoff.apiDateOnly)"
+            )
+            guard !Task.isCancelled else { return }
+            rangeMetrics = all.subPortfolioMetrics.first { $0.subPortfolioId == sp.id }?.metrics
+            rangeMetricsRange = range
+        } catch {
+            // Leave the previous value in place; the display falls back to periodChange's own
+            // fraction when rangeMetricsRange doesn't match the selected range.
         }
     }
 }

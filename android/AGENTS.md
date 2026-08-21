@@ -130,6 +130,17 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   `current_value_home_currency` rather than native value. `periodChange` returns a **null**
   fraction when the opening balance is under 1% of the closing one — a goal funded from $42 to
   $13,104 is not a +31,100% return.
+    - That guard only catches the extreme case: `periodChange`'s fraction is a raw curve-endpoint
+      ratio with no cash-flow adjustment at all, so a recurring contribution still counts as
+      "growth" the same as a market gain (issue #256). Both `PortfolioScreen` and
+      `SubPortfolioDetailScreen` swap it out for every range: `metrics.overallMetrics.simpleReturn`
+      / `scopedMetrics.simpleReturn` for `ALL` (reusing the fetch the Performance grid already
+      made), and for 1M/6M/1Y a `LaunchedEffect(range, …)` fetches `/metrics` scoped to that same
+      window via `GrowthRange.cutoffDate(now)` as `start_date`, cached as `rangeMetrics` /
+      `rangeMetricsRange` — the fetch is keyed by `range` so a slow response landing after a
+      further flip is never shown as if it were current, and the fraction falls back to the
+      naive curve ratio while a fetch is in flight or has failed. The dollar delta stays
+      curve-based regardless of range, since "value went up by $X" is true no matter the source.
 - **`logic/NetWorth.kt`** is the Kotlin port of `frontend/src/lib/networth.ts` (and iOS's
   `Support/NetWorth.swift`) — `summarizeAccounts` / `netWorthBreakdown` behind the Dashboard's
   net worth total and its Net Worth Split donut (`ui/components/Charts.kt`'s
@@ -140,6 +151,13 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   as gross assets in that case. `DashboardScreen` passes its own independently-computed
   `netWorth` into `NetWorthSplitChart` rather than letting the chart derive
   `sliceTotal - liabilities`, which would silently lose that dropped bucket from the total.
+- **`logic/HistoryGroups.kt`** is the Kotlin port of `frontend/src/lib/historyGroups.ts` and
+  iOS's `Support/HistoryGroups.swift` — the Activity list's day/month/year bucketing and the
+  income/spend totals on each section header. Two judgement calls it encodes: transfers count
+  on neither side (money between your own accounts is not income and not spending, the same
+  rule the budget rollups use), and a row with no known base-currency value is left out of the
+  total and surfaced as "partial" rather than summed at face value, which would mix currencies
+  into a meaningless number. Bucketing is UTC, like every other date in this client.
 - **`logic/BudgetPresentation.kt`** is the Kotlin port of `frontend/src/lib/budgets.ts` and
   iOS's `BudgetPresentation.swift`. Keep all three in sync; both judgement calls matter: a
   budget is "at risk" the moment its *projected* spend exceeds the limit (warning on the 10th
@@ -218,6 +236,7 @@ where tests pay off without a backend or an emulator:
 - `BudgetPresentationTest` — budget tone, runway tone/label, normalized monthly commitments,
   UTC month bucketing.
 - `ViewModeVisibilityTest` — the Private/Household/Blended rules and the vault's fail-open.
+- `HistoryGroupsTest` — Activity-list bucketing and section totals (`logic/HistoryGroups.kt`).
 - `ApiUrlTest` — query-string splitting.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.
@@ -229,7 +248,9 @@ spin up `Api` network calls.
 
 Things this app does that iOS does **not**, and why:
 
-- The **Activity** tab shows income/expense/transfer filter chips and a per-month net total.
+- The **Activity** tab shows income/expense/transfer filter chips (iOS has a search field
+  instead). The day/month/year grouping and the per-section totals above it are shared with
+  iOS and web — see `logic/HistoryGroups.kt`.
 - **Reports** exports through a `FileProvider` + system share sheet (Android won't let another
   app read a raw `file://` path).
 - The Portfolio tab's growth/allocation split is one scrolling screen; iOS's sub-portfolio

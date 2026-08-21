@@ -18,6 +18,8 @@ FinanceTracker/
   State/SessionStore.swift   # @Observable: user, households, activeHousehold (mirrors mobile AuthContext + HouseholdContext)
   Support/Formatters.swift   # currency/percent/date formatting helpers
   Support/GoalProjection.swift # Swift port of web lib/goals.ts (projectGoal / valueHistory) — keep in sync
+  Support/HistoryGroups.swift # Swift port of web lib/historyGroups.ts — day/month/year bucketing
+                             #   and the per-section income/spend totals on the Transactions list
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
@@ -136,6 +138,7 @@ FinanceTracker/
     - The web has _two_ controls — a range (1M…ALL) and a Daily/Weekly/Monthly/Yearly binning selector. Two adjacent selectors don't fit a phone, so only the range is exposed and the bin is derived from the data's span (`growthBin(forSpanDays:)`: ≤92d daily, ≤550d weekly, else monthly). Binning keeps the **last** value in each bucket, not a sum or mean — an equity curve is a running balance (this matches the web's `binHistory`). Bucketing uses a **UTC, Monday-first** calendar so a snapshot can't drift into a neighbouring bucket by timezone.
     - `allocationSlices` weights by `current_value_home_currency`, whereas the web weights by native value — which mixes units in a multi-currency portfolio (a US$1 and a S$1 position get the same wedge there).
     - `periodChange` returns a **nil** `fraction` when the opening balance is under 1% of the closing one. A goal funded from $42 to $13,104 is not a +31,100% return, and printing that as one is worse than printing no percentage.
+    - `periodChange`'s fraction is a raw curve-endpoint ratio with **no cash-flow adjustment**, so a recurring contribution still counts as "growth" the same as a market gain — the 1%-base guard above only catches the extreme case, not a household funding a goal $500/month. `SubPortfolioDetailView` is the only screen that shows this badge (the main Portfolio tab's growth chart has no percentage overlay); for every range it swaps in a `/metrics` call scoped to that same window (`metrics.simpleReturn` for `.all`, reusing the fetch the Performance grid already made; a fresh `start_date`-scoped fetch via `GrowthRange.cutoffDate(now:)` for 1M/6M/1Y, cached as `rangeMetrics`/`rangeMetricsRange`) instead of the naive fraction — `simpleReturn` is already flow-adjusted the same way TWR/IRR are (see `performance.py`, issue #256). The dollar delta stays curve-based regardless, since "value went up by $X" is true no matter where the money came from; `rangeMetricsRange == range` guards against showing a slow response after the user has already flipped ranges again, falling back to the naive fraction while a fetch is in flight or has failed.
 - **Net Worth Split** (`Support/NetWorth.swift`, rendered on the Dashboard by `NetWorthSplitChart`) is a donut of gross-asset composition — Cash / Investments / Retirement & Locked / Property / Other Assets — with liabilities and the net total as plain rows underneath rather than wedges (a `SectorMark` donut can't render a negative slice). `netWorthBreakdown`'s `sliceTotal` is the sum of the *visible* slices only, which is deliberately not the same as gross assets when a bucket (e.g. cash, for an overdrawn household) goes negative and gets dropped — that's also why `NetWorthSplitChart` takes the screen's independently-computed `netWorth` as its own parameter instead of deriving `sliceTotal - liabilities`, which would silently drop the excluded negative bucket from the total.
 - **Charts all go through `Views/Components/ChartStyle.swift`.** Three rules it exists to keep:
   **composition colours are fixed, not themed** (`ChartStyle.categorical` = the web's
@@ -253,6 +256,9 @@ where tests pay off without a running backend:
   sub-portfolio scoping, range windows, the daily/weekly/monthly bin thresholds and
   last-in-bucket rule, `periodChange`'s small-base guard, allocation and FX exposure. Dates
   are built with an explicit UTC calendar so results don't depend on the machine's timezone.
+- `HistoryGroupsTests` — `Support/HistoryGroups.swift`: day/month/year bucketing, the
+  section totals (transfers excluded on both legs, unconverted rows counted rather than
+  summed), and the Today/Yesterday labels. Dates use an explicit UTC calendar.
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.

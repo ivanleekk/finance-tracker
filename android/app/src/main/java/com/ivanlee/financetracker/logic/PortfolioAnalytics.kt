@@ -23,6 +23,16 @@ enum class GrowthRange(val label: String, val months: Int?) {
     SIX_MONTHS("6M", 6),
     ONE_YEAR("1Y", 12),
     ALL("ALL", null),
+    ;
+
+    /**
+     * The window's opening instant, or null for [ALL] (unbounded). Shared by [equityCurve]
+     * (which windows the chart) and the range-scoped `/metrics` fetch (which needs the same
+     * cutoff as a `start_date` so the badge's dollar delta and percentage describe the same
+     * window) — computing it twice risked the two drifting apart by a day at a month boundary.
+     */
+    fun cutoffDate(now: Instant = Instant.now()): Instant? =
+        months?.let { now.atZone(ZoneOffset.UTC).minusMonths(it.toLong()).toInstant() }
 }
 
 /**
@@ -77,9 +87,7 @@ fun <T : SnapshotValuePoint> equityCurve(
 
     var points = byDate.map { GoalHistoryPoint(it.key, it.value) }.sortedBy { it.date }
 
-    val months = range.months
-    if (months != null) {
-        val cutoff = now.atZone(ZoneOffset.UTC).minusMonths(months.toLong()).toInstant()
+    range.cutoffDate(now)?.let { cutoff ->
         points = points.filter { !it.date.isBefore(cutoff) }
     }
 

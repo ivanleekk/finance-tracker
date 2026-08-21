@@ -18,6 +18,8 @@ struct TransactionsView: View {
     @State private var lastLoadedAt: Date?
     @State private var hiddenCategoryIds: Set<String> = []
     @State private var showCategoryFilter = false
+    /// How the list is bucketed; remembered between launches, like the web page does per household.
+    @AppStorage("transactionsGranularity") private var granularity: HistoryGranularity = .month
     @State private var categoryPeriod: CategoryPeriod = .all
     @State private var categoryPeriodStart: Date?
     @State private var categoryPeriodEnd: Date?
@@ -144,13 +146,23 @@ struct TransactionsView: View {
         }
     }
 
-    /// Grouped by month for section headers.
-    private var byMonth: [(month: Date, transactions: [TransactionResponse])] {
-        Dictionary(grouping: filtered) { txn in
-            Calendar.current.dateInterval(of: .month, for: txn.date)?.start ?? txn.date
+    /// Grouped into day/month/year sections, each carrying what moved inside it.
+    /// `filtered` is already newest-first, so the sections come out in that order too.
+    private var groups: [HistoryGroup<TransactionResponse>] {
+        let accountsById = accountsById
+        return groupHistory(filtered, by: granularity) { txn in
+            HistoryEntry(
+                date: txn.date,
+                isTransfer: txn.transferId != nil,
+                isInflow: txn.transactionType == .income,
+                homeAmount: homeValue(
+                    stored: txn.amountHomeCurrency,
+                    nativeAmount: txn.amount,
+                    nativeCurrency: txn.currency ?? accountsById[txn.accountId]?.currency,
+                    baseCurrency: baseCurrency
+                )
+            )
         }
-        .map { (month: $0.key, transactions: $0.value) }
-        .sorted { $0.month > $1.month }
     }
 
     var body: some View {
@@ -179,9 +191,19 @@ struct TransactionsView: View {
                         Text("Top Categories")
                     }
                 }
-                ForEach(byMonth, id: \.month) { group in
-                    Section(group.month.monthYear) {
-                        ForEach(group.transactions) { txn in
+                Section {
+                    Picker("Group by", selection: $granularity) {
+                        ForEach(HistoryGranularity.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.items) { txn in
                             let row = TransactionRow(
                                 transaction: txn,
                                 categoryName: categoriesById[txn.categoryId]?.name,
@@ -197,8 +219,14 @@ struct TransactionsView: View {
                             }
                         }
                         .onDelete { offsets in
-                            delete(group.transactions, at: offsets)
+                            delete(group.items, at: offsets)
                         }
+                    } header: {
+                        HistorySectionHeader(
+                            label: group.label,
+                            summary: group.summary,
+                            baseCurrency: baseCurrency
+                        )
                     }
                 }
             }
@@ -621,6 +649,43 @@ struct TransferFormView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// Section header for one day/month/year bucket: its label, plus the money that moved
+/// inside it. Mirrors the web Transactions group header.
+struct HistorySectionHeader: View {
+    let label: String
+    let summary: HistoryGroupSummary
+    let baseCurrency: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Spacer(minLength: 8)
+            if summary.inflow > 0 {
+                Text("+" + summary.inflow.currency(baseCurrency))
+                    .foregroundStyle(.green)
+            }
+            if summary.outflow > 0 {
+                Text("−" + summary.outflow.currency(baseCurrency))
+                    .foregroundStyle(.red)
+            }
+            if summary.showsNet {
+                Text("net " + (summary.net < 0 ? "−" : "+") + abs(summary.net).currency(baseCurrency))
+                    .foregroundStyle(summary.net < 0 ? .red : .green)
+            }
+            if summary.unconverted > 0 {
+                // Say so rather than quietly reporting a total that's missing rows.
+                Text("partial")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        "\(summary.unconverted) \(summary.unconverted == 1 ? "entry has" : "entries have") no \(baseCurrency) value and are not included"
+                    )
+            }
+        }
+        .font(.caption.monospacedDigit())
+        .textCase(nil)
     }
 }
 

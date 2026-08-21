@@ -470,8 +470,8 @@ private fun ReturnsGrid(metrics: PerformanceMetrics?) {
     AdaptiveStatGrid(
         listOf(
             StatTileData("Overall Return", percentString(metrics?.simpleReturn), signal = metrics?.simpleReturn),
-            StatTileData("TWR (Ann.)", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
-            StatTileData("IRR / MWR", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
+            StatTileData("TWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
+            StatTileData("IRR / MWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
             StatTileData("Sharpe", ratioString(metrics?.sharpeRatio)),
         )
     )
@@ -481,6 +481,14 @@ fun percentString(value: Double?): String {
     if (value == null || !value.isFinite()) return "—"
     return String.format(java.util.Locale.getDefault(), "%+.1f%%", value * 100)
 }
+
+/**
+ * Label for the basis a return is quoted on. The backend only annualizes TWR
+ * and MWR once the window spans at least a year; shorter windows carry the
+ * plain period return, and calling that "Ann." is how a 2% week ended up
+ * displayed as +180% (issue #256).
+ */
+fun returnBasis(annualized: Boolean?): String = if (annualized == true) "Ann." else "Period"
 
 fun ratioString(value: Double?): String {
     if (value == null || !value.isFinite()) return "—"

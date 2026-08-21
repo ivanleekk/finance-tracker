@@ -16,6 +16,7 @@ import { TopBar } from "../../components/TopBar"
 import { OwnershipTag } from "../../components/ui/OwnershipTag"
 import { useAuth } from "../../lib/AuthContext"
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
+import { groupHistory, type HistoryGranularity } from "../../lib/historyGroups"
 import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
@@ -52,6 +53,30 @@ function categoryIcon(name: string): string {
     return "💳";
 }
 
+const HISTORY_GRANULARITIES: { value: HistoryGranularity; label: string }[] = [
+    { value: "day", label: "Day" },
+    { value: "month", label: "Month" },
+    { value: "year", label: "Year" },
+];
+
+const historyGranularityStorageKey = (householdId: string) => `ft:tx-group-by:${householdId}`;
+
+/**
+ * Best guess at a row's value in the household's base currency: the figure the
+ * backend already converted, or the row's own amount when it was already booked
+ * in the base currency. Anything else stays `null` — a foreign-currency row with
+ * no stored conversion is left out of the group totals rather than distorting them.
+ * The iOS and Android ports of this rule live in `HistoryGroups.swift` / `HistoryGroups.kt`.
+ */
+function homeValueOf(storedHomeAmount: number | null | undefined, nativeAmount: number, nativeCurrency: string | null | undefined, baseCurrency: string): number | null {
+    if (storedHomeAmount !== null && storedHomeAmount !== undefined) {
+        const n = Math.abs(Number(storedHomeAmount));
+        if (Number.isFinite(n)) return n;
+    }
+    if (nativeCurrency && nativeCurrency === baseCurrency) return Math.abs(nativeAmount);
+    return null;
+}
+
 type UnifiedHistoryItem = {
     id: string;
     type: string; // 'buy', 'sell', 'deposit', 'withdrawal', 'income', 'expense'
@@ -61,6 +86,8 @@ type UnifiedHistoryItem = {
     currencyNative: string;
     amountAccount: number;
     currencyAccount: string;
+    /** Value in the household's base currency, or null when it can't be converted. */
+    amountHome: number | null;
     shares: number | null;
     date: Date;
     status: string;
@@ -90,6 +117,7 @@ export default function Transactions() {
     const [categoryPeriod, setCategoryPeriod] = useState<CategoryPeriodPreset>("all")
     const [categoryPeriodStart, setCategoryPeriodStart] = useState("")
     const [categoryPeriodEnd, setCategoryPeriodEnd] = useState("")
+    const [historyGranularity, setHistoryGranularity] = useState<HistoryGranularity>("day")
 
     // Restore the saved top-categories filter/period whenever the active household changes,
     // so a user doesn't have to re-hide the same categories every time they come back.
@@ -119,6 +147,18 @@ export default function Transactions() {
             categoryPeriodEnd,
         }));
     }, [activeHousehold?.id, hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd])
+
+    // Remember how the activity list was last bucketed, per household.
+    useEffect(() => {
+        if (!activeHousehold) return;
+        const saved = localStorage.getItem(historyGranularityStorageKey(activeHousehold.id));
+        setHistoryGranularity(saved === "month" || saved === "year" ? saved : "day");
+    }, [activeHousehold?.id])
+
+    useEffect(() => {
+        if (!activeHousehold) return;
+        localStorage.setItem(historyGranularityStorageKey(activeHousehold.id), historyGranularity);
+    }, [activeHousehold?.id, historyGranularity])
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -162,6 +202,8 @@ export default function Transactions() {
             </div>
         )
     }
+
+    const baseCurrency = activeHousehold.base_currency || "USD";
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
@@ -268,6 +310,11 @@ export default function Transactions() {
         [trades]
     );
 
+    const transactionMap = useMemo(
+        () => new Map(transactions.map(tx => [tx.id, tx])),
+        [transactions]
+    );
+
     const combinedHistory = useMemo(() => {
         // Maps for O(1) lookups
         const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
@@ -283,6 +330,11 @@ export default function Transactions() {
             
             const nativeAmount = Number(t.quantity) * Number(t.price);
             const accountAmount = nativeAmount * Number(t.exchange_rate);
+            // A trade only has a home-currency figure through the funding transaction it
+            // settled against. Cash-settled trades (settle_from_cash) never create one, so
+            // they stay out of the group totals rather than being summed in the wrong currency.
+            const fundingTx = t.transaction_id ? transactionMap.get(t.transaction_id) : undefined;
+            const homeAmount = homeValueOf(fundingTx?.amount_home_currency, nativeAmount, t.currency || account?.currency, baseCurrency);
 
             return {
                 id: `trade-${t.id}`,
@@ -293,6 +345,7 @@ export default function Transactions() {
                 currencyNative: t.currency || "USD",
                 amountAccount: accountAmount,
                 currencyAccount: account?.currency || "USD",
+                amountHome: homeAmount,
                 shares: Number(t.quantity),
                 date: new Date(t.date),
                 status: "completed",
@@ -322,6 +375,7 @@ export default function Transactions() {
 
                 const nativeAmount = Math.abs(Number(tx.amount));
                 const accountAmount = nativeAmount * (Number(tx.exchange_rate) || 1);
+                const homeAmount = homeValueOf(tx.amount_home_currency, nativeAmount, tx.currency || account?.currency, baseCurrency);
 
                 return {
                     id: `tx-${tx.id}`,
@@ -332,6 +386,7 @@ export default function Transactions() {
                     currencyNative: tx.currency || account?.currency || "USD",
                     amountAccount: accountAmount,
                     currencyAccount: account?.currency || "USD",
+                    amountHome: homeAmount,
                     shares: null,
                     date: new Date(tx.date),
                     status: "completed",
@@ -347,7 +402,7 @@ export default function Transactions() {
 
         // 3. Unify and Sort
         return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds]);
+    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds, transactionMap, baseCurrency]);
 
     const isInflow = (type: string) => ['deposit', 'income', 'sell', 'transfer_in'].includes(type);
 
@@ -365,22 +420,10 @@ export default function Transactions() {
         });
     }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, filterFlow, viewMode, user?.id]);
 
-    const groupedHistory = useMemo(() => {
-        const groups = new Map<string, UnifiedHistoryItem[]>();
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-        filteredHistory.forEach(item => {
-            const d = new Date(item.date); d.setHours(0, 0, 0, 0);
-            const dayLabel = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-            let label: string;
-            if (d.getTime() === today.getTime()) label = `Today · ${dayLabel}`;
-            else if (d.getTime() === yesterday.getTime()) label = `Yesterday · ${dayLabel}`;
-            else label = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-            if (!groups.has(label)) groups.set(label, []);
-            groups.get(label)!.push(item);
-        });
-        return Array.from(groups.entries());
-    }, [filteredHistory]);
+    const groupedHistory = useMemo(
+        () => groupHistory(filteredHistory, historyGranularity),
+        [filteredHistory, historyGranularity]
+    );
 
     const cashflowData = useMemo(() => {
         const now = new Date();
@@ -543,6 +586,11 @@ export default function Transactions() {
         const currency = currencies.find(c => c.code === currencyCode);
         const symbol = currency?.symbol || currencyCode;
         return `${prefix}${symbol}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+
+    const formatHomeAmount = (amount: number) => {
+        const symbol = currencies.find(c => c.code === baseCurrency)?.symbol || baseCurrency;
+        return `${symbol}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
     const formatDate = (date: Date) => {
@@ -1055,8 +1103,26 @@ export default function Transactions() {
             </Card>
 
             <Card className="overflow-hidden">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
                     <CardTitle>All Activity</CardTitle>
+                    <div className="flex items-center gap-1 rounded-lg bg-base-100 dark:bg-base-800 p-0.5" role="group" aria-label="Group activity by">
+                        {HISTORY_GRANULARITIES.map(g => (
+                            <button
+                                key={g.value}
+                                type="button"
+                                onClick={() => setHistoryGranularity(g.value)}
+                                aria-pressed={historyGranularity === g.value}
+                                className={cn(
+                                    "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                                    historyGranularity === g.value
+                                        ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                        : "text-base-500 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100"
+                                )}
+                            >
+                                {g.label}
+                            </button>
+                        ))}
+                    </div>
                 </CardHeader>
                 <CardContent className="p-0">
                     {groupedHistory.length === 0 && (
@@ -1064,10 +1130,31 @@ export default function Transactions() {
                             No historical activity found matching these filters.
                         </div>
                     )}
-                    {groupedHistory.map(([label, items]) => (
-                        <div key={label}>
-                            <div className="px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
-                                {label}
+                    {groupedHistory.map(({ key, label, items, summary }) => (
+                        <div key={key}>
+                            <div className="flex items-center justify-between gap-3 flex-wrap px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
+                                <span>{label}</span>
+                                <span className="flex items-center gap-3 normal-case tracking-normal">
+                                    {summary.inflow > 0 && (
+                                        <span className="text-emerald-600 dark:text-emerald-400">+{formatHomeAmount(summary.inflow)}</span>
+                                    )}
+                                    {summary.outflow > 0 && (
+                                        <span className="text-red-500">−{formatHomeAmount(summary.outflow)}</span>
+                                    )}
+                                    {(summary.inflow > 0 && summary.outflow > 0) && (
+                                        <span className={cn("text-base-600 dark:text-base-300", summary.net > 0 && "text-emerald-600 dark:text-emerald-400", summary.net < 0 && "text-red-500")}>
+                                            net {summary.net < 0 ? "−" : "+"}{formatHomeAmount(summary.net)}
+                                        </span>
+                                    )}
+                                    {summary.unconverted > 0 && (
+                                        <span
+                                            className="text-base-400 dark:text-base-500"
+                                            title={`${summary.unconverted} ${summary.unconverted === 1 ? "entry has" : "entries have"} no ${baseCurrency} value and ${summary.unconverted === 1 ? "is" : "are"} not included`}
+                                        >
+                                            partial
+                                        </span>
+                                    )}
+                                </span>
                             </div>
                             <div className="divide-y divide-base-100 dark:divide-base-800">
                                 {items.map((item) => (
