@@ -7,9 +7,10 @@ from src.auth import get_current_user, verify_household_access, verify_private_o
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from src.services import loan_service
+from src.services.snapshot_engine import run_snapshot_range
 from sqlalchemy import desc, func, select
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import uuid
 
 router = APIRouter(prefix="/accounts", tags=["Financial Accounts"])
@@ -35,6 +36,28 @@ def _verify_linkable_account(
     return target
 
 
+def _verify_linkable_sub_portfolio(
+    db: Session,
+    sub_portfolio_id: uuid.UUID,
+    household_id: uuid.UUID,
+    current_user: models.User,
+):
+    """
+    Earmarking an account to a sub-portfolio (#252) is subject to the same two
+    rules as a property/loan link: same household, and the caller must be able to
+    see the target. Without the visibility check, linking to another member's
+    private goal would surface that goal's existence and let this account's
+    balance be read out of its value.
+    """
+    target = db.query(models.SubPortfolio).filter(
+        models.SubPortfolio.id == sub_portfolio_id
+    ).first()
+    if not target or target.household_id != household_id:
+        raise HTTPException(status_code=404, detail="Sub-portfolio not found")
+    verify_private_owner_visibility(target.owner_user_id, current_user)
+    return target
+
+
 @router.post("", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
 def create_account(
     account: schemas.AccountCreate, 
@@ -46,6 +69,9 @@ def create_account(
     
     if account.linked_account_id:
         _verify_linkable_account(db, account.linked_account_id, account.household_id, current_user)
+
+    if account.sub_portfolio_id:
+        _verify_linkable_sub_portfolio(db, account.sub_portfolio_id, account.household_id, current_user)
 
     db_account = models.FinancialAccount(
         id=uuid.uuid7(),
@@ -63,6 +89,7 @@ def create_account(
         loan_start_date=account.loan_start_date,
         appreciation_rate_annual=account.appreciation_rate_annual,
         linked_account_id=account.linked_account_id,
+        sub_portfolio_id=account.sub_portfolio_id,
     )
     db.add(db_account)
     db.commit()
@@ -108,11 +135,35 @@ def update_account(
             raise HTTPException(status_code=400, detail="An account cannot be linked to itself")
         _verify_linkable_account(db, linked_id, db_account.household_id, current_user)
 
+    sub_portfolio_changed = (
+        "sub_portfolio_id" in update_data
+        and update_data["sub_portfolio_id"] != db_account.sub_portfolio_id
+    )
+    if sub_portfolio_changed and update_data["sub_portfolio_id"]:
+        _verify_linkable_sub_portfolio(
+            db, update_data["sub_portfolio_id"], db_account.household_id, current_user
+        )
+
     for key, value in update_data.items():
         setattr(db_account, key, value)
 
     db.commit()
     db.refresh(db_account)
+
+    # Earmarking (or un-earmarking) rewrites this account's contribution to a
+    # sub-portfolio's whole history, so replay from its first recorded balance
+    # rather than from today — otherwise the goal's equity curve would start at
+    # the link date and read as though the money appeared out of nowhere. The
+    # rebuild also purges the old rows on unlink, since run_snapshot_range clears
+    # the range before rewriting it.
+    if sub_portfolio_changed:
+        first_balance_date = db.query(func.min(models.AccountBalance.date)).filter(
+            models.AccountBalance.account_id == account_id
+        ).scalar()
+        run_snapshot_range(
+            db, db_account.household_id, first_balance_date or date.today(), date.today()
+        )
+
     return db_account
 
 
@@ -140,8 +191,21 @@ def delete_account(
             detail=f"{rule_count} recurring transaction(s) still use this account. Delete them first.",
         )
 
+    # An earmarked account leaves snapshot rows behind in its sub-portfolio (#252).
+    # Capture what's needed to rebuild before the row is gone, then replay: the
+    # replay clears the range and simply won't re-emit rows for an account that no
+    # longer exists, so the goal stops counting money that isn't there.
+    was_earmarked = db_account.sub_portfolio_id is not None
+    household_id = db_account.household_id
+    first_balance_date = db.query(func.min(models.AccountBalance.date)).filter(
+        models.AccountBalance.account_id == account_id
+    ).scalar() if was_earmarked else None
+
     db.delete(db_account)
     db.commit()
+
+    if was_earmarked:
+        run_snapshot_range(db, household_id, first_balance_date or date.today(), date.today())
     return
 
 
@@ -316,9 +380,17 @@ def add_account_balance(
     
     # Propagate the "correction" forward through automated records
     propagate_balance_change(db, balance.account_id, balance.date, delta)
-    
+
     db.commit()
     db.refresh(db_balance)
+
+    # An earmarked account's balance *is* part of its sub-portfolio's value (#252),
+    # so recording one has to refresh the snapshots the goal reads from. Skipped
+    # entirely for ordinary accounts, which the portfolio doesn't look at — this is
+    # the app's hottest write path and a snapshot replay is not cheap.
+    if db_account.sub_portfolio_id:
+        run_snapshot_range(db, db_account.household_id, balance.date, date.today())
+
     return db_balance
 
 

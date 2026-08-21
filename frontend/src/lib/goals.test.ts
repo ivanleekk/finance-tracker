@@ -95,4 +95,37 @@ describe("projectGoal — finite output guarantees", () => {
         expect(p.percentComplete).toBeCloseTo(65.52, 1);
         expect(p.remaining).toBeCloseTo(6896, 1);
     });
+
+    // A near-zero pace against a large target used to overflow Date and render "QNaN 'aN".
+    // Beyond a century out we report no ETA rather than a fabricated one.
+    it("reports no ETA when the pace would take longer than a century", () => {
+        const today = new Date();
+        const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        // One cent of progress over 90 days against a $1,000,000 target.
+        const p = projectGoal(
+            [
+                { date: iso(ninetyDaysAgo), value: 0 },
+                { date: iso(today), value: 0.01 },
+            ],
+            1_000_000,
+        );
+        expect(p.monthlyPace).toBeGreaterThan(0);
+        expect(p.etaLabel).toBeNull();
+        expect(p.etaLabel ?? "").not.toContain("NaN");
+    });
+
+    it("still reports an ETA for a pace that lands within the horizon", () => {
+        const today = new Date();
+        const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        const p = projectGoal(
+            [
+                { date: iso(ninetyDaysAgo), value: 0 },
+                { date: iso(today), value: 3000 },
+            ],
+            20000,
+        );
+        expect(p.etaLabel).toMatch(/^Q[1-4] '\d{2}$/);
+    });
 });

@@ -47,7 +47,19 @@ func valueHistory<T: SnapshotValuePoint>(for snapshots: [T], subPortfolioId: Str
         .sorted { $0.date < $1.date }
 }
 
-func projectGoal(history: [GoalHistoryPoint], targetAmount: Double?, targetDate: Date?) -> GoalProjection {
+/// Past this many months an ETA stops being a projection and becomes noise — see the clamp in
+/// `projectGoal`. 100 years; the Kotlin twin uses the same figure.
+let maxProjectableMonths: Double = 1200
+
+/// `now` is injectable so the target-date branches (ETA, monthsToTarget, requiredPace,
+/// onTrack, etaVsTargetMonths) are testable without the wall clock — matching the Kotlin twin,
+/// which has taken a `now` parameter from the start.
+func projectGoal(
+    history: [GoalHistoryPoint],
+    targetAmount: Double?,
+    targetDate: Date?,
+    now: Date = Date()
+) -> GoalProjection {
     let rawCurrent = history.last?.value ?? 0
     let currentValue = rawCurrent.isFinite ? rawCurrent : 0
 
@@ -73,11 +85,21 @@ func projectGoal(history: [GoalHistoryPoint], targetAmount: Double?, targetDate:
     var etaTime: Date?
     if let target, monthlyPace > 0, remaining > 0 {
         let monthsToGo = remaining / monthlyPace
-        let eta = Calendar.current.date(byAdding: .month, value: Int(monthsToGo.rounded(.up)), to: Date()) ?? Date()
-        let comps = Calendar.current.dateComponents([.year, .month], from: eta)
-        let quarter = ((comps.month ?? 1) - 1) / 3 + 1
-        etaLabel = "Q\(quarter) '\(String(comps.year ?? 0).suffix(2))"
-        etaTime = eta
+        // A trickle against a large target produces a months count in the millions. Feeding
+        // that to `Int(_:)` traps outright, and even when it doesn't, "Q3 '4718" is not an
+        // ETA — it's noise dressed as an answer. Beyond the cap we report no ETA at all,
+        // the same call `periodChange` and `monthsCovered` already make elsewhere.
+        if monthsToGo.isFinite && monthsToGo <= maxProjectableMonths {
+            var calendar = Calendar(identifier: .gregorian)
+            // UTC to match Android and the month grouping; a local calendar would report a
+            // different quarter for an ETA landing on a quarter boundary.
+            calendar.timeZone = backendTimeZone
+            let eta = calendar.date(byAdding: .month, value: Int(monthsToGo.rounded(.up)), to: now) ?? now
+            let comps = calendar.dateComponents([.year, .month], from: eta)
+            let quarter = ((comps.month ?? 1) - 1) / 3 + 1
+            etaLabel = "Q\(quarter) '\(String(comps.year ?? 0).suffix(2))"
+            etaTime = eta
+        }
     }
 
     // Target-date projections
@@ -88,7 +110,7 @@ func projectGoal(history: [GoalHistoryPoint], targetAmount: Double?, targetDate:
     var etaVsTargetMonths: Int?
     if let targetDate {
         let secondsPerMonth = daysPerMonth * secondsPerDay
-        let months = max(0, targetDate.timeIntervalSinceNow / secondsPerMonth)
+        let months = max(0, targetDate.timeIntervalSince(now) / secondsPerMonth)
         monthsToTarget = months
         if let target {
             if remaining > 0 && months > 0 {
@@ -142,6 +164,6 @@ func projectGoal(history: [GoalHistoryPoint], targetAmount: Double?, targetDate:
 extension Date {
     /// "Dec 2027" style label for a goal's target date (mirrors web formatDueDate).
     var dueMonthYear: String {
-        formatted(.dateTime.month(.abbreviated).year())
+        formatted(.dateTime.month(.abbreviated).year().utc)
     }
 }

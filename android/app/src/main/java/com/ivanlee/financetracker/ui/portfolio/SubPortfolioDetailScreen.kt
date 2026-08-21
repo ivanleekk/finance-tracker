@@ -5,9 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -76,10 +81,14 @@ fun SubPortfolioDetailScreen(
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var tab by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Fixing an asset created with the wrong ticker or currency. Bumping the token
+    // re-runs the load below, because the server replays this asset's snapshots.
+    var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
+    var reloadToken by remember { mutableIntStateOf(0) }
 
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
 
-    LaunchedEffect(subPortfolioId, sessionVm.activeHousehold?.id) {
+    LaunchedEffect(subPortfolioId, sessionVm.activeHousehold?.id, reloadToken) {
         val h = sessionVm.activeHousehold ?: return@LaunchedEffect
         try {
             coroutineScope {
@@ -258,16 +267,29 @@ fun SubPortfolioDetailScreen(
                                         )
                                     },
                                     trailingContent = {
-                                        Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
-                                            Text(
-                                                holding.currentValueHomeCurrency.currency(baseCurrency),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                            )
-                                            Text(
-                                                gain.currency(baseCurrency),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = amountColor(gain),
-                                            )
+                                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                            Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                                                Text(
+                                                    holding.currentValueHomeCurrency.currency(baseCurrency),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                )
+                                                Text(
+                                                    gain.currency(baseCurrency),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = amountColor(gain),
+                                                )
+                                            }
+                                            // Cash and earmarked-account rows stand for something
+                                            // else, so the API refuses to edit them.
+                                            if (asset != null && !asset.isPseudoAsset) {
+                                                IconButton(onClick = { editingAsset = asset }) {
+                                                    Icon(
+                                                        Icons.Filled.Edit,
+                                                        contentDescription = "Edit ${asset.ticker}",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
                                         }
                                     },
                                     modifier = Modifier.clickable { onRecordTrade(subPortfolioId) },
@@ -282,5 +304,13 @@ fun SubPortfolioDetailScreen(
                 else -> DividendsContent(sessionVm, subPortfolioId, Modifier.fillMaxSize())
             }
         }
+    }
+
+    editingAsset?.let { asset ->
+        AssetEditDialog(
+            asset = asset,
+            onDismiss = { editingAsset = null },
+            onSaved = { reloadToken++ },
+        )
     }
 }
