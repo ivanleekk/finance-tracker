@@ -130,6 +130,14 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   `current_value_home_currency` rather than native value. `periodChange` returns a **null**
   fraction when the opening balance is under 1% of the closing one — a goal funded from $42 to
   $13,104 is not a +31,100% return.
+    - That guard only catches the extreme case: `periodChange`'s fraction is a raw curve-endpoint
+      ratio with no cash-flow adjustment at all, so a recurring contribution still counts as
+      "growth" the same as a market gain (issue #256). For the `ALL` range, `PortfolioScreen` and
+      `SubPortfolioDetailScreen` swap in `metrics.simpleReturn` / `scopedMetrics.simpleReturn`
+      instead — already flow-adjusted the same way TWR/IRR are (see `performance.py`) — and keep
+      the curve-based dollar delta, since "value went up by $X" is true regardless of source.
+      Shorter ranges (1M/6M/1Y) still use the naive fraction; fixing those needs range-scoped
+      backend metrics, which isn't wired up yet.
 - **`logic/NetWorth.kt`** is the Kotlin port of `frontend/src/lib/networth.ts` (and iOS's
   `Support/NetWorth.swift`) — `summarizeAccounts` / `netWorthBreakdown` behind the Dashboard's
   net worth total and its Net Worth Split donut (`ui/components/Charts.kt`'s

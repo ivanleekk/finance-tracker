@@ -203,7 +203,14 @@ struct SubPortfolioDetailView: View {
                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
                 HStack(spacing: 10) {
                     if let change = periodChange(for: curve) {
-                        let percent = change.fraction.map { " (\($0.signedPercent))" } ?? ""
+                        // periodChange's own fraction is start-vs-end on the curve alone, so a
+                        // monthly contribution counts as "growth" the same as market gains — for
+                        // ALL that's the portfolio's whole contribution history, not performance.
+                        // metrics.simpleReturn is already flow-adjusted (issue #256's Modified
+                        // Dietz fix) over that same all-time window, so it replaces the fraction
+                        // here; the dollar delta is still the true value change either way.
+                        let fraction = range == .all ? metrics?.simpleReturn : change.fraction
+                        let percent = fraction.map { " (\($0.signedPercent))" } ?? ""
                         Text("\(change.delta >= 0 ? "+" : "")\(change.delta.currency(baseCurrency))\(percent)")
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(change.delta >= 0 ? .green : .red)

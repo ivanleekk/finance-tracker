@@ -195,12 +195,19 @@ fun PortfolioScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 change?.let { delta ->
+                    // delta.fraction is start-vs-end on the curve alone, so a monthly
+                    // contribution counts as "growth" the same as market gains — for ALL
+                    // that's the household's whole contribution history, not performance.
+                    // metrics.overallMetrics.simpleReturn is already flow-adjusted (issue #256's
+                    // Modified Dietz fix) over that same all-time window, so it replaces the
+                    // fraction here; the dollar delta is still the true value change either way.
+                    val fraction = if (range == GrowthRange.ALL) metrics?.overallMetrics?.simpleReturn else delta.fraction
                     Text(
                         buildString {
                             append(delta.delta.compactCurrency(baseCurrency))
                             // A percentage is withheld when the window opened on a near-zero
                             // base: going from $42 to $13,104 is funding, not a +31,100% return.
-                            delta.fraction?.let { append("  (${it.signedPercent()})") }
+                            fraction?.let { append("  (${it.signedPercent()})") }
                             append("  ${range.label}")
                         },
                         style = MaterialTheme.typography.bodyMedium,

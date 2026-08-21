@@ -161,10 +161,17 @@ fun SubPortfolioDetailScreen(
                     item {
                         SectionCard(title = "Growth") {
                             change?.let { delta ->
+                                // delta.fraction is start-vs-end on the curve alone, so a monthly
+                                // contribution counts as "growth" the same as market gains — for
+                                // ALL that's the whole contribution history, not performance.
+                                // scopedMetrics.simpleReturn is already flow-adjusted (issue #256's
+                                // Modified Dietz fix) over that same all-time window, so it replaces
+                                // the fraction here; the dollar delta is still the true value change.
+                                val fraction = if (range == GrowthRange.ALL) scopedMetrics?.simpleReturn else delta.fraction
                                 Text(
                                     buildString {
                                         append(delta.delta.compactCurrency(baseCurrency))
-                                        delta.fraction?.let { append("  (${it.signedPercent()})") }
+                                        fraction?.let { append("  (${it.signedPercent()})") }
                                         append("  ${range.label}")
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
