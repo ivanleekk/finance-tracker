@@ -1,6 +1,6 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse, PortfolioTimeseriesPoint, PortfolioMetricsResponse, DividendResponse, AccountResponse } from "../../types/types";
+import type { SubPortfolioResponse, TradeResponse, AssetResponse, PortfolioSnapshotResponse, PortfolioTimeseriesPoint, PortfolioMetricsResponse, DividendResponse, AccountResponse, CurrencyResponse } from "../../types/types";
 
 export type PortfolioLoaderData = {
     subportfolios: SubPortfolioResponse[];
@@ -14,6 +14,9 @@ export type PortfolioLoaderData = {
     metrics: PortfolioMetricsResponse | null;
     dividends: DividendResponse[];
     accounts: AccountResponse[];
+    // For the asset editor's currency picker — a ticker created with the wrong
+    // currency is corrected from the holdings table.
+    currencies: CurrencyResponse[];
 };
 
 export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<PortfolioLoaderData> {
@@ -30,7 +33,7 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [spRes, trRes, asRes, snRes, tsRes, meRes, dvRes, accRes] = await Promise.all([
+        const [spRes, trRes, asRes, snRes, tsRes, meRes, dvRes, accRes, curRes] = await Promise.all([
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/portfolio/trades/household/${householdId}`),
             ssrFetch(`/portfolio/assets`),
@@ -38,10 +41,11 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
             ssrFetch(`/portfolio/snapshots/household/${householdId}/timeseries`),
             ssrFetch(metricsUrl),
             ssrFetch(`/portfolio/dividends/household/${householdId}`),
-            ssrFetch(`/accounts/household/${householdId}`)
+            ssrFetch(`/accounts/household/${householdId}`),
+            ssrFetch(`/reference/currencies`)
         ]);
 
-        const [subportfolios, trades, assets, latestSnapshots, timeseries, metrics, dividends, accounts] = await Promise.all([
+        const [subportfolios, trades, assets, latestSnapshots, timeseries, metrics, dividends, accounts, currencies] = await Promise.all([
             spRes.ok ? spRes.json() : [],
             trRes.ok ? trRes.json() : [],
             asRes.ok ? asRes.json() : [],
@@ -49,7 +53,8 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
             tsRes.ok ? tsRes.json() : [],
             meRes.ok ? meRes.json() : null,
             dvRes.ok ? dvRes.json() : [],
-            accRes.ok ? accRes.json() : []
+            accRes.ok ? accRes.json() : [],
+            curRes.ok ? curRes.json() : []
         ]);
 
         return {
@@ -60,11 +65,12 @@ export async function portfolioLoader({ request }: LoaderFunctionArgs): Promise<
             timeseries,
             metrics,
             dividends,
-            accounts
+            accounts,
+            currencies
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load portfolio data", error);
-        return { subportfolios: [], trades: [], assets: [], latestSnapshots: [], timeseries: [], metrics: null, dividends: [], accounts: [] };
+        return { subportfolios: [], trades: [], assets: [], latestSnapshots: [], timeseries: [], metrics: null, dividends: [], accounts: [], currencies: [] };
     }
 }

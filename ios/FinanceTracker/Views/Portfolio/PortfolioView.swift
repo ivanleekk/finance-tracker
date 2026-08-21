@@ -21,6 +21,7 @@ struct PortfolioView: View {
     @State private var showingMoveCash = false
     @State private var showingNewGoal = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingAsset: AssetResponse?
     @State private var range: GrowthRange = .all
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
@@ -171,12 +172,25 @@ struct PortfolioView: View {
                         ForEach(group.holdings) { holding in
                             let asset = assetsById[holding.assetId]
                             let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
-                            // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
-                            if let asset, asset.isManualPriced {
-                                Button { pricingAsset = asset } label: { row }
-                                    .buttonStyle(.plain)
-                            } else {
-                                row
+                            Group {
+                                // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
+                                if let asset, asset.isManualPriced {
+                                    Button { pricingAsset = asset } label: { row }
+                                        .buttonStyle(.plain)
+                                } else {
+                                    row
+                                }
+                            }
+                            // Swipe to fix a ticker or currency entered wrong at
+                            // creation. Cash and earmarked-account rows are derived
+                            // from elsewhere, so they get no edit affordance.
+                            .swipeActions(edge: .trailing) {
+                                if let asset, !asset.isPseudoAsset {
+                                    Button { editingAsset = asset } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .tint(.blue)
+                                }
                             }
                         }
                     } header: {
@@ -262,6 +276,9 @@ struct PortfolioView: View {
                         await load()
                     }
                 }
+            }
+            .sheet(item: $editingAsset) { asset in
+                AssetEditView(asset: asset) { await load() }
             }
             .sheet(item: $pricingAsset) { asset in
                 if let household = session.activeHousehold {

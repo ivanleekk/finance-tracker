@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -562,6 +565,8 @@ fun HoldingRow(
     quantity: Double,
     value: Double,
     currencyCode: String,
+    /** Non-null adds a pencil for correcting the asset's ticker/currency (Portfolio tab only). */
+    onEdit: (() -> Unit)? = null,
 ) {
     ListItem(
         colors = cardListItemColors(),
@@ -572,7 +577,20 @@ fun HoldingRow(
                 maxLines = 1,
             )
         },
-        trailingContent = { Text(value.currency(currencyCode), style = MaterialTheme.typography.bodyMedium) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(value.currency(currencyCode), style = MaterialTheme.typography.bodyMedium)
+                if (onEdit != null) {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = "Edit $ticker",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
     )
 }
 

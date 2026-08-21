@@ -7,13 +7,14 @@ from datetime import datetime, date
 
 from src.database import get_db, SessionLocal
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_sub_portfolio_ids
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_sub_portfolio_ids, accessible_household_ids
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics, fetch_rf_and_benchmark_rows
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
+from src.services.asset_service import asset_edit_replay_range, migrate_market_prices, normalize_asset_edit
 from src.services.cache import cache_get_or_compute
 from datetime import date
 import yfinance as yf
@@ -272,16 +273,82 @@ def update_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    """
+    Correct an asset's identity -- the ticker it was created under, its name,
+    type, currency or pricing mode.
+
+    Getting the currency wrong at creation (a .SI listing entered as USD) is the
+    motivating case, and it is not a cosmetic edit: every home-currency value in
+    ``portfolio_snapshots`` was converted with it. So the ripple is handled here
+    rather than left to the next nightly run -- the cached prices follow the
+    ticker (or are dropped, for market-priced assets, and refetched under the new
+    symbol) and each holding household's snapshots replay from its first trade.
+    See ``services/asset_service.py``.
+    """
     db_asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not db_asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    update_data = asset_update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
+    # Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) pseudo-assets derive
+    # their ticker, name and currency from the thing they stand for; editing the
+    # row here would just be overwritten by the next get-or-create.
+    if db_asset.type in models.PSEUDO_ASSET_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Cash and earmarked-account holdings can't be edited directly. Change the account or sub-portfolio instead.",
+        )
+
+    holdings = asset_edit_replay_range(db, asset_id)
+    holder_ids = {household_id for household_id, _ in holdings}
+    if holder_ids and not (holder_ids & set(accessible_household_ids(db, current_user))):
+        raise HTTPException(status_code=403, detail="This asset is only held by another household")
+
+    changes = normalize_asset_edit(asset_update.model_dump(exclude_unset=True))
+
+    new_ticker = changes.get("ticker", db_asset.ticker)
+    if "ticker" in changes and not new_ticker:
+        raise HTTPException(status_code=400, detail="Ticker cannot be empty")
+    if "currency" in changes and not changes.get("currency"):
+        raise HTTPException(status_code=400, detail="Currency cannot be empty")
+    if changes.get("type") in models.PSEUDO_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=f"'{changes['type']}' is reserved for system-generated holdings")
+
+    if new_ticker != db_asset.ticker:
+        clash = (
+            db.query(models.Asset)
+            .filter(models.Asset.ticker == new_ticker, models.Asset.id != asset_id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ticker {new_ticker} already exists. Trade that asset instead of renaming this one.",
+            )
+
+    old_ticker = db_asset.ticker
+    old_currency = db_asset.currency
+
+    for key, value in changes.items():
         setattr(db_asset, key, value)
+
+    migrate_market_prices(
+        db,
+        old_ticker=old_ticker,
+        new_ticker=db_asset.ticker,
+        old_currency=old_currency,
+        new_currency=db_asset.currency,
+        pricing_mode=db_asset.pricing_mode,
+    )
 
     db.commit()
     db.refresh(db_asset)
+
+    # A name/type-only edit changes nothing a snapshot depends on.
+    if db_asset.ticker != old_ticker or (db_asset.currency or "") != (old_currency or ""):
+        today = date.today()
+        for household_id, first_trade_date in holdings:
+            run_snapshot_range(db, household_id, first_trade_date, today)
+
     return db_asset
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)

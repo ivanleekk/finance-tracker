@@ -10,7 +10,7 @@ import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
-import type { SubPortfolioResponse } from "../../types/types"
+import type { SubPortfolioResponse, AssetResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
@@ -56,7 +56,7 @@ type PortfolioData = {
 
 export default function Portfolio() {
     const { activeHousehold } = useHousehold()
-    const { subportfolios = [], trades = [], assets = [], latestSnapshots = [], timeseries = [], metrics = null, dividends = [], accounts = [] } = (useLoaderData() as PortfolioLoaderData) || {};
+    const { subportfolios = [], trades = [], assets = [], latestSnapshots = [], timeseries = [], metrics = null, dividends = [], accounts = [], currencies = [] } = (useLoaderData() as PortfolioLoaderData) || {};
     const revalidator = useRevalidator()
     const navigation = useNavigation()
     const [searchParams] = useSearchParams()
@@ -101,6 +101,13 @@ export default function Portfolio() {
     const [priceDate, setPriceDate] = useState(new Date().toISOString().split('T')[0])
     const [isSubmittingPrice, setIsSubmittingPrice] = useState(false)
     const [priceError, setPriceError] = useState<string | null>(null)
+    // Correcting an asset's identity — the motivating case is a ticker created
+    // with the wrong currency (a .SI listing entered as USD). Editing it replays
+    // the affected snapshots server-side, so the holdings below refresh with it.
+    const [editingAsset, setEditingAsset] = useState<AssetResponse | null>(null)
+    const [assetForm, setAssetForm] = useState({ ticker: "", name: "", type: "", currency: "", pricing_mode: "market" as "market" | "manual" })
+    const [isSubmittingAsset, setIsSubmittingAsset] = useState(false)
+    const [assetError, setAssetError] = useState<string | null>(null)
 
     // Revalidate data when active household changes
     useEffect(() => {
@@ -152,6 +159,46 @@ export default function Portfolio() {
             setPriceError(e.response?.data?.detail || "Failed to record price.");
         } finally {
             setIsSubmittingPrice(false);
+        }
+    };
+
+    const openAssetEditor = (assetId: string) => {
+        const asset = assets.find(a => a.id === assetId);
+        if (!asset) return;
+        setEditingAsset(asset);
+        setAssetForm({
+            ticker: asset.ticker,
+            name: asset.name,
+            type: asset.type,
+            currency: asset.currency,
+            pricing_mode: asset.pricing_mode || "market",
+        });
+        setAssetError(null);
+    };
+
+    const handleUpdateAsset = async () => {
+        if (!editingAsset) return;
+        if (!assetForm.ticker.trim()) {
+            setAssetError("Ticker cannot be empty.");
+            return;
+        }
+        setIsSubmittingAsset(true);
+        setAssetError(null);
+        try {
+            await api.put(`/portfolio/assets/${editingAsset.id}`, {
+                ticker: assetForm.ticker.trim().toUpperCase(),
+                name: assetForm.name.trim(),
+                type: assetForm.type,
+                currency: assetForm.currency,
+                pricing_mode: assetForm.pricing_mode,
+            });
+            setEditingAsset(null);
+            revalidator.revalidate();
+        } catch (e: any) {
+            console.error(e);
+            setAssetError(e.response?.data?.detail || "Failed to update asset.");
+        } finally {
+            setIsSubmittingAsset(false);
         }
     };
 
@@ -720,6 +767,69 @@ export default function Portfolio() {
                 </Card>
             )}
 
+            {editingAsset && (
+                <Card className="border-primary-200 dark:border-primary-800 border-dashed">
+                    <CardHeader>
+                        <CardTitle>Edit {editingAsset.ticker}</CardTitle>
+                        <CardDescription>
+                            Fixing the ticker or currency recalculates this asset's valuations back to your first trade — the numbers below refresh once it saves.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {assetError && (
+                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                                {assetError}
+                            </div>
+                        )}
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <Input
+                                label="Ticker"
+                                value={assetForm.ticker}
+                                onChange={e => setAssetForm({ ...assetForm, ticker: e.target.value.toUpperCase() })}
+                                placeholder="G3B.SI"
+                            />
+                            <Input
+                                label="Name"
+                                value={assetForm.name}
+                                onChange={e => setAssetForm({ ...assetForm, name: e.target.value })}
+                            />
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
+                                <Select
+                                    className="h-[42px]"
+                                    value={assetForm.currency}
+                                    onChange={currency => setAssetForm({ ...assetForm, currency })}
+                                    options={(currencies.length > 0
+                                        ? currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))
+                                        : [{ value: assetForm.currency, label: assetForm.currency }])}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Pricing</label>
+                                <Select
+                                    className="h-[42px]"
+                                    value={assetForm.pricing_mode}
+                                    onChange={mode => setAssetForm({ ...assetForm, pricing_mode: mode as "market" | "manual" })}
+                                    options={[
+                                        { value: "market", label: "Automatic (market data)" },
+                                        { value: "manual", label: "Manual (I record prices)" },
+                                    ]}
+                                />
+                            </div>
+                        </div>
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            The ticker has to match the exchange symbol we look prices up by — Singapore listings end in <span className="font-mono">.SI</span>, London in <span className="font-mono">.L</span>. Renaming an automatically-priced asset re-fetches its price history under the new symbol.
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="primary" onClick={handleUpdateAsset} disabled={isSubmittingAsset}>
+                                {isSubmittingAsset ? "Saving..." : "Save Asset"}
+                            </Button>
+                            <Button variant="ghost" onClick={() => setEditingAsset(null)}>Cancel</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {priceHolding && (
                 <Card className="bg-secondary-50/30 dark:bg-secondary-900/10 border-secondary-200 dark:border-secondary-800 border-dashed">
                     <CardContent className="pt-6 space-y-4">
@@ -1085,6 +1195,11 @@ export default function Portfolio() {
                                                             }}>
                                                                 Price
                                                             </Button>
+                                                        )}
+                                                        {/* Earmarked-account pseudo-assets (ACCT.<uuid>) take their
+                                                            identity from the account, so the API refuses to edit them. */}
+                                                        {h.assetType !== "linked_account" && (
+                                                            <Button variant="ghost" size="sm" onClick={() => openAssetEditor(h.assetId)}>Edit</Button>
                                                         )}
                                                         <Link to={`/trade?ticker=${h.ticker}${activeSubportfolioObj ? `&sub_portfolio_id=${activeSubportfolioObj.id}` : ""}`}>
                                                             <Button variant="ghost" size="sm">Trade</Button>

@@ -198,3 +198,26 @@ def visible_sub_portfolio_ids(db: Session, household_id, current_user: models.Us
         )
         .all()
     ]
+
+
+def accessible_household_ids(db: Session, current_user: models.User) -> list:
+    """
+    Every household the caller owns or is a member of.
+
+    `verify_household_access` answers "may I touch *this* household"; some
+    resources (assets are global rows, not household-scoped) need the inverse
+    question -- "is this row one of mine at all" -- which needs the whole set.
+    """
+    owned = [
+        row[0]
+        for row in db.query(models.Household.id)
+        .filter(models.Household.owner_id == current_user.id)
+        .all()
+    ]
+    member_of = [
+        row[0]
+        for row in db.query(models.HouseholdMember.household_id)
+        .filter(models.HouseholdMember.user_id == current_user.id)
+        .all()
+    ]
+    return list(dict.fromkeys(owned + member_of))
