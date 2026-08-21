@@ -26,7 +26,8 @@ This document provides a high-level overview and instructions for AI agents work
 - `mobile/`: Expo / React Native application - same backend, independent codebase (no shared package; small utilities like the ⌘K/quick-add parser are intentionally duplicated between `frontend/src/lib/commandParser.ts` and `mobile/src/lib/commandParser.ts` - keep them in sync by hand when the parsing rules change). **Frozen as of 2026-07-26** — `ios/` and `android/` are the active mobile clients; see `mobile/AGENTS.md` for what that means before touching this directory.
 - **Native-client parity:** `ios/` and `android/` are deliberate ports of each other, down to the
   shared judgement calls (goal projection, budget tone, growth-chart binning, the
-  Private/Household/Blended rules, the pull-to-Quick-Add gesture). A behaviour change to one of
+  Private/Household/Blended rules, the pull-to-Quick-Add gesture, the Top-Categories period
+  window). A behaviour change to one of
   those rules is a change to *three* codebases — `frontend/src/lib/`, `ios/FinanceTracker/Support/`,
   and `android/.../logic/` — plus the unit tests each keeps over it. If they disagree, that's a
   bug in one of them, not a platform difference.

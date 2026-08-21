@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -431,15 +432,23 @@ fun NetWorthSplitChart(
 }
 
 private fun DrawScope.drawNetWorthSplit(slices: List<NetWorthSlice>, total: Double) {
-    drawDonutSlices(slices, total, NetWorthSplitColors, strokeFraction = 0.22f)
+    drawDonutSlices(slices, total, strokeFraction = 0.22f) { index, _ ->
+        NetWorthSplitColors[index % NetWorthSplitColors.size]
+    }
 }
 
-/** Shared arc math for every donut-style chart on this screen — wedges as concentric strokes. */
+/**
+ * Shared arc math for every donut-style chart on this screen — wedges as concentric strokes.
+ *
+ * [colorAt] is given the slice's position *and* the slice, so callers that colour by render order
+ * (Net Worth Split, whose buckets are a fixed list) and callers that colour by a stable per-id map
+ * (category spending, whose slices come and go as filters change) can share the same math.
+ */
 private fun DrawScope.drawDonutSlices(
     slices: List<NetWorthSlice>,
     total: Double,
-    colors: List<Color>,
     strokeFraction: Float,
+    colorAt: (Int, NetWorthSlice) -> Color,
 ) {
     if (total <= 0) return
     val strokeWidth = size.minDimension * strokeFraction
@@ -448,7 +457,7 @@ private fun DrawScope.drawDonutSlices(
     slices.forEachIndexed { index, slice ->
         val sweep = (slice.value / total * 360.0).toFloat()
         drawArc(
-            color = colors[index % colors.size],
+            color = colorAt(index, slice),
             startAngle = startAngle,
             sweepAngle = sweep,
             useCenter = false,
@@ -474,14 +483,22 @@ fun CategorySpendingChart(
     currencyCode: String,
     modifier: Modifier = Modifier,
     diameter: androidx.compose.ui.unit.Dp = 140.dp,
+    // Stable palette slot per category id; null for buckets that aren't a real category (the
+    // "Other" rollup slice, "Uncategorized"), which get a neutral fill instead.
+    colorIndexFor: (String) -> Int? = { null },
 ) {
     if (pieSlices.isEmpty()) return
+    val neutral = MaterialTheme.colorScheme.outlineVariant
+    fun sliceColor(id: String): Color =
+        colorIndexFor(id)?.let { NetWorthSplitColors[it % NetWorthSplitColors.size] } ?: neutral
     val maxRow = topRows.maxOfOrNull { it.value } ?: 1.0
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Box(Modifier.size(diameter)) {
                 Canvas(Modifier.fillMaxSize()) {
-                    drawDonutSlices(pieSlices, pieSlices.sumOf { it.value }, NetWorthSplitColors, strokeFraction = 0.32f)
+                    drawDonutSlices(pieSlices, pieSlices.sumOf { it.value }, strokeFraction = 0.32f) { _, slice ->
+                        sliceColor(slice.key)
+                    }
                 }
             }
         }
@@ -490,7 +507,16 @@ fun CategorySpendingChart(
                 val pct = if (total > 0) row.value / total * 100 else 0.0
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(row.label, style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(sliceColor(row.key)),
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text(row.label, style = MaterialTheme.typography.bodySmall)
+                        }
                         Row {
                             Text(
                                 row.value.currencyWhole(currencyCode),
@@ -506,6 +532,7 @@ fun CategorySpendingChart(
                     }
                     LinearProgressIndicator(
                         progress = { (row.value / maxRow).toFloat() },
+                        color = sliceColor(row.key),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)

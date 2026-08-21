@@ -21,6 +21,9 @@ FinanceTracker/
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
+  Support/CategoryPeriod.swift # Date window + saved filter for the Transactions "Top Categories"
+                             #   card (port of the web's CategoryPeriodPreset); UserDefaults-backed
+                             #   TopCategoryFilterStore keyed per household
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
   Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
@@ -235,6 +238,8 @@ where tests pay off without a running backend:
   sub-portfolio scoping, range windows, the daily/weekly/monthly bin thresholds and
   last-in-bucket rule, `periodChange`'s small-base guard, allocation and FX exposure. Dates
   are built with an explicit UTC calendar so results don't depend on the machine's timezone.
+- `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
+  every case passes an explicit `now` and dates are built in UTC.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).

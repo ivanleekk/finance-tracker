@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -21,26 +22,34 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.logic.CategoryPeriod
 import com.ivanlee.financetracker.logic.NetWorthSlice
+import com.ivanlee.financetracker.logic.TopCategoryFilterPrefs
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.monthYear
+import com.ivanlee.financetracker.logic.range
 import com.ivanlee.financetracker.state.QuickAddViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
+import com.ivanlee.financetracker.state.TopCategoryFilterStore
 import com.ivanlee.financetracker.state.ViewModeViewModel
 import com.ivanlee.financetracker.ui.components.CategorySpendingChart
 import com.ivanlee.financetracker.ui.components.ConfirmDialog
+import com.ivanlee.financetracker.ui.components.DateField
+import com.ivanlee.financetracker.ui.components.DropdownField
 import com.ivanlee.financetracker.ui.components.EmptyState
 import com.ivanlee.financetracker.ui.components.MainScreenScaffold
 import com.ivanlee.financetracker.ui.components.SectionCard
@@ -50,7 +59,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
+import java.time.Month
 import java.time.ZoneOffset
+import java.time.format.TextStyle
+import java.util.Locale
 
 /** Which slice of activity the list is showing. */
 private enum class TxnFilter(val label: String) {
@@ -61,6 +74,44 @@ private enum class TxnFilter(val label: String) {
 }
 
 private data class CategoryOption(val id: String, val name: String)
+
+/**
+ * Month + year dropdowns for the "Specific month" period.
+ *
+ * A DatePicker would imply the day matters (it doesn't — only year/month are read), so this
+ * offers exactly the two fields that do. UTC throughout, matching the range maths.
+ */
+@Composable
+private fun MonthYearPicker(anchor: Instant?, onChange: (Instant) -> Unit) {
+    val current = (anchor ?: Instant.now()).atZone(ZoneOffset.UTC).toLocalDate()
+    val thisYear = Instant.now().atZone(ZoneOffset.UTC).toLocalDate().year
+    // A decade back plus the current year — older history is rare and an unbounded list is
+    // unusable in a dropdown.
+    val years = (thisYear downTo thisYear - 10).toList()
+
+    fun emit(month: Int, year: Int) {
+        onChange(LocalDate.of(year, month, 1).atStartOfDay(ZoneOffset.UTC).toInstant())
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DropdownField(
+            label = "Month",
+            selected = current.monthValue,
+            options = (1..12).toList(),
+            optionLabel = { Month.of(it).getDisplayName(TextStyle.FULL, Locale.getDefault()) },
+            onSelect = { emit(it, current.year) },
+            modifier = Modifier.weight(1f),
+        )
+        DropdownField(
+            label = "Year",
+            selected = current.year,
+            options = years,
+            optionLabel = { it.toString() },
+            onSelect = { emit(current.monthValue, it) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
 
 /**
  * The Activity tab: every transaction, newest first, grouped by month.
@@ -88,10 +139,40 @@ fun TransactionsScreen(
     var reloadKey by remember { mutableStateOf(0) }
     var hiddenCategoryIds by remember { mutableStateOf(setOf<String>()) }
     var showCategoryFilter by remember { mutableStateOf(false) }
+    var categoryPeriod by remember { mutableStateOf(CategoryPeriod.ALL) }
+    var categoryPeriodStart by remember { mutableStateOf<Instant?>(null) }
+    var categoryPeriodEnd by remember { mutableStateOf<Instant?>(null) }
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val userId = sessionVm.user?.id
+    val householdId = sessionVm.activeHousehold?.id
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
+
+    // Restore the saved Top-Categories filter/period whenever the active household changes, so the
+    // user doesn't have to re-hide the same categories every time they come back to this tab.
+    var prefsLoadedFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(householdId) {
+        val saved = householdId?.let { TopCategoryFilterStore.load(context, it) } ?: TopCategoryFilterPrefs()
+        hiddenCategoryIds = saved.hiddenCategoryIds
+        categoryPeriod = saved.period
+        categoryPeriodStart = saved.customStart
+        categoryPeriodEnd = saved.customEnd
+        prefsLoadedFor = householdId
+    }
+
+    // Guarded on `prefsLoadedFor`: right after a household switch this effect still holds the
+    // previous household's selections, and writing those under the new household's key would
+    // clobber what the load above is in the middle of restoring.
+    LaunchedEffect(householdId, prefsLoadedFor, hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd) {
+        if (householdId != null && prefsLoadedFor == householdId) {
+            TopCategoryFilterStore.save(
+                context,
+                householdId,
+                TopCategoryFilterPrefs(hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd),
+            )
+        }
+    }
 
     suspend fun load() {
         val h = sessionVm.activeHousehold ?: return
@@ -118,16 +199,38 @@ fun TransactionsScreen(
         .filter { viewModeVm.isVisible(it.ownerUserId, userId) }
         .map { it.id }.toSet()
 
-    val expenseTransactions = transactions.filter {
+    // Whether the card is shown at all. Deliberately ignores the period: gating on the *scoped*
+    // list would make the whole card vanish the moment a period had no spending, taking the period
+    // picker with it and stranding the user with no way back.
+    val hasAnyExpenses = transactions.any {
         it.transactionType == TransactionType.EXPENSE && it.accountId in visibleAccountIds
     }
 
-    // Every expense category that's actually shown up, used to populate the filter chips
-    // (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
+    // Scoped to the selected period; the Activity list underneath is deliberately *not*, so the
+    // card can answer "what did I spend last month" without hiding the history.
+    val categoryRange = categoryPeriod.range(categoryPeriodStart, categoryPeriodEnd)
+    val expenseTransactions = transactions.filter {
+        it.transactionType == TransactionType.EXPENSE &&
+            it.accountId in visibleAccountIds &&
+            (categoryRange == null || it.date in categoryRange)
+    }
+
+    // Every expense category that's shown up in the selected period, used to populate the filter
+    // chips (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
     val expenseCategoryOptions = expenseTransactions
         .distinctBy { it.categoryId }
         .map { CategoryOption(it.categoryId, categoriesById[it.categoryId]?.name ?: "Uncategorized") }
         .sortedBy { it.name }
+
+    // Stable category -> color index, derived from the household's full id-sorted expense-category
+    // list rather than the filtered render order, so a category keeps its color no matter which
+    // chips are hidden or which period is selected. Buckets that aren't a real category (the
+    // "Other" rollup slice, "Uncategorized") fall through to the neutral default in the chart.
+    val categoryColorIndex = categories
+        .filter { it.type == TransactionType.EXPENSE }
+        .sortedBy { it.id }
+        .withIndex()
+        .associate { (index, category) -> category.id to index }
 
     val categoryTotals = expenseTransactions
         .filter { it.categoryId !in hiddenCategoryIds }
@@ -201,7 +304,7 @@ fun TransactionsScreen(
             }
         }
 
-        if (expenseTransactions.isNotEmpty()) {
+        if (hasAnyExpenses) {
             item {
                 SectionCard(
                     title = "Top Categories",
@@ -215,31 +318,82 @@ fun TransactionsScreen(
                         }
                     },
                 ) {
+                    DropdownField(
+                        label = "Period",
+                        selected = categoryPeriod,
+                        options = CategoryPeriod.entries,
+                        optionLabel = { it.label },
+                        onSelect = { period ->
+                            categoryPeriod = period
+                            // Seed an anchor when switching to a case that needs one — without it
+                            // the range is unbounded, so the card would silently show all time
+                            // under a label that says otherwise.
+                            if (period.usesCustomStart && categoryPeriodStart == null) {
+                                categoryPeriodStart = Instant.now()
+                            }
+                        },
+                    )
+
+                    if (categoryPeriod == CategoryPeriod.SPECIFIC_MONTH) {
+                        MonthYearPicker(categoryPeriodStart) { categoryPeriodStart = it }
+                    }
+
+                    if (categoryPeriod == CategoryPeriod.CUSTOM) {
+                        DateField("From", categoryPeriodStart ?: Instant.now()) { categoryPeriodStart = it }
+                        DateField("To", categoryPeriodEnd ?: Instant.now()) { categoryPeriodEnd = it }
+                    }
+
                     if (showCategoryFilter) {
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            expenseCategoryOptions.forEach { option ->
-                                val hidden = option.id in hiddenCategoryIds
-                                FilterChip(
-                                    selected = !hidden,
-                                    onClick = {
-                                        hiddenCategoryIds = if (hidden) {
-                                            hiddenCategoryIds - option.id
-                                        } else {
-                                            hiddenCategoryIds + option.id
-                                        }
-                                    },
-                                    label = { Text(option.name) },
-                                )
+                        if (expenseCategoryOptions.isEmpty()) {
+                            Text(
+                                "No expense categories in this period.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                expenseCategoryOptions.forEach { option ->
+                                    val hidden = option.id in hiddenCategoryIds
+                                    FilterChip(
+                                        selected = !hidden,
+                                        onClick = {
+                                            hiddenCategoryIds = if (hidden) {
+                                                hiddenCategoryIds - option.id
+                                            } else {
+                                                hiddenCategoryIds + option.id
+                                            }
+                                        },
+                                        label = { Text(option.name) },
+                                    )
+                                }
+                                // Clears every hidden category at once — re-toggling a dozen chips
+                                // by hand to get back to the full picture is the tedium this
+                                // exists to remove.
+                                if (hiddenCategoryIds.isNotEmpty()) {
+                                    TextButton(onClick = { hiddenCategoryIds = emptySet() }) {
+                                        Icon(
+                                            Icons.Filled.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.size(4.dp))
+                                        Text("Reset")
+                                    }
+                                }
                             }
                         }
                     }
 
                     if (categoryBreakdown.isEmpty()) {
                         Text(
-                            if (hiddenCategoryIds.isEmpty()) "No expenses yet." else "All categories are hidden.",
+                            if (hiddenCategoryIds.isEmpty()) {
+                                "No expenses in this period."
+                            } else {
+                                "All categories are hidden."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -249,6 +403,7 @@ fun TransactionsScreen(
                             topRows = categoryTop,
                             total = categoryTotal,
                             currencyCode = baseCurrency,
+                            colorIndexFor = { categoryColorIndex[it] },
                         )
                     }
                 }

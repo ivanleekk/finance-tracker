@@ -24,7 +24,7 @@ const CATEGORY_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--char
 // Neutral fallback for buckets that aren't a real household category (the "Other" rollup slice, "Uncategorized").
 const OTHER_SLICE_COLOR = "var(--base-400)";
 
-type CategoryPeriodPreset = "all" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "this_year" | "custom";
+type CategoryPeriodPreset = "all" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "this_year" | "specific_month" | "custom";
 
 const CATEGORY_PERIOD_OPTIONS: { value: CategoryPeriodPreset; label: string }[] = [
     { value: "all", label: "All time" },
@@ -33,6 +33,7 @@ const CATEGORY_PERIOD_OPTIONS: { value: CategoryPeriodPreset; label: string }[] 
     { value: "last_3_months", label: "Last 3 months" },
     { value: "last_6_months", label: "Last 6 months" },
     { value: "this_year", label: "This year" },
+    { value: "specific_month", label: "Specific month" },
     { value: "custom", label: "Custom range" },
 ];
 
@@ -421,6 +422,15 @@ export default function Transactions() {
                 return { start: new Date(now.getFullYear(), now.getMonth() - 5, 1), end: null };
             case "this_year":
                 return { start: new Date(now.getFullYear(), 0, 1), end: null };
+            case "specific_month": {
+                // categoryPeriodStart doubles as the month anchor (always stored as a full
+                // YYYY-MM-DD so it stays valid for the custom range's date input too); only its
+                // year/month are read. End is exclusive — the 1st of the following month.
+                if (!categoryPeriodStart) return null;
+                const [year, month] = categoryPeriodStart.split("-").map(Number);
+                if (!year || !month) return null;
+                return { start: new Date(year, month - 1, 1), end: new Date(year, month, 1) };
+            }
             case "custom":
                 return {
                     start: categoryPeriodStart ? new Date(`${categoryPeriodStart}T00:00:00`) : null,
@@ -599,7 +609,16 @@ export default function Transactions() {
                                 <Select
                                     className="min-w-32"
                                     value={categoryPeriod}
-                                    onChange={(v) => setCategoryPeriod(v as CategoryPeriodPreset)}
+                                    onChange={(v) => {
+                                        const next = v as CategoryPeriodPreset;
+                                        setCategoryPeriod(next);
+                                        // Seed an anchor so "Specific month" never silently behaves
+                                        // like "All time" under a label that says otherwise.
+                                        if (next === "specific_month" && !categoryPeriodStart) {
+                                            const now = new Date();
+                                            setCategoryPeriodStart(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`);
+                                        }
+                                    }}
                                     options={CATEGORY_PERIOD_OPTIONS}
                                 />
                                 <button
@@ -617,6 +636,17 @@ export default function Transactions() {
                                 </button>
                             </div>
                         </div>
+                        {categoryPeriod === "specific_month" && (
+                            <div className="flex items-center gap-2 mb-4">
+                                <Input
+                                    type="month"
+                                    className="text-xs"
+                                    // Stored as a full date; the month input only wants YYYY-MM.
+                                    value={categoryPeriodStart.slice(0, 7)}
+                                    onChange={(e) => setCategoryPeriodStart(e.target.value ? `${e.target.value}-01` : "")}
+                                />
+                            </div>
+                        )}
                         {categoryPeriod === "custom" && (
                             <div className="flex items-center gap-2 mb-4">
                                 <Input
