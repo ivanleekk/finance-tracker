@@ -184,13 +184,24 @@ struct AccountDetailView: View {
             if sorted.count > 1 {
                 Section {
                     Chart(sorted) { balance in
+                        AreaMark(
+                            x: .value("Date", balance.date),
+                            y: .value("Balance", balance.balance)
+                        )
+                        .foregroundStyle(ChartStyle.accentFill(session.theme.primary.accent))
+                        .interpolationMethod(.monotone)
                         LineMark(
                             x: .value("Date", balance.date),
                             y: .value("Balance", balance.balance)
                         )
                         .foregroundStyle(session.theme.primary.accent)
+                        .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                         .interpolationMethod(.monotone)
                     }
+                    .financeChartAxes(
+                        currency: account.currency,
+                        dateSpan: sorted.last?.date.timeIntervalSince(sorted[0].date)
+                    )
                     .adaptiveChartHeight(compact: 160, regular: 280)
                     .padding(.vertical, 4)
                 }

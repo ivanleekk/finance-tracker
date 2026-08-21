@@ -218,4 +218,46 @@ struct GoalProjectionTests {
             averageCostBasisHomeCurrency: 0
         )
     }
+
+    // MARK: ETA horizon clamp
+    //
+    // A near-zero pace against a large target produces a months count in the millions.
+    // `Int(_:)` traps on a Double that large, so this used to be a crash rather than a bad
+    // label. Now injectable, `now` also makes these deterministic.
+
+    @Test func reportsNoETAWhenThePaceWouldTakeLongerThanACentury() {
+        // One cent of progress over 90 days against a 1,000,000 target.
+        let projection = projectGoal(
+            history: [point(90, 0), point(0, 0.01)],
+            targetAmount: 1_000_000,
+            targetDate: nil,
+            now: anchor
+        )
+        #expect(projection.monthlyPace > 0)
+        #expect(projection.etaLabel == nil)
+    }
+
+    @Test func stillReportsAnETAWithinTheHorizon() {
+        let projection = projectGoal(
+            history: [point(90, 0), point(0, 3000)],
+            targetAmount: 20000,
+            targetDate: nil,
+            now: anchor
+        )
+        let label = try? #require(projection.etaLabel)
+        #expect(label?.hasPrefix("Q") == true)
+    }
+
+    /// The ETA quarter is derived in UTC, matching the Kotlin twin — a local calendar would
+    /// report a different quarter for an ETA landing on a quarter boundary.
+    @Test func etaDoesNotCrashOnAnExtremeTargetWithATargetDate() {
+        #expect(throws: Never.self) {
+            _ = projectGoal(
+                history: [point(90, 0), point(0, 0.000001)],
+                targetAmount: 5_000_000,
+                targetDate: anchor.addingTimeInterval(365 * Self.day),
+                now: anchor
+            )
+        }
+    }
 }

@@ -36,7 +36,9 @@ android/app/src/main/java/com/ivanlee/financetracker/
   state/ViewModeViewModel.kt # Private/Household/Blended + vault lock (mirrors ViewModeStore)
   state/QuickAddViewModel.kt # command-sheet presentation + reloadToken
   logic/                     # PURE, JVM-testable: PortfolioAnalytics, GoalProjection, NetWorth,
-                             #   BudgetPresentation, Formatters, ViewModeVisibility
+                             #   BudgetPresentation, Formatters, ViewModeVisibility, CategoryPeriod
+                             #   (the Top-Categories date window; its SharedPreferences half lives
+                             #   in state/TopCategoryFilterStore.kt)
   ui/Navigation.kt           # Routes + the five TopLevelDestinations
   ui/MainScaffold.kt         # NavigationSuiteScaffold + Quick Add sheet + vault lifecycle
   ui/WaypointNavHost.kt      # every destination, one flat graph

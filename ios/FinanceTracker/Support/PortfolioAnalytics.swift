@@ -50,6 +50,10 @@ private let analyticsCalendar: Calendar = {
 /// year and a half, so 1M/3M stay daily, up to ~18 months goes weekly, and multi-year
 /// history collapses to monthly.
 func growthBin(forSpanDays days: Double) -> GrowthBin {
+    // NaN fails every comparison below and would fall through to `.monthly` — the coarsest
+    // binning, silently flattening a chart. Treat it as a zero span (daily), matching the
+    // Kotlin twin, which already guards this and pins it in PortfolioAnalyticsTest.
+    let days = days.isFinite ? days : 0
     if days <= 92 { return .daily }
     if days <= 550 { return .weekly }
     return .monthly

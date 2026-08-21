@@ -94,7 +94,9 @@ fun MainScreenScaffold(
                 modifier = Modifier
                     .fillMaxSize()
                     .quickAddPull(pull),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                // Extra bottom room so the FAB doesn't sit on top of the last row —
+                // it covers a tappable control there (the holdings edit pencil).
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 88.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
                 content = content,
             )

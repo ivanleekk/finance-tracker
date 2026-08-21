@@ -2,6 +2,11 @@ import type { PortfolioTimeseriesPoint } from "../types/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DAYS_PER_MONTH = 30.44;
+/**
+ * Past this many months an ETA stops being a projection and becomes noise — see the clamp in
+ * projectGoal. 100 years; the Swift and Kotlin ports use the same figure.
+ */
+const MAX_PROJECTABLE_MONTHS = 1200;
 
 export type GoalProjection = {
     currentValue: number;
@@ -73,11 +78,17 @@ export function projectGoal(
     let etaTime: number | null = null;
     if (targetAmount && monthlyPace > 0 && remaining > 0) {
         const monthsToGo = remaining / monthlyPace;
-        const eta = new Date();
-        eta.setMonth(eta.getMonth() + Math.ceil(monthsToGo));
-        const quarter = Math.floor(eta.getMonth() / 3) + 1;
-        etaLabel = `Q${quarter} '${String(eta.getFullYear()).slice(2)}`;
-        etaTime = eta.getTime();
+        // A trickle against a large target produces a months count in the millions, which
+        // overflows Date and renders as "QNaN 'aN". Even short of that, "Q3 '4718" is noise
+        // dressed as an answer, so past the cap we report no ETA at all — the same call the
+        // "Not enough data" runway and the small-base return guard already make.
+        if (Number.isFinite(monthsToGo) && monthsToGo <= MAX_PROJECTABLE_MONTHS) {
+            const eta = new Date();
+            eta.setMonth(eta.getMonth() + Math.ceil(monthsToGo));
+            const quarter = Math.floor(eta.getMonth() / 3) + 1;
+            etaLabel = `Q${quarter} '${String(eta.getFullYear()).slice(2)}`;
+            etaTime = eta.getTime();
+        }
     }
 
     // Target-date projections

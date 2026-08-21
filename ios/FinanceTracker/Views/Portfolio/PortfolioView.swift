@@ -21,6 +21,7 @@ struct PortfolioView: View {
     @State private var showingMoveCash = false
     @State private var showingNewGoal = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingAsset: AssetResponse?
     @State private var range: GrowthRange = .all
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
@@ -112,9 +113,19 @@ struct PortfolioView: View {
                     }
                     .padding(.vertical, 4)
 
-                    if curve.count > 1 {
-                        GrowthChart(curve: curve, accent: session.theme.primary.accent, baseCurrency: baseCurrency)
-                            .padding(.vertical, 4)
+                    if !timeseries.isEmpty {
+                        if curve.count > 1 {
+                            GrowthChart(curve: curve, accent: session.theme.primary.accent, baseCurrency: baseCurrency)
+                                .padding(.vertical, 4)
+                        } else {
+                            Text("Not enough history in this range.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 24)
+                        }
+                        // Stays visible even when the window is too sparse to draw —
+                        // hiding it with the chart strands you on the empty range.
                         GrowthRangePicker(range: $range)
                     }
 
@@ -171,12 +182,25 @@ struct PortfolioView: View {
                         ForEach(group.holdings) { holding in
                             let asset = assetsById[holding.assetId]
                             let row = HoldingRow(holding: holding, asset: asset, baseCurrency: baseCurrency)
-                            // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
-                            if let asset, asset.isManualPriced {
-                                Button { pricingAsset = asset } label: { row }
-                                    .buttonStyle(.plain)
-                            } else {
-                                row
+                            Group {
+                                // Manually-priced assets (SSB, unlisted bonds) get a tap-to-record-price affordance.
+                                if let asset, asset.isManualPriced {
+                                    Button { pricingAsset = asset } label: { row }
+                                        .buttonStyle(.plain)
+                                } else {
+                                    row
+                                }
+                            }
+                            // Swipe to fix a ticker or currency entered wrong at
+                            // creation. Cash and earmarked-account rows are derived
+                            // from elsewhere, so they get no edit affordance.
+                            .swipeActions(edge: .trailing) {
+                                if let asset, !asset.isPseudoAsset {
+                                    Button { editingAsset = asset } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .tint(.blue)
+                                }
                             }
                         }
                     } header: {
@@ -262,6 +286,9 @@ struct PortfolioView: View {
                         await load()
                     }
                 }
+            }
+            .sheet(item: $editingAsset) { asset in
+                AssetEditView(asset: asset) { await load() }
             }
             .sheet(item: $pricingAsset) { asset in
                 if let household = session.activeHousehold {
@@ -407,7 +434,9 @@ struct PerformanceTileGrid: View {
     }
 }
 
-/// The shared equity curve: a filled area under a line, y-axis in compact currency.
+/// The shared equity curve: a wash under a 2pt line, y-axis in compact currency.
+/// One series, so it keeps the household's accent — there is no second category for
+/// it to be confused with. See `ChartStyle`.
 struct GrowthChart: View {
     let curve: [GoalHistoryPoint]
     let accent: Color
@@ -415,28 +444,22 @@ struct GrowthChart: View {
     var compactHeight: CGFloat = 160
     var regularHeight: CGFloat = 280
 
+    private var span: TimeInterval? {
+        guard let first = curve.first?.date, let last = curve.last?.date else { return nil }
+        return last.timeIntervalSince(first)
+    }
+
     var body: some View {
         Chart(curve) { point in
             AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                .foregroundStyle(LinearGradient(
-                    colors: [accent.opacity(0.28), accent.opacity(0)],
-                    startPoint: .top, endPoint: .bottom
-                ))
+                .foregroundStyle(ChartStyle.accentFill(accent))
                 .interpolationMethod(.monotone)
             LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
                 .foregroundStyle(accent)
+                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.monotone)
         }
-        .chartYAxis {
-            AxisMarks(position: .trailing) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Double.self) {
-                        Text(v.compactCurrency(baseCurrency))
-                    }
-                }
-            }
-        }
+        .financeChartAxes(currency: baseCurrency, dateSpan: span)
         .adaptiveChartHeight(compact: compactHeight, regular: regularHeight)
     }
 }

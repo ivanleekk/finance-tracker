@@ -23,6 +23,9 @@ FinanceTracker/
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
+  Support/CategoryPeriod.swift # Date window + saved filter for the Transactions "Top Categories"
+                             #   card (port of the web's CategoryPeriodPreset); UserDefaults-backed
+                             #   TopCategoryFilterStore keyed per household
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
   Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
@@ -120,6 +123,7 @@ FinanceTracker/
 - JSON decoding uses `.convertFromSnakeCase` — model properties are camelCase versions of the Pydantic field names. Keep `Models.swift` in sync with `backend/src/schemas.py` when schemas change.
 - **Money fields must use `@MoneyAmount` / `@OptionalMoneyAmount`** (property wrappers in Models.swift): Pydantic serializes `Decimal` fields as JSON _strings_ ("5000.00") while float fields are numbers. A plain `Double` property will fail to decode any backend Decimal field.
 - Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
+- **Display formatters must render in UTC**, via `Date.FormatStyle.utc` (`Support/Formatters.swift`). Backend dates mean a *calendar date* and are parsed at UTC midnight, so `.formatted(.dateTime…)` with the device calendar shifts them a day — a 31 Dec goal printed "January 2026" on a UTC+8 machine, and rows drift out of the month section header they sit under (headers group in UTC via `BudgetPresentation.groupedByMonth`). `apiDateOnly` already pinned UTC for the write path; `shortDay` / `monthYear` / `dueMonthYear` are the read path. Android says the same in `logic/Formatters.kt`; `FormattersTests` straddles both ends of the UTC day so the assertions bite in any non-UTC timezone.
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
 - Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data. Create forms (AccountFormView, GoalFormView) seed their Private toggle from the user's `default_new_items_private` in `.onAppear` (SessionStore isn't reachable from `init`), matching web.
     - `SubPortfolioUpdate.ownerUserId` is a `.unchanged` / `.set(String?)` enum with a hand-written `encode(to:)`, not a plain `String?`. The backend PATCH uses `exclude_unset`, so omitting the key leaves ownership alone while an explicit `null` clears it — a plain Optional can only express the first, which would make "Private → Shared" silently do nothing (the web UI has that limitation).
@@ -135,6 +139,20 @@ FinanceTracker/
     - `allocationSlices` weights by `current_value_home_currency`, whereas the web weights by native value — which mixes units in a multi-currency portfolio (a US$1 and a S$1 position get the same wedge there).
     - `periodChange` returns a **nil** `fraction` when the opening balance is under 1% of the closing one. A goal funded from $42 to $13,104 is not a +31,100% return, and printing that as one is worse than printing no percentage.
 - **Net Worth Split** (`Support/NetWorth.swift`, rendered on the Dashboard by `NetWorthSplitChart`) is a donut of gross-asset composition — Cash / Investments / Retirement & Locked / Property / Other Assets — with liabilities and the net total as plain rows underneath rather than wedges (a `SectorMark` donut can't render a negative slice). `netWorthBreakdown`'s `sliceTotal` is the sum of the *visible* slices only, which is deliberately not the same as gross assets when a bucket (e.g. cash, for an overdrawn household) goes negative and gets dropped — that's also why `NetWorthSplitChart` takes the screen's independently-computed `netWorth` as its own parameter instead of deriving `sliceTotal - liabilities`, which would silently drop the excluded negative bucket from the total.
+- **Charts all go through `Views/Components/ChartStyle.swift`.** Three rules it exists to keep:
+  **composition colours are fixed, not themed** (`ChartStyle.categorical` = the web's
+  `--chart-cat-1..5`, with its own validated dark steps; assigned by *key* via
+  `netWorthColor(key:)`, never by the slice's index — the donut drops empty buckets, so an
+  index would repaint the survivors), **fills are gradient washes with a 2pt edge line**
+  rather than saturated blocks, and **chrome recedes** (hairline *solid* gridlines, few
+  ticks, secondary-ink labels, no plot border) via `.financeChartAxes(currency:dateSpan:)`.
+  Pass `dateSpan` — it picks year / month-year / day-month labels, and the last label is
+  right-anchored so it isn't truncated by the trailing y-axis gutter. Single-series charts
+  (a goal curve, one account's balance) keep `session.theme` accent; there is no second
+  category to confuse them with. The Dashboard's net-worth chart draws its two bands
+  explicitly (`NetWorthAreaChart`) instead of letting Swift Charts stack them, because cash
+  goes negative for an overdrawn household and an automatic stack renders that flipped
+  through the axis instead of hanging below zero.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is _generated_ from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run
@@ -240,6 +258,8 @@ where tests pay off without a running backend:
 - `HistoryGroupsTests` — `Support/HistoryGroups.swift`: day/month/year bucketing, the
   section totals (transfers excluded on both legs, unconverted rows counted rather than
   summed), and the Today/Yesterday labels. Dates use an explicit UTC calendar.
+- `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
+  every case passes an explicit `now` and dates are built in UTC.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).

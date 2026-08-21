@@ -447,6 +447,9 @@ struct AssetResponse: Codable, Identifiable, Hashable {
 
     var isCash: Bool { type == "cash" }
     var isManualPriced: Bool { pricingMode == "manual" }
+    /// Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) holdings are generated
+    /// from the account or sub-portfolio they stand for; the API refuses to edit them.
+    var isPseudoAsset: Bool { type == "cash" || type == "linked_account" }
 }
 
 /// POST /portfolio/assets/{id}/price (schemas.ManualPriceCreate). Only valid for
@@ -468,6 +471,17 @@ struct ManualPriceResponse: Codable {
 /// POST /portfolio/assets (schemas.AssetCreate). The id is client-generated.
 struct AssetCreate: Encodable {
     let id: String
+    let ticker: String
+    let name: String
+    let type: String
+    let currency: String
+    let pricingMode: String
+}
+
+/// PUT /portfolio/assets/{id} (schemas.AssetUpdate). Corrects an asset's identity --
+/// most often a ticker created under the wrong currency. Changing the ticker or the
+/// currency replays the holding households' snapshots server-side, so reload after.
+struct AssetUpdate: Encodable {
     let ticker: String
     let name: String
     let type: String

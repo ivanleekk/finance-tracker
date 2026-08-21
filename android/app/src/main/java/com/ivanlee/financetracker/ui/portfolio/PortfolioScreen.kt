@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +66,7 @@ import com.ivanlee.financetracker.ui.dashboard.ratioString
 import com.ivanlee.financetracker.ui.theme.amountColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import com.ivanlee.financetracker.ui.components.cardListItemColors
 
 /**
@@ -96,6 +98,10 @@ fun PortfolioScreen(
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    // Fixing an asset created with the wrong ticker or currency. Reloads on save
+    // because the server replays this asset's snapshots.
+    var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
+    val scope = rememberCoroutineScope()
 
     val userId = sessionVm.user?.id
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
@@ -275,17 +281,29 @@ fun PortfolioScreen(
                     trailing = { TextButton(onClick = onOpenDividends) { Text("Dividends") } },
                 ) {
                     holdings.forEach { holding ->
+                        val asset = assetsById[holding.assetId]
                         HoldingRow(
-                            ticker = assetsById[holding.assetId]?.ticker ?: "—",
-                            name = assetsById[holding.assetId]?.name,
+                            ticker = asset?.ticker ?: "—",
+                            name = asset?.name,
                             quantity = holding.quantity,
                             value = holding.currentValueHomeCurrency,
                             currencyCode = baseCurrency,
+                            // Cash and earmarked-account rows are derived from what they
+                            // stand for, so they get no edit affordance.
+                            onEdit = asset?.takeIf { !it.isPseudoAsset }?.let { { editingAsset = it } },
                         )
                     }
                 }
             }
         }
+    }
+
+    editingAsset?.let { asset ->
+        AssetEditDialog(
+            asset = asset,
+            onDismiss = { editingAsset = null },
+            onSaved = { scope.launch { load() } },
+        )
     }
 }
 

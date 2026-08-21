@@ -35,13 +35,32 @@ extension Double {
     }
 }
 
+/// The timezone every backend date must be rendered in. See `Date.FormatStyle.utc`.
+let backendTimeZone = TimeZone(identifier: "UTC")!
+
+extension Date.FormatStyle {
+    /// Renders in UTC rather than the device's timezone.
+    ///
+    /// Every date the backend sends means a *calendar date*, not an instant, and `DateParser`
+    /// reads them at UTC midnight. Formatting that with the device's calendar prints the
+    /// previous day for anyone west of Greenwich — a transaction silently moving a day, which
+    /// also splits it from its month section header (those group in UTC via
+    /// `BudgetPresentation.groupedByMonth`). `apiDateOnly` already pins UTC for the write path;
+    /// this is the read path. Android says the same thing in `logic/Formatters.kt`.
+    var utc: Self {
+        var copy = self
+        copy.timeZone = backendTimeZone
+        return copy
+    }
+}
+
 extension Date {
     var shortDay: String {
-        formatted(.dateTime.day().month(.abbreviated))
+        formatted(.dateTime.day().month(.abbreviated).utc)
     }
 
     var monthYear: String {
-        formatted(.dateTime.month(.wide).year())
+        formatted(.dateTime.month(.wide).year().utc)
     }
 
     /// "yyyy-MM-dd" in UTC, for backend `date`-typed fields. Pydantic's `date`

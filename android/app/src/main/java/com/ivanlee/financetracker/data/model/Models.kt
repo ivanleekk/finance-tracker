@@ -336,6 +336,12 @@ data class AssetResponse(
 ) {
     val isCash: Boolean get() = type == "cash"
     val isManualPriced: Boolean get() = pricingMode == "manual"
+
+    /**
+     * Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) holdings are generated from the
+     * account or sub-portfolio they stand for; the API refuses to edit them.
+     */
+    val isPseudoAsset: Boolean get() = type == "cash" || type == "linked_account"
 }
 
 /**
@@ -363,6 +369,20 @@ data class ManualPriceResponse(
 @Serializable
 data class AssetCreate(
     val id: String,
+    val ticker: String,
+    val name: String,
+    val type: String,
+    val currency: String,
+    val pricingMode: String,
+)
+
+/**
+ * PUT /portfolio/assets/{id} (schemas.AssetUpdate). Corrects an asset's identity -- most often
+ * a ticker created under the wrong currency. Changing the ticker or the currency replays the
+ * holding households' snapshots server-side, so reload after saving.
+ */
+@Serializable
+data class AssetUpdate(
     val ticker: String,
     val name: String,
     val type: String,

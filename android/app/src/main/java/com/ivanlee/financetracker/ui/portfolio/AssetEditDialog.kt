@@ -13,55 +13,61 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
-import com.ivanlee.financetracker.data.model.AssetCreate
 import com.ivanlee.financetracker.data.model.AssetResponse
+import com.ivanlee.financetracker.data.model.AssetUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.ui.components.DropdownField
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import kotlinx.coroutines.launch
-import java.util.UUID
-
-/** Asset classes the backend recognises, minus `cash` — that pseudo-asset is created for you. */
-internal val ASSET_TYPES = listOf("stock", "etf", "bond", "crypto", "commodity", "other")
 
 /**
- * Add a tradable asset.
+ * Correct an asset's identity (PUT /portfolio/assets/{id}).
  *
- * `pricing_mode` matters more than it looks: **auto** assets get their price from yfinance by
- * ticker, **manual** ones only ever have the prices you record. Picking auto for something
- * yfinance doesn't know leaves a holding permanently valued at its cost basis.
+ * The case this exists for: a ticker created with the wrong currency -- a Singapore listing
+ * entered as USD -- which quietly misvalues every snapshot it appears in. Ticker and currency
+ * are the two fields that reach back into history: saving either one replays the holding
+ * households' snapshots server-side, so the caller reloads rather than patching in place.
  */
 @Composable
-fun AssetCreateDialog(
-    defaultCurrency: String,
+fun AssetEditDialog(
+    asset: AssetResponse,
     onDismiss: () -> Unit,
-    onCreated: (AssetResponse) -> Unit,
+    onSaved: () -> Unit,
 ) {
-    var ticker by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf("stock") }
-    var currency by remember { mutableStateOf(defaultCurrency) }
-    var manualPricing by remember { mutableStateOf(false) }
+    var ticker by remember { mutableStateOf(asset.ticker) }
+    var name by remember { mutableStateOf(asset.name) }
+    // Existing assets carry types the create form never offered ("Bond" with a capital B,
+    // or something typed on another client). Keep the asset's own value in the list, exactly
+    // as stored -- not case-folded onto a list entry, which would silently rewrite the label
+    // the allocation chart groups by on a save the user meant as a no-op.
+    val typeOptions = remember(asset.type) {
+        if (asset.type in ASSET_TYPES) ASSET_TYPES else ASSET_TYPES + asset.type
+    }
+    var type by remember { mutableStateOf(asset.type) }
+    var currency by remember { mutableStateOf(asset.currency) }
+    var manualPricing by remember { mutableStateOf(asset.isManualPriced) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
+    val revaluesHistory = ticker.trim().uppercase() != asset.ticker ||
+        currency.trim().uppercase() != asset.currency
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New asset") },
+        title = { Text("Edit ${asset.ticker}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FormField(
                     "Ticker", ticker, { ticker = it.uppercase() },
-                    placeholder = "VWRA.L",
                     supportingText = "Exactly as your market data provider spells it",
                 )
                 FormField("Name", name, { name = it })
                 DropdownField(
                     label = "Type",
                     selected = type,
-                    options = ASSET_TYPES,
+                    options = typeOptions,
                     optionLabel = { it.replaceFirstChar(Char::titlecase) },
                     onSelect = { type = it },
                 )
@@ -72,16 +78,13 @@ fun AssetCreateDialog(
                     optionLabel = { if (it) "Manual price" else "Auto price" },
                     onSelect = { manualPricing = it },
                 )
-                Text(
-                    if (manualPricing) {
-                        "You'll record prices yourself. Use this for anything not on a public market."
-                    } else {
-                        "Prices are fetched by ticker. If the ticker isn't recognised, the holding " +
-                            "will stay stuck at cost."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (revaluesHistory) {
+                    Text(
+                        "Valuations recalculate back to your first trade in this asset.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -93,11 +96,9 @@ fun AssetCreateDialog(
                     error = null
                     scope.launch {
                         try {
-                            val created = Api.post<AssetCreate, AssetResponse>(
-                                "/portfolio/assets",
-                                AssetCreate(
-                                    // Client-generated, matching the backend's AssetCreate contract.
-                                    id = UUID.randomUUID().toString(),
+                            Api.put<AssetUpdate, AssetResponse>(
+                                "/portfolio/assets/${asset.id}",
+                                AssetUpdate(
                                     ticker = ticker.trim().uppercase(),
                                     name = name.trim().ifEmpty { ticker.trim().uppercase() },
                                     type = type,
@@ -105,16 +106,16 @@ fun AssetCreateDialog(
                                     pricingMode = if (manualPricing) "manual" else "market",
                                 ),
                             )
-                            onCreated(created)
+                            onSaved()
                             onDismiss()
                         } catch (e: Exception) {
-                            error = e.message ?: "Couldn't create that asset."
+                            error = e.message ?: "Couldn't update that asset."
                         } finally {
                             saving = false
                         }
                     }
                 },
-            ) { Text("Create") }
+            ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

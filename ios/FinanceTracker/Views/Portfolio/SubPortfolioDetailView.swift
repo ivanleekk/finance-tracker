@@ -44,6 +44,7 @@ struct SubPortfolioDetailView: View {
     @State private var showingMoveCash = false
     @State private var showingEdit = false
     @State private var pricingAsset: AssetResponse?
+    @State private var editingAsset: AssetResponse?
     @State private var errorMessage: String?
 
     init(subPortfolio: SubPortfolioResponse, onChanged: @escaping () async -> Void = {}) {
@@ -151,6 +152,9 @@ struct SubPortfolioDetailView: View {
         .sheet(isPresented: $showingEdit) {
             GoalFormView(existing: sp) { await reloadAll() }
         }
+        .sheet(item: $editingAsset) { asset in
+            AssetEditView(asset: asset) { await reloadAll() }
+        }
         .sheet(item: $pricingAsset) { asset in
             if let household = session.activeHousehold {
                 RecordPriceView(asset: asset, householdId: household.id) { await reloadAll() }
@@ -223,8 +227,18 @@ struct SubPortfolioDetailView: View {
 
     @ViewBuilder private var growthSection: some View {
         DetailCard(title: "Growth") {
-            if curve.count > 1 {
-                GrowthChart(curve: curve, accent: accent, baseCurrency: baseCurrency, compactHeight: 200, regularHeight: 300)
+            if !timeseries.isEmpty {
+                if curve.count > 1 {
+                    GrowthChart(curve: curve, accent: accent, baseCurrency: baseCurrency, compactHeight: 200, regularHeight: 300)
+                } else {
+                    Text("Not enough history in this range.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 24)
+                }
+                // Stays visible even when the window is too sparse to draw — hiding it
+                // with the chart strands you on the empty range.
                 GrowthRangePicker(range: $range)
             } else {
                 emptyNote("Not enough snapshot history to chart yet. Snapshots are recorded daily.")
@@ -293,6 +307,7 @@ struct SubPortfolioDetailView: View {
                         baseCurrency: baseCurrency,
                         onTrade: { showingAddTrade = true },
                         onRecordPrice: { pricingAsset = assetsById[holding.assetId] },
+                        onEditAsset: { editingAsset = assetsById[holding.assetId] },
                         onManageCash: { showingMoveCash = true }
                     )
                 }
@@ -380,6 +395,7 @@ struct DetailedHoldingRow: View {
     let baseCurrency: String
     var onTrade: () -> Void
     var onRecordPrice: () -> Void
+    var onEditAsset: () -> Void
     var onManageCash: () -> Void
 
     private var isCash: Bool { asset?.isCash == true }
@@ -431,6 +447,9 @@ struct DetailedHoldingRow: View {
                         Button { onTrade() } label: { Label("Log Trade", systemImage: "arrow.left.arrow.right") }
                         if asset?.isManualPriced == true {
                             Button { onRecordPrice() } label: { Label("Record Price", systemImage: "tag") }
+                        }
+                        if let asset, !asset.isPseudoAsset {
+                            Button { onEditAsset() } label: { Label("Edit Asset", systemImage: "pencil") }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)

@@ -121,7 +121,11 @@ struct DashboardView: View {
     /// One stacked-area band per (date, series). Cash is forward-filled from
     /// account balances; investments are forward-filled from snapshot totals.
     /// Together the two bands sum to net worth on every date.
-    private var netWorthSeries: [NetWorthPoint] {
+    /// One row per date holding both buckets, rather than two rows tagged by series.
+    /// The chart draws the bands itself instead of asking Swift Charts to stack them:
+    /// cash goes negative for an overdrawn household, and an automatic stack renders
+    /// that as a band flipped through the axis rather than debt hanging below zero.
+    private var netWorthBands: [NetWorthBandPoint] {
         let cal = Calendar.current
         let dates = Set(
             visibleBalances.map { cal.startOfDay(for: $0.date) } +
@@ -136,7 +140,7 @@ struct DashboardView: View {
         ).mapValues { $0.reduce(0.0) { $0 + $1.value } }
         let snapshotDates = portfolioByDate.keys.sorted()
 
-        return dates.flatMap { date -> [NetWorthPoint] in
+        return dates.map { date in
             let cutoff = date.addingTimeInterval(86_399)
             let cash = byAccount.reduce(0.0) { sum, entry in
                 let (accountId, history) = entry
@@ -144,10 +148,7 @@ struct DashboardView: View {
                 return sum + (liabilityIds.contains(accountId) ? -bal : bal)
             }
             let portfolio = snapshotDates.last { $0 <= date }.map { portfolioByDate[$0] ?? 0 } ?? 0
-            return [
-                NetWorthPoint(date: date, series: .cash, value: cash),
-                NetWorthPoint(date: date, series: .investments, value: portfolio),
-            ]
+            return NetWorthBandPoint(date: date, cash: cash, investments: portfolio)
         }
     }
 
@@ -162,11 +163,10 @@ struct DashboardView: View {
         // Computed once per body evaluation and reused for every account row
         // below, instead of each row re-scanning the whole balance history.
         let latestByAccount = latestBalanceByAccount
-        // netWorthSeries does an O(dates × accounts) forward-fill; bind it once
+        // netWorthBands does an O(dates × accounts) forward-fill; bind it once
         // instead of triggering it separately for the date-count gate and the
         // chart itself.
-        let series = netWorthSeries
-        let seriesDateCount = Set(series.map(\.date)).count
+        let bands = netWorthBands
         NavigationStack {
             List {
                 QuickAddPullSensor()
@@ -181,47 +181,25 @@ struct DashboardView: View {
                     }
                     .padding(.vertical, 4)
 
-                    if seriesDateCount > 1 {
-                        Chart(series) { point in
-                            AreaMark(
-                                x: .value("Date", point.date),
-                                y: .value("Value", point.value)
-                            )
-                            .foregroundStyle(by: .value("Type", point.series.label))
-                            .interpolationMethod(.monotone)
-                            .opacity(0.85)
-                        }
-                        .chartForegroundStyleScale([
-                            NetWorthPoint.Series.investments.label: session.theme.primary.accent,
-                            NetWorthPoint.Series.cash.label: session.theme.secondary.accent,
-                        ])
-                        .chartLegend(position: .bottom, spacing: 8)
-                        .chartYAxis {
-                            AxisMarks(position: .trailing) { value in
-                                AxisGridLine()
-                                AxisValueLabel {
-                                    if let v = value.as(Double.self) {
-                                        Text(v.compactCurrency(baseCurrency))
-                                    }
-                                }
-                            }
-                        }
-                        .adaptiveChartHeight(compact: 180, regular: 300)
-                        .padding(.vertical, 4)
+                    if bands.count > 1 {
+                        NetWorthAreaChart(bands: bands, currency: baseCurrency)
+                            .padding(.vertical, 4)
                     }
 
-                    if !visibleSnapshots.isEmpty {
+                    // Doubles as the chart's legend — the two swatches name the bands,
+                    // so the chart itself doesn't need a legend row restating them.
+                    if !visibleSnapshots.isEmpty || bands.count > 1 {
                         HStack(spacing: 12) {
                             BreakdownCell(
                                 title: "Cash",
                                 value: currentCash,
-                                color: session.theme.secondary.accent,
+                                color: ChartStyle.cash,
                                 currency: baseCurrency
                             )
                             BreakdownCell(
                                 title: "Investments",
                                 value: currentPortfolioValue,
-                                color: session.theme.primary.accent,
+                                color: ChartStyle.investments,
                                 currency: baseCurrency
                             )
                         }
@@ -480,22 +458,145 @@ struct TransactionRow: View {
 }
 
 /// A single stacked-area data point for the net-worth chart.
-struct NetWorthPoint: Identifiable {
-    enum Series {
-        case cash, investments
-
-        var label: String {
-            switch self {
-            case .cash: return "Cash"
-            case .investments: return "Investments"
-            }
-        }
-    }
-
+struct NetWorthBandPoint: Identifiable {
     let id = UUID()
     let date: Date
-    let series: Series
-    let value: Double
+    /// Cash-like accounts net of liabilities — negative for an overdrawn household.
+    let cash: Double
+    let investments: Double
+
+    /// Cash occupies the band between zero and itself, so debt hangs *below* the axis
+    /// instead of being stacked upwards as if it were an asset.
+    var cashBottom: Double { min(cash, 0) }
+    var cashTop: Double { max(cash, 0) }
+    /// Investments always sit on the positive side, on top of whatever cash there is.
+    var investmentsBottom: Double { max(cash, 0) }
+    var investmentsTop: Double { max(cash, 0) + investments }
+    var total: Double { cash + investments }
+}
+
+/// The Dashboard's net-worth composition over time: a cash band and an investments
+/// band, with the net-worth line drawn over them.
+///
+/// The line isn't decoration — with liabilities pulling cash negative the two bands no
+/// longer add up to what the reader is looking for, and the line is the only thing on
+/// the chart that states net worth. It stays for the positive case too, so the shape
+/// people learn to read doesn't change with their balance sheet.
+struct NetWorthAreaChart: View {
+    let bands: [NetWorthBandPoint]
+    let currency: String
+
+    private var hasDebtBelowZero: Bool { bands.contains { $0.cash < 0 } }
+
+    private var span: TimeInterval? {
+        guard let first = bands.first?.date, let last = bands.last?.date else { return nil }
+        return last.timeIntervalSince(first)
+    }
+
+    /// Points where each band actually has height. A band's edge line is only drawn
+    /// where its fill exists — otherwise the investments line runs along the top of the
+    /// *cash* fill for every month before the first trade, and the colours stop matching
+    /// what they bound.
+    private var cashPoints: [NetWorthBandPoint] { bands.filter { abs($0.cash) > 0.005 } }
+    private var investmentPoints: [NetWorthBandPoint] { bands.filter { $0.investments > 0.005 } }
+
+    var body: some View {
+        Chart {
+            ForEach(bands) { point in
+                AreaMark(
+                    x: .value("Date", point.date),
+                    yStart: .value("From", point.cashBottom),
+                    yEnd: .value("To", point.cashTop),
+                    series: .value("Band", "cash")
+                )
+                .foregroundStyle(ChartStyle.fill(ChartStyle.cash))
+                .interpolationMethod(.monotone)
+
+                AreaMark(
+                    x: .value("Date", point.date),
+                    yStart: .value("From", point.investmentsBottom),
+                    yEnd: .value("To", point.investmentsTop),
+                    series: .value("Band", "investments")
+                )
+                .foregroundStyle(ChartStyle.fill(ChartStyle.investments))
+                .interpolationMethod(.monotone)
+            }
+
+            // The separator is drawn slightly wider than the cash edge line that lands on
+            // top of it, so what's left is a hairline of surface colour either side of a
+            // blue line: the house 2pt gap between touching fills, and the cash band's own
+            // edge, in one stroke. A border around each band would be ink that isn't data.
+            ForEach(cashPoints) { point in
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Cash", point.cashTop),
+                    series: .value("Series", "separator")
+                )
+                .foregroundStyle(ChartStyle.surface)
+                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth + ChartStyle.separatorWidth))
+                .interpolationMethod(.monotone)
+            }
+
+            ForEach(cashPoints) { point in
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Cash", point.cashTop),
+                    series: .value("Series", "cash")
+                )
+                .foregroundStyle(ChartStyle.cash)
+                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.monotone)
+            }
+
+            ForEach(investmentPoints) { point in
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Investments", point.investmentsTop),
+                    series: .value("Series", "investments")
+                )
+                .foregroundStyle(ChartStyle.investments)
+                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.monotone)
+            }
+
+            // "You are here": one marker on the topmost band, in that band's own colour,
+            // with a 2pt ring in the surface colour so it stays legible on the line.
+            if let last = bands.last {
+                let onInvestments = last.investments > 0.005
+                let markerY = onInvestments ? last.investmentsTop : last.cashTop
+                let markerColor = onInvestments ? ChartStyle.investments : ChartStyle.cash
+                PointMark(x: .value("Date", last.date), y: .value("Latest", markerY))
+                    .symbolSize(60)
+                    .foregroundStyle(markerColor)
+                PointMark(x: .value("Date", last.date), y: .value("Latest", markerY))
+                    .symbolSize(14)
+                    .foregroundStyle(ChartStyle.surface)
+            }
+
+            // Only when debt pulls cash below zero, where the top of the stack is no
+            // longer the number the reader came for. With cash positive the stack's own
+            // top edge *is* net worth, and a second line over it is just doubled ink.
+            if hasDebtBelowZero {
+                ForEach(bands) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Net worth", point.total),
+                        series: .value("Series", "total")
+                    )
+                    .foregroundStyle(.primary.opacity(0.45))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.monotone)
+                }
+
+                RuleMark(y: .value("Zero", 0))
+                    .foregroundStyle(ChartStyle.grid)
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+            }
+        }
+        .chartLegend(.hidden)
+        .financeChartAxes(currency: currency, dateSpan: span)
+        .adaptiveChartHeight(compact: 180, regular: 300)
+    }
 }
 
 /// Donut + legend for the Dashboard's Net Worth Split: gross asset composition,
@@ -511,38 +612,30 @@ struct NetWorthSplitChart: View {
     let netWorth: Double
     let currency: String
 
-    /// Matches the web's `--chart-cat-1..5` — a CVD-validated categorical
-    /// palette kept deliberately separate from `AllocationCard.palette` so
-    /// category identity never shifts with the household's chosen accent.
-    static let palette: [Color] = [
-        Color(red: 0.165, green: 0.471, blue: 0.839), // #2a78d6
-        Color(red: 0.922, green: 0.408, blue: 0.204), // #eb6834
-        Color(red: 0.106, green: 0.686, blue: 0.478), // #1baf7a
-        Color(red: 0.929, green: 0.631, blue: 0.000), // #eda100
-        Color(red: 0.910, green: 0.482, blue: 0.643), // #e87ba4
-    ]
-
-    private func color(_ index: Int) -> Color { Self.palette[index % Self.palette.count] }
+    /// Keyed by bucket, not by position in the list: empty buckets are dropped before
+    /// this renders, so an index would hand "Other Assets" the colour Property had on
+    /// another household's screen. See `ChartStyle.netWorthColor`.
+    private func color(_ slice: NetWorthSlice) -> Color { ChartStyle.netWorthColor(key: slice.key) }
 
     var body: some View {
         VStack(spacing: 16) {
-            Chart(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
+            Chart(breakdown.slices) { slice in
                 SectorMark(
                     angle: .value("Value", slice.value),
                     innerRadius: .ratio(0.62),
                     angularInset: 1.5
                 )
                 .cornerRadius(3)
-                .foregroundStyle(color(index))
+                .foregroundStyle(color(slice))
             }
             .chartLegend(.hidden)
             .frame(height: 150)
 
             VStack(spacing: 8) {
-                ForEach(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
+                ForEach(breakdown.slices) { slice in
                     HStack(spacing: 8) {
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(color(index))
+                            .fill(color(slice))
                             .frame(width: 11, height: 11)
                         Text(slice.label)
                             .font(.caption)
