@@ -227,8 +227,18 @@ struct SubPortfolioDetailView: View {
 
     @ViewBuilder private var growthSection: some View {
         DetailCard(title: "Growth") {
-            if curve.count > 1 {
-                GrowthChart(curve: curve, accent: accent, baseCurrency: baseCurrency, compactHeight: 200, regularHeight: 300)
+            if !timeseries.isEmpty {
+                if curve.count > 1 {
+                    GrowthChart(curve: curve, accent: accent, baseCurrency: baseCurrency, compactHeight: 200, regularHeight: 300)
+                } else {
+                    Text("Not enough history in this range.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 24)
+                }
+                // Stays visible even when the window is too sparse to draw — hiding it
+                // with the chart strands you on the empty range.
                 GrowthRangePicker(range: $range)
             } else {
                 emptyNote("Not enough snapshot history to chart yet. Snapshots are recorded daily.")

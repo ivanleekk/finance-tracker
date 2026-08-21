@@ -137,6 +137,20 @@ FinanceTracker/
     - `allocationSlices` weights by `current_value_home_currency`, whereas the web weights by native value — which mixes units in a multi-currency portfolio (a US$1 and a S$1 position get the same wedge there).
     - `periodChange` returns a **nil** `fraction` when the opening balance is under 1% of the closing one. A goal funded from $42 to $13,104 is not a +31,100% return, and printing that as one is worse than printing no percentage.
 - **Net Worth Split** (`Support/NetWorth.swift`, rendered on the Dashboard by `NetWorthSplitChart`) is a donut of gross-asset composition — Cash / Investments / Retirement & Locked / Property / Other Assets — with liabilities and the net total as plain rows underneath rather than wedges (a `SectorMark` donut can't render a negative slice). `netWorthBreakdown`'s `sliceTotal` is the sum of the *visible* slices only, which is deliberately not the same as gross assets when a bucket (e.g. cash, for an overdrawn household) goes negative and gets dropped — that's also why `NetWorthSplitChart` takes the screen's independently-computed `netWorth` as its own parameter instead of deriving `sliceTotal - liabilities`, which would silently drop the excluded negative bucket from the total.
+- **Charts all go through `Views/Components/ChartStyle.swift`.** Three rules it exists to keep:
+  **composition colours are fixed, not themed** (`ChartStyle.categorical` = the web's
+  `--chart-cat-1..5`, with its own validated dark steps; assigned by *key* via
+  `netWorthColor(key:)`, never by the slice's index — the donut drops empty buckets, so an
+  index would repaint the survivors), **fills are gradient washes with a 2pt edge line**
+  rather than saturated blocks, and **chrome recedes** (hairline *solid* gridlines, few
+  ticks, secondary-ink labels, no plot border) via `.financeChartAxes(currency:dateSpan:)`.
+  Pass `dateSpan` — it picks year / month-year / day-month labels, and the last label is
+  right-anchored so it isn't truncated by the trailing y-axis gutter. Single-series charts
+  (a goal curve, one account's balance) keep `session.theme` accent; there is no second
+  category to confuse them with. The Dashboard's net-worth chart draws its two bands
+  explicitly (`NetWorthAreaChart`) instead of letting Swift Charts stack them, because cash
+  goes negative for an overdrawn household and an automatic stack renders that flipped
+  through the axis instead of hanging below zero.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is _generated_ from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run
