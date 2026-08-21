@@ -127,7 +127,44 @@ FinanceTracker/
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
 - Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data. Create forms (AccountFormView, GoalFormView) seed their Private toggle from the user's `default_new_items_private` in `.onAppear` (SessionStore isn't reachable from `init`), matching web.
     - `SubPortfolioUpdate.ownerUserId` is a `.unchanged` / `.set(String?)` enum with a hand-written `encode(to:)`, not a plain `String?`. The backend PATCH uses `exclude_unset`, so omitting the key leaves ownership alone while an explicit `null` clears it — a plain Optional can only express the first, which would make "Private → Shared" silently do nothing (the web UI has that limitation).
-- **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens only when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) **and** the finger lifts below `flickVelocity` (1200 pt/s); momentum-only overscroll never arms it. Both halves matter — without the velocity check a fast flick from the top still opens it, which is what "too sensitive" meant.
+- **Gestures come in pairs, and destructive ones confirm.** Every swipe action on a row is
+  mirrored by a `.contextMenu` carrying the same items — a swipe is invisible until you try it
+  and is out of reach of Voice Control and Switch Control, so it can never be the only path to
+  an action. Anything irreversible (delete a transaction / trade / budget / category, remove a
+  household member) uses `.swipeActions(allowsFullSwipe: false)` plus a `.confirmationDialog`,
+  never `.onDelete` — a full swipe must reveal the button, not commit. The dialog's state lives
+  on the **screen**, not the row: a dialog presented from inside a swipe-actions row is torn
+  down with the row's own collapse animation before it is ever shown. Cancelling an invite is
+  the deliberate exception (re-inviting undoes it), so it keeps a plain swipe.
+- **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) and the finger then lifts without flicking back *up* faster than `retractVelocity` (900 pt/s). It is the release **direction** that decides, not its speed: still moving down, or roughly still, completes the gesture the "Release for Quick Add" badge just promised, and a confident fast pull is the most deliberate version of that, not the least — only a sharp flick upward reads as taking it back. Momentum-only overscroll can't arm it at all, because `dragging` (set by the `DragGesture`, cleared on end *and* when the sheet opens) gates every update.
+  It is on **every browse screen** — the five tabs, the pushed detail screens (account, goal,
+  loan schedule, sub-portfolio), and the More-tab pages (Budgets, Categories, Recurring,
+  Reports, Members). It fully replaces `.refreshable`, which no longer appears anywhere: the
+  same downward pull had to mean the same thing on every screen, and two different meanings
+  split by "main tab vs. More tab" was a distinction only the code could see. Screens refetch
+  on `.task` and on `QuickAddStore.reloadToken`; there is no manual refresh control. Modal
+  sheets and edit forms deliberately have no pull — interrupting a half-filled form with
+  another modal is not a gesture anyone wants.
+- **Charts are interactive, through `Views/Components/ChartStyle.swift`.** Time-series charts
+  (Dashboard net worth, `GrowthChart`, the goal projection, an account's balance) take
+  `.chartScrub(selection:readout:)`: the caller owns the `Date?` the gesture writes and
+  resolves a `ChartScrubReadout` from it with `ChartStyle.nearest` (curves are *binned*, so the
+  finger lands between points far more often than on one), and the modifier draws the rule and
+  the dots and ticks a `.selection` haptic per datum. Readouts go in a `ChartScrubCaption`
+  beside the plot, not a floating tooltip — a bubble covers the data being asked about and has
+  to be measured and clamped every frame. The Dashboard goes further and rewrites its own
+  headline figure, date label and Cash/Investments cells from the scrub instead of adding a
+  caption. Donuts (Net Worth Split, Allocation, Top Categories) use `.chartAngleSelection` +
+  `ChartStyle.sliceIndex`, which resolves the *cumulative* angle the API reports back to a
+  slice; the picked wedge grows outward and the rest dim, the donut's centre reads it out, and
+  the legend rows are buttons that select the same wedge (a thin sector is a poor touch target
+  and the only accessible way in).
+- **Known gap — interactive dismissal.** No form uses `interactiveDismissDisabled`, so dragging
+  a sheet down discards a half-filled trade / transaction / account form with no prompt. Fixing
+  it needs per-form dirty tracking plus a "Discard changes?" confirmation dialog on every
+  create/edit sheet (`TransactionFormView`, `TradeFormView`, `AccountFormView`, `GoalFormView`,
+  `BudgetFormView`, `RecurringFormView`, `QuickAddView`); do it as one pass so the behaviour is
+  uniform, not sheet by sheet.
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `true`**, so once enforced, every user's private vault is biometric-gated by default (the preview test user was flipped to `false` locally so browser/simulator verification isn't blocked by the prompt).

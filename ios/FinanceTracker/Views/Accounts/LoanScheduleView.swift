@@ -55,6 +55,8 @@ struct EquityRow: View {
 /// Loaded on demand — a 30-year mortgage is 360 rows, which is not worth
 /// fetching with the accounts list.
 struct LoanScheduleView: View {
+    @Environment(QuickAddStore.self) private var quickAdd
+
     let account: AccountResponse
 
     @State private var schedule: LoanScheduleResponse?
@@ -136,6 +138,7 @@ struct LoanScheduleView: View {
                 )
             }
         }
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
     }
 

@@ -163,3 +163,184 @@ extension View {
             }
     }
 }
+
+// MARK: - Scrubbing
+
+/// One line of a scrub readout: what was read, in what colour, and — when the value
+/// sits on a plotted line — where its dot belongs in data space.
+struct ChartScrubEntry {
+    let label: String
+    let value: Double
+    let color: Color
+    /// Data-space y for the marker dot. `nil` for a derived figure (a total) that isn't
+    /// itself a line on the chart, so there's nothing on the plot to point at.
+    var markerY: Double?
+}
+
+/// What the finger is currently over on a time-series chart.
+struct ChartScrubReadout: Equatable {
+    let date: Date
+    let entries: [ChartScrubEntry]
+
+    /// Only the date matters for equality — it's what drives the haptic and the redraw,
+    /// and the entries are a pure function of it.
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.date == rhs.date }
+}
+
+extension ChartStyle {
+    /// The datum nearest a scrub position. Curves are sampled (daily / weekly / monthly
+    /// bins), so the finger lands *between* points far more often than on one, and
+    /// snapping to the nearest is what makes the dot sit on the line instead of floating
+    /// beside it.
+    static func nearest<T>(
+        to date: Date,
+        in points: [T],
+        by keyPath: KeyPath<T, Date>
+    ) -> T? {
+        points.min {
+            abs($0[keyPath: keyPath].timeIntervalSince(date))
+                < abs($1[keyPath: keyPath].timeIntervalSince(date))
+        }
+    }
+
+    /// Which slice a donut's angle selection landed in. `chartAngleSelection` reports the
+    /// *cumulative* angle value, not an identity, so resolving it means walking the same
+    /// running total the sectors were laid out from — in the same order they were plotted.
+    static func sliceIndex(
+        atAngleValue value: Double?,
+        in values: [Double]
+    ) -> Int? {
+        guard let value else { return nil }
+        var running = 0.0
+        for (index, slice) in values.enumerated() {
+            running += slice
+            if value <= running { return index }
+        }
+        return values.isEmpty ? nil : values.count - 1
+    }
+}
+
+private struct ChartScrubModifier: ViewModifier {
+    @Binding var selection: Date?
+    let readout: ChartScrubReadout?
+
+    /// What Swift Charts reports *while* the finger is down. It clears this the instant
+    /// the finger lifts, which is wrong for a money chart: you look a date up in order to
+    /// read it, and a number that vanishes on release can't be read at all. The live
+    /// value is copied into `selection` and stays there until the next scrub or an
+    /// explicit clear, so the binding the caller owns is the sticky one.
+    @State private var live: Date?
+
+    func body(content: Content) -> some View {
+        content
+            .chartXSelection(value: $live)
+            .onChange(of: live) { _, new in
+                if let new { selection = new }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    if let readout,
+                       let anchor = proxy.plotFrame,
+                       let dx = proxy.position(forX: readout.date) {
+                        let plot = geo[anchor]
+                        let x = plot.minX + dx
+
+                        Rectangle()
+                            .fill(.primary.opacity(0.25))
+                            .frame(width: 1, height: plot.height)
+                            .position(x: x, y: plot.midY)
+
+                        ForEach(Array(readout.entries.enumerated()), id: \.offset) { _, entry in
+                            if let markerY = entry.markerY,
+                               let dy = proxy.position(forY: markerY) {
+                                // Surface-coloured ring, the same trick the "you are
+                                // here" marker uses: the dot has to stay legible sitting
+                                // on top of its own line.
+                                Circle()
+                                    .fill(ChartStyle.surface)
+                                    .frame(width: 14, height: 14)
+                                    .overlay {
+                                        Circle().fill(entry.color).frame(width: 9, height: 9)
+                                    }
+                                    .position(x: x, y: plot.minY + dy)
+                            }
+                        }
+                    }
+                }
+                // The overlay is a readout, never a target — hit testing here would
+                // swallow the very drag that's driving it.
+                .allowsHitTesting(false)
+            }
+            // One detent per datum, the way a picker ticks. `.selection` and not
+            // `.impact`: nothing was committed, the reading just moved.
+            .sensoryFeedback(.selection, trigger: readout?.date)
+    }
+}
+
+extension View {
+    /// Make a time-series chart scrubbable: drag across it to read any point.
+    ///
+    /// The caller owns both halves — the `Date?` the gesture writes, and the readout it
+    /// resolves from that date (usually via `ChartStyle.nearest`) — because only the
+    /// call site knows which series it plotted and what they mean. This adds the
+    /// gesture, the rule and dots on the plot, and the haptic; pair it with a
+    /// `ChartScrubCaption` (or wire the readout into the screen's own headline figure).
+    func chartScrub(
+        selection: Binding<Date?>,
+        readout: ChartScrubReadout?
+    ) -> some View {
+        modifier(ChartScrubModifier(selection: selection, readout: readout))
+    }
+}
+
+/// The scrub reading, as a caption row beside its chart.
+///
+/// Deliberately *not* a floating tooltip: a bubble inside the plot covers the very data
+/// the finger is asking about, and it has to be measured and clamped every frame to stay
+/// on screen. The row also reserves its height when nothing is selected, so starting a
+/// scrub never shifts the chart under the finger.
+struct ChartScrubCaption: View {
+    let readout: ChartScrubReadout?
+    let currency: String
+    /// The same binding passed to `chartScrub`, so the caption can clear the reading.
+    /// The selection sticks after the finger lifts, which means it also needs a way out.
+    @Binding var selection: Date?
+    /// Shown when nothing is selected, as the gesture's only affordance — a chart that
+    /// responds to a drag has no other way to say so.
+    var hint: String = "Drag the chart to read any date"
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let readout {
+                Text(readout.date.scrubDay)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(readout.entries.enumerated()), id: \.offset) { _, entry in
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(entry.color)
+                            .frame(width: 6, height: 6)
+                        Text(entry.value.currencyWhole(currency))
+                            .monospacedDigit()
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(entry.label): \(entry.value.currencyWhole(currency))")
+                }
+                Spacer(minLength: 0)
+                Button { selection = nil } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear chart reading")
+            } else {
+                Text(hint)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+            }
+        }
+        .font(.caption.weight(.medium))
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .frame(height: 16)
+    }
+}

@@ -29,6 +29,8 @@ struct DashboardView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
+    /// Where the finger is on the net-worth chart, or nil when nobody is scrubbing.
+    @State private var netWorthScrub: Date?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -167,23 +169,56 @@ struct DashboardView: View {
         // instead of triggering it separately for the date-count gate and the
         // chart itself.
         let bands = netWorthBands
+        // Where the finger is on the net-worth chart, if anywhere. The whole card reads
+        // from this: headline figure, date label and both breakdown cells, so scrubbing
+        // rewrites the numbers the reader already knows rather than adding new ones.
+        let scrubbed = netWorthScrub.flatMap { ChartStyle.nearest(to: $0, in: bands, by: \.date) }
+        let scrubReadout: ChartScrubReadout? = scrubbed.map { point in
+            ChartScrubReadout(
+                date: point.date,
+                entries: [
+                    ChartScrubEntry(label: "Cash", value: point.cash,
+                                    color: ChartStyle.cash, markerY: point.cashTop),
+                    ChartScrubEntry(label: "Investments", value: point.investments,
+                                    color: ChartStyle.investments, markerY: point.investmentsTop),
+                ]
+            )
+        }
         NavigationStack {
             List {
                 QuickAddPullSensor()
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Net Worth")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text(netWorth.currency(baseCurrency))
+                        HStack(spacing: 6) {
+                            Text(scrubbed.map(\.date.scrubDay) ?? "Net Worth")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            // The reading sticks after the finger lifts (see
+                            // `chartScrub`), so it needs a way back to today.
+                            if scrubbed != nil {
+                                Button { netWorthScrub = nil } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear chart reading")
+                            }
+                        }
+                        Text((scrubbed?.total ?? netWorth).currency(baseCurrency))
                             .font(.system(.largeTitle, design: .rounded, weight: .bold))
                             .contentTransition(.numericText())
                     }
                     .padding(.vertical, 4)
 
                     if bands.count > 1 {
-                        NetWorthAreaChart(bands: bands, currency: baseCurrency)
-                            .padding(.vertical, 4)
+                        NetWorthAreaChart(
+                            bands: bands,
+                            currency: baseCurrency,
+                            scrubDate: $netWorthScrub,
+                            readout: scrubReadout
+                        )
+                        .padding(.vertical, 4)
                     }
 
                     // Doubles as the chart's legend — the two swatches name the bands,
@@ -192,13 +227,13 @@ struct DashboardView: View {
                         HStack(spacing: 12) {
                             BreakdownCell(
                                 title: "Cash",
-                                value: currentCash,
+                                value: scrubbed?.cash ?? currentCash,
                                 color: ChartStyle.cash,
                                 currency: baseCurrency
                             )
                             BreakdownCell(
                                 title: "Investments",
-                                value: currentPortfolioValue,
+                                value: scrubbed?.investments ?? currentPortfolioValue,
                                 color: ChartStyle.investments,
                                 currency: baseCurrency
                             )
@@ -485,6 +520,11 @@ struct NetWorthBandPoint: Identifiable {
 struct NetWorthAreaChart: View {
     let bands: [NetWorthBandPoint]
     let currency: String
+    /// Owned by the Dashboard, not this view: scrubbing re-reads the headline Net Worth
+    /// figure and the Cash / Investments cells above and below the plot, which is a
+    /// better place for the number than a tooltip drawn over the curve it came from.
+    @Binding var scrubDate: Date?
+    let readout: ChartScrubReadout?
 
     private var hasDebtBelowZero: Bool { bands.contains { $0.cash < 0 } }
 
@@ -595,6 +635,7 @@ struct NetWorthAreaChart: View {
         }
         .chartLegend(.hidden)
         .financeChartAxes(currency: currency, dateSpan: span)
+        .chartScrub(selection: $scrubDate, readout: readout)
         .adaptiveChartHeight(compact: 180, regular: 300)
     }
 }
@@ -617,36 +658,82 @@ struct NetWorthSplitChart: View {
     /// another household's screen. See `ChartStyle.netWorthColor`.
     private func color(_ slice: NetWorthSlice) -> Color { ChartStyle.netWorthColor(key: slice.key) }
 
+    /// Cumulative angle the touch landed on. `chartAngleSelection` reports a position
+    /// along the total, not a slice, so it's resolved through `ChartStyle.sliceIndex`.
+    ///
+    /// Two states, not one: Swift Charts clears its own binding the instant the finger
+    /// lifts, so `live` is what it writes and `picked` is what the view reads. That also
+    /// keeps the legend buttons working — they set `picked` directly, where the chart
+    /// can't overwrite them.
+    @State private var liveAngle: Double?
+    @State private var pickedAngle: Double?
+
+    private var selected: Int? {
+        ChartStyle.sliceIndex(atAngleValue: pickedAngle, in: breakdown.slices.map(\.value))
+    }
+
     var body: some View {
         VStack(spacing: 16) {
-            Chart(breakdown.slices) { slice in
+            Chart(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
                 SectorMark(
                     angle: .value("Value", slice.value),
+                    // The picked wedge grows outward — the shape itself says which one
+                    // is being read, before the label in the middle is even looked at.
                     innerRadius: .ratio(0.62),
+                    outerRadius: .ratio(selected == index ? 1.0 : 0.92),
                     angularInset: 1.5
                 )
                 .cornerRadius(3)
                 .foregroundStyle(color(slice))
+                .opacity(selected == nil || selected == index ? 1 : 0.3)
+            }
+            .chartAngleSelection(value: $liveAngle)
+            .onChange(of: liveAngle) { _, new in
+                if let new { pickedAngle = new }
             }
             .chartLegend(.hidden)
             .frame(height: 150)
+            .overlay { donutCenter }
+            .animation(.snappy(duration: 0.22), value: selected)
+            .sensoryFeedback(.selection, trigger: selected)
 
             VStack(spacing: 8) {
-                ForEach(breakdown.slices) { slice in
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(color(slice))
-                            .frame(width: 11, height: 11)
-                        Text(slice.label)
-                            .font(.caption)
-                        Spacer()
-                        Text(slice.value.currencyWhole(currency))
-                            .font(.caption.monospacedDigit())
-                        Text("\(Int((slice.value / breakdown.sliceTotal * 100).rounded()))%")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, alignment: .trailing)
+                ForEach(Array(breakdown.slices.enumerated()), id: \.element.id) { index, slice in
+                    // Tapping the legend selects the same wedge: a 30°-wide sector is a
+                    // poor touch target, and this row is the accessible way to hit it.
+                    Button {
+                        pickedAngle = selected == index ? nil : midAngleValue(of: index)
+                    } label: {
+                        HStack(spacing: 8) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(color(slice))
+                                .frame(width: 11, height: 11)
+                            // Each label states its own colour: the borderless button
+                            // style below tints its whole label with the accent, and an
+                            // inherited `.foregroundStyle` on the stack doesn't beat it.
+                            Text(slice.label)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(slice.value.currencyWhole(currency))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.primary)
+                            Text("\(Int((slice.value / breakdown.sliceTotal * 100).rounded()))%")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 36, alignment: .trailing)
+                        }
+                        .contentShape(Rectangle())
+                        .opacity(selected == nil || selected == index ? 1 : 0.4)
                     }
+                    // `.borderless`, not `.plain`: inside a List row SwiftUI only
+                    // hit-tests several buttons independently for the borderless style —
+                    // with `.plain` the row swallows the tap and nothing selects. The
+                    // style tints its whole label with the accent and wins over any
+                    // `.foregroundStyle` inside it, so the tint itself is what has to be
+                    // neutralised — this is a legend, not a link.
+                    .buttonStyle(.borderless)
+                    .tint(.primary)
                 }
 
                 if breakdown.liabilities > 0 {
@@ -671,6 +758,45 @@ struct NetWorthSplitChart: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+extension NetWorthSplitChart {
+    /// The hole in the middle earns its keep: net worth at rest, the picked bucket while
+    /// one is selected. Same slot, so nothing on the card moves when a wedge is tapped.
+    @ViewBuilder
+    fileprivate var donutCenter: some View {
+        VStack(spacing: 1) {
+            if let selected, breakdown.slices.indices.contains(selected) {
+                let slice = breakdown.slices[selected]
+                Text(slice.label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(slice.value.compactCurrency(currency))
+                    .font(.headline.monospacedDigit())
+                Text("\(Int((slice.value / breakdown.sliceTotal * 100).rounded()))%")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Net worth")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(netWorth.compactCurrency(currency))
+                    .font(.headline.monospacedDigit())
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 30)
+        .allowsHitTesting(false)
+    }
+
+    /// The cumulative angle at the middle of a slice — what the legend hands the chart to
+    /// select that wedge, since the selection is expressed as a position along the total.
+    fileprivate func midAngleValue(of index: Int) -> Double {
+        let values = breakdown.slices.map(\.value)
+        let before = values.prefix(index).reduce(0, +)
+        return before + (values[index] / 2)
     }
 }
 

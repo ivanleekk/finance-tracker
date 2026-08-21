@@ -7,6 +7,7 @@ import SwiftUI
 /// about seeing what's committed and correcting it, not about data entry.
 struct RecurringView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
     @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var rules: [RecurringTransactionResponse] = []
@@ -157,7 +158,7 @@ struct RecurringView: View {
         .overlay {
             if isLoading && rules.isEmpty { LoadingSkeleton() }
         }
-        .refreshable { await load() }
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },
@@ -329,6 +330,21 @@ struct RecurringRuleRow: View {
         // from the parent once `onRequestDelete` fires) is the only path to
         // an actual delete.
         .swipeActions(allowsFullSwipe: false) {
+            Button(role: .destructive, action: onRequestDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(isDeleting)
+        }
+        // Both swipes again on a long press: a swipe is invisible until you try it, and
+        // unreachable from Voice Control / Switch Control. The leading Pause/Resume is
+        // especially easy to miss — nothing on the row says a left edge exists.
+        .contextMenu {
+            Button {
+                Task { await onToggle() }
+            } label: {
+                Label(rule.isActive ? "Pause" : "Resume",
+                      systemImage: rule.isActive ? "pause" : "play")
+            }
             Button(role: .destructive, action: onRequestDelete) {
                 Label("Delete", systemImage: "trash")
             }

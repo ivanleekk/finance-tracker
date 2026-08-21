@@ -63,6 +63,12 @@ extension Date {
         formatted(.dateTime.month(.wide).year().utc)
     }
 
+    /// "24 Jul 26" — the chart-scrub readout. Carries the year that `shortDay` omits,
+    /// because a scrubbable chart routinely spans several of them.
+    var scrubDay: String {
+        formatted(.dateTime.day().month(.abbreviated).year(.twoDigits).utc)
+    }
+
     /// "yyyy-MM-dd" in UTC, for backend `date`-typed fields. Pydantic's `date`
     /// rejects a datetime with a non-zero time, and DatePicker carries the current
     /// time-of-day — so date-only bodies must send a bare date string. UTC matches

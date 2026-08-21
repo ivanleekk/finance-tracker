@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Individual buy/sell trades, newest first, grouped by month. Tap a trade to edit it
-/// (PUT /portfolio/trades/{id}); swipe to delete. Reached from the Portfolio tab.
+/// (PUT /portfolio/trades/{id}); swipe to delete (confirmed first). Reached from the Portfolio tab.
 /// Cash deposit/withdraw legs (the CASH pseudo-asset) are hidden — this is real trades.
 struct TradesListView: View {
     @Environment(SessionStore.self) private var session
@@ -15,6 +15,9 @@ struct TradesListView: View {
     @State private var isLoading = true
     @State private var editingTrade: TradeResponse?
     @State private var errorMessage: String?
+    // Confirmation state on the screen, not the row — a dialog presented from inside a
+    // swipe-actions row is torn down with the row's collapse animation before it shows.
+    @State private var pendingDelete: TradeResponse?
 
     private func asset(_ id: String?) -> AssetResponse? {
         id.flatMap { aid in assets.first { $0.id == aid } }
@@ -61,8 +64,27 @@ struct TradesListView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        // Not `.onDelete`: deleting a trade replays every portfolio
+                        // snapshot from its date forward, with no undo — too much to
+                        // hang off an accidental full swipe.
+                        .swipeActions(allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                pendingDelete = trade
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        // Same actions on a long press: a swipe is invisible until you
+                        // try it, and unreachable from Voice Control / Switch Control.
+                        .contextMenu {
+                            Button { editingTrade = trade } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) { pendingDelete = trade } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
-                    .onDelete { offsets in delete(group.trades, at: offsets) }
                 }
             }
         }
@@ -93,6 +115,22 @@ struct TradesListView: View {
             }
         }
         .quickAddPull(quickAdd, onReload: load)
+        .confirmationDialog(
+            "Delete this trade?",
+            isPresented: .init(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let trade = pendingDelete {
+                    delete([trade], at: IndexSet(integer: 0))
+                }
+            }
+        } message: {
+            Text("Holdings and portfolio history are recalculated from this trade's date. This can't be undone.")
+        }
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

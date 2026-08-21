@@ -147,6 +147,7 @@ struct AccountsListView: View {
 
 struct AccountDetailView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     let account: AccountResponse
     /// Called after a change so the parent list (and net worth) reload.
@@ -166,6 +167,8 @@ struct AccountDetailView: View {
     /// because the detail screen can be pushed straight from the Dashboard,
     /// without the accounts list ever having loaded.
     @State private var propertyAccounts: [AccountResponse] = []
+    /// Where the finger is on the balance chart, or nil when nobody is scrubbing.
+    @State private var chartScrubDate: Date?
 
     var body: some View {
         List {
@@ -183,6 +186,16 @@ struct AccountDetailView: View {
 
             if sorted.count > 1 {
                 Section {
+                    let readout = chartScrubDate
+                        .flatMap { ChartStyle.nearest(to: $0, in: sorted, by: \.date) }
+                        .map { point in
+                            ChartScrubReadout(
+                                date: point.date,
+                                entries: [ChartScrubEntry(label: "Balance", value: point.balance,
+                                                          color: session.theme.primary.accent,
+                                                          markerY: point.balance)]
+                            )
+                        }
                     Chart(sorted) { balance in
                         AreaMark(
                             x: .value("Date", balance.date),
@@ -202,8 +215,13 @@ struct AccountDetailView: View {
                         currency: account.currency,
                         dateSpan: sorted.last?.date.timeIntervalSince(sorted[0].date)
                     )
+                    .chartScrub(selection: $chartScrubDate, readout: readout)
                     .adaptiveChartHeight(compact: 160, regular: 280)
                     .padding(.vertical, 4)
+
+                    ChartScrubCaption(readout: readout, currency: account.currency,
+                                      selection: $chartScrubDate)
+                        .listRowSeparator(.hidden)
                 }
             }
 
@@ -261,6 +279,7 @@ struct AccountDetailView: View {
         .overlay {
             if isLoading && balances.isEmpty { ProgressView() }
         }
+        .quickAddPull(quickAdd, onReload: reload)
         .task { await reload() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

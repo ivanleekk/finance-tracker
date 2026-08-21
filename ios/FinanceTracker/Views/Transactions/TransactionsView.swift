@@ -14,6 +14,9 @@ struct TransactionsView: View {
     @State private var showingAddSheet = false
     @State private var showingTransferSheet = false
     @State private var editingTransaction: TransactionResponse?
+    // Held on the screen rather than the row — a confirmation presented from inside
+    // a swipe-actions row is torn down with the row's collapse animation before it shows.
+    @State private var pendingDelete: TransactionResponse?
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
     @State private var hiddenCategoryIds: Set<String> = []
@@ -204,22 +207,7 @@ struct TransactionsView: View {
                 ForEach(groups) { group in
                     Section {
                         ForEach(group.items) { txn in
-                            let row = TransactionRow(
-                                transaction: txn,
-                                categoryName: categoriesById[txn.categoryId]?.name,
-                                accountName: accountsById[txn.accountId]?.name,
-                                baseCurrency: baseCurrency
-                            )
-                            // Transfers are two linked legs; edit them where they're created, not here.
-                            if txn.transferId == nil {
-                                Button { editingTransaction = txn } label: { row }
-                                    .buttonStyle(.plain)
-                            } else {
-                                row
-                            }
-                        }
-                        .onDelete { offsets in
-                            delete(group.items, at: offsets)
+                            transactionRow(txn)
                         }
                     } header: {
                         HistorySectionHeader(
@@ -292,6 +280,22 @@ struct TransactionsView: View {
                 }
             }
             .quickAddPull(quickAdd, onReload: load)
+            .confirmationDialog(
+                "Delete this transaction?",
+                isPresented: .init(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let txn = pendingDelete {
+                        delete([txn], at: IndexSet(integer: 0))
+                    }
+                }
+            } message: {
+                Text("The account balance it moved is recalculated. This can't be undone.")
+            }
             .task { await loadIfNeeded() }
             // Restore the saved Top-Categories filter/period on appear and whenever the active
             // household changes, so the user doesn't re-hide the same categories every visit.
@@ -316,6 +320,50 @@ struct TransactionsView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    /// One activity row. Extracted from `body` so the list stays inside the
+    /// type-checker's budget, not for reuse.
+    @ViewBuilder
+    private func transactionRow(_ txn: TransactionResponse) -> some View {
+        let row = TransactionRow(
+            transaction: txn,
+            categoryName: categoriesById[txn.categoryId]?.name,
+            accountName: accountsById[txn.accountId]?.name,
+            baseCurrency: baseCurrency
+        )
+        // Transfers are two linked legs; edit them where they're created, not here.
+        Group {
+            if txn.transferId == nil {
+                Button { editingTransaction = txn } label: { row }
+                    .buttonStyle(.plain)
+            } else {
+                row
+            }
+        }
+        // `allowsFullSwipe: false` + a confirmation instead of the plain `.onDelete`:
+        // deleting a transaction rewrites account balances server-side and there is no
+        // undo, so a fast swipe must reveal the button, not commit the delete.
+        .swipeActions(allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDelete = txn
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        // The same actions on a long press. A swipe is invisible until you try it and
+        // is out of reach of Voice Control and Switch Control; the menu is the
+        // discoverable, nameable half of the same pair.
+        .contextMenu {
+            if txn.transferId == nil {
+                Button { editingTransaction = txn } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+            Button(role: .destructive) { pendingDelete = txn } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }
@@ -725,6 +773,17 @@ struct CategoryBreakdownCard: View {
 
     private var topMax: Double { max(breakdown.top.map(\.amount).max() ?? 1, 1) }
 
+    /// Cumulative angle the touch landed on; resolved to a slice by `ChartStyle.sliceIndex`.
+    ///
+    /// Two states, not one: Swift Charts clears its own binding the instant the finger
+    /// lifts, so `live` is what it writes and `picked` is what the view reads.
+    @State private var liveAngle: Double?
+    @State private var pickedAngle: Double?
+
+    private var selected: Int? {
+        ChartStyle.sliceIndex(atAngleValue: pickedAngle, in: pieSlices.map(\.amount))
+    }
+
     /// Bound non-optional dates for the two DatePickers; picking a date is what turns the
     /// corresponding open-ended bound into a real one.
     private var startBinding: Binding<Date> {
@@ -785,17 +844,49 @@ struct CategoryBreakdownCard: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             } else {
-                Chart(pieSlices) { slice in
+                Chart(Array(pieSlices.enumerated()), id: \.element.id) { index, slice in
                     SectorMark(
                         angle: .value("Amount", slice.amount),
+                        // The picked wedge grows outward, so the shape says which one is
+                        // being read before the label in the middle is looked at.
                         innerRadius: .ratio(0.55),
+                        outerRadius: .ratio(selected == index ? 1.0 : 0.92),
                         angularInset: 1.5
                     )
                     .cornerRadius(3)
                     .foregroundStyle(color(slice.id))
+                    .opacity(selected == nil || selected == index ? 1 : 0.3)
+                }
+                .chartAngleSelection(value: $liveAngle)
+                .onChange(of: liveAngle) { _, new in
+                    if let new { pickedAngle = new }
                 }
                 .chartLegend(.hidden)
                 .frame(height: 140)
+                .overlay {
+                    VStack(spacing: 1) {
+                        if let selected, pieSlices.indices.contains(selected) {
+                            let slice = pieSlices[selected]
+                            Text(slice.name)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(slice.amount.compactCurrency(baseCurrency))
+                                .font(.headline.monospacedDigit())
+                        } else {
+                            Text("Spent")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(breakdown.total.compactCurrency(baseCurrency))
+                                .font(.headline.monospacedDigit())
+                        }
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 24)
+                    .allowsHitTesting(false)
+                }
+                .animation(.snappy(duration: 0.22), value: selected)
+                .sensoryFeedback(.selection, trigger: selected)
 
                 VStack(spacing: 10) {
                     ForEach(breakdown.top) { cat in

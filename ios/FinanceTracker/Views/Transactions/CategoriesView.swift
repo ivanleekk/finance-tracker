@@ -4,6 +4,7 @@ import SwiftUI
 /// Reached from the More tab; also surfaced inline from the New Transaction sheet.
 struct CategoriesView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var categories: [CategoryResponse] = []
     @State private var isLoading = true
@@ -37,8 +38,34 @@ struct CategoriesView: View {
                                     .foregroundStyle(.tertiary)
                             }
                         }
+                        // Reveal-then-tap rather than `.onDelete`'s full swipe. A
+                        // category still used by a transaction is refused server-side,
+                        // so the cost of a slip is low — but low enough to be worth one
+                        // deliberate tap, not low enough to commit on a flick.
+                        .swipeActions(allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                if let index = items.firstIndex(where: { $0.id == category.id }) {
+                                    delete(items, at: IndexSet(integer: index))
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        // Same actions on a long press: a swipe is invisible until you
+                        // try it, and unreachable from Voice Control / Switch Control.
+                        .contextMenu {
+                            Button { editing = category } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                if let index = items.firstIndex(where: { $0.id == category.id }) {
+                                    delete(items, at: IndexSet(integer: index))
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
-                    .onDelete { offsets in delete(items, at: offsets) }
                 }
             }
         }
@@ -78,7 +105,7 @@ struct CategoriesView: View {
                 }
             }
         }
-        .refreshable { await load() }
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

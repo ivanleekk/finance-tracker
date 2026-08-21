@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MoreView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     #if DEBUG
     @AppStorage("api_base_url") private var apiBaseURL = ""
@@ -170,6 +171,7 @@ struct MoreView: View {
                 }
             }
             .navigationTitle("More")
+            .quickAddPull(quickAdd, onReload: {})
             .confirmationDialog("Log out of Waypoint?", isPresented: $showingLogoutConfirm, titleVisibility: .visible) {
                 Button("Log Out", role: .destructive) {
                     session.logout()
