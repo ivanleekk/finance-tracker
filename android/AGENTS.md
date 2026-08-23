@@ -49,7 +49,7 @@ android/app/src/main/java/com/ivanlee/financetracker/
   ui/dashboard/              # DashboardScreen (+ AccountRow/TransactionRow/HoldingRow, reused)
   ui/accounts/               # list, detail, form, add-balance, loan schedule
   ui/portfolio/              # PortfolioScreen, SubPortfolioDetail, Trades, TradeForm,
-                             #   Dividends, SubPortfolioCash, AssetCreateDialog
+                             #   Dividends, SubPortfolioCash, AssetCreateDialog, AssetEditDialog
   ui/goals/                  # GoalDetail, GoalForm — a goal is a sub-portfolio with a target
   ui/transactions/           # list, form, categories
   ui/more/                   # MoreScreen, SettingsScreens, Budgets, Recurring, Reports, Members
@@ -187,6 +187,14 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   feedback while that call runs (`RecurringScreen`'s delete, for instance) tracks it itself
   (a `deletingId` disabling that row's swipe actions and clicks, with a `CircularProgressIndicator`
   swapped in for its trailing content) rather than relying on the dialog for it.
+- **A holding row's pencil opens `AssetEditDialog`** (Portfolio tab and
+  `SubPortfolioDetailScreen`), a PUT to `/portfolio/assets/{id}`. A ticker created under the
+  wrong currency is the motivating case; the fix follows the asset, so every trade, dividend
+  and holding already filed against it is corrected too, and a ticker/currency change replays
+  snapshots server-side — reload afterwards rather than patching the local copy. Pseudo-assets
+  (cash, earmarked accounts) get no pencil; the API refuses them. `pricing_mode` goes over the
+  wire as exactly `"market"` or `"manual"` — `schemas.AssetBase.pricing_mode` is a `Literal`,
+  and anything else is a 422.
 - **Haptics** go through `ui/components/Haptics.kt` rather than Compose's `LocalHapticFeedback`,
   which only exposes LongPress and TextHandleMove — not enough vocabulary for a gesture that
   needs a distinct "armed" tick and "committed" thump. The richer constants landed in API 30,
