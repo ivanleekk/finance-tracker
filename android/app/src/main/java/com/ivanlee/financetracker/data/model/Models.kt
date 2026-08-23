@@ -336,6 +336,12 @@ data class AssetResponse(
 ) {
     val isCash: Boolean get() = type == "cash"
     val isManualPriced: Boolean get() = pricingMode == "manual"
+
+    /**
+     * Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) holdings are generated from the
+     * account or sub-portfolio they stand for; the API refuses to edit them.
+     */
+    val isPseudoAsset: Boolean get() = type == "cash" || type == "linked_account"
 }
 
 /**
@@ -371,18 +377,17 @@ data class AssetCreate(
 )
 
 /**
- * PUT /portfolio/assets/{id} (schemas.AssetUpdate). Fixes a mistyped ticker or the rest of an
- * asset's details after the fact. Every field is optional and `explicitNulls = false` drops the
- * null ones from the body, which is what lets the backend re-enrich name and currency from
- * Yahoo Finance when only the ticker changed.
+ * PUT /portfolio/assets/{id} (schemas.AssetUpdate). Corrects an asset's identity -- most often
+ * a ticker created under the wrong currency. Changing the ticker or the currency replays the
+ * holding households' snapshots server-side, so reload after saving.
  */
 @Serializable
 data class AssetUpdate(
-    val ticker: String? = null,
-    val name: String? = null,
-    val type: String? = null,
-    val currency: String? = null,
-    val pricingMode: String? = null,
+    val ticker: String,
+    val name: String,
+    val type: String,
+    val currency: String,
+    val pricingMode: String,
 )
 
 /**
@@ -600,6 +605,12 @@ data class PerformanceMetrics(
     val simpleReturn: Double = 0.0,
     val timeWeightedReturn: Double = 0.0,
     val moneyWeightedReturn: Double = 0.0,
+    /**
+     * True when the window was long enough (>= 1 year) for the two returns
+     * above to be annualized; false when they are plain period returns over
+     * the window.
+     */
+    val annualized: Boolean = false,
     val volatility: Double = 0.0,
     val sharpeRatio: Double = 0.0,
     val sortinoRatio: Double = 0.0,

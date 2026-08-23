@@ -262,13 +262,11 @@ struct GoalDetailView: View {
                 Chart {
                     ForEach(history) { point in
                         AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                            .foregroundStyle(LinearGradient(
-                                colors: [accent.opacity(0.3), accent.opacity(0)],
-                                startPoint: .top, endPoint: .bottom
-                            ))
+                            .foregroundStyle(ChartStyle.accentFill(accent))
                             .interpolationMethod(.monotone)
                         LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
                             .foregroundStyle(accent)
+                            .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                             .interpolationMethod(.monotone)
                     }
                     if let target = goalState.targetAmount {
@@ -280,17 +278,7 @@ struct GoalDetailView: View {
                             }
                     }
                 }
-                .chartXAxis(.hidden)
-                .chartYAxis {
-                    AxisMarks(position: .leading) { value in
-                        AxisGridLine()
-                        AxisValueLabel {
-                            if let v = value.as(Double.self) {
-                                Text(v.compactCurrency(baseCurrency))
-                            }
-                        }
-                    }
-                }
+                .financeChartAxes(currency: baseCurrency, showsXAxis: false)
                 .adaptiveChartHeight(compact: 160, regular: 260)
             }
         }

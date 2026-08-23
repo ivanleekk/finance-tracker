@@ -24,6 +24,15 @@ enum GrowthRange: String, CaseIterable, Identifiable {
         case .all: nil
         }
     }
+
+    /// The window's opening date, or nil for `.all` (unbounded). Shared by `equityCurve`
+    /// (which windows the chart) and the range-scoped `/metrics` fetch (which needs the same
+    /// cutoff as a `start_date` so the badge's dollar delta and percentage describe the same
+    /// window) — computing it twice risked the two drifting apart by a day at a month boundary.
+    func cutoffDate(now: Date = Date()) -> Date? {
+        guard let months else { return nil }
+        return analyticsCalendar.date(byAdding: .month, value: -months, to: now)
+    }
 }
 
 /// How densely an equity curve is sampled.
@@ -50,6 +59,10 @@ private let analyticsCalendar: Calendar = {
 /// year and a half, so 1M/3M stay daily, up to ~18 months goes weekly, and multi-year
 /// history collapses to monthly.
 func growthBin(forSpanDays days: Double) -> GrowthBin {
+    // NaN fails every comparison below and would fall through to `.monthly` — the coarsest
+    // binning, silently flattening a chart. Treat it as a zero span (daily), matching the
+    // Kotlin twin, which already guards this and pins it in PortfolioAnalyticsTest.
+    let days = days.isFinite ? days : 0
     if days <= 92 { return .daily }
     if days <= 550 { return .weekly }
     return .monthly
@@ -97,8 +110,7 @@ func equityCurve<T: SnapshotValuePoint>(
         .map { GoalHistoryPoint(date: $0.key, value: $0.value) }
         .sorted { $0.date < $1.date }
 
-    if let months = range.months,
-       let cutoff = analyticsCalendar.date(byAdding: .month, value: -months, to: now) {
+    if let cutoff = range.cutoffDate(now: now) {
         points = points.filter { $0.date >= cutoff }
     }
 

@@ -18,6 +18,11 @@ struct TransactionsView: View {
     @State private var lastLoadedAt: Date?
     @State private var hiddenCategoryIds: Set<String> = []
     @State private var showCategoryFilter = false
+    /// How the list is bucketed; remembered between launches, like the web page does per household.
+    @AppStorage("transactionsGranularity") private var granularity: HistoryGranularity = .month
+    @State private var categoryPeriod: CategoryPeriod = .all
+    @State private var categoryPeriodStart: Date?
+    @State private var categoryPeriodEnd: Date?
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -40,18 +45,36 @@ struct TransactionsView: View {
     }
 
     /// Visible, non-transfer expense transactions — the source for the category breakdown below.
+    /// Scoped to the selected period; the Activity list underneath is deliberately *not*, so the
+    /// card can answer "what did I spend last month" without hiding the history.
     private var expenseTransactions: [TransactionResponse] {
-        transactions.filter { $0.transactionType == .expense && visibleAccountIds.contains($0.accountId) }
+        let range = categoryPeriod.range(customStart: categoryPeriodStart, customEnd: categoryPeriodEnd)
+        return transactions.filter {
+            $0.transactionType == .expense
+                && visibleAccountIds.contains($0.accountId)
+                && (range?.contains($0.date) ?? true)
+        }
     }
 
-    /// Every expense category that's actually shown up, used to populate the filter chips
-    /// (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
+    /// Every expense category that's shown up in the selected period, used to populate the filter
+    /// chips (independent of `hiddenCategoryIds`, so a hidden chip stays visible to re-enable).
     private var expenseCategoryOptions: [CategoryOption] {
         var seen: [String: String] = [:]
         for txn in expenseTransactions where seen[txn.categoryId] == nil {
             seen[txn.categoryId] = categoriesById[txn.categoryId]?.name ?? "Uncategorized"
         }
         return seen.map { CategoryOption(id: $0.key, name: $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    /// Stable category → colour map, derived from the household's full id-sorted expense-category
+    /// list rather than from the filtered render index, so a category keeps its colour no matter
+    /// which chips are hidden or which period is selected.
+    private var categoryColors: [String: Color] {
+        let expenseCats = categories.filter { $0.type == .expense }.sorted { $0.id < $1.id }
+        let palette = ChartStyle.categorical
+        return Dictionary(uniqueKeysWithValues: expenseCats.enumerated().map { index, cat in
+            (cat.id, palette[index % palette.count])
+        })
     }
 
     private var categoryBreakdown: (all: [CategorySpend], top: [CategorySpend], total: Double) {
@@ -75,8 +98,37 @@ struct TransactionsView: View {
         return Array(items.prefix(6)) + [CategorySpend(id: "other", name: "Other", amount: otherAmount)]
     }
 
+    /// Whether the card is shown at all. Deliberately ignores the period: gating on the *scoped*
+    /// list would make the whole card vanish the moment a period had no spending, taking the period
+    /// picker with it and stranding the user with no way back.
+    private var hasAnyExpenses: Bool {
+        transactions.contains { $0.transactionType == .expense && visibleAccountIds.contains($0.accountId) }
+    }
+
     private func toggleHiddenCategory(_ id: String) {
         if hiddenCategoryIds.contains(id) { hiddenCategoryIds.remove(id) } else { hiddenCategoryIds.insert(id) }
+    }
+
+    private func loadCategoryFilterPrefs() {
+        guard let householdId = session.activeHousehold?.id else { return }
+        let prefs = TopCategoryFilterStore.load(householdId: householdId)
+        hiddenCategoryIds = prefs.hiddenCategoryIds
+        categoryPeriod = prefs.period
+        categoryPeriodStart = prefs.customStart
+        categoryPeriodEnd = prefs.customEnd
+    }
+
+    private func saveCategoryFilterPrefs() {
+        guard let householdId = session.activeHousehold?.id else { return }
+        TopCategoryFilterStore.save(
+            TopCategoryFilterPrefs(
+                hiddenCategoryIds: hiddenCategoryIds,
+                period: categoryPeriod,
+                customStart: categoryPeriodStart,
+                customEnd: categoryPeriodEnd
+            ),
+            householdId: householdId
+        )
     }
 
     private var filtered: [TransactionResponse] {
@@ -94,20 +146,30 @@ struct TransactionsView: View {
         }
     }
 
-    /// Grouped by month for section headers.
-    private var byMonth: [(month: Date, transactions: [TransactionResponse])] {
-        Dictionary(grouping: filtered) { txn in
-            Calendar.current.dateInterval(of: .month, for: txn.date)?.start ?? txn.date
+    /// Grouped into day/month/year sections, each carrying what moved inside it.
+    /// `filtered` is already newest-first, so the sections come out in that order too.
+    private var groups: [HistoryGroup<TransactionResponse>] {
+        let accountsById = accountsById
+        return groupHistory(filtered, by: granularity) { txn in
+            HistoryEntry(
+                date: txn.date,
+                isTransfer: txn.transferId != nil,
+                isInflow: txn.transactionType == .income,
+                homeAmount: homeValue(
+                    stored: txn.amountHomeCurrency,
+                    nativeAmount: txn.amount,
+                    nativeCurrency: txn.currency ?? accountsById[txn.accountId]?.currency,
+                    baseCurrency: baseCurrency
+                )
+            )
         }
-        .map { (month: $0.key, transactions: $0.value) }
-        .sorted { $0.month > $1.month }
     }
 
     var body: some View {
         NavigationStack {
             List {
                 QuickAddPullSensor()
-                if !expenseTransactions.isEmpty {
+                if hasAnyExpenses {
                     Section {
                         CategoryBreakdownCard(
                             breakdown: categoryBreakdown,
@@ -115,8 +177,13 @@ struct TransactionsView: View {
                             categoryOptions: expenseCategoryOptions,
                             hiddenCategoryIds: hiddenCategoryIds,
                             showFilter: $showCategoryFilter,
+                            period: $categoryPeriod,
+                            customStart: $categoryPeriodStart,
+                            customEnd: $categoryPeriodEnd,
                             baseCurrency: baseCurrency,
-                            onToggle: toggleHiddenCategory
+                            colorForCategory: { categoryColors[$0] },
+                            onToggle: toggleHiddenCategory,
+                            onReset: { hiddenCategoryIds = [] }
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
@@ -124,9 +191,19 @@ struct TransactionsView: View {
                         Text("Top Categories")
                     }
                 }
-                ForEach(byMonth, id: \.month) { group in
-                    Section(group.month.monthYear) {
-                        ForEach(group.transactions) { txn in
+                Section {
+                    Picker("Group by", selection: $granularity) {
+                        ForEach(HistoryGranularity.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.items) { txn in
                             let row = TransactionRow(
                                 transaction: txn,
                                 categoryName: categoriesById[txn.categoryId]?.name,
@@ -142,8 +219,14 @@ struct TransactionsView: View {
                             }
                         }
                         .onDelete { offsets in
-                            delete(group.transactions, at: offsets)
+                            delete(group.items, at: offsets)
                         }
+                    } header: {
+                        HistorySectionHeader(
+                            label: group.label,
+                            summary: group.summary,
+                            baseCurrency: baseCurrency
+                        )
                     }
                 }
             }
@@ -210,6 +293,22 @@ struct TransactionsView: View {
             }
             .quickAddPull(quickAdd, onReload: load)
             .task { await loadIfNeeded() }
+            // Restore the saved Top-Categories filter/period on appear and whenever the active
+            // household changes, so the user doesn't re-hide the same categories every visit.
+            .onAppear { loadCategoryFilterPrefs() }
+            .onChange(of: session.activeHousehold?.id) { loadCategoryFilterPrefs() }
+            .onChange(of: hiddenCategoryIds) { saveCategoryFilterPrefs() }
+            // Seed an anchor when switching to "Specific month" — without one the range is
+            // unbounded, so the card would silently show all time under a label that says
+            // otherwise. The current month is the obvious starting point.
+            .onChange(of: categoryPeriod) {
+                if categoryPeriod.usesCustomStart && categoryPeriodStart == nil {
+                    categoryPeriodStart = Date()
+                }
+                saveCategoryFilterPrefs()
+            }
+            .onChange(of: categoryPeriodStart) { saveCategoryFilterPrefs() }
+            .onChange(of: categoryPeriodEnd) { saveCategoryFilterPrefs() }
             .alert("Error", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -553,6 +652,43 @@ struct TransferFormView: View {
     }
 }
 
+/// Section header for one day/month/year bucket: its label, plus the money that moved
+/// inside it. Mirrors the web Transactions group header.
+struct HistorySectionHeader: View {
+    let label: String
+    let summary: HistoryGroupSummary
+    let baseCurrency: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Spacer(minLength: 8)
+            if summary.inflow > 0 {
+                Text("+" + summary.inflow.currency(baseCurrency))
+                    .foregroundStyle(.green)
+            }
+            if summary.outflow > 0 {
+                Text("−" + summary.outflow.currency(baseCurrency))
+                    .foregroundStyle(.red)
+            }
+            if summary.showsNet {
+                Text("net " + (summary.net < 0 ? "−" : "+") + abs(summary.net).currency(baseCurrency))
+                    .foregroundStyle(summary.net < 0 ? .red : .green)
+            }
+            if summary.unconverted > 0 {
+                // Say so rather than quietly reporting a total that's missing rows.
+                Text("partial")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        "\(summary.unconverted) \(summary.unconverted == 1 ? "entry has" : "entries have") no \(baseCurrency) value and are not included"
+                    )
+            }
+        }
+        .font(.caption.monospacedDigit())
+        .textCase(nil)
+    }
+}
+
 struct CategoryOption: Identifiable, Hashable {
     let id: String
     let name: String
@@ -572,18 +708,42 @@ struct CategoryBreakdownCard: View {
     let categoryOptions: [CategoryOption]
     let hiddenCategoryIds: Set<String>
     @Binding var showFilter: Bool
+    @Binding var period: CategoryPeriod
+    @Binding var customStart: Date?
+    @Binding var customEnd: Date?
     let baseCurrency: String
+    /// Stable per-category colour from the parent; nil for buckets that aren't a real category
+    /// (the "Other" rollup slice, "Uncategorized").
+    let colorForCategory: (String) -> Color?
     let onToggle: (String) -> Void
+    let onReset: () -> Void
 
-    /// Reuses the Net Worth Split donut's palette (the web's `--chart-cat-1..5`) so a category
-    /// wedge here and an asset wedge on the Dashboard read from the same colour language.
-    private func color(_ index: Int) -> Color { NetWorthSplitChart.palette[index % NetWorthSplitChart.palette.count] }
+    /// Neutral fallback matching the web's `OTHER_SLICE_COLOR`.
+    private static let otherSliceColor = Color.secondary.opacity(0.4)
+
+    private func color(_ id: String) -> Color { colorForCategory(id) ?? Self.otherSliceColor }
 
     private var topMax: Double { max(breakdown.top.map(\.amount).max() ?? 1, 1) }
+
+    /// Bound non-optional dates for the two DatePickers; picking a date is what turns the
+    /// corresponding open-ended bound into a real one.
+    private var startBinding: Binding<Date> {
+        Binding(get: { customStart ?? Date() }, set: { customStart = $0 })
+    }
+    private var endBinding: Binding<Date> {
+        Binding(get: { customEnd ?? Date() }, set: { customEnd = $0 })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
+                Picker("Period", selection: $period) {
+                    ForEach(CategoryPeriod.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(.caption)
                 Spacer()
                 Button {
                     showFilter.toggle()
@@ -596,25 +756,43 @@ struct CategoryBreakdownCard: View {
                 }
             }
 
+            if period == .specificMonth {
+                MonthYearPicker(anchor: $customStart)
+            }
+
+            if period == .custom {
+                VStack(spacing: 4) {
+                    DatePicker("From", selection: startBinding, displayedComponents: .date)
+                    DatePicker("To", selection: endBinding, displayedComponents: .date)
+                }
+                .font(.caption)
+            }
+
             if showFilter {
-                CategoryFilterChips(options: categoryOptions, hiddenCategoryIds: hiddenCategoryIds, onToggle: onToggle)
+                CategoryFilterChips(
+                    options: categoryOptions,
+                    hiddenCategoryIds: hiddenCategoryIds,
+                    colorForCategory: colorForCategory,
+                    onToggle: onToggle,
+                    onReset: onReset
+                )
             }
 
             if breakdown.all.isEmpty {
-                Text(hiddenCategoryIds.isEmpty ? "No expenses yet." : "All categories are hidden.")
+                Text(hiddenCategoryIds.isEmpty ? "No expenses in this period." : "All categories are hidden.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             } else {
-                Chart(Array(pieSlices.enumerated()), id: \.element.id) { index, slice in
+                Chart(pieSlices) { slice in
                     SectorMark(
                         angle: .value("Amount", slice.amount),
                         innerRadius: .ratio(0.55),
                         angularInset: 1.5
                     )
                     .cornerRadius(3)
-                    .foregroundStyle(color(index))
+                    .foregroundStyle(color(slice.id))
                 }
                 .chartLegend(.hidden)
                 .frame(height: 140)
@@ -624,6 +802,7 @@ struct CategoryBreakdownCard: View {
                         let pct = breakdown.total > 0 ? cat.amount / breakdown.total * 100 : 0
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
+                                Circle().fill(color(cat.id)).frame(width: 8, height: 8)
                                 Text(cat.name).font(.caption)
                                 Spacer()
                                 Text(cat.amount.currencyWhole(baseCurrency))
@@ -637,7 +816,7 @@ struct CategoryBreakdownCard: View {
                                 ZStack(alignment: .leading) {
                                     Capsule().fill(.quaternary)
                                     Capsule()
-                                        .fill(Color.accentColor)
+                                        .fill(color(cat.id))
                                         .frame(width: geo.size.width * (cat.amount / topMax))
                                 }
                             }
@@ -651,37 +830,114 @@ struct CategoryBreakdownCard: View {
     }
 }
 
+/// Month + year menus for the "Specific month" period.
+///
+/// SwiftUI has no month-granularity DatePicker, and a day picker would imply the day matters
+/// (it doesn't — only year/month are read). Two menus keep the choice unambiguous and fit the
+/// card's width on a phone.
+private struct MonthYearPicker: View {
+    @Binding var anchor: Date?
+
+    private var calendar: Calendar { CategoryPeriod.utcCalendar }
+    private var current: Date { anchor ?? Date() }
+
+    /// A decade back plus the current year — spending history older than that is rare, and an
+    /// unbounded year list makes the menu unusable.
+    private var years: [Int] {
+        let thisYear = calendar.component(.year, from: Date())
+        return Array((thisYear - 10)...thisYear).reversed()
+    }
+
+    private static let monthNames: [String] = {
+        let f = DateFormatter()
+        f.locale = .current
+        return f.standaloneMonthSymbols ?? f.monthSymbols
+    }()
+
+    private func set(month: Int? = nil, year: Int? = nil) {
+        var components = DateComponents()
+        components.year = year ?? calendar.component(.year, from: current)
+        components.month = month ?? calendar.component(.month, from: current)
+        components.day = 1
+        anchor = calendar.date(from: components)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Picker("Month", selection: Binding(
+                get: { calendar.component(.month, from: current) },
+                set: { set(month: $0) }
+            )) {
+                ForEach(1...12, id: \.self) { month in
+                    Text(Self.monthNames[month - 1]).tag(month)
+                }
+            }
+            Picker("Year", selection: Binding(
+                get: { calendar.component(.year, from: current) },
+                set: { set(year: $0) }
+            )) {
+                ForEach(years, id: \.self) { year in
+                    Text(String(year)).tag(year)
+                }
+            }
+        }
+        .pickerStyle(.menu)
+        .font(.caption)
+    }
+}
+
 /// Toggleable capsule chips — tapping one adds/removes that category from `hiddenCategoryIds`.
 private struct CategoryFilterChips: View {
     let options: [CategoryOption]
     let hiddenCategoryIds: Set<String>
+    let colorForCategory: (String) -> Color?
     let onToggle: (String) -> Void
+    let onReset: () -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 80), spacing: 8)]
 
     var body: some View {
         if options.isEmpty {
-            Text("No expense categories yet.")
+            Text("No expense categories in this period.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                ForEach(options) { option in
-                    let hidden = hiddenCategoryIds.contains(option.id)
-                    Button {
-                        onToggle(option.id)
-                    } label: {
-                        Text(option.name)
-                            .font(.caption.weight(.medium))
-                            .lineLimit(1)
+            VStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                    ForEach(options) { option in
+                        let hidden = hiddenCategoryIds.contains(option.id)
+                        Button {
+                            onToggle(option.id)
+                        } label: {
+                            HStack(spacing: 5) {
+                                if !hidden, let dot = colorForCategory(option.id) {
+                                    Circle().fill(dot).frame(width: 7, height: 7)
+                                }
+                                Text(option.name)
+                                    .font(.caption.weight(.medium))
+                                    .lineLimit(1)
+                                    .strikethrough(hidden)
+                            }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(hidden ? Color(.tertiarySystemGroupedBackground) : Color.accentColor.opacity(0.16))
                             .foregroundStyle(hidden ? .secondary : Color.accentColor)
-                            .strikethrough(hidden)
                             .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                // Clears every hidden category at once — re-toggling a dozen chips by hand to get
+                // back to the full picture is the tedium this exists to remove.
+                if !hiddenCategoryIds.isEmpty {
+                    Button {
+                        onReset()
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                            .font(.caption.weight(.medium))
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
                 }
             }
         }

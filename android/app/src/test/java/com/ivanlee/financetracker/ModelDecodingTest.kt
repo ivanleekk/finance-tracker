@@ -5,6 +5,7 @@ import com.ivanlee.financetracker.data.model.AssetUpdate
 import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.model.EmergencyFundResponse
 import com.ivanlee.financetracker.data.model.LiquidityStatus
+import com.ivanlee.financetracker.data.model.PerformanceMetrics
 import com.ivanlee.financetracker.data.model.RecurringTransactionResponse
 import com.ivanlee.financetracker.data.model.SubPortfolioUpdate
 import com.ivanlee.financetracker.data.model.TransactionResponse
@@ -201,14 +202,16 @@ class ModelDecodingTest {
     @Test
     fun `an asset edit sends the pricing mode values the backend accepts`() {
         // schemas.AssetBase.pricing_mode is Literal["market", "manual"] — "auto" is a 422.
-        val body = json.encodeToString(AssetUpdate(ticker = "AAPL", pricingMode = "market"))
+        val body = json.encodeToString(
+            AssetUpdate(
+                ticker = "AAPL",
+                name = "Apple Inc.",
+                type = "stock",
+                currency = "USD",
+                pricingMode = "market",
+            )
+        )
         assertTrue(body, body.contains(""""pricing_mode":"market""""))
-    }
-
-    @Test
-    fun `a ticker-only asset fix omits name and currency so the backend re-enriches them`() {
-        val body = json.encodeToString(AssetUpdate(ticker = "AAPL", type = "stock"))
-        assertEquals("""{"ticker":"AAPL","type":"stock"}""", body)
     }
 
     @Test
@@ -241,5 +244,35 @@ class ModelDecodingTest {
             SubPortfolioUpdate(name = "House", ownerUserId = SubPortfolioUpdate.ownerSetTo("u1"))
         )
         assertTrue(body, body.contains(""""owner_user_id":"u1""""))
+    }
+
+    @Test
+    fun `performance metrics carry the annualized flag`() {
+        val m = json.decodeFromString<PerformanceMetrics>(
+            """
+            {
+              "simple_return": 0.12,
+              "time_weighted_return": 0.11,
+              "money_weighted_return": 0.095,
+              "annualized": true,
+              "volatility": 0.18,
+              "sharpe_ratio": 1.2,
+              "sortino_ratio": 1.6,
+              "treynor_ratio": 0.08,
+              "alpha": 0.02,
+              "beta": 1.05
+            }
+            """.trimIndent()
+        )
+        assertTrue(m.annualized)
+        assertEquals(1.2, m.sharpeRatio, 1e-9)
+    }
+
+    @Test
+    fun `performance metrics without the annualized flag read as period returns`() {
+        val m = json.decodeFromString<PerformanceMetrics>(
+            """{"simple_return":0.1,"time_weighted_return":0.1,"money_weighted_return":0.1,"volatility":0.1,"sharpe_ratio":1.0,"sortino_ratio":1.0}"""
+        )
+        assertFalse(m.annualized)
     }
 }

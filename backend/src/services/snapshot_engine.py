@@ -11,11 +11,16 @@ import pandas as pd
 from src.models import (
     Trade, PortfolioSnapshot, Asset, TradeType,
     Household, SubPortfolio, MarketPrice, FinancialAccount,
-    ExchangeRate, CASH_ASSET_TYPE, PRICING_MODE_MANUAL
+    ExchangeRate, CASH_ASSET_TYPE, PRICING_MODE_MANUAL, PSEUDO_ASSET_TYPES
 )
 from src.services.market_data import (
     fetch_and_cache_market_prices_range,
     fetch_and_cache_exchange_rates_range
+)
+from src.services.linked_account_service import (
+    balance_series,
+    get_linked_accounts,
+    get_or_create_linked_account_asset,
 )
 from src.services.cache import invalidate_household
 
@@ -50,15 +55,30 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
         for a in db.execute(select(Asset).where(Asset.id.in_(traded_asset_ids))).scalars().all()
     } if traded_asset_ids else {}
 
+    # B2. Accounts earmarked to a sub-portfolio (#252). Each gets a pseudo-asset
+    # valued daily at that account's own balance, so the money lands in the
+    # sub-portfolio's value / goal progress / equity curve without a trade.
+    linked_accounts = get_linked_accounts(db, household_id)
+    linked_by_asset_id = {}
+    for account in linked_accounts:
+        linked_asset = get_or_create_linked_account_asset(db, account)
+        assets[linked_asset.id] = linked_asset
+        linked_by_asset_id[linked_asset.id] = account
+    if linked_accounts:
+        db.commit()
+    linked_balances = balance_series(
+        db, [a.id for a in linked_accounts], start_date, end_date
+    )
+
     # C. Get all market prices for the range
     # Cash pseudo-assets have no market ticker: they are always worth 1.0 in
     # their own currency, so we exclude them from the yfinance fetch. Manual
     # assets (unlisted bonds, SSBs) are excluded from the fetch too, but their
     # user-recorded rows in market_prices still feed the price lookup below.
-    tickers = list(set([a.ticker for a in assets.values() if a.type != CASH_ASSET_TYPE]))
+    tickers = list(set([a.ticker for a in assets.values() if a.type not in PSEUDO_ASSET_TYPES]))
     market_tickers = list(set([
         a.ticker for a in assets.values()
-        if a.type != CASH_ASSET_TYPE and a.pricing_mode != PRICING_MODE_MANUAL
+        if a.type not in PSEUDO_ASSET_TYPES and a.pricing_mode != PRICING_MODE_MANUAL
     ]))
     fetch_and_cache_market_prices_range(db, market_tickers, start_date, end_date)
     
@@ -226,7 +246,31 @@ def run_snapshot_range(db: Session, household_id: uuid.UUID, start_date: date, e
                     "average_cost_basis": state["avg"],
                     "average_cost_basis_home_currency": state["avg"] * rate
                 })
-        
+
+        # 3. Earmarked accounts (#252): value each at its own balance for this day.
+        # Quantity carries the balance and price is fixed at 1.0, mirroring how the
+        # cash pseudo-asset is modelled, so the existing value/FX maths applies
+        # unchanged. Cost basis equals value -- an account balance has no gain of
+        # its own to report, and claiming one would show a fake return on the row.
+        for asset_id, account in linked_by_asset_id.items():
+            balance = linked_balances.get((curr_date, account.id))
+            if balance is None:
+                continue
+            rate = rate_lookup.get((curr_date, account.currency or home_curr, home_curr), 1.0)
+            all_snapshots.append({
+                "id": uuid.uuid7(),
+                "household_id": household_id,
+                "sub_portfolio_id": account.sub_portfolio_id,
+                "asset_id": asset_id,
+                "date": curr_date,
+                "quantity": balance,
+                "current_price": 1.0,
+                "exchange_rate_used": rate,
+                "current_value_home_currency": balance * rate,
+                "average_cost_basis": 1.0,
+                "average_cost_basis_home_currency": rate,
+            })
+
         curr_date += timedelta(days=1)
 
     # 3. BULK SAVE

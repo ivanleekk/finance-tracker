@@ -369,6 +369,9 @@ export type PerformanceMetrics = {
   simple_return: number;
   time_weighted_return: number;
   money_weighted_return: number;
+  // True when the window was long enough (>= 1 year) for the two returns above
+  // to be annualized; false when they are plain period returns over the window.
+  annualized?: boolean;
   volatility: number;
   sharpe_ratio: number;
   sortino_ratio: number;

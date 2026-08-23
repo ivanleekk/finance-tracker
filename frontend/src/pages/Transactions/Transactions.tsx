@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle, ListFilter } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2, PlusCircle, ListFilter, RotateCcw } from "lucide-react"
 import { Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
@@ -16,11 +16,29 @@ import { TopBar } from "../../components/TopBar"
 import { OwnershipTag } from "../../components/ui/OwnershipTag"
 import { useAuth } from "../../lib/AuthContext"
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
+import { groupHistory, type HistoryGranularity } from "../../lib/historyGroups"
 import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
 
 const CATEGORY_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)"];
+// Neutral fallback for buckets that aren't a real household category (the "Other" rollup slice, "Uncategorized").
+const OTHER_SLICE_COLOR = "var(--base-400)";
+
+type CategoryPeriodPreset = "all" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "this_year" | "specific_month" | "custom";
+
+const CATEGORY_PERIOD_OPTIONS: { value: CategoryPeriodPreset; label: string }[] = [
+    { value: "all", label: "All time" },
+    { value: "this_month", label: "This month" },
+    { value: "last_month", label: "Last month" },
+    { value: "last_3_months", label: "Last 3 months" },
+    { value: "last_6_months", label: "Last 6 months" },
+    { value: "this_year", label: "This year" },
+    { value: "specific_month", label: "Specific month" },
+    { value: "custom", label: "Custom range" },
+];
+
+const categoryFilterStorageKey = (householdId: string) => `ft:tx-category-filter:${householdId}`;
 
 function categoryIcon(name: string): string {
     const low = name.toLowerCase();
@@ -35,6 +53,30 @@ function categoryIcon(name: string): string {
     return "💳";
 }
 
+const HISTORY_GRANULARITIES: { value: HistoryGranularity; label: string }[] = [
+    { value: "day", label: "Day" },
+    { value: "month", label: "Month" },
+    { value: "year", label: "Year" },
+];
+
+const historyGranularityStorageKey = (householdId: string) => `ft:tx-group-by:${householdId}`;
+
+/**
+ * Best guess at a row's value in the household's base currency: the figure the
+ * backend already converted, or the row's own amount when it was already booked
+ * in the base currency. Anything else stays `null` — a foreign-currency row with
+ * no stored conversion is left out of the group totals rather than distorting them.
+ * The iOS and Android ports of this rule live in `HistoryGroups.swift` / `HistoryGroups.kt`.
+ */
+function homeValueOf(storedHomeAmount: number | null | undefined, nativeAmount: number, nativeCurrency: string | null | undefined, baseCurrency: string): number | null {
+    if (storedHomeAmount !== null && storedHomeAmount !== undefined) {
+        const n = Math.abs(Number(storedHomeAmount));
+        if (Number.isFinite(n)) return n;
+    }
+    if (nativeCurrency && nativeCurrency === baseCurrency) return Math.abs(nativeAmount);
+    return null;
+}
+
 type UnifiedHistoryItem = {
     id: string;
     type: string; // 'buy', 'sell', 'deposit', 'withdrawal', 'income', 'expense'
@@ -44,6 +86,8 @@ type UnifiedHistoryItem = {
     currencyNative: string;
     amountAccount: number;
     currencyAccount: string;
+    /** Value in the household's base currency, or null when it can't be converted. */
+    amountHome: number | null;
     shares: number | null;
     date: Date;
     status: string;
@@ -70,6 +114,51 @@ export default function Transactions() {
     const [filterFlow, setFilterFlow] = useState<"all" | "income" | "expense">("all")
     const [hiddenCategoryIds, setHiddenCategoryIds] = useState<Set<string>>(new Set())
     const [showCategoryFilter, setShowCategoryFilter] = useState(false)
+    const [categoryPeriod, setCategoryPeriod] = useState<CategoryPeriodPreset>("all")
+    const [categoryPeriodStart, setCategoryPeriodStart] = useState("")
+    const [categoryPeriodEnd, setCategoryPeriodEnd] = useState("")
+    const [historyGranularity, setHistoryGranularity] = useState<HistoryGranularity>("day")
+
+    // Restore the saved top-categories filter/period whenever the active household changes,
+    // so a user doesn't have to re-hide the same categories every time they come back.
+    useEffect(() => {
+        if (!activeHousehold) return;
+        try {
+            const raw = localStorage.getItem(categoryFilterStorageKey(activeHousehold.id));
+            const saved = raw ? JSON.parse(raw) : null;
+            setHiddenCategoryIds(new Set(saved?.hiddenCategoryIds || []));
+            setCategoryPeriod(saved?.categoryPeriod || "all");
+            setCategoryPeriodStart(saved?.categoryPeriodStart || "");
+            setCategoryPeriodEnd(saved?.categoryPeriodEnd || "");
+        } catch {
+            setHiddenCategoryIds(new Set());
+            setCategoryPeriod("all");
+            setCategoryPeriodStart("");
+            setCategoryPeriodEnd("");
+        }
+    }, [activeHousehold?.id])
+
+    useEffect(() => {
+        if (!activeHousehold) return;
+        localStorage.setItem(categoryFilterStorageKey(activeHousehold.id), JSON.stringify({
+            hiddenCategoryIds: Array.from(hiddenCategoryIds),
+            categoryPeriod,
+            categoryPeriodStart,
+            categoryPeriodEnd,
+        }));
+    }, [activeHousehold?.id, hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd])
+
+    // Remember how the activity list was last bucketed, per household.
+    useEffect(() => {
+        if (!activeHousehold) return;
+        const saved = localStorage.getItem(historyGranularityStorageKey(activeHousehold.id));
+        setHistoryGranularity(saved === "month" || saved === "year" ? saved : "day");
+    }, [activeHousehold?.id])
+
+    useEffect(() => {
+        if (!activeHousehold) return;
+        localStorage.setItem(historyGranularityStorageKey(activeHousehold.id), historyGranularity);
+    }, [activeHousehold?.id, historyGranularity])
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -113,6 +202,8 @@ export default function Transactions() {
             </div>
         )
     }
+
+    const baseCurrency = activeHousehold.base_currency || "USD";
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
@@ -219,6 +310,11 @@ export default function Transactions() {
         [trades]
     );
 
+    const transactionMap = useMemo(
+        () => new Map(transactions.map(tx => [tx.id, tx])),
+        [transactions]
+    );
+
     const combinedHistory = useMemo(() => {
         // Maps for O(1) lookups
         const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
@@ -234,6 +330,11 @@ export default function Transactions() {
             
             const nativeAmount = Number(t.quantity) * Number(t.price);
             const accountAmount = nativeAmount * Number(t.exchange_rate);
+            // A trade only has a home-currency figure through the funding transaction it
+            // settled against. Cash-settled trades (settle_from_cash) never create one, so
+            // they stay out of the group totals rather than being summed in the wrong currency.
+            const fundingTx = t.transaction_id ? transactionMap.get(t.transaction_id) : undefined;
+            const homeAmount = homeValueOf(fundingTx?.amount_home_currency, nativeAmount, t.currency || account?.currency, baseCurrency);
 
             return {
                 id: `trade-${t.id}`,
@@ -244,6 +345,7 @@ export default function Transactions() {
                 currencyNative: t.currency || "USD",
                 amountAccount: accountAmount,
                 currencyAccount: account?.currency || "USD",
+                amountHome: homeAmount,
                 shares: Number(t.quantity),
                 date: new Date(t.date),
                 status: "completed",
@@ -273,6 +375,7 @@ export default function Transactions() {
 
                 const nativeAmount = Math.abs(Number(tx.amount));
                 const accountAmount = nativeAmount * (Number(tx.exchange_rate) || 1);
+                const homeAmount = homeValueOf(tx.amount_home_currency, nativeAmount, tx.currency || account?.currency, baseCurrency);
 
                 return {
                     id: `tx-${tx.id}`,
@@ -283,6 +386,7 @@ export default function Transactions() {
                     currencyNative: tx.currency || account?.currency || "USD",
                     amountAccount: accountAmount,
                     currencyAccount: account?.currency || "USD",
+                    amountHome: homeAmount,
                     shares: null,
                     date: new Date(tx.date),
                     status: "completed",
@@ -298,7 +402,7 @@ export default function Transactions() {
 
         // 3. Unify and Sort
         return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds]);
+    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds, transactionMap, baseCurrency]);
 
     const isInflow = (type: string) => ['deposit', 'income', 'sell', 'transfer_in'].includes(type);
 
@@ -316,22 +420,10 @@ export default function Transactions() {
         });
     }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, filterFlow, viewMode, user?.id]);
 
-    const groupedHistory = useMemo(() => {
-        const groups = new Map<string, UnifiedHistoryItem[]>();
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-        filteredHistory.forEach(item => {
-            const d = new Date(item.date); d.setHours(0, 0, 0, 0);
-            const dayLabel = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-            let label: string;
-            if (d.getTime() === today.getTime()) label = `Today · ${dayLabel}`;
-            else if (d.getTime() === yesterday.getTime()) label = `Yesterday · ${dayLabel}`;
-            else label = item.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-            if (!groups.has(label)) groups.set(label, []);
-            groups.get(label)!.push(item);
-        });
-        return Array.from(groups.entries());
-    }, [filteredHistory]);
+    const groupedHistory = useMemo(
+        () => groupHistory(filteredHistory, historyGranularity),
+        [filteredHistory, historyGranularity]
+    );
 
     const cashflowData = useMemo(() => {
         const now = new Date();
@@ -358,12 +450,54 @@ export default function Transactions() {
         return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
     }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
 
-    // Every expense category that's actually shown up, used to populate the filter chips
-    // (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
+    // Date window the top-categories card (chips + pie chart) is scoped to. Kept separate from
+    // the "Activity Type/Account/Sub-Portfolio" filters below, which apply to the full history list.
+    const categoryPeriodRange = useMemo(() => {
+        const now = new Date();
+        switch (categoryPeriod) {
+            case "this_month":
+                return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: null as Date | null };
+            case "last_month":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: new Date(now.getFullYear(), now.getMonth(), 1) };
+            case "last_3_months":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 2, 1), end: null };
+            case "last_6_months":
+                return { start: new Date(now.getFullYear(), now.getMonth() - 5, 1), end: null };
+            case "this_year":
+                return { start: new Date(now.getFullYear(), 0, 1), end: null };
+            case "specific_month": {
+                // categoryPeriodStart doubles as the month anchor (always stored as a full
+                // YYYY-MM-DD so it stays valid for the custom range's date input too); only its
+                // year/month are read. End is exclusive — the 1st of the following month.
+                if (!categoryPeriodStart) return null;
+                const [year, month] = categoryPeriodStart.split("-").map(Number);
+                if (!year || !month) return null;
+                return { start: new Date(year, month - 1, 1), end: new Date(year, month, 1) };
+            }
+            case "custom":
+                return {
+                    start: categoryPeriodStart ? new Date(`${categoryPeriodStart}T00:00:00`) : null,
+                    end: categoryPeriodEnd ? new Date(`${categoryPeriodEnd}T23:59:59.999`) : null,
+                };
+            default:
+                return null;
+        }
+    }, [categoryPeriod, categoryPeriodStart, categoryPeriodEnd]);
+
+    const isInCategoryPeriod = (date: Date) => {
+        if (!categoryPeriodRange) return true;
+        if (categoryPeriodRange.start && date < categoryPeriodRange.start) return false;
+        if (categoryPeriodRange.end && date >= categoryPeriodRange.end) return false;
+        return true;
+    };
+
+    // Every expense category that's actually shown up in the selected period, used to populate the
+    // filter chips (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
     const expenseCategoryOptions = useMemo(() => {
         const seen = new Map<string, string>();
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            if (!isInCategoryPeriod(new Date(tx.date))) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const id = tx.category_id || "uncategorized";
@@ -375,7 +509,22 @@ export default function Transactions() {
         return Array.from(seen.entries())
             .map(([id, name]) => ({ id, name }))
             .sort((a, b) => a.name.localeCompare(b.name));
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds]);
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, categoryPeriodRange]);
+
+    // Stable id -> color mapping derived from the household's full expense-category list (sorted by
+    // id, not by amount), so a category keeps the same pie/legend color no matter what's hidden or
+    // which period is selected. "Other"/"Uncategorized" always get the same neutral fallback.
+    const categoryColorMap = useMemo(() => {
+        const expenseCats = categories
+            .filter(c => c.type === 'expense')
+            .slice()
+            .sort((a, b) => a.id.localeCompare(b.id));
+        const map = new Map<string, string>();
+        expenseCats.forEach((c, i) => map.set(c.id, CATEGORY_COLORS[i % CATEGORY_COLORS.length]));
+        return map;
+    }, [categories]);
+
+    const colorForSlice = (id: string) => categoryColorMap.get(id) ?? OTHER_SLICE_COLOR;
 
     const toggleHiddenCategory = (id: string) => {
         setHiddenCategoryIds(prev => {
@@ -385,11 +534,14 @@ export default function Transactions() {
         });
     };
 
+    const resetCategoryFilter = () => setHiddenCategoryIds(new Set());
+
     const categoryBreakdown = useMemo(() => {
         const categoryMap = new Map(categories.map(c => [c.id, c.name]));
         const byCategory = new Map<string, { name: string; amount: number }>();
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
+            if (!isInCategoryPeriod(new Date(tx.date))) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const catId = tx.category_id || "uncategorized";
@@ -406,7 +558,7 @@ export default function Transactions() {
         const top = all.slice(0, 4);
         const max = Math.max(1, ...top.map(c => c.amount));
         return { all, top, max, total };
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds]);
+    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds, categoryPeriodRange]);
 
     // Cap the pie chart at 6 slices + "Other" so it stays legible once a household has a long tail of categories.
     const pieSlices = useMemo(() => {
@@ -434,6 +586,11 @@ export default function Transactions() {
         const currency = currencies.find(c => c.code === currencyCode);
         const symbol = currency?.symbol || currencyCode;
         return `${prefix}${symbol}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+
+    const formatHomeAmount = (amount: number) => {
+        const symbol = currencies.find(c => c.code === baseCurrency)?.symbol || baseCurrency;
+        return `${symbol}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
     const formatDate = (date: Date) => {
@@ -494,26 +651,71 @@ export default function Transactions() {
                 </Card>
                 <Card>
                     <CardContent className="pt-6">
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                             <CardTitle className="text-sm">Top categories</CardTitle>
-                            <button
-                                type="button"
-                                onClick={() => setShowCategoryFilter(v => !v)}
-                                className={cn(
-                                    "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors",
-                                    showCategoryFilter || hiddenCategoryIds.size > 0
-                                        ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30"
-                                        : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
-                                )}
-                            >
-                                <ListFilter className="h-3.5 w-3.5" />
-                                Filter{hiddenCategoryIds.size > 0 ? ` (${hiddenCategoryIds.size} hidden)` : ""}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <Select
+                                    className="min-w-32"
+                                    value={categoryPeriod}
+                                    onChange={(v) => {
+                                        const next = v as CategoryPeriodPreset;
+                                        setCategoryPeriod(next);
+                                        // Seed an anchor so "Specific month" never silently behaves
+                                        // like "All time" under a label that says otherwise.
+                                        if (next === "specific_month" && !categoryPeriodStart) {
+                                            const now = new Date();
+                                            setCategoryPeriodStart(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`);
+                                        }
+                                    }}
+                                    options={CATEGORY_PERIOD_OPTIONS}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCategoryFilter(v => !v)}
+                                    className={cn(
+                                        "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors",
+                                        showCategoryFilter || hiddenCategoryIds.size > 0
+                                            ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30"
+                                            : "text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200"
+                                    )}
+                                >
+                                    <ListFilter className="h-3.5 w-3.5" />
+                                    Filter{hiddenCategoryIds.size > 0 ? ` (${hiddenCategoryIds.size} hidden)` : ""}
+                                </button>
+                            </div>
                         </div>
+                        {categoryPeriod === "specific_month" && (
+                            <div className="flex items-center gap-2 mb-4">
+                                <Input
+                                    type="month"
+                                    className="text-xs"
+                                    // Stored as a full date; the month input only wants YYYY-MM.
+                                    value={categoryPeriodStart.slice(0, 7)}
+                                    onChange={(e) => setCategoryPeriodStart(e.target.value ? `${e.target.value}-01` : "")}
+                                />
+                            </div>
+                        )}
+                        {categoryPeriod === "custom" && (
+                            <div className="flex items-center gap-2 mb-4">
+                                <Input
+                                    type="date"
+                                    className="text-xs"
+                                    value={categoryPeriodStart}
+                                    onChange={(e) => setCategoryPeriodStart(e.target.value)}
+                                />
+                                <span className="text-xs text-base-400">to</span>
+                                <Input
+                                    type="date"
+                                    className="text-xs"
+                                    value={categoryPeriodEnd}
+                                    onChange={(e) => setCategoryPeriodEnd(e.target.value)}
+                                />
+                            </div>
+                        )}
                         {showCategoryFilter && (
-                            <div className="flex flex-wrap gap-1.5 mb-4 pb-4 border-b border-base-100 dark:border-base-800">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-4 pb-4 border-b border-base-100 dark:border-base-800">
                                 {expenseCategoryOptions.length === 0 ? (
-                                    <span className="text-xs text-base-400">No expense categories yet.</span>
+                                    <span className="text-xs text-base-400">No expense categories in this period.</span>
                                 ) : expenseCategoryOptions.map(opt => {
                                     const hidden = hiddenCategoryIds.has(opt.id);
                                     return (
@@ -522,21 +724,35 @@ export default function Transactions() {
                                             type="button"
                                             onClick={() => toggleHiddenCategory(opt.id)}
                                             className={cn(
-                                                "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
+                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
                                                 hidden
                                                     ? "bg-base-100 dark:bg-base-900 text-base-400 dark:text-base-600 line-through"
                                                     : "bg-secondary-100 dark:bg-secondary-900/40 text-secondary-700 dark:text-secondary-300"
                                             )}
                                         >
+                                            <span
+                                                className="h-2 w-2 rounded-full shrink-0"
+                                                style={{ backgroundColor: hidden ? undefined : colorForSlice(opt.id) }}
+                                            />
                                             {opt.name}
                                         </button>
                                     );
                                 })}
+                                {hiddenCategoryIds.size > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={resetCategoryFilter}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors"
+                                    >
+                                        <RotateCcw className="h-3 w-3" />
+                                        Reset
+                                    </button>
+                                )}
                             </div>
                         )}
                         {categoryBreakdown.all.length === 0 ? (
                             <div className="text-sm text-base-500 py-4 text-center">
-                                {hiddenCategoryIds.size > 0 ? "All categories are hidden." : "No expenses yet."}
+                                {hiddenCategoryIds.size > 0 ? "All categories are hidden." : "No expenses in this period."}
                             </div>
                         ) : (
                             <>
@@ -552,8 +768,8 @@ export default function Transactions() {
                                                 paddingAngle={2}
                                                 stroke="none"
                                             >
-                                                {pieSlices.map((slice, i) => (
-                                                    <Cell key={slice.id} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
+                                                {pieSlices.map((slice) => (
+                                                    <Cell key={slice.id} fill={colorForSlice(slice.id)} />
                                                 ))}
                                             </Pie>
                                             <Tooltip
@@ -581,14 +797,17 @@ export default function Transactions() {
                                         return (
                                             <div key={cat.id}>
                                                 <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-sm text-base-700 dark:text-base-300">{cat.icon} {cat.name}</span>
+                                                    <span className="flex items-center gap-1.5 text-sm text-base-700 dark:text-base-300">
+                                                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: colorForSlice(cat.id) }} />
+                                                        {cat.icon} {cat.name}
+                                                    </span>
                                                     <span className="font-mono text-xs text-base-500">
                                                         {cat.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                         <span className="text-base-400 ml-1">· {pct.toFixed(0)}%</span>
                                                     </span>
                                                 </div>
                                                 <div className="h-1.5 rounded-full bg-base-100 dark:bg-base-800 overflow-hidden">
-                                                    <div className="h-full bg-secondary-500" style={{ width: `${(cat.amount / categoryBreakdown.max) * 100}%` }} />
+                                                    <div className="h-full" style={{ width: `${(cat.amount / categoryBreakdown.max) * 100}%`, backgroundColor: colorForSlice(cat.id) }} />
                                                 </div>
                                             </div>
                                         );
@@ -884,8 +1103,26 @@ export default function Transactions() {
             </Card>
 
             <Card className="overflow-hidden">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
                     <CardTitle>All Activity</CardTitle>
+                    <div className="flex items-center gap-1 rounded-lg bg-base-100 dark:bg-base-800 p-0.5" role="group" aria-label="Group activity by">
+                        {HISTORY_GRANULARITIES.map(g => (
+                            <button
+                                key={g.value}
+                                type="button"
+                                onClick={() => setHistoryGranularity(g.value)}
+                                aria-pressed={historyGranularity === g.value}
+                                className={cn(
+                                    "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                                    historyGranularity === g.value
+                                        ? "bg-white dark:bg-base-700 text-base-900 dark:text-base-50 shadow-sm"
+                                        : "text-base-500 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100"
+                                )}
+                            >
+                                {g.label}
+                            </button>
+                        ))}
+                    </div>
                 </CardHeader>
                 <CardContent className="p-0">
                     {groupedHistory.length === 0 && (
@@ -893,10 +1130,31 @@ export default function Transactions() {
                             No historical activity found matching these filters.
                         </div>
                     )}
-                    {groupedHistory.map(([label, items]) => (
-                        <div key={label}>
-                            <div className="px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
-                                {label}
+                    {groupedHistory.map(({ key, label, items, summary }) => (
+                        <div key={key}>
+                            <div className="flex items-center justify-between gap-3 flex-wrap px-6 py-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-base-400 dark:text-base-500 bg-base-50/50 dark:bg-base-900/50 border-y border-base-100 dark:border-base-800">
+                                <span>{label}</span>
+                                <span className="flex items-center gap-3 normal-case tracking-normal">
+                                    {summary.inflow > 0 && (
+                                        <span className="text-emerald-600 dark:text-emerald-400">+{formatHomeAmount(summary.inflow)}</span>
+                                    )}
+                                    {summary.outflow > 0 && (
+                                        <span className="text-red-500">−{formatHomeAmount(summary.outflow)}</span>
+                                    )}
+                                    {(summary.inflow > 0 && summary.outflow > 0) && (
+                                        <span className={cn("text-base-600 dark:text-base-300", summary.net > 0 && "text-emerald-600 dark:text-emerald-400", summary.net < 0 && "text-red-500")}>
+                                            net {summary.net < 0 ? "−" : "+"}{formatHomeAmount(summary.net)}
+                                        </span>
+                                    )}
+                                    {summary.unconverted > 0 && (
+                                        <span
+                                            className="text-base-400 dark:text-base-500"
+                                            title={`${summary.unconverted} ${summary.unconverted === 1 ? "entry has" : "entries have"} no ${baseCurrency} value and ${summary.unconverted === 1 ? "is" : "are"} not included`}
+                                        >
+                                            partial
+                                        </span>
+                                    )}
+                                </span>
                             </div>
                             <div className="divide-y divide-base-100 dark:divide-base-800">
                                 {items.map((item) => (

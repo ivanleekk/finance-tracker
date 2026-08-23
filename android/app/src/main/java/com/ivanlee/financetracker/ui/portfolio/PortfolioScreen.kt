@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
@@ -24,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +39,7 @@ import com.ivanlee.financetracker.data.model.PortfolioSnapshotResponse
 import com.ivanlee.financetracker.data.model.PortfolioTimeseriesPoint
 import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.GrowthRange
 import com.ivanlee.financetracker.logic.allocationSlices
 import com.ivanlee.financetracker.logic.compactCurrency
@@ -60,11 +61,11 @@ import com.ivanlee.financetracker.ui.components.PrivateBadge
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.StatTileData
-import com.ivanlee.financetracker.ui.components.SwipeActionRow
 import com.ivanlee.financetracker.ui.components.chartAccent
 import com.ivanlee.financetracker.ui.dashboard.HoldingRow
 import com.ivanlee.financetracker.ui.dashboard.percentString
 import com.ivanlee.financetracker.ui.dashboard.ratioString
+import com.ivanlee.financetracker.ui.dashboard.returnBasis
 import com.ivanlee.financetracker.ui.theme.amountColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -96,10 +97,17 @@ fun PortfolioScreen(
     var subPortfolios by remember { mutableStateOf<List<SubPortfolioResponse>>(emptyList()) }
     var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
     var metrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    // `metrics` scoped to `range`'s own window, for the Growth badge's percentage — see the
+    // LaunchedEffect below. Paired with the range it was fetched for so a slow response landing
+    // after the user has already flipped to a different range is never shown as if current.
+    var rangeMetrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    var rangeMetricsRange by remember { mutableStateOf<GrowthRange?>(null) }
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    // Fixing an asset created with the wrong ticker or currency. Reloads on save
+    // because the server replays this asset's snapshots.
     var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -153,6 +161,30 @@ fun PortfolioScreen(
     val slices = remember(holdings, assetsById) { allocationSlices(holdings, assetsById) }
     val fx = remember(holdings, assetsById) { fxExposure(holdings, assetsById, baseCurrency) }
 
+    // periodChange's own fraction is start-vs-end on the curve alone, so a monthly
+    // contribution counts as "growth" the same as market gains over any window. `metrics`
+    // (ALL) / `rangeMetrics` (shorter ranges) are already flow-adjusted the same way TWR/IRR
+    // are (issue #256's Modified Dietz fix), scoped to this same window, so this is what the
+    // Growth badge shows instead of periodChange's fraction whenever it's available.
+    LaunchedEffect(range, sessionVm.activeHousehold?.id) {
+        val h = sessionVm.activeHousehold ?: return@LaunchedEffect
+        val cutoff = range.cutoffDate() ?: return@LaunchedEffect // ALL is covered by `metrics`
+        val result = runCatching {
+            Api.get<PortfolioMetricsResponse>("/portfolio/household/${h.id}/metrics?start_date=${cutoff.apiDateOnly()}")
+        }.getOrNull()
+        if (result != null) {
+            rangeMetrics = result
+            rangeMetricsRange = range
+        }
+    }
+    val scopedReturn = if (range == GrowthRange.ALL) {
+        metrics?.overallMetrics?.simpleReturn
+    } else if (rangeMetricsRange == range) {
+        rangeMetrics?.overallMetrics?.simpleReturn
+    } else {
+        null
+    }
+
     // Sub-portfolio totals from the same latest snapshot, so a row and the header agree.
     val valueBySub = holdings.groupBy { it.subPortfolioId }
         .mapValues { entry -> entry.value.sumOf { it.currentValueHomeCurrency } }
@@ -194,12 +226,16 @@ fun PortfolioScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 change?.let { delta ->
+                    // scopedReturn (computed above) is the flow-adjusted figure for this same
+                    // window when it's available; delta.fraction (the naive curve ratio) is the
+                    // fallback while that fetch is in flight or has failed.
+                    val fraction = scopedReturn ?: delta.fraction
                     Text(
                         buildString {
                             append(delta.delta.compactCurrency(baseCurrency))
                             // A percentage is withheld when the window opened on a near-zero
                             // base: going from $42 to $13,104 is funding, not a +31,100% return.
-                            delta.fraction?.let { append("  (${it.signedPercent()})") }
+                            fraction?.let { append("  (${it.signedPercent()})") }
                             append("  ${range.label}")
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -282,28 +318,16 @@ fun PortfolioScreen(
                 ) {
                     holdings.forEach { holding ->
                         val asset = assetsById[holding.assetId]
-                        val row: @Composable () -> Unit = {
-                            HoldingRow(
-                                ticker = asset?.ticker ?: "—",
-                                name = asset?.name,
-                                quantity = holding.quantity,
-                                value = holding.currentValueHomeCurrency,
-                                currencyCode = baseCurrency,
-                            )
-                        }
-                        // Swipe right to fix a mistyped ticker (or the rest of the asset's
-                        // details). Editing isn't destructive, so it takes the start slot;
-                        // cash pseudo-assets aren't user-editable at all.
-                        if (asset != null && !asset.isCash) {
-                            SwipeActionRow(
-                                onStartAction = { editingAsset = asset },
-                                startIcon = Icons.Filled.Edit,
-                                startLabel = "Edit asset",
-                                content = row,
-                            )
-                        } else {
-                            row()
-                        }
+                        HoldingRow(
+                            ticker = asset?.ticker ?: "—",
+                            name = asset?.name,
+                            quantity = holding.quantity,
+                            value = holding.currentValueHomeCurrency,
+                            currencyCode = baseCurrency,
+                            // Cash and earmarked-account rows are derived from what they
+                            // stand for, so they get no edit affordance.
+                            onEdit = asset?.takeIf { !it.isPseudoAsset }?.let { { editingAsset = it } },
+                        )
                     }
                 }
             }
@@ -311,9 +335,8 @@ fun PortfolioScreen(
     }
 
     editingAsset?.let { asset ->
-        AssetFormDialog(
-            defaultCurrency = baseCurrency,
-            existing = asset,
+        AssetEditDialog(
+            asset = asset,
             onDismiss = { editingAsset = null },
             onSaved = { scope.launch { load() } },
         )
@@ -338,8 +361,8 @@ fun PerformanceTileGrid(
             StatTileData("Unrealized P&L", unrealizedGain.currency(currencyCode), signal = unrealizedGain),
             StatTileData("Div Yield", percentString(metrics?.dividendYield)),
             StatTileData("Overall Return", percentString(metrics?.simpleReturn), signal = metrics?.simpleReturn),
-            StatTileData("TWR (Ann.)", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
-            StatTileData("IRR / MWR", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
+            StatTileData("TWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
+            StatTileData("IRR / MWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
             StatTileData("Sharpe", ratioString(metrics?.sharpeRatio)),
             StatTileData("Sortino", ratioString(metrics?.sortinoRatio)),
             StatTileData(

@@ -213,6 +213,9 @@ class AccountBase(AccountLoanTerms):
     kind: AccountKind = AccountKind.asset
     currency: str
     owner_user_id: Optional[uuid.UUID] = None
+    # Earmarks the account to a sub-portfolio/goal (#252). The balance still counts
+    # once towards net worth; this additionally counts it towards that goal.
+    sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class AccountCreate(AccountBase):
@@ -226,6 +229,9 @@ class AccountUpdate(AccountLoanTerms):
     kind: Optional[AccountKind] = None
     currency: Optional[str] = None
     owner_user_id: Optional[uuid.UUID] = None
+    # Send an explicit null to un-earmark; omitting the key leaves the link alone
+    # (update_account uses exclude_unset).
+    sub_portfolio_id: Optional[uuid.UUID] = None
 
 
 class AccountResponse(AccountBase):
@@ -892,6 +898,11 @@ class PerformanceMetrics(BaseModel):
     simple_return: float
     time_weighted_return: float
     money_weighted_return: float
+    # True when the window was long enough (>= 1 year) for time_weighted_return
+    # and money_weighted_return to be annualized; False when they are the plain
+    # period returns over the window. Clients label the stat accordingly —
+    # annualizing a two-week window produced the nonsense figures in issue #256.
+    annualized: bool = False
     volatility: float
     sharpe_ratio: float
     sortino_ratio: float

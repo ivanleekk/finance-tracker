@@ -14,6 +14,8 @@ export type PortfolioLoaderData = {
     metrics: PortfolioMetricsResponse | null;
     dividends: DividendResponse[];
     accounts: AccountResponse[];
+    // For the asset editor's currency picker — a ticker created with the wrong
+    // currency is corrected from the holdings table.
     currencies: CurrencyResponse[];
 };
 

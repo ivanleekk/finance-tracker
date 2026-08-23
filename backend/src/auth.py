@@ -159,3 +159,65 @@ def verify_private_owner_visibility(owner_user_id, current_user: models.User) ->
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This item is private to another household member",
         )
+
+
+def visible_owner_filter(model, current_user: models.User):
+    """
+    The private-ownership rule as a SQL predicate: shared rows (NULL owner) plus the caller's
+    own private rows.
+
+    `verify_private_owner_visibility` is the single-row form and can't guard a *list* query --
+    a list endpoint that only checks `household_id` hands back every other member's private
+    rows. Both forms must exist, and list endpoints must use this one; see the accounts,
+    exports and budget services for the same predicate written out longhand.
+    """
+    return (model.owner_user_id.is_(None)) | (model.owner_user_id == current_user.id)
+
+
+def visible_account_ids(db: Session, household_id, current_user: models.User) -> list:
+    """Ids of the household's accounts this user may see (shared + their own private)."""
+    return [
+        row[0]
+        for row in db.query(models.FinancialAccount.id)
+        .filter(
+            models.FinancialAccount.household_id == household_id,
+            visible_owner_filter(models.FinancialAccount, current_user),
+        )
+        .all()
+    ]
+
+
+def visible_sub_portfolio_ids(db: Session, household_id, current_user: models.User) -> list:
+    """Ids of the household's sub-portfolios this user may see (shared + their own private)."""
+    return [
+        row[0]
+        for row in db.query(models.SubPortfolio.id)
+        .filter(
+            models.SubPortfolio.household_id == household_id,
+            visible_owner_filter(models.SubPortfolio, current_user),
+        )
+        .all()
+    ]
+
+
+def accessible_household_ids(db: Session, current_user: models.User) -> list:
+    """
+    Every household the caller owns or is a member of.
+
+    `verify_household_access` answers "may I touch *this* household"; some
+    resources (assets are global rows, not household-scoped) need the inverse
+    question -- "is this row one of mine at all" -- which needs the whole set.
+    """
+    owned = [
+        row[0]
+        for row in db.query(models.Household.id)
+        .filter(models.Household.owner_id == current_user.id)
+        .all()
+    ]
+    member_of = [
+        row[0]
+        for row in db.query(models.HouseholdMember.household_id)
+        .filter(models.HouseholdMember.user_id == current_user.id)
+        .all()
+    ]
+    return list(dict.fromkeys(owned + member_of))

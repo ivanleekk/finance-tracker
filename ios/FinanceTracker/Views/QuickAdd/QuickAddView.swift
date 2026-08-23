@@ -146,7 +146,7 @@ struct QuickAddView: View {
                 }
             }
             .sheet(isPresented: $showingNewAsset) {
-                AssetFormView(defaultCurrency: selectedAsset?.currency ?? accounts.first?.currency ?? baseCurrency) { created in
+                AssetCreateView(defaultCurrency: selectedAsset?.currency ?? accounts.first?.currency ?? baseCurrency) { created in
                     assets.append(created)
                     assetId = created.id
                 }

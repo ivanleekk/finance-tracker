@@ -113,9 +113,19 @@ struct PortfolioView: View {
                     }
                     .padding(.vertical, 4)
 
-                    if curve.count > 1 {
-                        GrowthChart(curve: curve, accent: session.theme.primary.accent, baseCurrency: baseCurrency)
-                            .padding(.vertical, 4)
+                    if !timeseries.isEmpty {
+                        if curve.count > 1 {
+                            GrowthChart(curve: curve, accent: session.theme.primary.accent, baseCurrency: baseCurrency)
+                                .padding(.vertical, 4)
+                        } else {
+                            Text("Not enough history in this range.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 24)
+                        }
+                        // Stays visible even when the window is too sparse to draw —
+                        // hiding it with the chart strands you on the empty range.
                         GrowthRangePicker(range: $range)
                     }
 
@@ -181,14 +191,15 @@ struct PortfolioView: View {
                                     row
                                 }
                             }
-                            // Swipe to fix a mistyped ticker (or the rest of the asset's
-                            // details). Cash pseudo-assets aren't user-editable.
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if let asset, !asset.isCash {
+                            // Swipe to fix a ticker or currency entered wrong at
+                            // creation. Cash and earmarked-account rows are derived
+                            // from elsewhere, so they get no edit affordance.
+                            .swipeActions(edge: .trailing) {
+                                if let asset, !asset.isPseudoAsset {
                                     Button { editingAsset = asset } label: {
-                                        Label("Edit Asset", systemImage: "pencil")
+                                        Label("Edit", systemImage: "pencil")
                                     }
-                                    .tint(session.theme.primary.accent)
+                                    .tint(.blue)
                                 }
                             }
                         }
@@ -276,16 +287,14 @@ struct PortfolioView: View {
                     }
                 }
             }
+            .sheet(item: $editingAsset) { asset in
+                AssetEditView(asset: asset) { await load() }
+            }
             .sheet(item: $pricingAsset) { asset in
                 if let household = session.activeHousehold {
                     RecordPriceView(asset: asset, householdId: household.id) {
                         await load()
                     }
-                }
-            }
-            .sheet(item: $editingAsset) { asset in
-                AssetFormView(existing: asset, defaultCurrency: baseCurrency) { _ in
-                    Task { await load() }
                 }
             }
             .overlay {
@@ -375,6 +384,14 @@ struct StatTile: View {
         value.map(\.signedPercent) ?? "N/A"
     }
 
+    /// Label for the basis a return is quoted on. The backend only annualizes
+    /// TWR and MWR once the window spans at least a year; shorter windows carry
+    /// the plain period return, and calling that "Ann." is how a 2% week ended
+    /// up displayed as +180% (issue #256).
+    static func returnBasis(_ annualized: Bool?) -> String {
+        (annualized ?? false) ? "Ann." : "Period"
+    }
+
     /// Green for gains, red for losses, primary for zero/absent.
     static func returnTint(_ value: Double?) -> Color {
         guard let value, value != 0 else { return .primary }
@@ -415,8 +432,8 @@ struct PerformanceTileGrid: View {
                 tint: unrealizedPL >= 0 ? .green : .red
             )
             StatTile(title: "Div Yield", value: divYieldString)
-            StatTile(title: "TWR (Ann.)", value: StatTile.percentString(metrics?.timeWeightedReturn), tint: StatTile.returnTint(metrics?.timeWeightedReturn))
-            StatTile(title: "IRR / MWR", value: StatTile.percentString(metrics?.moneyWeightedReturn), tint: StatTile.returnTint(metrics?.moneyWeightedReturn))
+            StatTile(title: "TWR (\(StatTile.returnBasis(metrics?.annualized)))", value: StatTile.percentString(metrics?.timeWeightedReturn), tint: StatTile.returnTint(metrics?.timeWeightedReturn))
+            StatTile(title: "IRR / MWR (\(StatTile.returnBasis(metrics?.annualized)))", value: StatTile.percentString(metrics?.moneyWeightedReturn), tint: StatTile.returnTint(metrics?.moneyWeightedReturn))
             StatTile(title: "Sharpe", value: StatTile.ratioString(metrics?.sharpeRatio))
             StatTile(title: "Sortino", value: StatTile.ratioString(metrics?.sortinoRatio))
             StatTile(title: "Treynor", value: StatTile.ratioString(metrics?.treynorRatio), subtitle: "Beta \(StatTile.ratioString(metrics?.beta))")
@@ -425,7 +442,9 @@ struct PerformanceTileGrid: View {
     }
 }
 
-/// The shared equity curve: a filled area under a line, y-axis in compact currency.
+/// The shared equity curve: a wash under a 2pt line, y-axis in compact currency.
+/// One series, so it keeps the household's accent — there is no second category for
+/// it to be confused with. See `ChartStyle`.
 struct GrowthChart: View {
     let curve: [GoalHistoryPoint]
     let accent: Color
@@ -433,28 +452,22 @@ struct GrowthChart: View {
     var compactHeight: CGFloat = 160
     var regularHeight: CGFloat = 280
 
+    private var span: TimeInterval? {
+        guard let first = curve.first?.date, let last = curve.last?.date else { return nil }
+        return last.timeIntervalSince(first)
+    }
+
     var body: some View {
         Chart(curve) { point in
             AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                .foregroundStyle(LinearGradient(
-                    colors: [accent.opacity(0.28), accent.opacity(0)],
-                    startPoint: .top, endPoint: .bottom
-                ))
+                .foregroundStyle(ChartStyle.accentFill(accent))
                 .interpolationMethod(.monotone)
             LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
                 .foregroundStyle(accent)
+                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.monotone)
         }
-        .chartYAxis {
-            AxisMarks(position: .trailing) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Double.self) {
-                        Text(v.compactCurrency(baseCurrency))
-                    }
-                }
-            }
-        }
+        .financeChartAxes(currency: baseCurrency, dateSpan: span)
         .adaptiveChartHeight(compact: compactHeight, regular: regularHeight)
     }
 }

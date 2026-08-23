@@ -56,7 +56,7 @@ import com.ivanlee.financetracker.ui.components.MoneyField
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.SwitchRow
 import com.ivanlee.financetracker.ui.transactions.CategoryEditDialog
-import com.ivanlee.financetracker.ui.portfolio.AssetFormDialog
+import com.ivanlee.financetracker.ui.portfolio.AssetCreateDialog
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -488,10 +488,10 @@ fun QuickAddSheet(
     }
 
     if (showNewAsset) {
-        AssetFormDialog(
+        AssetCreateDialog(
             defaultCurrency = selectedAsset?.currency ?: accounts.firstOrNull()?.currency ?: baseCurrency,
             onDismiss = { showNewAsset = false },
-            onSaved = { created ->
+            onCreated = { created ->
                 assets = assets + created
                 assetId = created.id
             },

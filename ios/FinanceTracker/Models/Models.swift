@@ -447,6 +447,9 @@ struct AssetResponse: Codable, Identifiable, Hashable {
 
     var isCash: Bool { type == "cash" }
     var isManualPriced: Bool { pricingMode == "manual" }
+    /// Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) holdings are generated
+    /// from the account or sub-portfolio they stand for; the API refuses to edit them.
+    var isPseudoAsset: Bool { type == "cash" || type == "linked_account" }
 }
 
 /// POST /portfolio/assets/{id}/price (schemas.ManualPriceCreate). Only valid for
@@ -475,16 +478,15 @@ struct AssetCreate: Encodable {
     let pricingMode: String
 }
 
-/// PUT /portfolio/assets/{id} (schemas.AssetUpdate). Fixes a mistyped ticker or the
-/// rest of an asset's details after the fact. Every field is optional and `nil` fields
-/// are left out of the request body, which is what lets the backend re-enrich name and
-/// currency from Yahoo Finance when only the ticker changed.
+/// PUT /portfolio/assets/{id} (schemas.AssetUpdate). Corrects an asset's identity --
+/// most often a ticker created under the wrong currency. Changing the ticker or the
+/// currency replays the holding households' snapshots server-side, so reload after.
 struct AssetUpdate: Encodable {
-    var ticker: String? = nil
-    var name: String? = nil
-    var type: String? = nil
-    var currency: String? = nil
-    var pricingMode: String? = nil
+    let ticker: String
+    let name: String
+    let type: String
+    let currency: String
+    let pricingMode: String
 }
 
 /// POST /portfolio/trades (schemas.TradeCreate). Buy/sell of an asset into a
@@ -664,6 +666,10 @@ struct PerformanceMetrics: Codable {
     let simpleReturn: Double
     let timeWeightedReturn: Double
     let moneyWeightedReturn: Double
+    /// True when the window was long enough (>= 1 year) for the two returns
+    /// above to be annualized; false when they are plain period returns over
+    /// the window. Optional so older backends still decode.
+    let annualized: Bool?
     let volatility: Double
     let sharpeRatio: Double
     let sortinoRatio: Double

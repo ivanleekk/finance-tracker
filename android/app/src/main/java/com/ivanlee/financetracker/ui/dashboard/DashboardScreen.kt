@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -467,8 +470,8 @@ private fun ReturnsGrid(metrics: PerformanceMetrics?) {
     AdaptiveStatGrid(
         listOf(
             StatTileData("Overall Return", percentString(metrics?.simpleReturn), signal = metrics?.simpleReturn),
-            StatTileData("TWR (Ann.)", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
-            StatTileData("IRR / MWR", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
+            StatTileData("TWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.timeWeightedReturn), signal = metrics?.timeWeightedReturn),
+            StatTileData("IRR / MWR (${returnBasis(metrics?.annualized)})", percentString(metrics?.moneyWeightedReturn), signal = metrics?.moneyWeightedReturn),
             StatTileData("Sharpe", ratioString(metrics?.sharpeRatio)),
         )
     )
@@ -478,6 +481,14 @@ fun percentString(value: Double?): String {
     if (value == null || !value.isFinite()) return "—"
     return String.format(java.util.Locale.getDefault(), "%+.1f%%", value * 100)
 }
+
+/**
+ * Label for the basis a return is quoted on. The backend only annualizes TWR
+ * and MWR once the window spans at least a year; shorter windows carry the
+ * plain period return, and calling that "Ann." is how a 2% week ended up
+ * displayed as +180% (issue #256).
+ */
+fun returnBasis(annualized: Boolean?): String = if (annualized == true) "Ann." else "Period"
 
 fun ratioString(value: Double?): String {
     if (value == null || !value.isFinite()) return "—"
@@ -562,6 +573,8 @@ fun HoldingRow(
     quantity: Double,
     value: Double,
     currencyCode: String,
+    /** Non-null adds a pencil for correcting the asset's ticker/currency (Portfolio tab only). */
+    onEdit: (() -> Unit)? = null,
 ) {
     ListItem(
         colors = cardListItemColors(),
@@ -572,7 +585,20 @@ fun HoldingRow(
                 maxLines = 1,
             )
         },
-        trailingContent = { Text(value.currency(currencyCode), style = MaterialTheme.typography.bodyMedium) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(value.currency(currencyCode), style = MaterialTheme.typography.bodyMedium)
+                if (onEdit != null) {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = "Edit $ticker",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
     )
 }
 

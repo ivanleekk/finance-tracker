@@ -174,7 +174,7 @@ struct TradeFormView: View {
                 if accountId == nil { accountId = accounts.first?.id }
             }
             .sheet(isPresented: $showingNewAsset) {
-                AssetFormView(defaultCurrency: selectedAsset?.currency ?? accounts.first?.currency ?? "USD") { created in
+                AssetCreateView(defaultCurrency: selectedAsset?.currency ?? accounts.first?.currency ?? "USD") { created in
                     assets.append(created)
                     assetId = created.id
                 }
@@ -363,43 +363,26 @@ struct CashMoveFormView: View {
 }
 
 /// Create a tradable asset (ticker/name/type/currency/pricing mode).
-///
-/// Pass `existing` to correct an asset that has already been traded (PUT) — a mistyped
-/// ticker is the usual reason — or omit it to create one (POST). Editing changes the
-/// asset itself, so every trade, dividend and holding already filed against it follows
-/// the correction; there is nothing to re-enter.
-struct AssetFormView: View {
+struct AssetCreateView: View {
     @Environment(\.dismiss) private var dismiss
 
-    let existing: AssetResponse?
     let defaultCurrency: String
-    let onSaved: (AssetResponse) -> Void
+    let onCreated: (AssetResponse) -> Void
 
     private static let assetTypes = ["stock", "etf", "bond", "crypto"]
 
-    @State private var ticker: String
-    @State private var name: String
-    @State private var assetType: String
+    @State private var ticker = ""
+    @State private var name = ""
+    @State private var assetType = "stock"
     @State private var currency: String
-    @State private var pricingMode: String
+    @State private var pricingMode = "market"
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private var isEditing: Bool { existing != nil }
-
-    init(
-        existing: AssetResponse? = nil,
-        defaultCurrency: String,
-        onSaved: @escaping (AssetResponse) -> Void
-    ) {
-        self.existing = existing
+    init(defaultCurrency: String, onCreated: @escaping (AssetResponse) -> Void) {
         self.defaultCurrency = defaultCurrency
-        self.onSaved = onSaved
-        _ticker = State(initialValue: existing?.ticker ?? "")
-        _name = State(initialValue: existing?.name ?? "")
-        _assetType = State(initialValue: existing?.type ?? "stock")
-        _currency = State(initialValue: existing?.currency ?? defaultCurrency)
-        _pricingMode = State(initialValue: existing?.pricingMode ?? "market")
+        self.onCreated = onCreated
+        _currency = State(initialValue: defaultCurrency)
     }
 
     private var canSave: Bool {
@@ -432,9 +415,7 @@ struct AssetFormView: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text(isEditing
-                         ? "“Market” prices from Yahoo Finance by ticker. Correcting the ticker applies to every trade, dividend and holding already recorded against this asset."
-                         : "“Market” prices from Yahoo Finance by ticker. “Manual” means you record prices yourself (e.g. unlisted bonds).")
+                    Text("“Market” prices from Yahoo Finance by ticker. “Manual” means you record prices yourself (e.g. unlisted bonds).")
                 }
 
                 if let errorMessage {
@@ -444,7 +425,7 @@ struct AssetFormView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Asset" : "New Asset")
+            .navigationTitle("New Asset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -462,41 +443,21 @@ struct AssetFormView: View {
         guard canSave else { return }
         isSaving = true
         errorMessage = nil
-        let cleanTicker = ticker.trimmingCharacters(in: .whitespaces).uppercased()
-        let cleanName = name.trimmingCharacters(in: .whitespaces)
-        let cleanCurrency = currency.trimmingCharacters(in: .whitespaces).uppercased()
         Task {
             defer { isSaving = false }
             do {
-                let saved: AssetResponse
-                if let existing {
-                    // Only send name/currency when they were actually edited here, so a
-                    // ticker-only fix lets the backend re-enrich both from Yahoo Finance
-                    // (it falls back to the stored values if the lookup fails).
-                    saved = try await APIClient.shared.put(
-                        "/portfolio/assets/\(existing.id)",
-                        body: AssetUpdate(
-                            ticker: cleanTicker,
-                            name: cleanName == existing.name ? nil : cleanName,
-                            type: assetType,
-                            currency: cleanCurrency == existing.currency ? nil : cleanCurrency,
-                            pricingMode: pricingMode
-                        )
+                let created: AssetResponse = try await APIClient.shared.post(
+                    "/portfolio/assets",
+                    body: AssetCreate(
+                        id: UUID().uuidString.lowercased(),
+                        ticker: ticker.trimmingCharacters(in: .whitespaces).uppercased(),
+                        name: name.trimmingCharacters(in: .whitespaces),
+                        type: assetType,
+                        currency: currency.trimmingCharacters(in: .whitespaces).uppercased(),
+                        pricingMode: pricingMode
                     )
-                } else {
-                    saved = try await APIClient.shared.post(
-                        "/portfolio/assets",
-                        body: AssetCreate(
-                            id: UUID().uuidString.lowercased(),
-                            ticker: cleanTicker,
-                            name: cleanName,
-                            type: assetType,
-                            currency: cleanCurrency,
-                            pricingMode: pricingMode
-                        )
-                    )
-                }
-                onSaved(saved)
+                )
+                onCreated(created)
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

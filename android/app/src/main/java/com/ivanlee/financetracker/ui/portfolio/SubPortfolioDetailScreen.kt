@@ -5,11 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +35,7 @@ import com.ivanlee.financetracker.data.model.PortfolioSnapshotResponse
 import com.ivanlee.financetracker.data.model.PortfolioTimeseriesPoint
 import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.GrowthRange
 import com.ivanlee.financetracker.logic.allocationSlices
 import com.ivanlee.financetracker.logic.compactCurrency
@@ -46,7 +50,6 @@ import com.ivanlee.financetracker.ui.components.DonutChart
 import com.ivanlee.financetracker.ui.components.LineChart
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
-import com.ivanlee.financetracker.ui.components.SwipeActionRow
 import com.ivanlee.financetracker.ui.components.chartAccent
 import com.ivanlee.financetracker.ui.dashboard.trimQuantity
 import com.ivanlee.financetracker.ui.theme.amountColor
@@ -76,14 +79,22 @@ fun SubPortfolioDetailScreen(
     var timeseries by remember { mutableStateOf<List<PortfolioTimeseriesPoint>>(emptyList()) }
     var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
     var metrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    // `metrics` scoped to `range`'s own window, for the Growth badge's percentage — see the
+    // LaunchedEffect below. Paired with the range it was fetched for so a slow response landing
+    // after the user has already flipped to a different range is never shown as if current.
+    var rangeMetrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
+    var rangeMetricsRange by remember { mutableStateOf<GrowthRange?>(null) }
     var range by remember { mutableStateOf(GrowthRange.SIX_MONTHS) }
     var tab by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Fixing an asset created with the wrong ticker or currency. Bumping the token
+    // re-runs the load below, because the server replays this asset's snapshots.
     var editingAsset by remember { mutableStateOf<AssetResponse?>(null) }
+    var reloadToken by remember { mutableIntStateOf(0) }
 
     val baseCurrency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
 
-    LaunchedEffect(subPortfolioId, sessionVm.activeHousehold?.id) {
+    LaunchedEffect(subPortfolioId, sessionVm.activeHousehold?.id, reloadToken) {
         val h = sessionVm.activeHousehold ?: return@LaunchedEffect
         try {
             coroutineScope {
@@ -126,6 +137,26 @@ fun SubPortfolioDetailScreen(
     val slices = remember(holdings, assetsById) { allocationSlices(holdings, assetsById) }
     val scopedMetrics = metrics?.subPortfolioMetrics?.firstOrNull { it.subPortfolioId == subPortfolioId }?.metrics
 
+    // periodChange's own fraction is start-vs-end on the curve alone, so a monthly
+    // contribution counts as "growth" the same as market gains over any window. `scopedMetrics`
+    // (ALL) / `rangeScopedMetrics` (shorter ranges) are already flow-adjusted the same way
+    // TWR/IRR are (issue #256's Modified Dietz fix), scoped to this same window, so this is
+    // what the Growth badge shows instead of periodChange's fraction whenever it's available.
+    LaunchedEffect(range, subPortfolioId, sessionVm.activeHousehold?.id) {
+        val h = sessionVm.activeHousehold ?: return@LaunchedEffect
+        val cutoff = range.cutoffDate() ?: return@LaunchedEffect // ALL is covered by `metrics`
+        val result = runCatching {
+            Api.get<PortfolioMetricsResponse>("/portfolio/household/${h.id}/metrics?start_date=${cutoff.apiDateOnly()}")
+        }.getOrNull()
+        if (result != null) {
+            rangeMetrics = result
+            rangeMetricsRange = range
+        }
+    }
+    val rangeScopedMetrics = (if (rangeMetricsRange == range) rangeMetrics else null)
+        ?.subPortfolioMetrics?.firstOrNull { it.subPortfolioId == subPortfolioId }?.metrics
+    val scopedReturn = if (range == GrowthRange.ALL) scopedMetrics?.simpleReturn else rangeScopedMetrics?.simpleReturn
+
     DetailScaffold(
         title = sub?.name ?: "Sub-portfolio",
         subtitle = totalValue.currency(baseCurrency),
@@ -156,10 +187,15 @@ fun SubPortfolioDetailScreen(
                     item {
                         SectionCard(title = "Growth") {
                             change?.let { delta ->
+                                // scopedReturn (computed above) is the flow-adjusted figure for
+                                // this same window when it's available; delta.fraction (the naive
+                                // curve ratio) is the fallback while that fetch is in flight or
+                                // has failed.
+                                val fraction = scopedReturn ?: delta.fraction
                                 Text(
                                     buildString {
                                         append(delta.delta.compactCurrency(baseCurrency))
-                                        delta.fraction?.let { append("  (${it.signedPercent()})") }
+                                        fraction?.let { append("  (${it.signedPercent()})") }
                                         append("  ${range.label}")
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
@@ -246,34 +282,23 @@ fun SubPortfolioDetailScreen(
                                 val asset = assetsById[holding.assetId]
                                 val gain = holding.currentValueHomeCurrency -
                                     holding.averageCostBasisHomeCurrency * holding.quantity
-                                // Swipe right to correct the asset behind this holding — a
-                                // mistyped ticker is the usual reason. Not destructive, so it
-                                // takes the start slot; cash pseudo-assets aren't editable.
-                                SwipeActionRow(
-                                    onStartAction = if (asset != null && !asset.isCash) {
-                                        { editingAsset = asset }
-                                    } else {
-                                        null
+                                ListItem(
+                                    colors = cardListItemColors(),
+                                    headlineContent = {
+                                        Text(asset?.ticker ?: "—", fontWeight = FontWeight.Medium)
                                     },
-                                    startIcon = Icons.Filled.Edit,
-                                    startLabel = "Edit asset",
-                                ) {
-                                    ListItem(
-                                        colors = cardListItemColors(),
-                                        headlineContent = {
-                                            Text(asset?.ticker ?: "—", fontWeight = FontWeight.Medium)
-                                        },
-                                        supportingContent = {
-                                            Text(
-                                                // Native currency for per-asset detail, home currency
-                                                // for the aggregate — the same rule as web and iOS.
-                                                "${trimQuantity(holding.quantity)} @ " +
-                                                    "${holding.averageCostBasis.currency(asset?.currency ?: baseCurrency)} avg · " +
-                                                    "now ${holding.price.currency(asset?.currency ?: baseCurrency)}",
-                                                maxLines = 2,
-                                            )
-                                        },
-                                        trailingContent = {
+                                    supportingContent = {
+                                        Text(
+                                            // Native currency for per-asset detail, home currency
+                                            // for the aggregate — the same rule as web and iOS.
+                                            "${trimQuantity(holding.quantity)} @ " +
+                                                "${holding.averageCostBasis.currency(asset?.currency ?: baseCurrency)} avg · " +
+                                                "now ${holding.price.currency(asset?.currency ?: baseCurrency)}",
+                                            maxLines = 2,
+                                        )
+                                    },
+                                    trailingContent = {
+                                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                             Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
                                                 Text(
                                                     holding.currentValueHomeCurrency.currency(baseCurrency),
@@ -285,10 +310,21 @@ fun SubPortfolioDetailScreen(
                                                     color = amountColor(gain),
                                                 )
                                             }
-                                        },
-                                        modifier = Modifier.clickable { onRecordTrade(subPortfolioId) },
-                                    )
-                                }
+                                            // Cash and earmarked-account rows stand for something
+                                            // else, so the API refuses to edit them.
+                                            if (asset != null && !asset.isPseudoAsset) {
+                                                IconButton(onClick = { editingAsset = asset }) {
+                                                    Icon(
+                                                        Icons.Filled.Edit,
+                                                        contentDescription = "Edit ${asset.ticker}",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.clickable { onRecordTrade(subPortfolioId) },
+                                )
                             }
                         }
                     }
@@ -302,13 +338,10 @@ fun SubPortfolioDetailScreen(
     }
 
     editingAsset?.let { asset ->
-        AssetFormDialog(
-            defaultCurrency = baseCurrency,
-            existing = asset,
+        AssetEditDialog(
+            asset = asset,
             onDismiss = { editingAsset = null },
-            // An asset edit doesn't move any holding, so swapping the saved row into the
-            // already-loaded list is enough — no need to refetch the whole screen.
-            onSaved = { saved -> assets = assets.map { if (it.id == saved.id) saved else it } },
+            onSaved = { reloadToken++ },
         )
     }
 }

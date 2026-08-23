@@ -294,4 +294,11 @@ struct PortfolioAnalyticsTests {
     @Test func fxExposureIsEmptyWithoutValue() {
         #expect(fxExposure(holdings: [], assetsById: [:], fallbackCurrency: "USD").isEmpty)
     }
+
+    /// Matches PortfolioAnalyticsTest.kt: a non-finite span must not fall through to the
+    /// coarsest bin, which would silently flatten a chart.
+    @Test func growthBinTreatsNonFiniteSpanAsDaily() {
+        #expect(growthBin(forSpanDays: .nan) == .daily)
+        #expect(growthBin(forSpanDays: .infinity) == .daily)
+    }
 }

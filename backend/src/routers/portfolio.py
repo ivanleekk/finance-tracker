@@ -7,13 +7,14 @@ from datetime import datetime, date
 
 from src.database import get_db, SessionLocal
 from src import schemas, models
-from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
+from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_sub_portfolio_ids, accessible_household_ids
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
 from src.services.performance import calculate_performance_metrics, fetch_rf_and_benchmark_rows
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
+from src.services.asset_service import asset_edit_replay_range, migrate_market_prices, normalize_asset_edit
 from src.services.cache import cache_get_or_compute
 from datetime import date
 import yfinance as yf
@@ -272,42 +273,82 @@ def update_asset(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    """
+    Correct an asset's identity -- the ticker it was created under, its name,
+    type, currency or pricing mode.
+
+    Getting the currency wrong at creation (a .SI listing entered as USD) is the
+    motivating case, and it is not a cosmetic edit: every home-currency value in
+    ``portfolio_snapshots`` was converted with it. So the ripple is handled here
+    rather than left to the next nightly run -- the cached prices follow the
+    ticker (or are dropped, for market-priced assets, and refetched under the new
+    symbol) and each holding household's snapshots replay from its first trade.
+    See ``services/asset_service.py``.
+    """
     db_asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not db_asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    update_data = asset_update.model_dump(exclude_unset=True)
+    # Cash (CASH.<CUR>) and earmarked-account (ACCT.<uuid>) pseudo-assets derive
+    # their ticker, name and currency from the thing they stand for; editing the
+    # row here would just be overwritten by the next get-or-create.
+    if db_asset.type in models.PSEUDO_ASSET_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Cash and earmarked-account holdings can't be edited directly. Change the account or sub-portfolio instead.",
+        )
 
-    # A ticker fix (e.g. the user typo'd it when first trading) is the whole
-    # point of editing an asset, so re-enrich name/currency from yfinance the
-    # same way asset creation does. Only fill fields the caller didn't
-    # explicitly submit themselves, and only fall back to user input if the
-    # lookup fails or the new ticker isn't found.
-    new_ticker = update_data.get("ticker")
-    pricing_mode = update_data.get("pricing_mode", db_asset.pricing_mode)
-    if new_ticker and new_ticker.upper() != db_asset.ticker and pricing_mode != models.PRICING_MODE_MANUAL:
-        try:
-            t = yf.Ticker(new_ticker)
-            info = t.info
-            if info:
-                if "name" not in update_data:
-                    fetched_name = info.get('shortName') or info.get('longName')
-                    if fetched_name:
-                        update_data["name"] = fetched_name
-                if "currency" not in update_data:
-                    fetched_currency = info.get('currency')
-                    if fetched_currency:
-                        update_data["currency"] = fetched_currency
-        except Exception as e:
-            logger.warning(f"Failed to enrich asset {new_ticker} from yfinance: {e}")
+    holdings = asset_edit_replay_range(db, asset_id)
+    holder_ids = {household_id for household_id, _ in holdings}
+    if holder_ids and not (holder_ids & set(accessible_household_ids(db, current_user))):
+        raise HTTPException(status_code=403, detail="This asset is only held by another household")
 
-    for key, value in update_data.items():
-        if key in ("ticker", "currency") and value:
-            value = value.upper()
+    changes = normalize_asset_edit(asset_update.model_dump(exclude_unset=True))
+
+    new_ticker = changes.get("ticker", db_asset.ticker)
+    if "ticker" in changes and not new_ticker:
+        raise HTTPException(status_code=400, detail="Ticker cannot be empty")
+    if "currency" in changes and not changes.get("currency"):
+        raise HTTPException(status_code=400, detail="Currency cannot be empty")
+    if changes.get("type") in models.PSEUDO_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=f"'{changes['type']}' is reserved for system-generated holdings")
+
+    if new_ticker != db_asset.ticker:
+        clash = (
+            db.query(models.Asset)
+            .filter(models.Asset.ticker == new_ticker, models.Asset.id != asset_id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ticker {new_ticker} already exists. Trade that asset instead of renaming this one.",
+            )
+
+    old_ticker = db_asset.ticker
+    old_currency = db_asset.currency
+
+    for key, value in changes.items():
         setattr(db_asset, key, value)
+
+    migrate_market_prices(
+        db,
+        old_ticker=old_ticker,
+        new_ticker=db_asset.ticker,
+        old_currency=old_currency,
+        new_currency=db_asset.currency,
+        pricing_mode=db_asset.pricing_mode,
+    )
 
     db.commit()
     db.refresh(db_asset)
+
+    # A name/type-only edit changes nothing a snapshot depends on.
+    if db_asset.ticker != old_ticker or (db_asset.currency or "") != (old_currency or ""):
+        today = date.today()
+        for household_id, first_trade_date in holdings:
+            run_snapshot_range(db, household_id, first_trade_date, today)
+
     return db_asset
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -663,7 +704,13 @@ def get_household_trades(
     current_user: models.User = Depends(get_current_user)
 ):
     verify_household_access(household_id, current_user, db)
-    trades = db.query(models.Trade).filter(models.Trade.household_id == household_id).all()
+    # Sub-portfolio scoping: a private goal's trades reveal what another member holds.
+    trades = db.query(models.Trade).filter(
+        models.Trade.household_id == household_id,
+        models.Trade.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    ).all()
     # transform for schema
     return [
         schemas.TradeResponse(
@@ -974,7 +1021,14 @@ def get_household_portfolio_snapshots(
 ):
     verify_household_access(household_id, current_user, db)
 
-    query = db.query(models.PortfolioSnapshot).filter(models.PortfolioSnapshot.household_id == household_id)
+    # Scope to sub-portfolios this user may see -- filtering on household alone hands back
+    # another member's private holdings (quantities, cost basis and current value).
+    query = db.query(models.PortfolioSnapshot).filter(
+        models.PortfolioSnapshot.household_id == household_id,
+        models.PortfolioSnapshot.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    )
     query = _filter_by_date_range(query, start_date, end_date)
     if latest_only:
         query = _restrict_to_latest_date(query)
@@ -1020,7 +1074,12 @@ def get_household_portfolio_timeseries(
         models.PortfolioSnapshot.date,
         models.PortfolioSnapshot.sub_portfolio_id,
         func.coalesce(func.sum(models.PortfolioSnapshot.current_value_home_currency), 0).label("total_value_home_currency"),
-    ).filter(models.PortfolioSnapshot.household_id == household_id)
+    ).filter(
+        models.PortfolioSnapshot.household_id == household_id,
+        models.PortfolioSnapshot.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    )
     query = _filter_by_date_range(query, start_date, end_date)
     rows = query.group_by(models.PortfolioSnapshot.date, models.PortfolioSnapshot.sub_portfolio_id).all()
 
@@ -1254,7 +1313,13 @@ def get_household_dividends(
     # is current whenever the Dividends or Portfolio page is opened. Cheap no-op
     # (one indexed query) when nothing is due.
     materialize_scheduled_dividends(db, household_id)
-    dividends = db.query(models.Dividend).filter(models.Dividend.household_id == household_id).all()
+    # Sub-portfolio scoping: payouts disclose the positions behind them.
+    dividends = db.query(models.Dividend).filter(
+        models.Dividend.household_id == household_id,
+        models.Dividend.sub_portfolio_id.in_(
+            visible_sub_portfolio_ids(db, household_id, current_user)
+        ),
+    ).all()
     return dividends
 
 @router.put("/dividends/{dividend_id}", response_model=schemas.DividendResponse)

@@ -113,6 +113,7 @@ struct ModelDecodingTests {
           "simple_return": 0.12,
           "time_weighted_return": 0.11,
           "money_weighted_return": 0.095,
+          "annualized": true,
           "volatility": 0.18,
           "sharpe_ratio": 1.2,
           "sortino_ratio": 1.6,
@@ -128,6 +129,27 @@ struct ModelDecodingTests {
         #expect(abs(m.sortinoRatio - 1.6) < 0.0001)
         #expect(abs((m.beta ?? 0) - 1.05) < 0.0001)
         #expect(abs((m.alpha ?? 0) - 0.02) < 0.0001)
+        #expect(m.annualized == true)
+    }
+
+    @Test func decodesPerformanceMetricsWithoutAnnualizedFlag() throws {
+        // `annualized` is optional so a response from an older backend (or any
+        // payload predating it) still decodes, reading as "not annualized".
+        let json = """
+        {
+          "simple_return": 0.12,
+          "time_weighted_return": 0.11,
+          "money_weighted_return": 0.095,
+          "volatility": 0.18,
+          "sharpe_ratio": 1.2,
+          "sortino_ratio": 1.6,
+          "treynor_ratio": null,
+          "alpha": null,
+          "beta": null
+        }
+        """.data(using: .utf8)!
+        let m = try decoder.decode(PerformanceMetrics.self, from: json)
+        #expect(m.annualized == nil)
     }
 
     // MARK: encoding — snake_case out + partial-update omission semantics
@@ -208,15 +230,5 @@ struct ModelDecodingTests {
         #expect(text.contains("\"ticker\":\"AAPL\""))
         #expect(text.contains("\"name\":\"Apple Inc.\""))
         #expect(text.contains("\"pricing_mode\":\"market\""))
-    }
-
-    @Test func assetUpdateOmitsUntouchedFields() throws {
-        // A ticker-only fix leaves name/currency out so the backend can re-enrich
-        // both from yfinance (schemas.AssetUpdate + exclude_unset).
-        let update = AssetUpdate(ticker: "AAPL", type: "stock", pricingMode: "market")
-        let text = String(data: try encoder.encode(update), encoding: .utf8)!
-        #expect(text.contains("\"ticker\":\"AAPL\""))
-        #expect(!text.contains("name"))
-        #expect(!text.contains("currency"))
     }
 }

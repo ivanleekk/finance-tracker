@@ -83,11 +83,17 @@ if [[ -z "$IPA_PATH" ]]; then
   exit 1
 fi
 
+FAILED_DEVICES=()
+
 for entry in "${DEVICES[@]}"; do
   udid="${entry%%$'\t'*}"
   name="${entry#*$'\t'}"
   echo "==> Installing on $name ($udid)"
-  xcrun devicectl device install app --device "$udid" "$IPA_PATH"
+  if ! xcrun devicectl device install app --device "$udid" "$IPA_PATH"; then
+    echo "    (install failed — device may be unreachable/locked; skipping to next device)" >&2
+    FAILED_DEVICES+=("$name ($udid)")
+    continue
+  fi
 
   if [[ "$LAUNCH_AFTER_INSTALL" == "1" ]]; then
     echo "==> Launching on $name"
@@ -96,4 +102,11 @@ for entry in "${DEVICES[@]}"; do
   fi
 done
 
-echo "==> Done."
+if [[ "${#FAILED_DEVICES[@]}" -gt 0 ]]; then
+  echo "==> Done, with ${#FAILED_DEVICES[@]} failure(s):"
+  for f in "${FAILED_DEVICES[@]}"; do
+    echo "    - $f"
+  done
+else
+  echo "==> Done."
+fi
