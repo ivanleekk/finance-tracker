@@ -7,6 +7,7 @@ import Charts
 /// funded it, and recent contributions; supports editing, deleting, and adding funds.
 struct GoalDetailView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
     @Environment(\.dismiss) private var dismiss
 
     let goal: SubPortfolioResponse
@@ -25,6 +26,8 @@ struct GoalDetailView: View {
     @State private var isEditing = false
     @State private var isAddingFunds = false
     @State private var confirmingDelete = false
+    /// Where the finger is on the projection chart, or nil when nobody is scrubbing.
+    @State private var chartScrubDate: Date?
     @State private var errorMessage: String?
 
     init(goal: SubPortfolioResponse, onChanged: @escaping () async -> Void = {}) {
@@ -113,6 +116,7 @@ struct GoalDetailView: View {
             .padding(16)
         }
         .background(Color(.systemGroupedBackground))
+        .quickAddPull(quickAdd, onReload: reload)
         .navigationTitle(goalState.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -259,6 +263,15 @@ struct GoalDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if history.count > 1 {
+                let readout = chartScrubDate
+                    .flatMap { ChartStyle.nearest(to: $0, in: history, by: \.date) }
+                    .map { point in
+                        ChartScrubReadout(
+                            date: point.date,
+                            entries: [ChartScrubEntry(label: "Saved", value: point.value,
+                                                      color: accent, markerY: point.value)]
+                        )
+                    }
                 Chart {
                     ForEach(history) { point in
                         AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
@@ -279,7 +292,11 @@ struct GoalDetailView: View {
                     }
                 }
                 .financeChartAxes(currency: baseCurrency, showsXAxis: false)
+                .chartScrub(selection: $chartScrubDate, readout: readout)
                 .adaptiveChartHeight(compact: 160, regular: 260)
+
+                ChartScrubCaption(readout: readout, currency: baseCurrency,
+                                  selection: $chartScrubDate)
             }
         }
     }

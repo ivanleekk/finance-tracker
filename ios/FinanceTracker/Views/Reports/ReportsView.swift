@@ -7,6 +7,7 @@ import UIKit
 /// Pushed from the More tab, so it uses the caller's NavigationStack.
 struct ReportsView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var report: HouseholdReportResponse?
     @State private var isLoading = true
@@ -129,7 +130,7 @@ struct ReportsView: View {
                 LoadingSkeleton(showsHeader: true)
             }
         }
-        .refreshable { await load() }
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .sheet(item: $exportFile) { file in
             ShareSheet(items: [file.url])

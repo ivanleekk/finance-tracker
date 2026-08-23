@@ -5,6 +5,7 @@ import SwiftUI
 /// Pushed from the More tab, so it uses the caller's NavigationStack.
 struct HouseholdMembersView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
     @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var members: [HouseholdMemberUserResponse] = []
@@ -12,6 +13,9 @@ struct HouseholdMembersView: View {
     @State private var isLoading = true
     @State private var showingInvite = false
     @State private var errorMessage: String?
+    // On the screen, not the row — a dialog presented from inside a swipe-actions row
+    // is torn down with the row's collapse animation before it shows.
+    @State private var pendingRemoval: HouseholdMemberUserResponse?
 
     private var household: HouseholdResponse? { session.activeHousehold }
 
@@ -39,8 +43,31 @@ struct HouseholdMembersView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
+                    // Per-row rather than `.onDelete` for two reasons: removing someone
+                    // from a household is irreversible from here and needs confirming,
+                    // and you can't remove yourself — the old blanket `.onDelete` still
+                    // offered the button on your own row and then silently did nothing.
+                    .swipeActions(allowsFullSwipe: false) {
+                        if member.userId != session.user?.id {
+                            Button(role: .destructive) {
+                                pendingRemoval = member
+                            } label: {
+                                Label("Remove", systemImage: "person.badge.minus")
+                            }
+                        }
+                    }
+                    // Same action on a long press: a swipe is invisible until you try
+                    // it, and unreachable from Voice Control / Switch Control.
+                    .contextMenu {
+                        if member.userId != session.user?.id {
+                            Button(role: .destructive) {
+                                pendingRemoval = member
+                            } label: {
+                                Label("Remove from Household", systemImage: "person.badge.minus")
+                            }
+                        }
+                    }
                 }
-                .onDelete { offsets in removeMembers(at: offsets) }
             }
 
             if !pendingInvites.isEmpty {
@@ -82,7 +109,24 @@ struct HouseholdMembersView: View {
         .overlay {
             if isLoading && members.isEmpty { LoadingSkeleton() }
         }
-        .refreshable { await load() }
+        .quickAddPull(quickAdd, onReload: load)
+        .confirmationDialog(
+            pendingRemoval.map { "Remove \($0.name) from this household?" } ?? "Remove this member?",
+            isPresented: .init(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let member = pendingRemoval,
+                   let index = members.firstIndex(where: { $0.id == member.id }) {
+                    removeMembers(at: IndexSet(integer: index))
+                }
+            }
+        } message: {
+            Text("They lose access to shared accounts and goals. Re-invite them to undo it.")
+        }
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },

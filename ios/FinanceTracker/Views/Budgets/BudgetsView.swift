@@ -7,6 +7,7 @@ import SwiftUI
 /// long would I last if the income stopped".
 struct BudgetsView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(QuickAddStore.self) private var quickAdd
 
     @State private var status: BudgetStatusResponse?
     @State private var fund: EmergencyFundResponse?
@@ -15,6 +16,10 @@ struct BudgetsView: View {
     @State private var showingAddBudget = false
     @State private var editingBudget: BudgetStatusRow?
     @State private var errorMessage: String?
+    // Confirmation state lives on the screen, not the row: a dialog presented from
+    // inside a swipe-actions row is torn down with the row's own collapse animation
+    // before it ever appears (same reason RecurringView keeps it here).
+    @State private var pendingDelete: BudgetStatusRow?
 
     private var currency: String {
         status?.baseCurrency ?? session.activeHousehold?.baseCurrency ?? "USD"
@@ -54,16 +59,33 @@ struct BudgetsView: View {
 
             Section("Budgets") {
                 ForEach(rows) { row in
-                    BudgetRowView(row: row, currency: currency)
-                        .contentShape(Rectangle())
-                        .onTapGesture { editingBudget = row }
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                Task { await delete(row) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                    // A Button, not `.onTapGesture` — a bare tap gesture gives the row
+                    // no press highlight and no button trait for VoiceOver, so the row
+                    // looks inert right up until the sheet appears.
+                    Button { editingBudget = row } label: {
+                        BudgetRowView(row: row, currency: currency)
+                    }
+                    .buttonStyle(.plain)
+                    // `allowsFullSwipe: false`: deleting a budget is a server-side
+                    // delete with no undo, so the swipe reveals the button and the
+                    // confirmation is the only path through.
+                    .swipeActions(allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            pendingDelete = row
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
+                    }
+                    // Same actions on a long press: a swipe is invisible until you try
+                    // it, and unreachable from Voice Control / Switch Control.
+                    .contextMenu {
+                        Button { editingBudget = row } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) { pendingDelete = row } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 if rows.isEmpty && !isLoading {
                     Text("No budgets yet. Tap + to cap a category.")
@@ -92,7 +114,7 @@ struct BudgetsView: View {
         .overlay {
             if isLoading && status == nil { LoadingSkeleton() }
         }
-        .refreshable { await load() }
+        .quickAddPull(quickAdd, onReload: load)
         .task { await load() }
         .alert("Error", isPresented: .init(
             get: { errorMessage != nil },
@@ -101,6 +123,22 @@ struct BudgetsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .confirmationDialog(
+            "Delete this budget?",
+            isPresented: .init(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let row = pendingDelete {
+                    Task { await delete(row) }
+                }
+            }
+        } message: {
+            Text("The transactions in it stay — only the cap is removed.")
         }
     }
 

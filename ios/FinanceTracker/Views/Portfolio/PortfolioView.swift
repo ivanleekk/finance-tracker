@@ -202,6 +202,22 @@ struct PortfolioView: View {
                                     .tint(.blue)
                                 }
                             }
+                            // Same actions on a long press: a swipe is invisible until
+                            // you try it, and unreachable from Voice Control / Switch
+                            // Control. Record Price is here too — tapping the row is the
+                            // only other way to reach it, and only for manual assets.
+                            .contextMenu {
+                                if let asset, !asset.isPseudoAsset {
+                                    if asset.isManualPriced {
+                                        Button { pricingAsset = asset } label: {
+                                            Label("Record Price", systemImage: "square.and.pencil")
+                                        }
+                                    }
+                                    Button { editingAsset = asset } label: {
+                                        Label("Edit Asset", systemImage: "pencil")
+                                    }
+                                }
+                            }
                         }
                     } header: {
                         HStack {
@@ -452,23 +468,42 @@ struct GrowthChart: View {
     var compactHeight: CGFloat = 160
     var regularHeight: CGFloat = 280
 
+    @State private var scrubDate: Date?
+
     private var span: TimeInterval? {
         guard let first = curve.first?.date, let last = curve.last?.date else { return nil }
         return last.timeIntervalSince(first)
     }
 
+    private var readout: ChartScrubReadout? {
+        guard let scrubDate,
+              let point = ChartStyle.nearest(to: scrubDate, in: curve, by: \.date)
+        else { return nil }
+        return ChartScrubReadout(
+            date: point.date,
+            entries: [
+                ChartScrubEntry(label: "Value", value: point.value, color: accent, markerY: point.value)
+            ]
+        )
+    }
+
     var body: some View {
-        Chart(curve) { point in
-            AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                .foregroundStyle(ChartStyle.accentFill(accent))
-                .interpolationMethod(.monotone)
-            LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                .foregroundStyle(accent)
-                .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
-                .interpolationMethod(.monotone)
+        VStack(alignment: .leading, spacing: 6) {
+            Chart(curve) { point in
+                AreaMark(x: .value("Date", point.date), y: .value("Value", point.value))
+                    .foregroundStyle(ChartStyle.accentFill(accent))
+                    .interpolationMethod(.monotone)
+                LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
+                    .foregroundStyle(accent)
+                    .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.monotone)
+            }
+            .financeChartAxes(currency: baseCurrency, dateSpan: span)
+            .chartScrub(selection: $scrubDate, readout: readout)
+            .adaptiveChartHeight(compact: compactHeight, regular: regularHeight)
+
+            ChartScrubCaption(readout: readout, currency: baseCurrency, selection: $scrubDate)
         }
-        .financeChartAxes(currency: baseCurrency, dateSpan: span)
-        .adaptiveChartHeight(compact: compactHeight, regular: regularHeight)
     }
 }
 
@@ -509,42 +544,104 @@ struct AllocationCard: View {
 
     private func color(_ index: Int) -> Color { Self.palette[index % Self.palette.count] }
 
+    /// Cumulative angle the touch landed on; resolved to a slice by `ChartStyle.sliceIndex`.
+    ///
+    /// Two states, not one: Swift Charts clears its own binding the instant the finger
+    /// lifts, so `live` is what it writes and `picked` is what the view reads — which
+    /// also keeps the legend buttons working, since they set `picked` directly.
+    @State private var liveAngle: Double?
+    @State private var pickedAngle: Double?
+
+    private var selected: Int? {
+        ChartStyle.sliceIndex(atAngleValue: pickedAngle, in: slices.map(\.value))
+    }
+
+    /// The cumulative angle at the middle of a slice — what a legend tap hands the chart,
+    /// since the selection is a position along the total rather than an identity.
+    private func midAngleValue(of index: Int) -> Double {
+        let values = slices.map(\.value)
+        let before = values.prefix(index).reduce(0, +)
+        return before + (values[index] / 2)
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Chart(Array(slices.enumerated()), id: \.element.id) { index, slice in
                 SectorMark(
                     angle: .value("Value", slice.value),
+                    // The picked wedge grows outward, so the shape says which one is
+                    // being read before the label in the middle is looked at.
                     innerRadius: .ratio(0.62),
+                    outerRadius: .ratio(selected == index ? 1.0 : 0.92),
                     angularInset: 1.5
                 )
                 .cornerRadius(3)
                 .foregroundStyle(color(index))
+                .opacity(selected == nil || selected == index ? 1 : 0.3)
+            }
+            .chartAngleSelection(value: $liveAngle)
+            .onChange(of: liveAngle) { _, new in
+                if let new { pickedAngle = new }
             }
             .chartLegend(.hidden)
             .frame(height: 150)
             .overlay {
                 VStack(spacing: 0) {
-                    Text("\(holdingsCount)")
-                        .font(.title3.monospacedDigit().weight(.bold))
-                    Text(holdingsCount == 1 ? "holding" : "holdings")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if let selected, slices.indices.contains(selected) {
+                        Text(slices[selected].label)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(slices[selected].pct.rounded()))%")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                    } else {
+                        Text("\(holdingsCount)")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                        Text(holdingsCount == 1 ? "holding" : "holdings")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 30)
+                .allowsHitTesting(false)
             }
+            .animation(.snappy(duration: 0.22), value: selected)
+            .sensoryFeedback(.selection, trigger: selected)
 
             VStack(spacing: 8) {
                 ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(color(index))
-                            .frame(width: 11, height: 11)
-                        Text(slice.label)
-                            .font(.caption)
-                        Spacer()
-                        Text("\(Int(slice.pct.rounded()))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                    // Tapping the legend picks the same wedge — a thin sector is a poor
+                    // touch target, and this row is the accessible way to hit it.
+                    Button {
+                        pickedAngle = selected == index ? nil : midAngleValue(of: index)
+                    } label: {
+                        HStack(spacing: 8) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(color(index))
+                                .frame(width: 11, height: 11)
+                            // Each label states its own colour: the borderless button
+                            // style below tints its whole label with the accent, and an
+                            // inherited `.foregroundStyle` on the stack doesn't beat it.
+                            Text(slice.label)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("\(Int(slice.pct.rounded()))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                        .opacity(selected == nil || selected == index ? 1 : 0.4)
                     }
+                    // `.borderless`, not `.plain`: inside a List row SwiftUI only
+                    // hit-tests several buttons independently for the borderless style —
+                    // with `.plain` the row swallows the tap and nothing selects. The
+                    // style tints its whole label with the accent and wins over any
+                    // `.foregroundStyle` inside it, so the tint itself is what has to be
+                    // neutralised — this is a legend, not a link.
+                    .buttonStyle(.borderless)
+                    .tint(.primary)
                 }
             }
 

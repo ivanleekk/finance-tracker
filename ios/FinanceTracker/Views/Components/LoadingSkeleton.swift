@@ -42,6 +42,7 @@ struct LoadingSkeleton: View {
 
 /// A diagonal highlight that sweeps across the view, clipped to its content.
 private struct Shimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: CGFloat = -1
 
     func body(content: Content) -> some View {
@@ -60,7 +61,11 @@ private struct Shimmer: ViewModifier {
                 .mask(content)
                 .allowsHitTesting(false)
             }
+            // A sweep that never stops is exactly the kind of looping motion Reduce
+            // Motion exists to switch off; the placeholder still reads as "loading"
+            // from its shape and the spinner-free skeleton itself.
             .onAppear {
+                guard !reduceMotion else { return }
                 withAnimation(.linear(duration: 1.25).repeatForever(autoreverses: false)) {
                     phase = 1
                 }
