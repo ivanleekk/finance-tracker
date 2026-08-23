@@ -220,4 +220,15 @@ struct ModelDecodingTests {
         #expect(!text.contains("target_amount"))
         #expect(!text.contains("target_date"))
     }
+
+    @Test func encodesAssetUpdateToSnakeCase() throws {
+        let update = AssetUpdate(
+            ticker: "AAPL", name: "Apple Inc.", type: "stock",
+            currency: "USD", pricingMode: "market"
+        )
+        let text = String(data: try encoder.encode(update), encoding: .utf8)!
+        #expect(text.contains("\"ticker\":\"AAPL\""))
+        #expect(text.contains("\"name\":\"Apple Inc.\""))
+        #expect(text.contains("\"pricing_mode\":\"market\""))
+    }
 }
