@@ -341,8 +341,13 @@ struct DashboardView: View {
 
             (accounts, balances, transactions, categories, snapshots, timeseries, subPortfolios, assets) =
                 try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, timeseriesReq, subPortfoliosReq, assetsReq)
-            (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
+            // Immediately, and *before* awaiting the supplementary requests below. The raw
+            // arrays above are `@State`, so assigning them publishes a render; if `derived`
+            // were still the previous (or initial, empty) value at that point, the screen
+            // would draw a confident "Net Worth $0.00" over freshly-loaded data for as long
+            // as the metrics/fund/projection calls take to come back.
             recompute()
+            (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
             lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription

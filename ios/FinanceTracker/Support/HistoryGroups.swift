@@ -102,15 +102,33 @@ func summarizeHistory(_ entries: [HistoryEntry]) -> HistoryGroupSummary {
     return summary
 }
 
+/// UTC, and **not** `.current`, for the same reason every display formatter in this app is
+/// UTC (see `Date.FormatStyle.utc` in Support/Formatters.swift): backend dates mean a
+/// *calendar date* and are parsed at UTC midnight, so a bucket boundary drawn in the device's
+/// timezone lands on a different instant than the label rendered from it.
+///
+/// This was a live bug rather than a theoretical one. Bucketing ran in `.current` while
+/// `.month`'s label used the UTC `Date.monthYear`, so east of UTC every month section was
+/// headed with the *previous* month's name — a Singapore user's July transactions sat under
+/// "June 2026". `.day` had the mirror-image fault to the west of UTC, where its
+/// device-calendar label disagreed with the UTC `shortDay` on the rows underneath.
+/// `HistoryGroupTimezoneTests` pins both. Android's `HistoryGroups.kt` has always used
+/// `ZoneOffset.UTC` throughout; this brings iOS back in line with it.
+let historyCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC")!
+    return calendar
+}()
+
 func historyGroupLabel(
     for start: Date,
     granularity: HistoryGranularity,
     now: Date = Date(),
-    calendar: Calendar = .current
+    calendar: Calendar = historyCalendar
 ) -> String {
     switch granularity {
     case .year:
-        return start.formatted(.dateTime.year())
+        return start.utcYear
     case .month:
         return start.monthYear
     case .day:
@@ -120,7 +138,7 @@ func historyGroupLabel(
            calendar.isDate(start, inSameDayAs: yesterday) {
             return "Yesterday · \(start.shortDay)"
         }
-        return start.formatted(.dateTime.day().month(.abbreviated).year())
+        return start.utcDayMonthYear
     }
 }
 
@@ -129,7 +147,7 @@ func groupHistory<Item>(
     _ items: [Item],
     by granularity: HistoryGranularity,
     now: Date = Date(),
-    calendar: Calendar = .current,
+    calendar: Calendar = historyCalendar,
     entry: (Item) -> HistoryEntry
 ) -> [HistoryGroup<Item>] {
     var order: [Date] = []
