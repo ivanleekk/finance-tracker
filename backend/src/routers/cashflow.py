@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -160,6 +160,12 @@ def create_transfer(
 )
 def get_household_transactions(
     household_id: uuid.UUID,
+    # Newest-first cap for consumers that only show a handful of recent rows (the
+    # Dashboard's "Recent Activity" wants five). Without it every client downloads and
+    # decodes the household's entire history on every load, which is most of what a
+    # multi-year household pays for a cold start. Omitted = full history, unordered, as
+    # before, which is what the Transactions screens still need.
+    limit: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -175,8 +181,12 @@ def get_household_transactions(
     if not account_ids:
         return []
 
-    transactions = db.query(models.Transaction).filter(models.Transaction.account_id.in_(account_ids)).all()
-    return transactions
+    query = db.query(models.Transaction).filter(models.Transaction.account_id.in_(account_ids))
+    if limit is not None:
+        # Ordered only when limited: "the newest N" is meaningless without it, and the
+        # unlimited path stays byte-for-byte what it was.
+        query = query.order_by(models.Transaction.date.desc()).limit(limit)
+    return query.all()
 
 @router.put(
     "/transactions/{transaction_id}", response_model=schemas.TransactionResponse

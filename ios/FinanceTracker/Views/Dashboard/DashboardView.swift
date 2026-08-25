@@ -37,138 +37,57 @@ struct DashboardView: View {
     /// Adaptive rather than a fixed pair: 2 tiles wide on iPhone, 4+ on an iPad canvas.
     private let statColumns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
 
-    // MARK: View-mode visibility
+    // MARK: Derived data
 
-    /// Accounts / sub-portfolios visible under the current view mode; their derived data
-    /// (balances, holdings, transactions) inherits that visibility.
-    private var visibleAccounts: [AccountResponse] {
-        accounts.filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
-    }
-    private var visibleAccountIds: Set<String> { Set(visibleAccounts.map(\.id)) }
-    private var visibleSubPortfolioIds: Set<String> {
-        Set(subPortfolios
-            .filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
-            .map(\.id))
-    }
-    private var visibleBalances: [BalanceResponse] {
-        balances.filter { visibleAccountIds.contains($0.accountId) }
-    }
-    private var visibleSnapshots: [PortfolioSnapshotResponse] {
-        snapshots.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
-    }
-    private var visibleTimeseries: [PortfolioTimeseriesPoint] {
-        timeseries.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
-    }
+    /// Everything expensive the screen shows, computed **once per load** (and once per
+    /// view-mode / vault change) instead of on every `body` evaluation.
+    ///
+    /// It used to be a stack of computed properties, which meant every redraw re-filtered
+    /// the full balance and timeseries history and re-ran the O(dates × accounts)
+    /// forward-fill behind the net-worth chart. Redraws are not rare on this screen —
+    /// scrubbing the chart fires one per frame — so a household with a few years of
+    /// history paid for its entire history on every frame of a drag.
+    @State private var derived = DashboardDerived()
+
+    private var visibleAccounts: [AccountResponse] { derived.accounts }
 
     /// O(1) row lookups instead of `.first { $0.id == ... }` scans re-run per row per render.
-    private var assetsById: [String: AssetResponse] {
-        Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
-    }
-    private var categoriesById: [String: CategoryResponse] {
-        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
-    }
-    private var accountsById: [String: AccountResponse] {
-        Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
-    }
+    @State private var assetsById: [String: AssetResponse] = [:]
+    @State private var categoriesById: [String: CategoryResponse] = [:]
+    @State private var accountsById: [String: AccountResponse] = [:]
 
-    /// Liability accounts (loans, mortgages) hold their outstanding balance as a
-    /// positive number; they count *against* net worth (mirrors web Dashboard).
-    private var liabilityIds: Set<String> {
-        Set(accounts.filter { $0.kind == "liability" }.map(\.id))
-    }
-
-    /// Latest known balance per account, netting out liabilities. This is the
-    /// "cash" side of net worth — money held in real accounts.
-    private var currentCash: Double {
-        Dictionary(grouping: visibleBalances, by: \.accountId).reduce(0.0) { sum, entry in
-            let (accountId, history) = entry
-            guard let bal = history.max(by: { $0.date < $1.date })?.homeValue else { return sum }
-            return sum + (liabilityIds.contains(accountId) ? -bal : bal)
-        }
-    }
-
-    /// Holdings on the most recent snapshot date only (mirrors PortfolioView).
-    private var latestHoldings: [PortfolioSnapshotResponse] {
-        guard let latest = visibleSnapshots.map(\.date).max() else { return [] }
-        return visibleSnapshots.filter { $0.date == latest && $0.quantity > 0 }
-    }
-
-    /// Total investment value on the most recent snapshot date.
-    private var currentPortfolioValue: Double {
-        latestHoldings.reduce(0) { $0 + $1.currentValueHomeCurrency }
-    }
-
-    /// The largest holdings by home-currency value, for the dashboard preview.
-    private var topHoldings: [PortfolioSnapshotResponse] {
-        Array(
-            latestHoldings
-                .sorted { $0.currentValueHomeCurrency > $1.currentValueHomeCurrency }
-                .prefix(4)
+    /// The inputs to `isVisible` that aren't part of a load: flipping the view-mode switch
+    /// or unlocking the vault has to re-derive everything, without refetching.
+    private var visibilityKey: DashboardVisibilityKey {
+        DashboardVisibilityKey(
+            mode: viewModeStore.effectiveMode,
+            vaultLocked: viewModeStore.isVaultLocked,
+            userId: session.user?.id
         )
     }
 
-    /// Net worth = liquid accounts (net of liabilities) + investments.
-    private var netWorth: Double { currentCash + currentPortfolioValue }
-
-    /// Net worth broken into buckets for the split donut: cash, investments,
-    /// retirement/locked, property, and whatever's left over.
-    private var worthBreakdown: NetWorthBreakdown {
-        let byAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
-        let inputs = visibleAccounts.map { account in
-            NetWorthAccountInput(kind: account.kind, liquidity: account.liquidity, history: byAccount[account.id] ?? [])
-        }
-        return netWorthBreakdown(accounts: inputs, portfolioValue: currentPortfolioValue)
-    }
-
-    /// One stacked-area band per (date, series). Cash is forward-filled from
-    /// account balances; investments are forward-filled from snapshot totals.
-    /// Together the two bands sum to net worth on every date.
-    /// One row per date holding both buckets, rather than two rows tagged by series.
-    /// The chart draws the bands itself instead of asking Swift Charts to stack them:
-    /// cash goes negative for an overdrawn household, and an automatic stack renders
-    /// that as a band flipped through the axis rather than debt hanging below zero.
-    private var netWorthBands: [NetWorthBandPoint] {
-        let cal = Calendar.current
-        let dates = Set(
-            visibleBalances.map { cal.startOfDay(for: $0.date) } +
-            visibleTimeseries.map { cal.startOfDay(for: $0.date) }
-        ).sorted()
-        guard !dates.isEmpty else { return [] }
-
-        let byAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
-            .mapValues { $0.sorted { $0.date < $1.date } }
-        let portfolioByDate = Dictionary(
-            grouping: visibleTimeseries, by: { cal.startOfDay(for: $0.date) }
-        ).mapValues { $0.reduce(0.0) { $0 + $1.value } }
-        let snapshotDates = portfolioByDate.keys.sorted()
-
-        return dates.map { date in
-            let cutoff = date.addingTimeInterval(86_399)
-            let cash = byAccount.reduce(0.0) { sum, entry in
-                let (accountId, history) = entry
-                let bal = history.last { $0.date <= cutoff }?.homeValue ?? 0
-                return sum + (liabilityIds.contains(accountId) ? -bal : bal)
+    private func recompute() {
+        derived = DashboardDerived(
+            accounts: accounts,
+            balances: balances,
+            transactions: transactions,
+            snapshots: snapshots,
+            timeseries: timeseries,
+            subPortfolios: subPortfolios,
+            isVisible: { [viewModeStore, session] ownerId in
+                viewModeStore.isVisible(ownerUserId: ownerId, currentUserId: session.user?.id)
             }
-            let portfolio = snapshotDates.last { $0 <= date }.map { portfolioByDate[$0] ?? 0 } ?? 0
-            return NetWorthBandPoint(date: date, cash: cash, investments: portfolio)
-        }
-    }
-
-    private var recentTransactions: [TransactionResponse] {
-        Array(transactions
-            .filter { visibleAccountIds.contains($0.accountId) }
-            .sorted { $0.date > $1.date }
-            .prefix(5))
+        )
+        assetsById = Dictionary(assets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        categoriesById = Dictionary(categories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        accountsById = Dictionary(accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     var body: some View {
-        // Computed once per body evaluation and reused for every account row
-        // below, instead of each row re-scanning the whole balance history.
-        let latestByAccount = latestBalanceByAccount
-        // netWorthBands does an O(dates × accounts) forward-fill; bind it once
-        // instead of triggering it separately for the date-count gate and the
-        // chart itself.
-        let bands = netWorthBands
+        // All pre-derived (see `DashboardDerived`) — nothing here re-walks the household's
+        // history, which is what makes a scrub redraw cheap.
+        let latestByAccount = derived.latestBalanceByAccount
+        let bands = derived.bands
         // Where the finger is on the net-worth chart, if anywhere. The whole card reads
         // from this: headline figure, date label and both breakdown cells, so scrubbing
         // rewrites the numbers the reader already knows rather than adding new ones.
@@ -205,7 +124,7 @@ struct DashboardView: View {
                                 .accessibilityLabel("Clear chart reading")
                             }
                         }
-                        Text((scrubbed?.total ?? netWorth).currency(baseCurrency))
+                        Text((scrubbed?.total ?? derived.netWorth).currency(baseCurrency))
                             .font(.system(.largeTitle, design: .rounded, weight: .bold))
                             .contentTransition(.numericText())
                     }
@@ -223,17 +142,17 @@ struct DashboardView: View {
 
                     // Doubles as the chart's legend — the two swatches name the bands,
                     // so the chart itself doesn't need a legend row restating them.
-                    if !visibleSnapshots.isEmpty || bands.count > 1 {
+                    if derived.hasVisibleSnapshots || bands.count > 1 {
                         HStack(spacing: 12) {
                             BreakdownCell(
                                 title: "Cash",
-                                value: scrubbed?.cash ?? currentCash,
+                                value: scrubbed?.cash ?? derived.currentCash,
                                 color: ChartStyle.cash,
                                 currency: baseCurrency
                             )
                             BreakdownCell(
                                 title: "Investments",
-                                value: scrubbed?.investments ?? currentPortfolioValue,
+                                value: scrubbed?.investments ?? derived.currentPortfolioValue,
                                 color: ChartStyle.investments,
                                 currency: baseCurrency
                             )
@@ -252,9 +171,9 @@ struct DashboardView: View {
                     }
                 }
 
-                if !worthBreakdown.slices.isEmpty {
+                if !derived.breakdown.slices.isEmpty {
                     Section("Net Worth Split") {
-                        NetWorthSplitChart(breakdown: worthBreakdown, netWorth: netWorth, currency: baseCurrency)
+                        NetWorthSplitChart(breakdown: derived.breakdown, netWorth: derived.netWorth, currency: baseCurrency)
                     }
                 }
 
@@ -278,7 +197,7 @@ struct DashboardView: View {
                     }
                 }
 
-                if !latestHoldings.isEmpty {
+                if !derived.latestHoldings.isEmpty {
                     Section("Returns") {
                         LazyVGrid(columns: statColumns, spacing: 10) {
                             let m = metrics?.overallMetrics
@@ -292,16 +211,16 @@ struct DashboardView: View {
                     }
                 }
 
-                if !topHoldings.isEmpty {
+                if !derived.topHoldings.isEmpty {
                     Section {
                         HStack {
                             Text("Total Value")
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            Text(currentPortfolioValue.currency(baseCurrency))
+                            Text(derived.currentPortfolioValue.currency(baseCurrency))
                                 .font(.body.monospacedDigit().weight(.semibold))
                         }
-                        ForEach(topHoldings) { holding in
+                        ForEach(derived.topHoldings) { holding in
                             HoldingRow(
                                 holding: holding,
                                 asset: assetsById[holding.assetId],
@@ -345,7 +264,7 @@ struct DashboardView: View {
                 }
 
                 Section("Recent Activity") {
-                    ForEach(recentTransactions) { txn in
+                    ForEach(derived.recentTransactions) { txn in
                         TransactionRow(
                             transaction: txn,
                             categoryName: categoriesById[txn.categoryId]?.name,
@@ -365,6 +284,9 @@ struct DashboardView: View {
             }
             .quickAddPull(quickAdd, onReload: load)
             .task { await loadIfNeeded() }
+            // Flipping Private/Household/Blended or unlocking the vault changes what's
+            // visible but not what's been fetched — re-derive without a round trip.
+            .onChange(of: visibilityKey) { _, _ in recompute() }
             .alert("Couldn’t Load Dashboard", isPresented: .init(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -373,15 +295,6 @@ struct DashboardView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-        }
-    }
-
-    /// One pass over the whole balance history instead of re-filtering it per
-    /// account row (`.filter { ... }.max { ... }` was O(accounts × balances)).
-    private var latestBalanceByAccount: [String: BalanceResponse] {
-        balances.reduce(into: [:]) { result, balance in
-            if let existing = result[balance.accountId], existing.date >= balance.date { return }
-            result[balance.accountId] = balance
         }
     }
 
@@ -410,7 +323,10 @@ struct DashboardView: View {
         do {
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let balancesReq: [BalanceResponse] = APIClient.shared.get("/accounts/balances/household/\(household.id)")
-            async let txnsReq: [TransactionResponse] = APIClient.shared.get("/cashflow/transactions/household/\(household.id)")
+            // Capped, not the full history: this screen shows five rows. 50 rather than 5
+            // because the list is filtered again client-side by view mode, and a server-side
+            // 5 could leave nothing at all to show in Private mode.
+            async let txnsReq: [TransactionResponse] = APIClient.shared.get("/cashflow/transactions/household/\(household.id)?limit=50")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
             async let snapshotsReq: [PortfolioSnapshotResponse] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)?latest_only=true")
             async let timeseriesReq: [PortfolioTimeseriesPoint] = APIClient.shared.get("/portfolio/snapshots/household/\(household.id)/timeseries")
@@ -426,12 +342,196 @@ struct DashboardView: View {
             (accounts, balances, transactions, categories, snapshots, timeseries, subPortfolios, assets) =
                 try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, timeseriesReq, subPortfoliosReq, assetsReq)
             (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
+            recompute()
             lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 }
+
+/// The view-mode inputs a derivation depends on. Its `Equatable` conformance is what lets
+/// `.onChange` re-derive on a mode flip or a vault unlock without a refetch.
+struct DashboardVisibilityKey: Equatable {
+    let mode: ViewMode
+    let vaultLocked: Bool
+    let userId: String?
+}
+
+/// The Dashboard's aggregates, derived from one load in a single pass.
+///
+/// A plain value type rather than a pile of computed properties on the view: SwiftUI
+/// re-evaluates `body` far more often than the data changes (once per frame while the chart
+/// is being scrubbed), and every one of those evaluations used to re-walk the household's
+/// whole balance and snapshot history.
+struct DashboardDerived {
+    var accounts: [AccountResponse] = []
+    var latestBalanceByAccount: [String: BalanceResponse] = [:]
+    var currentCash: Double = 0
+    var latestHoldings: [PortfolioSnapshotResponse] = []
+    var topHoldings: [PortfolioSnapshotResponse] = []
+    var currentPortfolioValue: Double = 0
+    var hasVisibleSnapshots = false
+    var breakdown = NetWorthBreakdown(slices: [], liabilities: 0, sliceTotal: 0)
+    var bands: [NetWorthBandPoint] = []
+    var recentTransactions: [TransactionResponse] = []
+
+    /// Net worth = liquid accounts (net of liabilities) + investments.
+    var netWorth: Double { currentCash + currentPortfolioValue }
+
+    init() {}
+
+    init(
+        accounts allAccounts: [AccountResponse],
+        balances allBalances: [BalanceResponse],
+        transactions allTransactions: [TransactionResponse],
+        snapshots allSnapshots: [PortfolioSnapshotResponse],
+        timeseries allTimeseries: [PortfolioTimeseriesPoint],
+        subPortfolios: [SubPortfolioResponse],
+        isVisible: (String?) -> Bool
+    ) {
+        accounts = allAccounts.filter { isVisible($0.ownerUserId) }
+        let visibleAccountIds = Set(accounts.map(\.id))
+        let visibleSubPortfolioIds = Set(
+            subPortfolios.filter { isVisible($0.ownerUserId) }.map(\.id)
+        )
+        // Liability accounts (loans, mortgages) hold their outstanding balance as a
+        // positive number; they count *against* net worth (mirrors web Dashboard).
+        let liabilityIds = Set(allAccounts.filter { $0.kind == "liability" }.map(\.id))
+        let visibleBalances = allBalances.filter { visibleAccountIds.contains($0.accountId) }
+        let visibleSnapshots = allSnapshots.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+        let visibleTimeseries = allTimeseries.filter { visibleSubPortfolioIds.contains($0.subPortfolioId) }
+        hasVisibleSnapshots = !visibleSnapshots.isEmpty
+
+        // One pass over the whole balance history instead of re-filtering it per
+        // account row (`.filter { ... }.max { ... }` was O(accounts × balances)).
+        for balance in visibleBalances {
+            if let existing = latestBalanceByAccount[balance.accountId], existing.date >= balance.date { continue }
+            latestBalanceByAccount[balance.accountId] = balance
+        }
+        currentCash = latestBalanceByAccount.reduce(0.0) { sum, entry in
+            let value = entry.value.homeValue
+            return sum + (liabilityIds.contains(entry.key) ? -value : value)
+        }
+
+        // Holdings on the most recent snapshot date only (mirrors PortfolioView).
+        if let latest = visibleSnapshots.map(\.date).max() {
+            latestHoldings = visibleSnapshots.filter { $0.date == latest && $0.quantity > 0 }
+        }
+        currentPortfolioValue = latestHoldings.reduce(0) { $0 + $1.currentValueHomeCurrency }
+        topHoldings = Array(
+            latestHoldings
+                .sorted { $0.currentValueHomeCurrency > $1.currentValueHomeCurrency }
+                .prefix(4)
+        )
+
+        let historyByAccount = Dictionary(grouping: visibleBalances, by: \.accountId)
+        breakdown = netWorthBreakdown(
+            accounts: accounts.map {
+                NetWorthAccountInput(kind: $0.kind, liquidity: $0.liquidity, history: historyByAccount[$0.id] ?? [])
+            },
+            portfolioValue: currentPortfolioValue
+        )
+
+        bands = netWorthBands(
+            balancesByAccount: historyByAccount.mapValues { $0.sorted { $0.date < $1.date } },
+            liabilityIds: liabilityIds,
+            timeseries: visibleTimeseries
+        )
+
+        recentTransactions = Array(
+            allTransactions
+                .filter { visibleAccountIds.contains($0.accountId) }
+                .sorted { $0.date > $1.date }
+                .prefix(5)
+        )
+    }
+}
+
+/// One stacked-area band per date: cash forward-filled from account balances, investments
+/// forward-filled from the portfolio timeseries, so the two sum to net worth on every date.
+///
+/// The series is **binned by span** the same way the Portfolio tab's growth chart is
+/// (`growthBin(forSpanDays:)`): a household tracking daily for five years produces ~1,800
+/// dates, and plotting all of them meant Swift Charts laying out thousands of marks on every
+/// redraw for a plot 350 points wide — far more detail than a phone-width chart can show,
+/// paid for on every frame of a scrub. Binning keeps the **last** value in each bucket,
+/// matching `equityCurve`, because these are running balances rather than flows.
+private func netWorthBands(
+    balancesByAccount: [String: [BalanceResponse]],
+    liabilityIds: Set<String>,
+    timeseries: [PortfolioTimeseriesPoint]
+) -> [NetWorthBandPoint] {
+    let cal = bandCalendar
+    let dates = Set(
+        balancesByAccount.values.flatMap { $0 }.map { cal.startOfDay(for: $0.date) } +
+        timeseries.map { cal.startOfDay(for: $0.date) }
+    ).sorted()
+    guard let first = dates.first, let last = dates.last else { return [] }
+
+    let portfolioByDate = Dictionary(
+        grouping: timeseries, by: { cal.startOfDay(for: $0.date) }
+    ).mapValues { $0.reduce(0.0) { $0 + $1.value } }
+    let snapshotDates = portfolioByDate.keys.sorted()
+
+    // Bucket first, forward-fill second: the fill is O(dates × accounts), so thinning the
+    // dates up front is what actually removes the work, not just the marks.
+    let sampled = sampleDates(dates, from: first, to: last, calendar: cal)
+
+    // Both series are read with a moving cursor rather than a `last { $0 <= date }` scan
+    // per account per date, which was the other half of the cost.
+    var cursors: [String: Int] = [:]
+    var snapshotCursor = 0
+    var lastPortfolio = 0.0
+
+    return sampled.map { date in
+        let cutoff = date.addingTimeInterval(86_399)
+        var cash = 0.0
+        for (accountId, history) in balancesByAccount {
+            var index = cursors[accountId] ?? 0
+            while index < history.count, history[index].date <= cutoff { index += 1 }
+            cursors[accountId] = index
+            guard index > 0 else { continue }
+            let value = history[index - 1].homeValue
+            cash += liabilityIds.contains(accountId) ? -value : value
+        }
+        while snapshotCursor < snapshotDates.count, snapshotDates[snapshotCursor] <= date {
+            lastPortfolio = portfolioByDate[snapshotDates[snapshotCursor]] ?? 0
+            snapshotCursor += 1
+        }
+        return NetWorthBandPoint(date: date, cash: cash, investments: lastPortfolio)
+    }
+}
+
+/// The dates actually plotted: every one for a short history, one per week or per month for
+/// a longer one. The final date is always kept — the newest reading is the one the "you are
+/// here" marker points at and the one the headline figure has to agree with.
+private func sampleDates(_ dates: [Date], from first: Date, to last: Date, calendar: Calendar) -> [Date] {
+    let component: Calendar.Component
+    switch growthBin(forSpanDays: last.timeIntervalSince(first) / 86_400) {
+    case .daily: return dates
+    case .weekly: component = .weekOfYear
+    case .monthly: component = .month
+    }
+    var seenBuckets = Set<Date>()
+    var sampled: [Date] = []
+    // Walked newest-first so the value kept in each bucket is its *last* one, matching
+    // `equityCurve`'s binning rule; reversed back to ascending at the end.
+    for date in dates.reversed() {
+        guard let bucket = calendar.dateInterval(of: component, for: date)?.start else { continue }
+        if seenBuckets.insert(bucket).inserted { sampled.append(date) }
+    }
+    return sampled.reversed()
+}
+
+/// UTC, so a band can't slide into a neighbouring day depending on the device's timezone —
+/// the same reason `PortfolioAnalytics` bins in UTC. Monday-first to match its weekly buckets.
+private let bandCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 2
+    return calendar
+}()
 
 struct AccountRow: View {
     let account: AccountResponse
@@ -494,7 +594,10 @@ struct TransactionRow: View {
 
 /// A single stacked-area data point for the net-worth chart.
 struct NetWorthBandPoint: Identifiable {
-    let id = UUID()
+    /// The date, not a fresh `UUID`. A per-instance UUID gave every point a new identity
+    /// each time the series was rebuilt, so Swift Charts could never match a mark to its
+    /// previous self and rebuilt the whole plot from scratch on every redraw.
+    var id: Date { date }
     let date: Date
     /// Cash-like accounts net of liabilities — negative for an overdrawn household.
     let cash: Double

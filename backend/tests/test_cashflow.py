@@ -346,6 +346,70 @@ def test_get_household_transactions(client, auth_headers, test_household, test_a
     assert len(data) >= 1
     assert any(txn["description"] == "Water bill" for txn in data)
 
+def test_get_household_transactions_limit_returns_the_newest_rows(
+    client, auth_headers, test_household, test_account, test_category, db_session
+):
+    """`limit` is what keeps the Dashboard from downloading a whole history for five rows."""
+    from datetime import timedelta
+
+    base = datetime.now(timezone.utc)
+    for day in range(6):
+        db_session.add(models.Transaction(
+            id=uuid.uuid7(),
+            account_id=test_account.id,
+            category_id=test_category.id,
+            # Oldest first, so "newest N" can't accidentally be satisfied by insertion order.
+            date=base - timedelta(days=10 - day),
+            amount=Decimal("10.00"),
+            description=f"txn-{day}",
+            transaction_type=test_category.type,
+        ))
+    db_session.commit()
+
+    response = client.get(
+        f"/cashflow/transactions/household/{test_household.id}?limit=2",
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert [txn["description"] for txn in data] == ["txn-5", "txn-4"]
+
+
+def test_get_household_transactions_without_limit_returns_everything(
+    client, auth_headers, test_household, test_account, test_category, db_session
+):
+    """The unlimited path is what the Transactions screens use; it must stay uncapped."""
+    for index in range(4):
+        db_session.add(models.Transaction(
+            id=uuid.uuid7(),
+            account_id=test_account.id,
+            category_id=test_category.id,
+            date=datetime.now(timezone.utc),
+            amount=Decimal("10.00"),
+            description=f"all-{index}",
+            transaction_type=test_category.type,
+        ))
+    db_session.commit()
+
+    response = client.get(
+        f"/cashflow/transactions/household/{test_household.id}",
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert len(response.json()) == 4
+
+
+def test_get_household_transactions_rejects_a_nonsense_limit(
+    client, auth_headers, test_household
+):
+    response = client.get(
+        f"/cashflow/transactions/household/{test_household.id}?limit=0",
+        headers=auth_headers
+    )
+    assert response.status_code == 422
+
+
 def test_get_household_transactions_unauthorized(client, other_auth_headers, test_household):
     response = client.get(
         f"/cashflow/transactions/household/{test_household.id}",

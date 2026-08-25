@@ -6,6 +6,32 @@ struct QuickAddPullSensor: View {
     var body: some View { EmptyView() }
 }
 
+/// The live gesture state, held in a reference type on purpose.
+///
+/// `pull` is rewritten on **every frame** of a drag. As `@State` on the modifier that was a
+/// per-frame invalidation of the modifier's own body, which re-applied `.scrollBounceBehavior`,
+/// re-installed the `DragGesture` recognizer and re-laid-out the overlay against the whole
+/// List — on the Dashboard, with the net-worth chart on screen, that is the stutter you feel
+/// on the way into Quick Add. Kept in an `@Observable` object and read only inside
+/// `PullIndicator`, the same writes invalidate just the badge.
+@MainActor
+@Observable
+private final class PullState {
+    var pull: CGFloat = 0
+    var armed = false
+    /// True only while a finger is on the screen; momentum overscroll must not arm.
+    var dragging = false
+
+    /// Overscroll distance (points past the top) that arms the command bar.
+    static let trigger: CGFloat = 100
+    /// Below this the indicator stays hidden — swallows the bounce of a normal scroll.
+    static let deadZone: CGFloat = 20
+
+    var progress: CGFloat {
+        min(1, max(0, (pull - Self.deadZone) / (Self.trigger - Self.deadZone)))
+    }
+}
+
 /// Replaces pull-to-refresh: pulling a List down past a threshold and *releasing* opens
 /// the QuickAdd command bar, with a distinct "＋ pull / release" indicator (not the
 /// refresh spinner) and a haptic. Also reloads the screen when a change is logged
@@ -21,31 +47,11 @@ struct QuickAddPullSensor: View {
 /// Overscroll is rubber-banded, so the `trigger` below is roughly half of it in finger
 /// travel: ~100pt of overscroll ≈ a 220pt pull.
 private struct QuickAddPull: ViewModifier {
-    @Environment(SessionStore.self) private var session
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let store: QuickAddStore
     let onReload: () async -> Void
 
-    /// Overscroll distance (points past the top) that arms the command bar.
-    private let trigger: CGFloat = 100
-    /// Below this the indicator stays hidden — swallows the bounce of a normal scroll.
-    private let deadZone: CGFloat = 20
-
-    @State private var pull: CGFloat = 0
-    @State private var armed = false
-    /// True only while a finger is on the screen; momentum overscroll must not arm.
-    @State private var dragging = false
-
-    private var progress: CGFloat {
-        min(1, max(0, (pull - deadZone) / (trigger - deadZone)))
-    }
-
-    /// The indicator retracting after the finger lifts is the one part of this gesture
-    /// that isn't finger-driven, so it's the one part that animates. Everything while a
-    /// finger is down tracks 1:1 — animating there would put lag between finger and badge.
-    private var retract: Animation {
-        reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.3, dampingFraction: 0.85)
-    }
+    @State private var state = PullState()
 
     func body(content: Content) -> some View {
         content
@@ -60,41 +66,54 @@ private struct QuickAddPull: ViewModifier {
             // simultaneous leaves the List's own scrolling intact.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4)
-                    .onChanged { _ in dragging = true }
+                    .onChanged { _ in state.dragging = true }
                     .onEnded { value in release(velocity: value.velocity.height) }
             )
-            .overlay(alignment: .top) { indicator }
+            .overlay(alignment: .top) { PullIndicator(state: state) }
             // A drag that gets cancelled rather than ended (the sheet coming up over the
             // list, a system gesture taking over) never reaches `onEnded`, which would
             // leave `dragging` stuck true and let plain momentum overscroll arm the pull.
             .onChange(of: store.isPresented) { _, _ in
-                dragging = false
-                armed = false
-                withAnimation(retract) { pull = 0 }
+                state.dragging = false
+                state.armed = false
+                withAnimation(retract) { state.pull = 0 }
             }
             .onChange(of: store.reloadToken) { _, _ in
                 Task { await onReload() }
             }
     }
 
+    /// The indicator retracting after the finger lifts is the one part of this gesture
+    /// that isn't finger-driven, so it's the one part that animates. Everything while a
+    /// finger is down tracks 1:1 — animating there would put lag between finger and badge.
+    private var retract: Animation {
+        reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.3, dampingFraction: 0.85)
+    }
+
     private func update(with overscroll: CGFloat) {
         // Ignore everything that isn't finger-driven: a flick's rubber-band bounce used
         // to fire this the moment it crossed the threshold, with the finger already off.
-        guard dragging else {
-            if pull != 0 { withAnimation(retract) { pull = 0 } }
-            armed = false
+        guard state.dragging else {
+            if state.pull != 0 { withAnimation(retract) { state.pull = 0 } }
+            state.armed = false
             return
         }
-        pull = max(0, overscroll)
+        let pull = max(0, overscroll)
+        // Past the dead zone the badge is on screen and tracks the finger, so every value
+        // matters. Below it nothing is drawn, and writing the same 0 on every frame of an
+        // ordinary scroll is a redraw of the badge for no visible change.
+        if pull > PullState.deadZone || state.pull != 0 {
+            state.pull = pull
+        }
         guard !store.isPresented else { return }
-        if pull >= trigger, !armed {
-            armed = true
+        if pull >= PullState.trigger, !state.armed {
+            state.armed = true
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        } else if armed, pull < trigger - 12 {
+        } else if state.armed, pull < PullState.trigger - 12 {
             // Hysteresis: easing back up past the threshold disarms without flapping.
             // Disarming gets its own (softer) tick — the arm haptic promised something,
             // and silently withdrawing the promise leaves the user guessing.
-            armed = false
+            state.armed = false
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
     }
@@ -107,10 +126,10 @@ private struct QuickAddPull: ViewModifier {
     /// it, not the least. Only a sharp flick back *up* reads as taking it back. (Momentum
     /// overscroll from scrolling can't reach here at all: `dragging` gates it above.)
     private func release(velocity: CGFloat) {
-        dragging = false
-        let wasArmed = armed
-        armed = false
-        withAnimation(retract) { pull = 0 }
+        state.dragging = false
+        let wasArmed = state.armed
+        state.armed = false
+        withAnimation(retract) { state.pull = 0 }
         guard wasArmed, !store.isPresented else { return }
         guard velocity > -Self.retractVelocity else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -120,10 +139,18 @@ private struct QuickAddPull: ViewModifier {
     /// Upward points/second at lift-off above which the release reads as pulling the
     /// gesture back rather than completing it.
     private static let retractVelocity: CGFloat = 900
+}
 
-    @ViewBuilder
-    private var indicator: some View {
-        if pull > deadZone {
+/// The "＋ pull / release" badge. A view of its own so that the per-frame `pull` writes
+/// invalidate this — a capsule with a label — instead of the modifier wrapping the List.
+private struct PullIndicator: View {
+    @Environment(SessionStore.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let state: PullState
+
+    var body: some View {
+        if state.pull > PullState.deadZone {
+            let progress = state.progress
             let ready = progress >= 1
             HStack(spacing: 7) {
                 Image(systemName: "plus.circle.fill")
@@ -139,7 +166,7 @@ private struct QuickAddPull: ViewModifier {
             .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
             .scaleEffect(0.85 + 0.15 * progress)
             .opacity(Double(min(1, progress * 1.4)))
-            .offset(y: min(pull * 0.45, 54))
+            .offset(y: min(state.pull * 0.45, 54))
             .animation(.snappy(duration: 0.18), value: ready)
             .allowsHitTesting(false)
             .accessibilityHidden(true)

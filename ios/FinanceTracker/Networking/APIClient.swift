@@ -213,7 +213,21 @@ actor APIClient {
 
 /// Backend dates arrive as naive ISO datetimes ("2026-07-19T00:00:00[.ffffff]"),
 /// timezone-aware ones ("2026-07-19T01:53:01.787071Z"), or plain dates ("2026-07-19").
+///
+/// Parsed by hand rather than by `DateFormatter`, because this is the app's hottest
+/// decoding path: the Dashboard alone pulls balances, transactions and a daily portfolio
+/// timeseries covering the household's whole history, which is tens of thousands of date
+/// fields in one load. The old implementation tried five `DateFormatter`s in sequence and
+/// fell back to a freshly-allocated `ISO8601DateFormatter`; a date-only string — the most
+/// common shape the backend sends — cost four *failed* parses before the one that worked,
+/// at roughly 100µs each. That is where the app's half-minute cold start went.
+///
+/// The scanner below reads fixed offsets out of the string's UTF-8 bytes and converts with
+/// days-from-civil arithmetic, so there is no formatter, no `Calendar` and no allocation on
+/// the happy path. `DateParser.legacyParse` keeps the old chain as a fallback for anything
+/// the scanner doesn't recognise, so no format that used to decode stops decoding.
 enum DateParser {
+    /// Kept for *encoding* (`APIClient.encoder`) and as the parsing fallback.
     static let isoDateTime = formatter("yyyy-MM-dd'T'HH:mm:ss")
     static let isoDateTimeFractional = formatter("yyyy-MM-dd'T'HH:mm:ss.SSSSSS")
     static let isoDateTimeZoned = formatter("yyyy-MM-dd'T'HH:mm:ssXXXXX")
@@ -221,13 +235,124 @@ enum DateParser {
     static let isoDateOnly = formatter("yyyy-MM-dd")
 
     static func parse(_ raw: String) -> Date? {
+        fastParse(raw) ?? legacyParse(raw)
+    }
+
+    // MARK: - Fast path
+
+    /// Reads `yyyy-MM-dd` optionally followed by `THH:mm:ss`, optional fractional seconds,
+    /// and an optional `Z` / `±HH:MM` / `±HHMM` offset. Returns nil (rather than a wrong
+    /// date) for anything else, including out-of-range components, so the fallback sees it.
+    private static func fastParse(_ raw: String) -> Date? {
+        // `withUTF8` gives a contiguous buffer without copying when the string already has
+        // one, which is the case for every string `JSONDecoder` hands us.
+        var raw = raw
+        return raw.withUTF8(scan(_:))
+    }
+
+    private static func scan(_ bytes: UnsafeBufferPointer<UInt8>) -> Date? {
+        let count = bytes.count
+        guard count >= 10 else { return nil }
+
+        // Bounds-checked here rather than at each call site: a truncated offset
+        // ("…+8" instead of "…+08:00") otherwise reads past the buffer, which
+        // `UnsafeBufferPointer` only traps on in debug builds.
+        func digits(_ start: Int, _ length: Int) -> Int? {
+            guard start >= 0, start + length <= count else { return nil }
+            var value = 0
+            for index in start..<(start + length) {
+                let byte = bytes[index]
+                guard byte >= 0x30, byte <= 0x39 else { return nil }
+                value = value * 10 + Int(byte - 0x30)
+            }
+            return value
+        }
+
+        guard let year = digits(0, 4), bytes[4] == 0x2D,        // "-"
+              let month = digits(5, 2), bytes[7] == 0x2D,
+              let day = digits(8, 2),
+              month >= 1, month <= 12, day >= 1, day <= 31
+        else { return nil }
+
+        var seconds = Double(daysFromCivil(year: year, month: month, day: day)) * 86_400
+
+        guard count > 10 else {
+            return Date(timeIntervalSince1970: seconds)
+        }
+        // Only "T" separates a date from a time here; a space-separated datetime never
+        // parsed before either.
+        guard bytes[10] == 0x54, count >= 19 else { return nil }
+        guard let hour = digits(11, 2), bytes[13] == 0x3A,      // ":"
+              let minute = digits(14, 2), bytes[16] == 0x3A,
+              let second = digits(17, 2),
+              hour <= 23, minute <= 59, second <= 60           // 60 = leap second, as ISO allows
+        else { return nil }
+        seconds += Double(hour * 3600 + minute * 60 + second)
+
+        var index = 19
+        // Fractional seconds: kept at whatever precision was sent, not truncated to the
+        // six digits the old `.SSSSSS` formatter insisted on.
+        if index < count, bytes[index] == 0x2E {               // "."
+            index += 1
+            let fractionStart = index
+            var fraction = 0.0
+            var scale = 1.0
+            while index < count, bytes[index] >= 0x30, bytes[index] <= 0x39 {
+                scale /= 10
+                fraction += Double(bytes[index] - 0x30) * scale
+                index += 1
+            }
+            guard index > fractionStart else { return nil }
+            seconds += fraction
+        }
+
+        guard index < count else {
+            return Date(timeIntervalSince1970: seconds)       // naive == UTC, as before
+        }
+
+        switch bytes[index] {
+        case 0x5A, 0x7A:                                       // "Z" / "z"
+            guard index == count - 1 else { return nil }
+        case 0x2B, 0x2D:                                       // "+" / "-"
+            let sign: Double = bytes[index] == 0x2B ? -1 : 1   // offset is removed to reach UTC
+            let offsetStart = index + 1
+            guard let offsetHour = digits(offsetStart, 2) else { return nil }
+            let minuteStart = (offsetStart + 2 < count && bytes[offsetStart + 2] == 0x3A)
+                ? offsetStart + 3
+                : offsetStart + 2
+            guard minuteStart + 2 == count, let offsetMinute = digits(minuteStart, 2) else { return nil }
+            seconds += sign * Double(offsetHour * 3600 + offsetMinute * 60)
+        default:
+            return nil
+        }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// Days between 1970-01-01 and the given proleptic-Gregorian date (Howard Hinnant's
+    /// `days_from_civil`). Pure integer arithmetic — no `Calendar`, no timezone lookup.
+    private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
+        let y = year - (month <= 2 ? 1 : 0)
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yearOfEra = y - era * 400                                   // [0, 399]
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
+    }
+
+    // MARK: - Fallback
+
+    /// The original formatter chain, now only reached for shapes the scanner rejects.
+    static func legacyParse(_ raw: String) -> Date? {
         isoDateTime.date(from: raw)
             ?? isoDateTimeFractional.date(from: raw)
             ?? isoDateTimeZoned.date(from: raw)
             ?? isoDateTimeFractionalZoned.date(from: raw)
             ?? isoDateOnly.date(from: raw)
-            ?? ISO8601DateFormatter().date(from: raw)
+            ?? sharedISO8601.date(from: raw)
     }
+
+    /// One shared instance; the old code allocated an `ISO8601DateFormatter` per call.
+    private static let sharedISO8601 = ISO8601DateFormatter()
 
     private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()

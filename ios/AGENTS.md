@@ -128,7 +128,7 @@ FinanceTracker/
 
 - JSON decoding uses `.convertFromSnakeCase` — model properties are camelCase versions of the Pydantic field names. Keep `Models.swift` in sync with `backend/src/schemas.py` when schemas change.
 - **Money fields must use `@MoneyAmount` / `@OptionalMoneyAmount`** (property wrappers in Models.swift): Pydantic serializes `Decimal` fields as JSON _strings_ ("5000.00") while float fields are numbers. A plain `Double` property will fail to decode any backend Decimal field.
-- Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
+- Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants. It is a **hand-rolled byte scanner, not a `DateFormatter`** — deliberately, and it must stay that way. Date decoding is the app's hottest path (a Dashboard load decodes tens of thousands of date fields across balances, transactions and the portfolio timeseries), and the old six-formatter fallback chain cost ~100µs per field, with the *most common* shape (date-only) paying four failed parses before the one that worked. That was the bulk of the app's half-minute cold start; the scanner is ~2000× faster on the same input. `DateParser.legacyParse` keeps the formatter chain as a fallback for shapes the scanner rejects, and `DateParserTests` pins the two against each other for every format the backend emits. If you ever need to accept a new date shape, extend the scanner *and* the test's `backendShapes` — don't reintroduce a formatter on the fast path.
 - **Display formatters must render in UTC**, via `Date.FormatStyle.utc` (`Support/Formatters.swift`). Backend dates mean a *calendar date* and are parsed at UTC midnight, so `.formatted(.dateTime…)` with the device calendar shifts them a day — a 31 Dec goal printed "January 2026" on a UTC+8 machine, and rows drift out of the month section header they sit under (headers group in UTC via `BudgetPresentation.groupedByMonth`). `apiDateOnly` already pinned UTC for the write path; `shortDay` / `monthYear` / `dueMonthYear` are the read path. Android says the same in `logic/Formatters.kt`; `FormattersTests` straddles both ends of the UTC day so the assertions bite in any non-UTC timezone.
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
 - Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data. Create forms (AccountFormView, GoalFormView) seed their Private toggle from the user's `default_new_items_private` in `.onAppear` (SessionStore isn't reachable from `init`), matching web.
@@ -143,6 +143,11 @@ FinanceTracker/
   down with the row's own collapse animation before it is ever shown. Cancelling an invite is
   the deliberate exception (re-inviting undoes it), so it keeps a plain swipe.
 - **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) and the finger then lifts without flicking back *up* faster than `retractVelocity` (900 pt/s). It is the release **direction** that decides, not its speed: still moving down, or roughly still, completes the gesture the "Release for Quick Add" badge just promised, and a confident fast pull is the most deliberate version of that, not the least — only a sharp flick upward reads as taking it back. Momentum-only overscroll can't arm it at all, because `dragging` (set by the `DragGesture`, cleared on end *and* when the sheet opens) gates every update.
+  The live gesture state lives in an `@Observable`
+  `PullState` read only by the `PullIndicator` subview, **not** as `@State` on the modifier:
+  `pull` is rewritten every frame of a drag, and on the modifier that invalidated its own body
+  each frame, re-installing the `DragGesture` recognizer and re-laying-out the overlay against
+  the whole List. Keep new per-frame gesture state out of the modifier body for the same reason.
   It is on **every browse screen** — the five tabs, the pushed detail screens (account, goal,
   loan schedule, sub-portfolio), and the More-tab pages (Budgets, Categories, Recurring,
   Reports, Members). It fully replaces `.refreshable`, which no longer appears anywhere: the
@@ -196,7 +201,19 @@ FinanceTracker/
   category to confuse them with. The Dashboard's net-worth chart draws its two bands
   explicitly (`NetWorthAreaChart`) instead of letting Swift Charts stack them, because cash
   goes negative for an overdrawn household and an automatic stack renders that flipped
-  through the axis instead of hanging below zero.
+  through the axis instead of hanging below zero. Its series is **binned by span** through
+  the same `growthBin(forSpanDays:)` the growth charts use — a household tracking daily for
+  five years is ~1,800 dates, which is more marks than a phone-width plot can resolve and
+  which Swift Charts re-lays-out on every redraw. `NetWorthBandPoint.id` is the **date**,
+  never a fresh `UUID`: per-instance identity means Charts can't match a mark to its previous
+  self and rebuilds the whole plot each time.
+- **Screen-level aggregates are derived once per load, not per `body`.** `DashboardDerived`
+  (DashboardView.swift) computes the visible-account filtering, the latest-balance-per-account
+  pass, the net-worth split and the chart bands in a single pass, stored in `@State` and
+  refreshed by `load()` plus an `.onChange(of: visibilityKey)` for a view-mode flip or vault
+  unlock. As computed properties these re-ran on every `body` evaluation — and scrubbing a
+  chart evaluates `body` once per frame, so a drag re-walked the household's entire history
+  ~120 times a second. Android's `DashboardScreen` does the same thing with `remember(...)`.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is _generated_ from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run
@@ -307,6 +324,11 @@ where tests pay off without a running backend:
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).
+- `DateParserTests` — the hand-rolled ISO-8601 scanner in `APIClient.swift`, asserted
+  **against `DateParser.legacyParse`** (the formatter chain it replaced) for every shape the
+  backend emits, plus the UTC-midnight and offset-removal rules and a garbage-rejection set.
+  A scanner that is fast but subtly wrong would silently shift rows into the neighbouring day,
+  so the old implementation stays in the file as the reference the fast path is pinned to.
 
 New tests should stay backend-free: exercise the pure functions and Codable models, don't spin
 up `APIClient` network calls.
