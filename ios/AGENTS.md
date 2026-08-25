@@ -128,9 +128,11 @@ FinanceTracker/
 
 - JSON decoding uses `.convertFromSnakeCase` — model properties are camelCase versions of the Pydantic field names. Keep `Models.swift` in sync with `backend/src/schemas.py` when schemas change.
 - **Money fields must use `@MoneyAmount` / `@OptionalMoneyAmount`** (property wrappers in Models.swift): Pydantic serializes `Decimal` fields as JSON _strings_ ("5000.00") while float fields are numbers. A plain `Double` property will fail to decode any backend Decimal field.
-- Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants.
-- **Display formatters must render in UTC**, via `Date.FormatStyle.utc` (`Support/Formatters.swift`). Backend dates mean a *calendar date* and are parsed at UTC midnight, so `.formatted(.dateTime…)` with the device calendar shifts them a day — a 31 Dec goal printed "January 2026" on a UTC+8 machine, and rows drift out of the month section header they sit under (headers group in UTC via `BudgetPresentation.groupedByMonth`). `apiDateOnly` already pinned UTC for the write path; `shortDay` / `monthYear` / `dueMonthYear` are the read path. Android says the same in `logic/Formatters.kt`; `FormattersTests` straddles both ends of the UTC day so the assertions bite in any non-UTC timezone.
+- Backend dates are naive ISO strings; `DateParser` in APIClient.swift handles date-only, datetime, and fractional-second variants. It is a **hand-rolled byte scanner, not a `DateFormatter`** — deliberately, and it must stay that way. Date decoding is the app's hottest path (a Dashboard load decodes tens of thousands of date fields across balances, transactions and the portfolio timeseries), and the old six-formatter fallback chain cost ~100µs per field, with the *most common* shape (date-only) paying four failed parses before the one that worked. That was the bulk of the app's half-minute cold start; the scanner is ~2000× faster on the same input. `DateParser.legacyParse` keeps the formatter chain as a fallback for shapes the scanner rejects, and `DateParserTests` pins the two against each other for every format the backend emits. If you ever need to accept a new date shape, extend the scanner *and* the test's `backendShapes` — don't reintroduce a formatter on the fast path.
+- **Display formatters must render in UTC**, via `Date.FormatStyle.utc` (`Support/Formatters.swift`). Backend dates mean a *calendar date* and are parsed at UTC midnight, so `.formatted(.dateTime…)` with the device calendar shifts them a day — a 31 Dec goal printed "January 2026" on a UTC+8 machine, and rows drift out of the month section header they sit under (headers group in UTC via `BudgetPresentation.groupedByMonth`). `apiDateOnly` already pinned UTC for the write path; `shortDay` / `monthYear` / `dueMonthYear` / `utcDayMonthYear` / `utcYear` are the read path. **The same rule binds anything that *buckets* dates, not just anything that formats them.** `groupHistory` / `historyGroupLabel` (`Support/HistoryGroups.swift`) default to `historyCalendar` (UTC) rather than `.current` — they used to bucket in the device calendar while labelling in UTC, which headed every month section with the previous month's name for anyone east of Greenwich (a Singapore user's July rows sat under "June 2026") and disagreed with the rows' own `shortDay` west of it. Android's `HistoryGroups.kt` has always used `ZoneOffset.UTC` throughout. **The one deliberate exception is `historyGroupLabel`'s `localCalendar`**, which decides Today/Yesterday: that is the only question on the screen that is about the reader's day rather than the backend's calendar date, and answering it in UTC headed today's rows with their date and *yesterday's* rows "Today" for the eight hours each morning Singapore runs ahead of UTC. Android's `localZone` parameter is the twin. Android says the same in `logic/Formatters.kt`; `FormattersTests` straddles both ends of the UTC day so the assertions bite in any non-UTC timezone.
 - All aggregate money displays use the household `baseCurrency` and the `*_home_currency` fields; per-account/per-asset detail uses native currency (same rule as web/mobile).
+- **A liability is rendered as money owed, never as a balance.** `AccountRow` negates and reddens a `kind == "liability"` account and captions it "Owed", and `AccountsListView` keeps liabilities out of the liquidity sections entirely, in their own "Loans & liabilities" one. Liquidity describes how fast an asset could be spent and says nothing useful about a debt, so a mortgage filed as `liquid` used to sit under a "Liquid" header showing `$440,000.00` in the same ink and sign as real cash — while net worth quietly subtracted it. The web Accounts page has always done it this way (`isLiability ? -balanceHome : balanceHome`, in red, under its own group); Android's `AccountsScreen.kt` does the same.
+- `AccountRow` names the account's own currency in its caption only when it differs from the household's base currency — the amount renders in `account.currency`, so a USD and an SGD account otherwise print the same "$" with nothing to tell them apart. It also takes `showsLiquidity`, which the Accounts tab turns off: the row sits under a section header naming the bucket already, and repeating it spent the row's only secondary line on a word the reader had just read.
 - Private ownership (`owner_user_id != nil`) is rendered with a lock icon; the server already filters out other members' private data. Create forms (AccountFormView, GoalFormView) seed their Private toggle from the user's `default_new_items_private` in `.onAppear` (SessionStore isn't reachable from `init`), matching web.
     - `SubPortfolioUpdate.ownerUserId` is a `.unchanged` / `.set(String?)` enum with a hand-written `encode(to:)`, not a plain `String?`. The backend PATCH uses `exclude_unset`, so omitting the key leaves ownership alone while an explicit `null` clears it — a plain Optional can only express the first, which would make "Private → Shared" silently do nothing (the web UI has that limitation).
 - **Gestures come in pairs, and destructive ones confirm.** Every swipe action on a row is
@@ -143,6 +145,11 @@ FinanceTracker/
   down with the row's own collapse animation before it is ever shown. Cancelling an invite is
   the deliberate exception (re-inviting undoes it), so it keeps a plain swipe.
 - **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) and the finger then lifts without flicking back *up* faster than `retractVelocity` (900 pt/s). It is the release **direction** that decides, not its speed: still moving down, or roughly still, completes the gesture the "Release for Quick Add" badge just promised, and a confident fast pull is the most deliberate version of that, not the least — only a sharp flick upward reads as taking it back. Momentum-only overscroll can't arm it at all, because `dragging` (set by the `DragGesture`, cleared on end *and* when the sheet opens) gates every update.
+  The live gesture state lives in an `@Observable`
+  `PullState` read only by the `PullIndicator` subview, **not** as `@State` on the modifier:
+  `pull` is rewritten every frame of a drag, and on the modifier that invalidated its own body
+  each frame, re-installing the `DragGesture` recognizer and re-laying-out the overlay against
+  the whole List. Keep new per-frame gesture state out of the modifier body for the same reason.
   It is on **every browse screen** — the five tabs, the pushed detail screens (account, goal,
   loan schedule, sub-portfolio), and the More-tab pages (Budgets, Categories, Recurring,
   Reports, Members). It fully replaces `.refreshable`, which no longer appears anywhere: the
@@ -165,12 +172,22 @@ FinanceTracker/
   slice; the picked wedge grows outward and the rest dim, the donut's centre reads it out, and
   the legend rows are buttons that select the same wedge (a thin sector is a poor touch target
   and the only accessible way in).
-- **Known gap — interactive dismissal.** No form uses `interactiveDismissDisabled`, so dragging
-  a sheet down discards a half-filled trade / transaction / account form with no prompt. Fixing
-  it needs per-form dirty tracking plus a "Discard changes?" confirmation dialog on every
-  create/edit sheet (`TransactionFormView`, `TradeFormView`, `AccountFormView`, `GoalFormView`,
-  `BudgetFormView`, `RecurringFormView`, `QuickAddView`); do it as one pass so the behaviour is
-  uniform, not sheet by sheet.
+- **Sheets can't discard unsaved work by accident** — `.discardGuard(fields:settled:)`
+  (`Views/Components/DiscardGuard.swift`) is on all ten create/edit sheets. It supplies the
+  Cancel button (so the wording and the confirmation are identical everywhere rather than ten
+  near-copies), blocks the drag-to-dismiss while the form is dirty, and asks "Discard changes?"
+  on Cancel. Dirtiness is a comparison against a baseline the modifier snapshots, not an
+  `initial` copy hand-maintained inside each form — those drift as forms gain fields and a
+  stale one silently stops guarding. A field omitted from `fields` under-protects (the sheet
+  behaves as it did before) rather than misbehaving.
+    - **`settled:` is the part that isn't obvious.** Forms don't all arrive fully populated:
+      `AccountFormView` fills in the household currency and the private-by-default toggle in
+      `onAppear` (SessionStore isn't reachable from `init`), and `QuickAddView` picks its
+      default account / category / sub-portfolio in `applyDefaults()` *after* a fetch.
+      Snapshotting "the values as first drawn" caught both mid-setup and read their own seeding
+      as a user edit, so a brand-new account sheet asked "Discard changes?" before it had been
+      touched. Those two pass `settled:` (`didSeedPrivacy && !currency.isEmpty`, and `loaded`);
+      the baseline is taken when it turns true. Any new form that seeds itself must do the same.
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `true`**, so once enforced, every user's private vault is biometric-gated by default (the preview test user was flipped to `false` locally so browser/simulator verification isn't blocked by the prompt).
@@ -196,7 +213,19 @@ FinanceTracker/
   category to confuse them with. The Dashboard's net-worth chart draws its two bands
   explicitly (`NetWorthAreaChart`) instead of letting Swift Charts stack them, because cash
   goes negative for an overdrawn household and an automatic stack renders that flipped
-  through the axis instead of hanging below zero.
+  through the axis instead of hanging below zero. Its series is **binned by span** through
+  the same `growthBin(forSpanDays:)` the growth charts use — a household tracking daily for
+  five years is ~1,800 dates, which is more marks than a phone-width plot can resolve and
+  which Swift Charts re-lays-out on every redraw. `NetWorthBandPoint.id` is the **date**,
+  never a fresh `UUID`: per-instance identity means Charts can't match a mark to its previous
+  self and rebuilds the whole plot each time.
+- **Screen-level aggregates are derived once per load, not per `body`.** `DashboardDerived`
+  (DashboardView.swift) computes the visible-account filtering, the latest-balance-per-account
+  pass, the net-worth split and the chart bands in a single pass, stored in `@State` and
+  refreshed by `load()` plus an `.onChange(of: visibilityKey)` for a view-mode flip or vault
+  unlock. As computed properties these re-ran on every `body` evaluation — and scrubbing a
+  chart evaluates `body` once per frame, so a drag re-walked the household's entire history
+  ~120 times a second. Android's `DashboardScreen` does the same thing with `remember(...)`.
 - **Theming** mirrors the web ThemeContext: the user's `primary_color`/`secondary_color`/`base_color` names (UserResponse) resolve to Tailwind color scales in `ThemePalettes.swift`, which is _generated_ from `frontend/node_modules/tailwindcss/theme.css` (oklch → sRGB) — if the web palette choices change, regenerate it with `python3 ios/scripts/gen_palettes.py`. `SessionStore.theme` exposes the resolved `AppTheme`; the root view applies `.tint(theme.primary.accent)` (shade 600 light / 400 dark) and `preferredColorScheme` from `theme_mode`. Charts and gradient accents pull `session.theme` directly. The base palette is persisted for parity but (like the web today) not painted onto backgrounds. Appearance is editable in the More tab via `PUT /users` partial updates.
 
 ## Build & Run
@@ -302,11 +331,21 @@ where tests pay off without a running backend:
 - `HistoryGroupsTests` — `Support/HistoryGroups.swift`: day/month/year bucketing, the
   section totals (transfers excluded on both legs, unconverted rows counted rather than
   summed), and the Today/Yesterday labels. Dates use an explicit UTC calendar.
+  `HistoryGroupTimezoneTests` sits alongside it and deliberately does **not** pass a
+  calendar, because passing one is what hid a live bug: every test in the older suite
+  supplied `calendar: utc` while `TransactionsView` calls `groupHistory` with the default,
+  so the suite pinned a path the app never took. A test for a function with a
+  timezone-dependent default has to exercise that default.
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).
+- `DateParserTests` — the hand-rolled ISO-8601 scanner in `APIClient.swift`, asserted
+  **against `DateParser.legacyParse`** (the formatter chain it replaced) for every shape the
+  backend emits, plus the UTC-midnight and offset-removal rules and a garbage-rejection set.
+  A scanner that is fast but subtly wrong would silently shift rows into the neighbouring day,
+  so the old implementation stays in the file as the reference the fast path is pinned to.
 
 New tests should stay backend-free: exercise the pure functions and Codable models, don't spin
 up `APIClient` network calls.

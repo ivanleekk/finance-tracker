@@ -85,10 +85,18 @@ fun AccountsScreen(
     val visibleAccounts = accounts.filter { viewModeVm.isVisible(it.ownerUserId, userId) }
     val visibleAccountIds = visibleAccounts.map { it.id }.toSet()
     val visibleEquity = equity.filter { it.assetAccountId in visibleAccountIds }
+    // Asset accounts bucketed by liquidity. Liabilities are deliberately *not* in here: a loan
+    // filed under "Liquid" sat next to real cash showing a positive balance, so a household with
+    // a $440k mortgage read as having $440k on hand. Liquidity describes how quickly an asset
+    // could be spent and says nothing useful about a debt, so they get their own section below —
+    // the way the web Accounts page and the iOS `AccountsListView` both group them.
     val grouped = LiquidityStatus.entries.mapNotNull { liquidity ->
-        val matching = visibleAccounts.filter { it.liquidity == liquidity }.sortedBy { it.name }
+        val matching = visibleAccounts
+            .filter { it.liquidity == liquidity && !it.isLiability }
+            .sortedBy { it.name }
         if (matching.isEmpty()) null else liquidity to matching
     }
+    val liabilities = visibleAccounts.filter { it.isLiability }.sortedBy { it.name }
 
     val latestByAccount = remember(balances) {
         buildMap<String, BalanceResponse> {
@@ -139,6 +147,26 @@ fun AccountsScreen(
                             account = account,
                             latestBalance = latestByAccount[account.id],
                             onClick = { onOpenAccount(account.id) },
+                            baseCurrency = baseCurrency,
+                            // The section header above already names the bucket.
+                            showsLiquidity = false,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (liabilities.isNotEmpty()) {
+            item(key = "liabilities") {
+                SectionCard(title = "Loans & liabilities") {
+                    liabilities.forEachIndexed { index, account ->
+                        if (index > 0) HorizontalDivider()
+                        AccountRow(
+                            account = account,
+                            latestBalance = latestByAccount[account.id],
+                            onClick = { onOpenAccount(account.id) },
+                            baseCurrency = baseCurrency,
+                            showsLiquidity = false,
                         )
                     }
                 }

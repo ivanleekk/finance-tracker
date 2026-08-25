@@ -431,14 +431,12 @@ struct RecurringFormView: View {
             .navigationTitle("New Recurring")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate])
             .onAppear {
                 // SessionStore isn't reachable from init, same as AccountFormView.
                 if !didSeedPrivacy {

@@ -524,14 +524,12 @@ struct TransactionFormView: View {
             .navigationTitle(existing == nil ? "New Transaction" : "Edit Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId])
             .onAppear {
                 if accountId == nil {
                     let defaultAccount = accounts.first { $0.id == session.user?.defaultAccountId }
@@ -659,14 +657,12 @@ struct TransferFormView: View {
             .navigationTitle("New Transfer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [fromAccountId, toAccountId, amountText, date, description])
             .onAppear {
                 if fromAccountId == nil { fromAccountId = accounts.first?.id }
                 if toAccountId == nil { toAccountId = accounts.dropFirst().first?.id }
@@ -707,20 +703,31 @@ struct HistorySectionHeader: View {
     let summary: HistoryGroupSummary
     let baseCurrency: String
 
+    /// A month can hold a bigger number than a phone-width header has room for, and up to
+    /// three of them sit here at once. Left to wrap, "+$1,346,700.00" broke after the "+" —
+    /// or worse, mid-number — which for a moment reads as a different figure entirely. Past
+    /// six figures they switch to the compact form the chart axes already use ("+$1.3M"),
+    /// which is the right amount of precision for a header anyway; the exact figures are in
+    /// the rows underneath it.
+    private func money(_ value: Double) -> String {
+        abs(value) >= 100_000 ? value.compactCurrency(baseCurrency) : value.currency(baseCurrency)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
+                .layoutPriority(1)
             Spacer(minLength: 8)
             if summary.inflow > 0 {
-                Text("+" + summary.inflow.currency(baseCurrency))
+                Text("+" + money(summary.inflow))
                     .foregroundStyle(.green)
             }
             if summary.outflow > 0 {
-                Text("−" + summary.outflow.currency(baseCurrency))
+                Text("−" + money(summary.outflow))
                     .foregroundStyle(.red)
             }
             if summary.showsNet {
-                Text("net " + (summary.net < 0 ? "−" : "+") + abs(summary.net).currency(baseCurrency))
+                Text("net " + (summary.net < 0 ? "−" : "+") + money(abs(summary.net)))
                     .foregroundStyle(summary.net < 0 ? .red : .green)
             }
             if summary.unconverted > 0 {
@@ -733,6 +740,11 @@ struct HistorySectionHeader: View {
             }
         }
         .font(.caption.monospacedDigit())
+        // Belt and braces with the compact form above: a long label plus three figures can
+        // still overflow at the largest Dynamic Type sizes, and a scaled-down header beats a
+        // currency figure broken across two lines.
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
         .textCase(nil)
     }
 }

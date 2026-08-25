@@ -63,6 +63,18 @@ extension Date {
         formatted(.dateTime.month(.wide).year().utc)
     }
 
+    /// "24 Jul 2026" — a day that needs its full year, for the Transactions list's day
+    /// section headers. UTC like its neighbours: the rows underneath print `shortDay`, and a
+    /// header formatted in the device calendar disagreed with them west of Greenwich.
+    var utcDayMonthYear: String {
+        formatted(.dateTime.day().month(.abbreviated).year().utc)
+    }
+
+    /// "2026" — the Transactions list's year section header, in UTC for the same reason.
+    var utcYear: String {
+        formatted(.dateTime.year().utc)
+    }
+
     /// "24 Jul 26" — the chart-scrub readout. Carries the year that `shortDay` omits,
     /// because a scrubbable chart routinely spans several of them.
     var scrubDay: String {

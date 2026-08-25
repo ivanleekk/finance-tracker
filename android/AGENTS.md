@@ -158,6 +158,26 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   rule the budget rollups use), and a row with no known base-currency value is left out of the
   total and surfaced as "partial" rather than summed at face value, which would mix currencies
   into a meaningless number. Bucketing is UTC, like every other date in this client.
+    - **`historyGroupLabel`'s `localZone` is the one exception, and it is deliberate.**
+      "Today" is the single question on that screen that isn't about the backend's calendar
+      dates — it's about the day the reader is having. A row dated 25 August in UTC is *today's*
+      only if it is the 25th where they are. Resolving `now` in UTC as well meant that for the
+      eight hours each morning Singapore runs ahead of UTC, today's rows were headed
+      "25 Aug 2026" while *yesterday's* were headed "Today"; west of Greenwich the same
+      mismatch labels tomorrow "Today" late in the evening. iOS's `historyGroupLabel` takes a
+      `localCalendar` for exactly this.
+- **A liability is rendered as money owed, never as a balance.** `AccountRow`
+  (`ui/dashboard/DashboardScreen.kt`, reused by the Accounts screen) negates and error-tints a
+  `kind == "liability"` account and captions it "Owed", and `AccountsScreen` keeps liabilities
+  out of the liquidity sections entirely, in their own "Loans & liabilities" one. Liquidity
+  describes how fast an *asset* could be spent and says nothing useful about a debt, so a
+  mortgage filed as `liquid` used to sit under a "Liquid" header showing `$440,000.00` in the
+  same colour and sign as real cash — while net worth quietly subtracted it. Web and iOS both
+  group and tint them this way; this client was the last one that didn't.
+- `AccountRow` names the account's own currency in its caption only when it differs from the
+  household's base currency (the amount renders in `account.currency`, so a USD and an SGD
+  account otherwise show the same "$"), and takes `showsLiquidity`, which the Accounts screen
+  turns off — the row sits under a section header naming the bucket already.
 - **`logic/BudgetPresentation.kt`** is the Kotlin port of `frontend/src/lib/budgets.ts` and
   iOS's `BudgetPresentation.swift`. Keep all three in sync; both judgement calls matter: a
   budget is "at risk" the moment its *projected* spend exceeds the limit (warning on the 10th
@@ -244,7 +264,10 @@ where tests pay off without a backend or an emulator:
 - `BudgetPresentationTest` — budget tone, runway tone/label, normalized monthly commitments,
   UTC month bucketing.
 - `ViewModeVisibilityTest` — the Private/Household/Blended rules and the vault's fail-open.
-- `HistoryGroupsTest` — Activity-list bucketing and section totals (`logic/HistoryGroups.kt`).
+- `HistoryGroupsTest` — Activity-list bucketing and section totals (`logic/HistoryGroups.kt`),
+  plus the Today/Yesterday rule pinned from both sides of UTC. The label tests pass an explicit
+  `localZone`; leaving it to `ZoneId.systemDefault()` makes them agree or disagree depending on
+  where the build machine is.
 - `ApiUrlTest` — query-string splitting.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.

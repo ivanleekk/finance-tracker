@@ -102,25 +102,56 @@ func summarizeHistory(_ entries: [HistoryEntry]) -> HistoryGroupSummary {
     return summary
 }
 
+/// UTC, and **not** `.current`, for the same reason every display formatter in this app is
+/// UTC (see `Date.FormatStyle.utc` in Support/Formatters.swift): backend dates mean a
+/// *calendar date* and are parsed at UTC midnight, so a bucket boundary drawn in the device's
+/// timezone lands on a different instant than the label rendered from it.
+///
+/// This was a live bug rather than a theoretical one. Bucketing ran in `.current` while
+/// `.month`'s label used the UTC `Date.monthYear`, so east of UTC every month section was
+/// headed with the *previous* month's name — a Singapore user's July transactions sat under
+/// "June 2026". `.day` had the mirror-image fault to the west of UTC, where its
+/// device-calendar label disagreed with the UTC `shortDay` on the rows underneath.
+/// `HistoryGroupTimezoneTests` pins both. Android's `HistoryGroups.kt` has always used
+/// `ZoneOffset.UTC` throughout; this brings iOS back in line with it.
+let historyCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC")!
+    return calendar
+}()
+
 func historyGroupLabel(
     for start: Date,
     granularity: HistoryGranularity,
     now: Date = Date(),
-    calendar: Calendar = .current
+    calendar: Calendar = historyCalendar,
+    /// The **reader's** calendar, and deliberately not `calendar` above. "Today" is the one
+    /// question on this screen that isn't about the backend's calendar dates at all — it's
+    /// about the day the person holding the phone is having. A row is dated 25 August in UTC;
+    /// whether that is *today* depends on the date where they are. Comparing both sides in UTC
+    /// meant that for the eight hours each morning that Singapore runs ahead of UTC, today's
+    /// transactions were headed "25 Aug 2026" instead of "Today" — and west of Greenwich the
+    /// same mismatch labels tomorrow's date "Today" late in the evening.
+    localCalendar: Calendar = .current
 ) -> String {
     switch granularity {
     case .year:
-        return start.formatted(.dateTime.year())
+        return start.utcYear
     case .month:
         return start.monthYear
     case .day:
         // Relative to the passed-in `now` rather than the wall clock, so this stays testable.
-        if calendar.isDate(start, inSameDayAs: now) { return "Today · \(start.shortDay)" }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
-           calendar.isDate(start, inSameDayAs: yesterday) {
+        let day = calendar.dateComponents([.year, .month, .day], from: start)
+        func isLocalDay(_ date: Date) -> Bool {
+            let other = localCalendar.dateComponents([.year, .month, .day], from: date)
+            return day.year == other.year && day.month == other.month && day.day == other.day
+        }
+        if isLocalDay(now) { return "Today · \(start.shortDay)" }
+        if let yesterday = localCalendar.date(byAdding: .day, value: -1, to: now),
+           isLocalDay(yesterday) {
             return "Yesterday · \(start.shortDay)"
         }
-        return start.formatted(.dateTime.day().month(.abbreviated).year())
+        return start.utcDayMonthYear
     }
 }
 
@@ -129,7 +160,8 @@ func groupHistory<Item>(
     _ items: [Item],
     by granularity: HistoryGranularity,
     now: Date = Date(),
-    calendar: Calendar = .current,
+    calendar: Calendar = historyCalendar,
+    localCalendar: Calendar = .current,
     entry: (Item) -> HistoryEntry
 ) -> [HistoryGroup<Item>] {
     var order: [Date] = []
@@ -152,7 +184,10 @@ func groupHistory<Item>(
     return order.map { start in
         HistoryGroup(
             start: start,
-            label: historyGroupLabel(for: start, granularity: granularity, now: now, calendar: calendar),
+            label: historyGroupLabel(
+                for: start, granularity: granularity, now: now,
+                calendar: calendar, localCalendar: localCalendar
+            ),
             items: buckets[start] ?? [],
             summary: summarizeHistory(entries[start] ?? [])
         )

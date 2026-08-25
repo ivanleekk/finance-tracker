@@ -126,15 +126,20 @@ struct QuickAddView: View {
             .navigationTitle("Quick Add")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Log") { save() }
                         .disabled(!canSave)
                         .fontWeight(.semibold)
                 }
             }
+            .discardGuard(
+                fields: [mode, amountText, date, description, accountId, categoryId,
+                         fromAccountId, toAccountId, subPortfolioId, assetId, tradeType,
+                         quantityText, priceText, settleFromCash],
+                // `applyDefaults()` picks the default account / category / sub-portfolio only
+                // once the fetch lands, so the baseline can't be taken before then.
+                settled: loaded
+            )
             .task { await loadIfNeeded() }
             .onChange(of: mode) { resetForMode() }
             .sheet(isPresented: $showingNewCategory) {
