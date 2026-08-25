@@ -1,9 +1,10 @@
 # src/schemas.py
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime
 from decimal import Decimal
+import enum
 import uuid
 
 # ----------------------------------------
@@ -410,6 +411,22 @@ class TransactionBase(BaseModel):
 class TransactionCreate(TransactionBase):
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # Part of this expense was somebody else's. `amount` stays the full sum that
+    # left the account — that really happened — while `owed_amount` is carved off
+    # onto `owed_by`'s receivable so budgets charge the household for its share
+    # only. A free-text name: the person need not be an app user.
+    owed_by: Optional[str] = Field(None, max_length=120)
+    owed_amount: Optional[PositiveDecimal] = None
+
+    @model_validator(mode="after")
+    def _check_split(self):
+        if (self.owed_by is None) != (self.owed_amount is None):
+            raise ValueError("owed_by and owed_amount must be given together.")
+        if self.owed_amount is not None and self.owed_amount > self.amount:
+            raise ValueError("owed_amount cannot exceed the transaction amount.")
+        if self.owed_by is not None and not self.owed_by.strip():
+            raise ValueError("owed_by cannot be blank.")
+        return self
 
 
 class TransactionUpdate(BaseModel):
@@ -421,12 +438,21 @@ class TransactionUpdate(BaseModel):
     description: Optional[str] = None
     account_id: Optional[uuid.UUID] = None
     category_id: Optional[uuid.UUID] = None
+    # Send either to change the split; send `owed_amount: null` to clear it and
+    # make the whole expense the household's own again. Leave both out and the
+    # split already recorded is preserved.
+    owed_by: Optional[str] = Field(None, max_length=120)
+    owed_amount: Optional[PositiveDecimal] = None
 
 
 class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # Populated from the ledger where the row was split. Absent means none of it
+    # was somebody else's — including for everything logged before the ledger.
+    owed_by: Optional[str] = None
+    owed_amount: Optional[Decimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     transaction_type: TransactionType
@@ -573,6 +599,53 @@ class TransferCreate(BaseModel):
     amount: PositiveDecimal
     date: datetime
     currency: Optional[str] = None
+    description: Optional[str] = None
+
+
+# ----------------------------------------
+# 3d. REIMBURSEMENTS
+# ----------------------------------------
+
+
+class CounterpartyDirection(str, enum.Enum):
+    """Which way the debt runs, named from the household's point of view."""
+
+    owed_to_you = "owed_to_you"
+    you_owe = "you_owe"
+
+
+class CounterpartyBalanceResponse(BaseModel):
+    counterparty_name: str
+    direction: CounterpartyDirection
+    amount: Decimal
+
+
+class SpendOnYourBehalfCreate(BaseModel):
+    """
+    Somebody else paid for something of yours.
+
+    There is no account and no amount leaving one, because none did — which is
+    exactly why this could not be logged before. It is real spending of yours and
+    a real debt, and the ledger records both without inventing a cash movement.
+    """
+
+    household_id: uuid.UUID
+    category_id: uuid.UUID
+    counterparty_name: str = Field(..., max_length=120)
+    amount: PositiveDecimal
+    date: datetime
+    description: Optional[str] = None
+    owner_user_id: Optional[uuid.UUID] = None
+
+
+class SettlementCreate(BaseModel):
+    """Money actually changing hands to clear a debt."""
+
+    account_id: uuid.UUID
+    counterparty_name: str = Field(..., max_length=120)
+    direction: CounterpartyDirection
+    amount: PositiveDecimal
+    date: datetime
     description: Optional[str] = None
 
 

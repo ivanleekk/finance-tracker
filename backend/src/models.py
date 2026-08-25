@@ -91,8 +91,18 @@ class SplitMode(enum.Enum):
 SYSTEM_CATEGORY_INVESTMENT = "Investment"
 SYSTEM_CATEGORY_BALANCE_ADJUSTMENT = "Balance Adjustment"
 SYSTEM_CATEGORY_TRANSFER = "Transfer"
+# Settling up with someone you fronted money for, or who fronted it for you. The
+# spend was already recorded when the bill was paid — the household's own share
+# hit a category then, and the rest went to a receivable/payable. Counting the
+# settlement as spending too would charge the same dinner twice.
+SYSTEM_CATEGORY_REIMBURSEMENT = "Reimbursement"
 SYSTEM_CATEGORY_NAMES = frozenset(
-    {SYSTEM_CATEGORY_INVESTMENT, SYSTEM_CATEGORY_BALANCE_ADJUSTMENT, SYSTEM_CATEGORY_TRANSFER}
+    {
+        SYSTEM_CATEGORY_INVESTMENT,
+        SYSTEM_CATEGORY_BALANCE_ADJUSTMENT,
+        SYSTEM_CATEGORY_TRANSFER,
+        SYSTEM_CATEGORY_REIMBURSEMENT,
+    }
 )
 
 
