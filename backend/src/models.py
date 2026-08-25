@@ -695,3 +695,203 @@ class ScheduledDividend(Base):
     asset = relationship("Asset")
     account = relationship("FinancialAccount")
     dividend = relationship("Dividend")
+
+
+# ---------------------------------------------------------------------------
+# Double-entry ledger
+# ---------------------------------------------------------------------------
+#
+# Every movement of money is a JournalEntry whose JournalLines debit and credit
+# LedgerAccounts, and whose debits equal its credits. That single invariant is
+# what buys the things single-entry could not express:
+#
+#  - **Paying on behalf of someone.** A $200 dinner where $150 is owed back is
+#    one entry: Dr Dining 50, Dr Receivable-Alice 150, Cr Bank 200. The budget
+#    reads the Dining line and sees 50, because only 50 was ever spent. The
+#    repayment (Dr Bank 150, Cr Receivable-Alice 150) touches no expense account
+#    at all, so it can't inflate anything either. Neither needs a special case in
+#    the budget code — it falls out of the structure.
+#  - **Contra entries.** A refund is a *credit* to the category it came from, not
+#    income. Single-entry had nowhere to put it: `Transaction.amount` is positive
+#    and `TransactionType` has only income and expense, so refunds and cashback
+#    were logged as income and inflated both income and the savings rate.
+#  - **Receivables and payables as real balances.** Money owed to the household
+#    is an asset and belongs in net worth; money it owes is a liability. They are
+#    ordinary accounts here, so every rollup picks them up without being taught to.
+#
+# What is deliberately *not* in the journal: the daily mark-to-market of
+# investment holdings. Valuing a position at today's close is a revaluation, not
+# a transaction, and posting one entry per holding per day would be an enormous
+# volume of rows against `snapshot_engine`, which already does this well. Trades
+# and dividends post entries for the *cash* they move; the holdings themselves
+# stay valued by the snapshot engine. See `services/ledger_service.py`.
+
+
+class LedgerAccountType(enum.Enum):
+    asset = "asset"
+    liability = "liability"
+    equity = "equity"
+    income = "income"
+    expense = "expense"
+
+
+#: Which side increases an account of each type. Assets and expenses are
+#: debit-normal (spending money debits an expense, receiving it debits the bank);
+#: liabilities, equity and income are credit-normal.
+DEBIT_NORMAL_TYPES = frozenset({LedgerAccountType.asset, LedgerAccountType.expense})
+
+
+class LedgerAccountRole(enum.Enum):
+    """
+    What a chart account *is*, beyond its accounting type, so the app can find the
+    ones it needs without matching on names.
+
+    `cash` and `category` accounts mirror rows the app already had — a
+    FinancialAccount and a Category respectively — and are created for them
+    automatically. `receivable` / `payable` are the new ones: a person who owes
+    the household money, or is owed it, identified by a plain name.
+    """
+
+    cash = "cash"                    # mirrors a FinancialAccount (asset or liability)
+    category = "category"            # mirrors a Category (income or expense)
+    receivable = "receivable"        # someone owes the household
+    payable = "payable"              # the household owes someone
+    opening_balance = "opening_balance"  # the equity plug a new account starts from
+    adjustment = "adjustment"        # the equity plug a manual reconciliation lands in
+
+
+class LedgerAccount(Base):
+    """
+    One account in the household's chart of accounts.
+
+    Accounts that mirror an existing row carry a link to it (`financial_account_id`
+    or `category_id`), so the ledger can be introduced without moving the app's
+    existing objects: a Category is still what a budget is written against, and a
+    FinancialAccount is still what a balance belongs to. The ledger account is the
+    same thing seen from the bookkeeping side.
+    """
+
+    __tablename__ = "ledger_accounts"
+    __table_args__ = (
+        # One chart account per underlying row — two would silently split a balance.
+        UniqueConstraint("financial_account_id", name="uq_ledger_accounts_financial_account"),
+        UniqueConstraint("category_id", name="uq_ledger_accounts_category"),
+        # Counterparty names are per household and per direction: "Alice" owing the
+        # household and the household owing "Alice" are two accounts, and netting
+        # them by hand is the user's business, not the ledger's.
+        UniqueConstraint(
+            "household_id", "role", "counterparty_name", "owner_user_id",
+            name="uq_ledger_accounts_counterparty",
+        ),
+        Index("ix_ledger_accounts_household_role", "household_id", "role"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True, nullable=False)
+    name = Column(String, nullable=False)
+    type = Column(Enum(LedgerAccountType, name="ledger_account_type", schema="finance_tracker"), nullable=False)
+    role = Column(Enum(LedgerAccountRole, name="ledger_account_role", schema="finance_tracker"), nullable=False)
+
+    #: A contra account sits against the normal side of its own type — accumulated
+    #: depreciation against an asset, a discount against income. Kept as a flag
+    #: rather than a negative balance so reports can show gross and net.
+    is_contra = Column(Boolean, nullable=False, default=False)
+
+    financial_account_id = Column(
+        UUID(as_uuid=True), ForeignKey("financial_accounts.id", ondelete="CASCADE"), nullable=True
+    )
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=True)
+
+    #: Free-text person for receivable/payable accounts ("Alice", "Mum", "Work").
+    counterparty_name = Column(String, nullable=True)
+
+    #: NULL = shared with the household, a user id = private to that user. Same
+    #: rule as FinancialAccount / SubPortfolio; see AGENTS.md 4a.
+    owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    household = relationship("Household")
+    financial_account = relationship("FinancialAccount")
+    category = relationship("Category")
+    lines = relationship("JournalLine", back_populates="ledger_account")
+
+    @property
+    def is_debit_normal(self) -> bool:
+        """Contra accounts sit on the opposite side to their type's normal one."""
+        normal = self.type in DEBIT_NORMAL_TYPES
+        return not normal if self.is_contra else normal
+
+
+class JournalSource(enum.Enum):
+    """
+    What created an entry. `source_id` points back at the originating row, which is
+    what lets the backfill be re-run without duplicating and lets an edit to a
+    transaction find and replace the entry it posted.
+    """
+
+    manual = "manual"
+    transaction = "transaction"
+    transfer = "transfer"
+    trade = "trade"
+    dividend = "dividend"
+    balance_adjustment = "balance_adjustment"
+    opening_balance = "opening_balance"
+
+
+class JournalEntry(Base):
+    """One balanced event: its lines' debits equal their credits in home currency."""
+
+    __tablename__ = "journal_entries"
+    __table_args__ = (
+        Index("ix_journal_entries_household_date", "household_id", "date"),
+        # At most one entry per source row, so a backfill or a re-post is idempotent.
+        UniqueConstraint("source", "source_id", name="uq_journal_entries_source"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True, nullable=False)
+    date = Column(DateTime(timezone=True), nullable=False)
+    description = Column(String, nullable=True)
+    source = Column(
+        Enum(JournalSource, name="journal_source", schema="finance_tracker"),
+        nullable=False,
+        default=JournalSource.manual,
+    )
+    source_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    household = relationship("Household")
+    lines = relationship(
+        "JournalLine", back_populates="entry", cascade="all, delete-orphan", order_by="JournalLine.id"
+    )
+
+
+class JournalLine(Base):
+    """
+    One side of one entry. Exactly one of `debit` / `credit` is non-zero, both are
+    non-negative, and both are in the household's **base currency** — that is the
+    currency the entry balances in. `native_amount` / `native_currency` carry what
+    actually moved, for display on a foreign-currency account.
+    """
+
+    __tablename__ = "journal_lines"
+    __table_args__ = (
+        Index("ix_journal_lines_account", "ledger_account_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    ledger_account_id = Column(UUID(as_uuid=True), ForeignKey("ledger_accounts.id"), nullable=False)
+
+    debit = Column(Numeric, nullable=False, default=0)
+    credit = Column(Numeric, nullable=False, default=0)
+
+    native_amount = Column(Numeric, nullable=True)
+    native_currency = Column(String, nullable=True)
+    exchange_rate = Column(Float, nullable=True)
+
+    memo = Column(String, nullable=True)
+
+    entry = relationship("JournalEntry", back_populates="lines")
+    ledger_account = relationship("LedgerAccount", back_populates="lines")
