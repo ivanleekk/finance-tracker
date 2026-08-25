@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
-import { assessSplit, parseMoney } from "../../lib/reimbursements"
+import { assessSplit, countsAsSpending, parseMoney } from "../../lib/reimbursements"
 import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -535,6 +535,7 @@ export default function Transactions() {
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
             if (!isInCategoryPeriod(new Date(tx.date))) return;
+            if (!countsAsSpending(categories.find(c => c.id === tx.category_id)?.name)) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const id = tx.category_id || "uncategorized";
@@ -584,6 +585,9 @@ export default function Transactions() {
             const catId = tx.category_id || "uncategorized";
             if (hiddenCategoryIds.has(catId)) return;
             const name = categoryMap.get(tx.category_id) || "Uncategorized";
+            // Settling a debt is cash leaving an account, but it is not spending
+            // — the bill was charged when it was paid.
+            if (!countsAsSpending(name)) return;
             const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
             const existing = byCategory.get(catId);
             byCategory.set(catId, { name, amount: (existing?.amount ?? 0) + homeAmount });

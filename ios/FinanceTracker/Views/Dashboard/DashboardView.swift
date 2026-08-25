@@ -628,6 +628,14 @@ struct TransactionRow: View {
                     .compactMap(\.self).joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // The amount on the right stays the full sum, because that is
+                // what left the account. This says how much of it wasn't yours,
+                // which is otherwise invisible on a list of full amounts.
+                if let owedBy = transaction.owedBy, let owedAmount = transaction.owedAmount {
+                    Text("\(owedAmount.currency(transaction.currency ?? baseCurrency)) owed by \(owedBy)")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
             Spacer()
             Text((isIncome ? "+" : "−") + transaction.amount.currency(transaction.currency ?? baseCurrency))

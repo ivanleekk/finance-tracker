@@ -65,3 +65,24 @@ export function counterpartyTotals(balances: CounterpartyBalanceResponse[]): {
     }
     return { owedToYou, youOwe };
 }
+
+/**
+ * The system category settling up is filed under. Matched by name, the same way
+ * the backend's `SYSTEM_CATEGORY_NAMES` exclusion is, because that is how the
+ * find-or-create sites identify it.
+ */
+export const REIMBURSEMENT_CATEGORY_NAME = "Reimbursement";
+
+/**
+ * Whether a category belongs in a "where did my money go" breakdown.
+ *
+ * Paying someone back is cash leaving an account, so it is an expense row and
+ * shows up in the activity list — but it is not spending. The spending was
+ * charged when the bill was paid, and letting a repayment into the breakdown
+ * charges the same dinner twice, in the one view whose whole job is to say what
+ * you spent money on. The backend excludes it from the burn rate for the same
+ * reason.
+ */
+export function countsAsSpending(categoryName: string | null | undefined): boolean {
+    return categoryName !== REIMBURSEMENT_CATEGORY_NAME;
+}

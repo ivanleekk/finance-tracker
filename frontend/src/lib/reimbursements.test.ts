@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessSplit, counterpartyTotals, parseMoney } from "./reimbursements";
+import { assessSplit, counterpartyTotals, countsAsSpending, parseMoney } from "./reimbursements";
 import type { CounterpartyBalanceResponse } from "../types/types";
 
 describe("assessSplit", () => {
@@ -61,5 +61,19 @@ describe("counterpartyTotals", () => {
 
     it("is zero for nobody", () => {
         expect(counterpartyTotals([])).toEqual({ owedToYou: 0, youOwe: 0 });
+    });
+});
+
+describe("countsAsSpending", () => {
+    it("keeps a repayment out of the spending breakdown", () => {
+        // Otherwise the same dinner is charged twice: once when the bill was
+        // paid, and again when the debt was settled.
+        expect(countsAsSpending("Reimbursement")).toBe(false);
+    });
+
+    it("leaves ordinary categories alone", () => {
+        expect(countsAsSpending("Dining")).toBe(true);
+        expect(countsAsSpending("Investment")).toBe(true);
+        expect(countsAsSpending(undefined)).toBe(true);
     });
 });

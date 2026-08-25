@@ -135,6 +135,11 @@ struct MoreView: View {
                         Label("Budgets & Emergency Fund", systemImage: "chart.pie")
                     }
                     NavigationLink {
+                        ReimbursementsView()
+                    } label: {
+                        Label("Shared Spending", systemImage: "person.2.arrow.trianglehead.counterclockwise")
+                    }
+                    NavigationLink {
                         RecurringView()
                     } label: {
                         Label("Recurring", systemImage: "repeat")
