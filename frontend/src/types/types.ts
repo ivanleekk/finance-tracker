@@ -261,6 +261,21 @@ export type TransactionResponse = {
   description: string | null;
   transaction_type: TransactionType;
   transfer_id?: string | null;
+  // Part of this expense was somebody else's. `amount` is still the full sum
+  // that left the account — the split says whose it was, not what happened to
+  // the money. Absent means none of it was.
+  owed_by?: string | null;
+  owed_amount?: number | null;
+};
+
+// --- 3d. REIMBURSEMENTS ---
+
+export type CounterpartyDirection = "owed_to_you" | "you_owe";
+
+export type CounterpartyBalanceResponse = {
+  counterparty_name: string;
+  direction: CounterpartyDirection;
+  amount: number;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---

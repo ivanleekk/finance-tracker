@@ -336,7 +336,12 @@ def account_balance(
     query = _restrict_dates(query, start, end)
     debits, credits = query.one()
     net = _dec(debits) - _dec(credits)
-    return net if account.is_debit_normal else -net
+    signed = net if account.is_debit_normal else -net
+    # Quantized because a balance is money a person is shown and acts on: left at
+    # full precision, a rounding residue surfaces as an unsettleable fraction of
+    # a cent, and the same figure reads differently depending on which endpoint
+    # returned it.
+    return signed.quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
 def category_movement(
@@ -639,10 +644,7 @@ def counterparty_balances(
     for account in accounts:
         if user is not None and account.owner_user_id not in (None, user.id):
             continue
-        # Quantized because this is a number a person is shown and acts on: a
-        # receivable left at full precision would surface a rounding residue as
-        # a real, unsettleable few thousandths of a cent.
-        balance = account_balance(db, account.id).quantize(CENTS, rounding=ROUND_HALF_UP)
+        balance = account_balance(db, account.id)
         if not include_settled and abs(balance) <= BALANCE_TOLERANCE:
             continue
         results.append(
