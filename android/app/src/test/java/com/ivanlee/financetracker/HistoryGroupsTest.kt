@@ -173,20 +173,56 @@ class HistoryGroupsTest {
     @Test
     fun `day labels say Today and Yesterday relative to the given now`() {
         val now = at(2026, 8, 20, 9)
-        assertTrue(historyGroupLabel(at(2026, 8, 20, 0), HistoryGranularity.DAY, now).startsWith("Today · "))
-        assertTrue(historyGroupLabel(at(2026, 8, 19, 0), HistoryGranularity.DAY, now).startsWith("Yesterday · "))
-        val older = historyGroupLabel(at(2026, 8, 18, 0), HistoryGranularity.DAY, now)
+        val utc = ZoneOffset.UTC
+        assertTrue(historyGroupLabel(at(2026, 8, 20, 0), HistoryGranularity.DAY, now, utc).startsWith("Today · "))
+        assertTrue(historyGroupLabel(at(2026, 8, 19, 0), HistoryGranularity.DAY, now, utc).startsWith("Yesterday · "))
+        val older = historyGroupLabel(at(2026, 8, 18, 0), HistoryGranularity.DAY, now, utc)
         assertFalse(older.contains("Today"))
         assertFalse(older.contains("Yesterday"))
+    }
+
+    /**
+     * "Today" is about the reader's day, not UTC's.
+     *
+     * A Singapore morning is the case: at 07:00 on 25 August local, UTC is still on the 24th.
+     * Resolving `now` in UTC headed today's rows "25 Aug 2026" for the first eight hours of
+     * every day — and headed *yesterday's* rows "Today", which is worse.
+     */
+    @Test
+    fun `today means the reader's day, not UTC's`() {
+        val sgt = ZoneOffset.ofHours(8)
+        val now = at(2026, 8, 24, 23) // 07:00 on the 25th in +08:00
+        assertTrue(
+            historyGroupLabel(at(2026, 8, 25, 0), HistoryGranularity.DAY, now, sgt).startsWith("Today · ")
+        )
+        assertTrue(
+            historyGroupLabel(at(2026, 8, 24, 0), HistoryGranularity.DAY, now, sgt).startsWith("Yesterday · ")
+        )
+    }
+
+    /**
+     * The mirror image, west of Greenwich: at 20:00 on 24 August in -05:00, UTC has already
+     * rolled over to the 25th. Tomorrow's date must not be labelled "Today".
+     */
+    @Test
+    fun `today does not run ahead west of UTC`() {
+        val est = ZoneOffset.ofHours(-5)
+        val now = at(2026, 8, 25, 1) // 20:00 on the 24th in -05:00
+        assertTrue(
+            historyGroupLabel(at(2026, 8, 24, 0), HistoryGranularity.DAY, now, est).startsWith("Today · ")
+        )
+        assertFalse(
+            historyGroupLabel(at(2026, 8, 25, 0), HistoryGranularity.DAY, now, est).startsWith("Today · ")
+        )
     }
 
     @Test
     fun `month and year labels never say Today or Yesterday`() {
         val now = at(2026, 8, 20, 9)
-        val month = historyGroupLabel(at(2026, 8, 1, 0), HistoryGranularity.MONTH, now)
+        val month = historyGroupLabel(at(2026, 8, 1, 0), HistoryGranularity.MONTH, now, ZoneOffset.UTC)
         assertFalse(month.contains("Today"))
         assertTrue(month.contains("2026"))
-        assertEquals("2026", historyGroupLabel(at(2026, 1, 1, 0), HistoryGranularity.YEAR, now))
+        assertEquals("2026", historyGroupLabel(at(2026, 1, 1, 0), HistoryGranularity.YEAR, now, ZoneOffset.UTC))
     }
 
     @Test

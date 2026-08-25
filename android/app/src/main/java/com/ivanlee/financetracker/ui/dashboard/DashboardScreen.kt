@@ -365,6 +365,7 @@ fun DashboardScreen(
                         account = account,
                         latestBalance = latestByAccount[account.id],
                         onClick = { onOpenAccount(account.id) },
+                        baseCurrency = baseCurrency,
                     )
                 }
             }
@@ -540,12 +541,38 @@ private fun RunwaySummary(
     }
 }
 
+/**
+ * One account in a list — the Accounts screen and the dashboard's preview both use it.
+ *
+ * **Liabilities are shown as what they are: money owed.** A loan's balance is stored as a
+ * positive number, and rendering it as-is put `HDB Mortgage  $440,000.00` in the same colour,
+ * sign and weight as real cash, while net worth quietly subtracted it — a household with two
+ * loans read as if it had three-quarters of a million on hand. The figure is negated and
+ * tinted with the error colour, and the caption says "Owed". Matches the web Accounts page
+ * and the iOS `AccountRow`; the three are ports of each other.
+ *
+ * @param baseCurrency the household's reporting currency, so the caption names the account's
+ *   own currency only when it differs. The amount renders in `account.currency` either way,
+ *   and two accounts in different currencies otherwise show the same "$".
+ * @param showsLiquidity false on the Accounts screen, where the row already sits under a
+ *   section header naming the bucket — the caption read "Liquid" under a "Liquid" header on
+ *   every row, spending the row's only secondary line on a word just read.
+ */
 @Composable
 fun AccountRow(
     account: AccountResponse,
     latestBalance: BalanceResponse?,
     onClick: () -> Unit,
+    baseCurrency: String? = null,
+    showsLiquidity: Boolean = true,
 ) {
+    val balance = latestBalance?.balance ?: 0.0
+    val amount = if (account.isLiability) -balance else balance
+    val caption = buildList {
+        if (account.isLiability) add("Owed")
+        if (showsLiquidity) add(account.liquidity.label)
+        if (baseCurrency != null && account.currency != baseCurrency) add(account.currency)
+    }.joinToString(" · ")
     ListItem(
         colors = cardListItemColors(),
         headlineContent = {
@@ -554,12 +581,17 @@ fun AccountRow(
                 if (account.ownerUserId != null) PrivateBadge()
             }
         },
-        supportingContent = { Text(account.liquidity.label) },
+        supportingContent = caption.takeIf { it.isNotEmpty() }?.let { { Text(it) } },
         trailingContent = {
             Text(
-                (latestBalance?.balance ?: 0.0).currency(account.currency),
+                amount.currency(account.currency),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
+                color = if (account.isLiability) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    Color.Unspecified
+                },
             )
         },
         modifier = Modifier.clickable(onClick = onClick),

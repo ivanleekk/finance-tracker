@@ -1,6 +1,7 @@
 package com.ivanlee.financetracker.logic
 
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.math.abs
 
@@ -98,17 +99,29 @@ fun summarizeHistory(entries: List<HistoryEntry>): HistoryGroupSummary {
     return HistoryGroupSummary(inflow, outflow, unconverted)
 }
 
-/** The header text for a bucket: "Today · 20 Aug" / "August 2026" / "2026". */
+/**
+ * The header text for a bucket: "Today · 20 Aug" / "August 2026" / "2026".
+ *
+ * [localZone] is the **reader's** zone, and deliberately not [ZoneOffset.UTC] like everything
+ * else here. "Today" is the one question on this screen that isn't about the backend's calendar
+ * dates at all — it's about the day the person holding the phone is having. A row is dated
+ * 25 August in UTC; whether that is *today* depends on the date where they are. Resolving
+ * [now] in UTC as well meant that for the eight hours each morning that Singapore runs ahead of
+ * UTC, today's rows were headed "25 Aug 2026" and *yesterday's* were headed "Today" — and west
+ * of Greenwich the same mismatch labels tomorrow's date "Today" late in the evening. The iOS
+ * `historyGroupLabel` takes a `localCalendar` for the same reason.
+ */
 fun historyGroupLabel(
     start: Instant,
     granularity: HistoryGranularity,
     now: Instant = Instant.now(),
+    localZone: ZoneId = ZoneId.systemDefault(),
 ): String = when (granularity) {
     HistoryGranularity.YEAR -> start.atZone(ZoneOffset.UTC).year.toString()
     HistoryGranularity.MONTH -> start.monthYear()
     HistoryGranularity.DAY -> {
         val day = start.atZone(ZoneOffset.UTC).toLocalDate()
-        val today = now.atZone(ZoneOffset.UTC).toLocalDate()
+        val today = now.atZone(localZone).toLocalDate()
         when (day) {
             today -> "Today · ${start.shortDay()}"
             today.minusDays(1) -> "Yesterday · ${start.shortDay()}"

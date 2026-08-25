@@ -224,6 +224,66 @@ struct HistoryGroupTimezoneTests {
         #expect(groups.first?.label.contains(date.shortDay) == true)
     }
 
+    /// "Today" is about the reader's day, not UTC's.
+    ///
+    /// A Singapore morning is the case: at 07:00 on 25 August local, UTC is still on the 24th.
+    /// A row the backend dated 2026-08-25 is today's — comparing both sides in UTC headed it
+    /// "25 Aug 2026" for the first eight hours of every day.
+    @Test func todayMeansTheReadersDayNotUTCs() {
+        // 07:00 on the 25th in UTC+8 is still the 24th in UTC.
+        let now = Self.utcInstant(2026, 8, 24, hour: 23)
+        let label = historyGroupLabel(
+            for: Self.utcDate(2026, 8, 25),
+            granularity: .day,
+            now: now,
+            localCalendar: Self.calendar(offsetHours: 8)
+        )
+        #expect(label.hasPrefix("Today · "))
+    }
+
+    @Test func yesterdayIsRelativeToTheReadersDayToo() {
+        let now = Self.utcInstant(2026, 8, 24, hour: 23)
+        let label = historyGroupLabel(
+            for: Self.utcDate(2026, 8, 24),
+            granularity: .day,
+            now: now,
+            localCalendar: Self.calendar(offsetHours: 8)
+        )
+        #expect(label.hasPrefix("Yesterday · "))
+    }
+
+    /// The mirror image, west of Greenwich: at 20:00 on 24 August in UTC-5, UTC has already
+    /// rolled over to the 25th. Tomorrow's date must not be labelled "Today".
+    @Test func todayDoesNotRunAheadWestOfUTC() {
+        // 20:00 on the 24th in UTC-5 is already the 25th in UTC.
+        let now = Self.utcInstant(2026, 8, 25, hour: 1)
+        let local = Self.calendar(offsetHours: -5)
+        #expect(
+            historyGroupLabel(
+                for: Self.utcDate(2026, 8, 24), granularity: .day, now: now, localCalendar: local
+            ).hasPrefix("Today · ")
+        )
+        #expect(
+            !historyGroupLabel(
+                for: Self.utcDate(2026, 8, 25), granularity: .day, now: now, localCalendar: local
+            ).hasPrefix("Today · ")
+        )
+    }
+
+    /// A wall-clock instant, expressed in UTC. Built from components rather than an epoch
+    /// literal so the timezone arithmetic under test is readable in the test itself.
+    private static func utcInstant(_ year: Int, _ month: Int, _ day: Int, hour: Int) -> Date {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        return utc.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+    }
+
+    private static func calendar(offsetHours: Int) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: offsetHours * 3600)!
+        return calendar
+    }
+
     /// And the year header, the third label that used to be formatted a different way again.
     @Test func yearSectionsAreLabelledWithTheirOwnYear() {
         let groups = groupHistory(
