@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.HorizontalDivider
@@ -93,6 +94,8 @@ fun MoreScreen(
         item {
             SectionCard(title = "Money") {
                 MoreRow("Budgets & emergency fund", Icons.Filled.Savings) { onNavigate(routes.budgets) }
+                HorizontalDivider()
+                MoreRow("Shared spending", Icons.Filled.Groups) { onNavigate(routes.reimbursements) }
                 HorizontalDivider()
                 MoreRow("Recurring", Icons.Filled.Autorenew) { onNavigate(routes.recurring) }
                 HorizontalDivider()
@@ -185,6 +188,7 @@ data class MoreRoutes(
     val household: String,
     val appearance: String,
     val budgets: String,
+    val reimbursements: String,
     val recurring: String,
     val categories: String,
     val reports: String,

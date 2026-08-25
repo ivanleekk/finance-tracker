@@ -272,6 +272,13 @@ where tests pay off without a backend or an emulator:
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.
 
+- `ReimbursementsTest` / `ReimbursementCodingTest` — `logic/Reimbursements.kt` (the split
+  maths, shared with web and iOS) plus the `TransactionUpdate` encoder. The coding suite pins
+  that a transaction with **no** split keys still decodes (every row logged before the ledger
+  comes back that way), and that `SplitChange.Unchanged` *omits* the keys while `Clear` sends
+  explicit nulls — which is why those fields are `JsonElement` rather than plain types, since
+  the client's `explicitNulls = false` would otherwise drop a deliberate null.
+
 New tests should stay backend-free: exercise the pure functions and the Codable models, don't
 spin up `Api` network calls.
 
@@ -289,3 +296,21 @@ Things this app does that iOS does **not**, and why:
 
 Things iOS has that this app deliberately doesn't: the ⌘K keyboard shortcut (an iPad
 accommodation for the absence of haptics there — Android phones and tablets both have them).
+
+
+## Shared spending (reimbursements)
+
+`ui/more/ReimbursementsScreen.kt`, reached from More → Money. A port of iOS's
+`ReimbursementsView` and the web /reimbursements page: the split toggle on the transaction
+form, the who-owes-whom list with a settle dialog, and "someone paid for me" (which has **no
+account picker**, because no account of yours moved — that is the whole point of it).
+
+Rules worth not re-deriving:
+
+- The amount field is never reduced by the split. `TransactionRow` puts the owed portion
+  underneath in `warningColor()`; web and iOS do the same.
+- `Reimbursements.countsAsSpending` filters `expenseTransactions` in `TransactionsScreen`,
+  keeping a repayment out of Top Categories. Without it the card reads "Reimbursement · 100%".
+- Build a `TransactionUpdate` through the `transactionUpdate(...)` factory, never by hand — it
+  is what maps `SplitChange` onto the omit/`JsonNull`/value encoding the backend expects.
+- The split section only renders for `TransactionType.EXPENSE`; income has no counterparty.

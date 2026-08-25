@@ -41,6 +41,7 @@ import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.logic.Reimbursements
 import com.ivanlee.financetracker.logic.CategoryPeriod
 import com.ivanlee.financetracker.logic.HistoryEntry
 import com.ivanlee.financetracker.logic.HistoryGranularity
@@ -236,7 +237,10 @@ fun TransactionsScreen(
     val expenseTransactions = transactions.filter {
         it.transactionType == TransactionType.EXPENSE &&
             it.accountId in visibleAccountIds &&
-            (categoryRange == null || it.date in categoryRange)
+            (categoryRange == null || it.date in categoryRange) &&
+            // Settling a debt is cash leaving an account, but it is not spending — the bill was
+            // charged when it was paid.
+            Reimbursements.countsAsSpending(categoriesById[it.categoryId]?.name)
     }
 
     // Every expense category that's shown up in the selected period, used to populate the filter

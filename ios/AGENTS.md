@@ -338,6 +338,12 @@ where tests pay off without a running backend:
   timezone-dependent default has to exercise that default.
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
+- `ReimbursementsTests` / `ReimbursementCodingTests` — `Support/Reimbursements.swift` (the
+  split maths, shared with web and Android) plus the `TransactionUpdate` encoder. The coding
+  suite is the important half: it pins that a transaction with **no** split keys still decodes
+  (every row logged before the ledger comes back that way), and that `SplitChange.unchanged`
+  *omits* the keys while `.clear` sends explicit nulls — a distinction the synthesized
+  `Encodable` cannot express, and the reason `encode(to:)` is hand-written.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).
@@ -349,3 +355,24 @@ where tests pay off without a running backend:
 
 New tests should stay backend-free: exercise the pure functions and Codable models, don't spin
 up `APIClient` network calls.
+
+
+## Shared spending (reimbursements)
+
+`Views/Reimbursements/ReimbursementsView.swift`, reached from More. Three flows, matching web
+and Android: the split toggle on the transaction form, the who-owes-whom list with an inline
+settle sheet, and "someone paid for me" (which has **no account picker**, because no account of
+yours moved — that is the whole point of it).
+
+Rules worth not re-deriving:
+
+- The amount field is never reduced by the split. The whole sum left the account, and showing
+  the user's share instead would contradict their bank. `TransactionRow` puts the owed portion
+  underneath in orange; web and Android do the same.
+- `Reimbursements.countsAsSpending` filters `expenseTransactions`, which is what keeps a
+  repayment out of Top Categories. Without it the card reads "Reimbursement · 100%" — the
+  distortion the whole feature exists to prevent.
+- `SplitChange` has three cases because the API distinguishes an omitted key from an explicit
+  null, and defaults to `.unchanged` so an unrelated description edit cannot silently drop a
+  split.
+- The split section only renders for `.expense`; income has no counterparty.

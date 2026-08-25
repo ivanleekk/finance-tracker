@@ -273,6 +273,14 @@ data class TransactionResponse(
     val description: String? = null,
     val transactionType: TransactionType,
     val transferId: String? = null,
+    /**
+     * Part of this expense was somebody else's. [amount] is still the full sum that left the
+     * account — the split says whose it was, not what happened to the money. Absent means none
+     * of it was, which is also how every row logged before the ledger existed decodes.
+     */
+    val owedBy: String? = null,
+    @Serializable(with = OptionalMoneySerializer::class)
+    val owedAmount: Double? = null,
 )
 
 @Serializable
@@ -283,11 +291,32 @@ data class TransactionCreate(
     val description: String? = null,
     val accountId: String,
     val categoryId: String,
+    /** Sent together or not at all — the API rejects half a split. */
+    val owedBy: String? = null,
+    val owedAmount: Double? = null,
 )
+
+/**
+ * How an edit should treat the split already recorded against a transaction.
+ *
+ * Three states, not two, because "leave it alone" and "remove it" are different requests and the
+ * API distinguishes them by omission versus explicit null. An unrelated description edit must not
+ * quietly make a shared dinner all yours, so [Unchanged] is the default.
+ */
+sealed interface SplitChange {
+    data object Unchanged : SplitChange
+    data object Clear : SplitChange
+    data class Set(val owedBy: String, val owedAmount: Double) : SplitChange
+}
 
 /**
  * PUT /cashflow/transactions/{id} (schemas.TransactionUpdate). `description` is always sent
  * (empty string clears it); the sign follows the category.
+ *
+ * The split fields are [JsonElement] rather than plain types so all three states can be
+ * expressed: the client's `explicitNulls = false` omits a Kotlin null, while [JsonNull] is
+ * written as an explicit `null` — which is exactly how the backend tells "preserve the split"
+ * from "drop it". Build one with [transactionUpdate] rather than setting them by hand.
  */
 @Serializable
 data class TransactionUpdate(
@@ -297,6 +326,84 @@ data class TransactionUpdate(
     val description: String,
     val accountId: String,
     val categoryId: String,
+    val owedBy: JsonElement? = null,
+    val owedAmount: JsonElement? = null,
+)
+
+fun transactionUpdate(
+    date: Instant,
+    amount: Double,
+    description: String,
+    accountId: String,
+    categoryId: String,
+    split: SplitChange = SplitChange.Unchanged,
+): TransactionUpdate = TransactionUpdate(
+    date = date,
+    amount = amount,
+    description = description,
+    accountId = accountId,
+    categoryId = categoryId,
+    owedBy = when (split) {
+        SplitChange.Unchanged -> null
+        SplitChange.Clear -> JsonNull
+        is SplitChange.Set -> JsonPrimitive(split.owedBy)
+    },
+    owedAmount = when (split) {
+        SplitChange.Unchanged -> null
+        SplitChange.Clear -> JsonNull
+        is SplitChange.Set -> JsonPrimitive(split.owedAmount)
+    },
+)
+
+// MARK: Reimbursements
+
+/** Which way a debt runs, named from the household's point of view. */
+@Serializable
+enum class CounterpartyDirection {
+    @SerialName("owed_to_you") OWED_TO_YOU,
+    @SerialName("you_owe") YOU_OWE,
+}
+
+/** GET /cashflow/reimbursements/household/{id}. */
+@Serializable
+data class CounterpartyBalanceResponse(
+    val counterpartyName: String,
+    val direction: CounterpartyDirection,
+    @Serializable(with = MoneySerializer::class)
+    val amount: Double,
+) {
+    /** One person can appear in both directions, so the name alone is not an id. */
+    val key: String get() = "$direction:$counterpartyName"
+}
+
+/**
+ * POST /cashflow/reimbursements/on-behalf. Somebody else paid for something of yours: no
+ * account and no amount leaving one, because none did.
+ */
+@Serializable
+data class SpendOnYourBehalfCreate(
+    val householdId: String,
+    val categoryId: String,
+    val counterpartyName: String,
+    val amount: Double,
+    @Serializable(with = InstantSerializer::class)
+    val date: Instant,
+    val description: String? = null,
+)
+
+/**
+ * POST /cashflow/reimbursements/settle. Money actually changing hands to clear a debt — it
+ * moves an account balance but charges no category.
+ */
+@Serializable
+data class SettlementCreate(
+    val accountId: String,
+    val counterpartyName: String,
+    val direction: CounterpartyDirection,
+    val amount: Double,
+    @Serializable(with = InstantSerializer::class)
+    val date: Instant,
+    val description: String? = null,
 )
 
 /**

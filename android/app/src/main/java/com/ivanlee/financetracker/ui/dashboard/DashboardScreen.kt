@@ -655,14 +655,29 @@ fun TransactionRow(
             Text(transaction.description?.takeIf { it.isNotBlank() } ?: categoryName ?: "Transaction")
         },
         supportingContent = {
-            Text(
-                listOfNotNull(
-                    categoryName,
-                    accountName,
-                    transaction.date.shortDay(),
-                ).joinToString(" · "),
-                maxLines = 1,
-            )
+            Column {
+                Text(
+                    listOfNotNull(
+                        categoryName,
+                        accountName,
+                        transaction.date.shortDay(),
+                    ).joinToString(" · "),
+                    maxLines = 1,
+                )
+                // The amount on the right stays the full sum, because that is what left the
+                // account. This says how much of it wasn't yours, which is otherwise invisible
+                // on a list of full amounts.
+                val owedBy = transaction.owedBy
+                val owedAmount = transaction.owedAmount
+                if (owedBy != null && owedAmount != null) {
+                    Text(
+                        "${owedAmount.currency(transaction.currency ?: baseCurrency)} owed by $owedBy",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = warningColor(),
+                        maxLines = 1,
+                    )
+                }
+            }
         },
         trailingContent = {
             Text(
