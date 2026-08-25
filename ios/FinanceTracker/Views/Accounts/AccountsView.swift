@@ -21,10 +21,39 @@ struct AccountsListView: View {
         accounts.filter { viewModeStore.isVisible(ownerUserId: $0.ownerUserId, currentUserId: session.user?.id) }
     }
 
+    /// Asset accounts bucketed by liquidity. Liabilities are **not** in here: a loan filed
+    /// under "Liquid" sat next to real cash showing a positive balance, so a household with a
+    /// $440k mortgage read as having $440k on hand. Liquidity is a property of an asset —
+    /// how quickly you could spend it — and says nothing useful about a debt. They get their
+    /// own section below, the way the web Accounts page has always grouped them.
     private var grouped: [(liquidity: LiquidityStatus, accounts: [AccountResponse])] {
         LiquidityStatus.allCases.compactMap { liquidity in
-            let matching = visibleAccounts.filter { $0.liquidity == liquidity }
+            let matching = visibleAccounts.filter { $0.liquidity == liquidity && !$0.isLiability }
             return matching.isEmpty ? nil : (liquidity, matching.sorted { $0.name < $1.name })
+        }
+    }
+
+    private var liabilities: [AccountResponse] {
+        visibleAccounts.filter(\.isLiability).sorted { $0.name < $1.name }
+    }
+
+    /// The row plus its push. Shared by the liquidity sections and the liabilities one so the
+    /// two can't drift apart. `showsLiquidity` is off here: the section header above already
+    /// names the bucket.
+    @ViewBuilder
+    private func accountLink(
+        _ account: AccountResponse,
+        latestByAccount: [String: BalanceResponse]
+    ) -> some View {
+        NavigationLink {
+            AccountDetailView(account: account, onChanged: load)
+        } label: {
+            AccountRow(
+                account: account,
+                latestBalance: latestByAccount[account.id],
+                baseCurrency: session.activeHousehold?.baseCurrency,
+                showsLiquidity: false
+            )
         }
     }
 
@@ -56,11 +85,15 @@ struct AccountsListView: View {
             ForEach(grouped, id: \.liquidity) { group in
                 Section(group.liquidity.label) {
                     ForEach(group.accounts) { account in
-                        NavigationLink {
-                            AccountDetailView(account: account, onChanged: load)
-                        } label: {
-                            AccountRow(account: account, latestBalance: latestByAccount[account.id])
-                        }
+                        accountLink(account, latestByAccount: latestByAccount)
+                    }
+                }
+            }
+
+            if !liabilities.isEmpty {
+                Section("Loans & liabilities") {
+                    ForEach(liabilities) { account in
+                        accountLink(account, latestByAccount: latestByAccount)
                     }
                 }
             }
@@ -451,14 +484,19 @@ struct AccountFormView: View {
             .navigationTitle(existing == nil ? "New Account" : "Edit Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(
+                fields: [name, liquidity, taxStatus, kind, currency, isPrivate, principalText,
+                         rateText, termMonthsText, paymentText, hasLoanStart, loanStartDate,
+                         appreciationText, linkedAccountId],
+                // `onAppear` above fills in the household currency and the private-by-default
+                // toggle; neither is an edit the user made.
+                settled: didSeedPrivacy && !currency.isEmpty
+            )
             .onAppear {
                 if currency.isEmpty {
                     currency = session.activeHousehold?.baseCurrency ?? "USD"
@@ -594,14 +632,12 @@ struct AddBalanceView: View {
             .navigationTitle("Add Balance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [date, amountText])
         }
     }
 

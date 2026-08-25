@@ -160,14 +160,12 @@ struct TradeFormView: View {
             .navigationTitle(isEditing ? "Edit Trade" : "New Trade")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [type, subPortfolioId, assetId, accountId, quantityText, priceText, date, settleFromCash, description])
             .onAppear {
                 if subPortfolioId == nil { subPortfolioId = subPortfolios.first?.id }
                 if assetId == nil { assetId = tradableAssets.first?.id }
@@ -318,14 +316,12 @@ struct CashMoveFormView: View {
             .navigationTitle("Move Cash")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [subPortfolioId, accountId, direction, amountText, date, description])
             .onAppear {
                 if subPortfolioId == nil { subPortfolioId = subPortfolios.first?.id }
                 if accountId == nil { accountId = accounts.first?.id }

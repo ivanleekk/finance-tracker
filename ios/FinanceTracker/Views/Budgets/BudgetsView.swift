@@ -420,14 +420,12 @@ struct BudgetFormView: View {
             .navigationTitle(existing == nil ? "New Budget" : "Edit Budget")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(amount == nil || categoryIds.isEmpty || isSaving)
                 }
             }
+            .discardGuard(fields: [categoryIds, amountText, period])
         }
     }
 

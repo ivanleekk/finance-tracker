@@ -250,7 +250,11 @@ struct DashboardView: View {
                         NavigationLink {
                             AccountDetailView(account: account, onChanged: load)
                         } label: {
-                            AccountRow(account: account, latestBalance: latestByAccount[account.id])
+                            AccountRow(
+                                account: account,
+                                latestBalance: latestByAccount[account.id],
+                                baseCurrency: baseCurrency
+                            )
                         }
                     }
                 } header: {
@@ -538,9 +542,42 @@ private let bandCalendar: Calendar = {
     return calendar
 }()
 
+/// One account in a list — the Accounts tab and the Dashboard's preview both use it.
+///
+/// **Liabilities are shown as what they are: money owed.** The balance of a loan is stored
+/// as a positive number, and rendering that as-is put `HDB Mortgage  $440,000.00` in the same
+/// ink, sign and weight as real cash — while net worth quietly subtracted it. A household
+/// with two loans read as if it had three-quarters of a million liquid. The figure is negated
+/// and tinted red, and the caption says "Owed", matching what the web Accounts page has always
+/// done (`isLiability ? -balanceHome : balanceHome`, in red, under its own "Loans &
+/// liabilities" group).
 struct AccountRow: View {
     let account: AccountResponse
     let latestBalance: BalanceResponse?
+    /// The household's reporting currency, so the caption can name the account's own currency
+    /// only when it differs. The amount is rendered in `account.currency` either way, and two
+    /// accounts in different currencies otherwise render the same "$" with nothing to tell
+    /// them apart.
+    var baseCurrency: String?
+    /// Whether to name the liquidity bucket. False on the Accounts tab, where the row already
+    /// sits under a section header saying exactly that — the caption read "Liquid" under a
+    /// "Liquid" header on every row, spending the only secondary line the row has on a word
+    /// the reader just read.
+    var showsLiquidity: Bool = true
+
+    private var amount: Double {
+        let balance = latestBalance?.balance ?? 0
+        return account.isLiability ? -balance : balance
+    }
+
+    /// "Owed · USD", "Retirement", "Property · JPY" — whichever parts carry information here.
+    private var caption: String {
+        var parts: [String] = []
+        if account.isLiability { parts.append("Owed") }
+        if showsLiquidity { parts.append(account.liquidity.label) }
+        if let baseCurrency, account.currency != baseCurrency { parts.append(account.currency) }
+        return parts.joined(separator: " · ")
+    }
 
     var body: some View {
         HStack {
@@ -554,13 +591,16 @@ struct AccountRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(account.liquidity.label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if !caption.isEmpty {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            Text((latestBalance?.balance ?? 0).currency(account.currency))
+            Text(amount.currency(account.currency))
                 .font(.body.monospacedDigit())
+                .foregroundStyle(account.isLiability ? Color.red : .primary)
         }
     }
 }

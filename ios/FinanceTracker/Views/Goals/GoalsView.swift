@@ -162,14 +162,12 @@ struct GoalFormView: View {
             .navigationTitle(existing == nil ? "New Goal" : "Edit Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(existing == nil ? "Create" : "Save") { save() }
                         .disabled(!canSave)
                 }
             }
+            .discardGuard(fields: [name, riskProfile, targetAmountText, hasTargetDate, targetDate, isPrivate])
             .onAppear {
                 guard !didSeedPrivacy else { return }
                 isPrivate = session.user?.defaultsNewItemsPrivate ?? false
