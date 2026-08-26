@@ -19,6 +19,11 @@ struct ProfileSettingsView: View {
     @State private var defaultAccountId: String?
     @State private var isSavingDefaultAccount = false
 
+    // Seeded in .onAppear like the rest; `didLoadMcc` stops the seeding itself from
+    // firing a save, the same guard the privacy toggles use.
+    @State private var recordMcc = false
+    @State private var didLoadMcc = false
+
     private var isDirty: Bool {
         guard let user = session.user else { return false }
         return name.trimmingCharacters(in: .whitespaces) != user.name
@@ -64,6 +69,22 @@ struct ProfileSettingsView: View {
                 Text("Preselected when logging a transaction or using Quick Add.")
             }
 
+            Section {
+                Toggle("Record merchant codes", isOn: $recordMcc)
+                    .onChange(of: recordMcc) { _, value in
+                        guard didLoadMcc else { return }
+                        saveRecordMcc(value)
+                    }
+            } header: {
+                Text("Merchant codes")
+            } footer: {
+                Text("""
+                Adds an optional MCC field when logging a transaction. Nothing is calculated \
+                from it — your categories and budgets are unaffected. It's recorded so you can \
+                look it up later, and it's fine to leave blank when you don't know it.
+                """)
+            }
+
             StatusSection(status: status)
         }
         .navigationTitle("Profile")
@@ -78,6 +99,8 @@ struct ProfileSettingsView: View {
             name = session.user?.name ?? ""
             timezone = session.user?.preferredTimezone ?? "UTC"
             defaultAccountId = session.user?.defaultAccountId
+            recordMcc = session.user?.recordsMerchantCodes ?? false
+            didLoadMcc = true
         }
         .task {
             guard accounts.isEmpty, let householdId = session.activeHousehold?.id else { return }
@@ -96,6 +119,20 @@ struct ProfileSettingsView: View {
                 status = .success("Profile updated.")
             } catch {
                 status = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    private func saveRecordMcc(_ value: Bool) {
+        status = .idle
+        Task {
+            do {
+                try await session.updateUser(UserUpdate(recordMerchantCodes: value))
+            } catch {
+                status = .failure(error.localizedDescription)
+                // Put the switch back where the server still has it, rather than
+                // leaving it showing a state that was never saved.
+                recordMcc = session.user?.recordsMerchantCodes ?? false
             }
         }
     }
@@ -455,7 +492,10 @@ struct TimezonePicker: View {
 }
 
 /// Generic searchable single-select list backed by a `/reference/*` endpoint.
-private struct ReferencePicker<Item: Decodable & Hashable>: View {
+/// Internal rather than private
+/// because the transaction form reaches for it too — the MCC catalogue is the same
+/// shape as currencies and timezones, so it needs no picker of its own.
+struct ReferencePicker<Item: Decodable & Hashable>: View {
     @Environment(\.dismiss) private var dismiss
 
     let title: String
@@ -464,6 +504,11 @@ private struct ReferencePicker<Item: Decodable & Hashable>: View {
     let id: (Item) -> String
     let label: (Item) -> String
     let searchText: (Item) -> String
+    /// Applied once after loading. Defaults to whatever order the endpoint returned,
+    /// which is right for currencies and timezones; the MCC catalogue uses it to sink
+    /// ~400 airline and hotel brand codes below the general ones, matching web and
+    /// Android. Search still reaches them.
+    var reorder: ([Item]) -> [Item] = { $0 }
 
     @State private var items: [Item] = []
     @State private var isLoading = true
@@ -513,7 +558,7 @@ private struct ReferencePicker<Item: Decodable & Hashable>: View {
             isLoading = true
             defer { isLoading = false }
             do {
-                items = try await APIClient.shared.get(path)
+                items = reorder(try await APIClient.shared.get(path))
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -123,7 +123,7 @@ export default function Transactions() {
     const { activeHousehold } = useHousehold()
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [], mccs = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
 
@@ -206,7 +206,10 @@ export default function Transactions() {
         // Part of this bill is somebody else's. The amount above stays the full
         // sum that leaves the account — this only says whose it was.
         owedBy: "",
-        owedAmount: ""
+        owedAmount: "",
+        // Optional even when the field is shown — most purchases have no code the
+        // user knows, so blank is the normal state, not an error.
+        mcc: ""
     });
     const [isSplitting, setIsSplitting] = useState(false);
 
@@ -228,6 +231,21 @@ export default function Transactions() {
     }
 
     const baseCurrency = activeHousehold.base_currency || "USD";
+
+    // General codes first, brands after. The 3000-3999 block is ~400 airline and
+    // hotel brands — real, occasionally wanted, and pure noise if it sits between
+    // Groceries and Restaurants. Select filters on the label, so a brand is still
+    // one search away. A blank first option keeps "I don't know it" a click.
+    const mccOptions = useMemo(() => {
+        const label = (m: typeof mccs[number]) => `${m.code} · ${m.name}`;
+        const general = mccs.filter(m => m.is_brand !== "true");
+        const brands = mccs.filter(m => m.is_brand === "true");
+        return [
+            { value: "", label: "— None —" },
+            ...general.map(m => ({ value: m.code, label: label(m) })),
+            ...brands.map(m => ({ value: m.code, label: label(m) })),
+        ];
+    }, [mccs]);
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
@@ -283,6 +301,9 @@ export default function Transactions() {
                 amount: parseFloat(formData.amount),
                 currency: formData.currency,
                 description: formData.description,
+                // Blank is sent as-is; the API treats "" as "not given" rather than
+                // rejecting it, so there is nothing to convert here.
+                mcc: formData.mcc,
                 // Sent together or not at all — the API rejects half a split.
                 ...(isSplit ? { owed_by: owedBy, owed_amount: owedAmount } : {})
             });
@@ -296,7 +317,8 @@ export default function Transactions() {
                 date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
                 description: "",
                 owedBy: "",
-                owedAmount: ""
+                owedAmount: "",
+                mcc: ""
             });
             revalidator.revalidate();
         } catch (error) {
@@ -1065,6 +1087,29 @@ export default function Transactions() {
                                 </>
                             )}
                         </div>
+
+                        {/*
+                          Only for users who asked for it in Settings. A four-digit code
+                          field on every form would tax everyone for a minority feature —
+                          and it is optional even here, since most purchases have no code
+                          the user happens to know.
+                        */}
+                        {user?.record_merchant_codes && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                    Merchant code <span className="font-normal text-base-400">(optional)</span>
+                                </label>
+                                <Select
+                                    placeholder="Leave blank if you don't know it"
+                                    value={formData.mcc}
+                                    onChange={(mcc) => setFormData({ ...formData, mcc })}
+                                    options={mccOptions}
+                                />
+                                <p className="text-xs text-base-500 dark:text-base-400">
+                                    Recorded only — nothing is calculated from it.
+                                </p>
+                            </div>
+                        )}
 
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => setIsLogModalOpen(false)}>

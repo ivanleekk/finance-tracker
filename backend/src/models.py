@@ -138,6 +138,14 @@ class User(Base):
     hide_private_from_household: Mapped[bool] = mapped_column(Boolean, default=True)
     require_face_id_for_vault: Mapped[bool] = mapped_column(Boolean, default=True)
     default_new_items_private: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Reveals the optional MCC field on the transaction form. Off by default and
+    # per-user rather than per-household: it is a preference about how *you* enter
+    # data, and a four-digit code field on every form would tax everyone for a
+    # minority feature. Nothing behaves differently when it is on — the code is
+    # recorded, never evaluated (see Transaction.mcc).
+    record_merchant_codes: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     # Preselected account for new expense/income transactions (web quick-add, CommandBar, iOS QuickAdd).
     # Nullable: falls back to first accessible account when unset. ON DELETE SET NULL so
     # closing the account just clears the preference instead of blocking the delete.

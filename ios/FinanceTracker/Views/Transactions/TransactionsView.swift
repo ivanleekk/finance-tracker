@@ -442,6 +442,9 @@ struct TransactionFormView: View {
     @State private var isSplitting: Bool
     @State private var owedByText: String
     @State private var owedAmountText: String
+    /// Empty means "not recorded", which is the normal case — most purchases have
+    /// no code the user happens to know.
+    @State private var mcc: String
 
     init(
         accounts: [AccountResponse],
@@ -465,6 +468,7 @@ struct TransactionFormView: View {
         _isSplitting = State(initialValue: existing?.owedBy != nil && existingOwed != nil)
         _owedByText = State(initialValue: existing?.owedBy ?? "")
         _owedAmountText = State(initialValue: existingOwed.map(Self.amountString) ?? "")
+        _mcc = State(initialValue: existing?.mcc ?? "")
     }
 
     /// Editable string for a stored amount: drop the trailing ".0" on whole numbers.
@@ -591,6 +595,33 @@ struct TransactionFormView: View {
                     }
                 }
 
+                // Only for users who asked for it in Settings — a four-digit code
+                // field on every form would tax everyone for a minority feature.
+                if session.user?.recordsMerchantCodes == true {
+                    Section {
+                        NavigationLink {
+                            ReferencePicker(
+                                title: "Merchant Code",
+                                path: "/reference/mccs",
+                                selection: $mcc,
+                                id: \ReferenceMcc.code,
+                                label: { "\($0.code) — \($0.name)" },
+                                searchText: { "\($0.code) \($0.name) \($0.group)" },
+                                // General codes first; the ~400 airline and hotel brands
+                                // sink to the end rather than sitting between 2xxx and
+                                // 4xxx. Matches web and Android.
+                                reorder: { $0.sorted { a, b in
+                                    (a.isBrand == "true" ? 1 : 0) < (b.isBrand == "true" ? 1 : 0)
+                                } }
+                            )
+                        } label: {
+                            LabeledContent("Merchant code", value: mcc.isEmpty ? "Not recorded" : mcc)
+                        }
+                    } footer: {
+                        Text("Optional. Recorded only — nothing is calculated from it.")
+                    }
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -650,7 +681,8 @@ struct TransactionFormView: View {
                         description: description,
                         accountId: accountId,
                         categoryId: categoryId,
-                        split: splitChange
+                        split: splitChange,
+                        mcc: mcc
                     )
                     let _: TransactionResponse = try await APIClient.shared.put(
                         "/cashflow/transactions/\(existing.id)", body: body
@@ -663,7 +695,8 @@ struct TransactionFormView: View {
                         accountId: accountId,
                         categoryId: categoryId,
                         owedBy: isSplitting ? trimmedOwedBy : nil,
-                        owedAmount: isSplitting ? owedAmount : nil
+                        owedAmount: isSplitting ? owedAmount : nil,
+                        mcc: mcc
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(
                         "/cashflow/transactions", body: body

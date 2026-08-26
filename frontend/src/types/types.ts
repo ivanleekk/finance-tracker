@@ -82,6 +82,8 @@ export type UserResponse = {
   hide_private_from_household: boolean;
   require_face_id_for_vault: boolean;
   default_new_items_private: boolean;
+  /** Reveals the optional MCC field on the transaction form. Recorded, never evaluated. */
+  record_merchant_codes: boolean;
   default_account_id?: string;
 };
 
@@ -249,6 +251,15 @@ export type CategoryResponse = {
   type: TransactionType;
 };
 
+/** A row from GET /reference/mccs — static reference data, like currencies. */
+export type MccResponse = {
+  code: string;
+  name: string;
+  group: string;
+  /** "true" for the airline/hotel brand block, which a picker leaves to search. */
+  is_brand: string;
+};
+
 export type TransactionResponse = {
   id: string;
   account_id: string;
@@ -276,6 +287,8 @@ export type CounterpartyBalanceResponse = {
   counterparty_name: string;
   direction: CounterpartyDirection;
   amount: number;
+  /** Four digits, or absent. Recorded when the user knows it; never evaluated. */
+  mcc?: string | null;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---

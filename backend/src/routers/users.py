@@ -184,6 +184,8 @@ def update_user(
         existing_user.require_face_id_for_vault = user_update.require_face_id_for_vault
     if user_update.default_new_items_private is not None:
         existing_user.default_new_items_private = user_update.default_new_items_private
+    if user_update.record_merchant_codes is not None:
+        existing_user.record_merchant_codes = user_update.record_merchant_codes
 
     if user_update.clear_default_account:
         existing_user.default_account_id = None

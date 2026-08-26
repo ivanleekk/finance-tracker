@@ -95,6 +95,8 @@ class UserBase(BaseModel):
     hide_private_from_household: bool = True
     require_face_id_for_vault: bool = True
     default_new_items_private: bool = True
+    # Reveals the optional MCC field on the transaction form. See models.User.
+    record_merchant_codes: bool = False
     default_account_id: Optional[uuid.UUID] = None
 
 
@@ -114,6 +116,7 @@ class UserUpdate(BaseModel):
     hide_private_from_household: Optional[bool] = None
     require_face_id_for_vault: Optional[bool] = None
     default_new_items_private: Optional[bool] = None
+    record_merchant_codes: Optional[bool] = None
     default_account_id: Optional[uuid.UUID] = None
     clear_default_account: bool = False
 

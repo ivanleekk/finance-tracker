@@ -253,3 +253,51 @@ def test_the_code_changes_nothing_else(client, db_session, headers, account, cat
     )
     # Both were charged; neither was treated specially because of a code.
     assert Decimal(str(latest.balance)) == Decimal("-36.80")
+
+
+# ---------------------------------------------------------------------------
+# The per-user setting that reveals the field
+# ---------------------------------------------------------------------------
+
+
+def test_the_field_is_hidden_until_asked_for(client, headers, user):
+    """
+    Off by default. A four-digit code box on every transaction form would tax
+    everyone for a feature only a few people can actually fill in.
+    """
+    assert client.get("/users", headers=headers).json()["record_merchant_codes"] is False
+
+
+def test_the_setting_round_trips(client, headers, user):
+    """
+    `update_user` assigns each field explicitly, so a new column is silently
+    dropped unless it is wired in there too — this is what catches that.
+    """
+    updated = client.put(
+        "/users", json={"record_merchant_codes": True}, headers=headers
+    )
+    assert updated.status_code == 200
+    assert updated.json()["record_merchant_codes"] is True
+    assert client.get("/users", headers=headers).json()["record_merchant_codes"] is True
+
+
+def test_the_setting_can_be_turned_back_off(client, headers, user):
+    client.put("/users", json={"record_merchant_codes": True}, headers=headers)
+    client.put("/users", json={"record_merchant_codes": False}, headers=headers)
+    assert client.get("/users", headers=headers).json()["record_merchant_codes"] is False
+
+
+def test_an_unrelated_edit_leaves_the_setting_alone(client, headers, user):
+    """Omitted means unchanged — the same three-state rule `mcc` itself follows."""
+    client.put("/users", json={"record_merchant_codes": True}, headers=headers)
+    client.put("/users", json={"name": "Renamed"}, headers=headers)
+    assert client.get("/users", headers=headers).json()["record_merchant_codes"] is True
+
+
+def test_the_setting_does_not_gate_the_column(client, headers, account, category):
+    """
+    The setting is a client-side affordance, not an authorization rule. The API
+    accepts a code regardless — otherwise turning the toggle off would start
+    rejecting edits to transactions that already carry one.
+    """
+    assert _post(client, headers, account, category, mcc="5814").json()["mcc"] == "5814"
