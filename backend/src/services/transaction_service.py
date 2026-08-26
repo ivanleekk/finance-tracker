@@ -37,6 +37,7 @@ def create_transaction(
     owed_by: Optional[str] = None,
     owed_amount: Optional[Decimal] = None,
     owner_user_id: Optional[uuid.UUID] = None,
+    mcc: Optional[str] = None,
 ) -> models.Transaction:
     """
     Create a transaction and sync it into the account's balance chain.
@@ -73,6 +74,7 @@ def create_transaction(
         description=description,
         transaction_type=category.type,  # direction comes from the category
         recurring_transaction_id=recurring_transaction_id,
+        mcc=mcc,
     )
     db.add(db_transaction)
 

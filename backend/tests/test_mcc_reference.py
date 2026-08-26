@@ -1,0 +1,214 @@
+"""
+The merchant category code catalogue (`GET /reference/mccs`) and the optional
+`Transaction.mcc` column.
+
+The column is deliberately inert: nothing derives a category, a budget or a limit
+from it. These tests pin that it round-trips and that the catalogue is shaped for
+a picker, not that anything computes from it — because nothing should.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
+
+import pytest
+
+from src import models
+
+
+@pytest.fixture
+def user(db_session):
+    row = models.User(
+        id=uuid.uuid7(),
+        email="mcc@example.com",
+        name="MCC User",
+        salted_hashed_password="fakehash",
+        salt="fakesalt",
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+@pytest.fixture
+def headers(client, user):
+    from src.auth import create_access_token
+
+    return {"Authorization": f"Bearer {create_access_token(data={'sub': str(user.id)})}"}
+
+
+@pytest.fixture
+def household(db_session, user):
+    row = models.Household(
+        id=uuid.uuid7(),
+        name="MCC Household",
+        base_currency="SGD",
+        country_code="SG",
+        owner_id=user.id,
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+@pytest.fixture
+def account(db_session, household):
+    row = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name="Rewards Card",
+        liquidity=models.LiquidityStatus.liquid,
+        tax_status=models.TaxTreatment.taxable,
+        kind=models.AccountKind.liability,
+        currency="SGD",
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+@pytest.fixture
+def category(db_session, household):
+    row = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Dining", type="expense"
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+# ---------------------------------------------------------------------------
+# The catalogue
+# ---------------------------------------------------------------------------
+
+
+def test_the_catalogue_is_served(client):
+    response = client.get("/reference/mccs")
+    assert response.status_code == 200
+    rows = response.json()
+    # ~700 named codes. A loose floor, so a package update that adds or drops a
+    # handful doesn't fail the suite for no reason.
+    assert len(rows) > 500
+
+
+def test_every_row_can_be_rendered(client):
+    """
+    A picker row needs a code, a name and a group. Codes with no description from
+    any source are dropped rather than shown as "(no description)".
+    """
+    rows = client.get("/reference/mccs").json()
+    assert all(row["code"] and row["name"] and row["group"] for row in rows)
+    assert all(len(row["code"]) == 4 and row["code"].isdigit() for row in rows)
+
+
+def test_the_wording_prefers_the_readable_source(client):
+    """
+    ISO's own descriptions are terse and sometimes truncated mid-word; Stripe's
+    are written to be shown to a person. 5411 is the clearest example.
+    """
+    rows = {row["code"]: row["name"] for row in client.get("/reference/mccs").json()}
+    assert rows["5411"] == "Grocery Stores, Supermarkets"
+    assert rows["5814"] == "Fast Food Restaurants"
+
+
+def test_brand_codes_are_labelled_as_what_they_are(client):
+    """
+    ISO calls 3000-3999 "reserved for private use"; acquirers fill it with airline
+    and hotel brands. The picker says the useful thing.
+    """
+    rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
+    assert rows["3000"]["name"] == "UNITED AIRLINES"
+    assert rows["3000"]["group"] == "Airline, hotel and car rental brands"
+    assert rows["3000"]["is_brand"] == "true"
+
+
+def test_general_codes_are_separable_from_brands(client):
+    """
+    A client shows the ~300 general codes and leaves the ~400 brand entries to
+    search. The flag is what makes that possible without hardcoding 3000-3999.
+    """
+    rows = client.get("/reference/mccs").json()
+    general = [r for r in rows if r["is_brand"] == "false"]
+    brands = [r for r in rows if r["is_brand"] == "true"]
+    assert 200 < len(general) < 400
+    assert len(brands) > 300
+    assert {r["group"] for r in general} != {"Airline, hotel and car rental brands"}
+
+
+def test_the_catalogue_needs_no_login(client):
+    """Reference data, like currencies and timezones beside it."""
+    assert client.get("/reference/mccs").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The column
+# ---------------------------------------------------------------------------
+
+
+def _post(client, headers, account, category, **extra):
+    body = {
+        "account_id": str(account.id),
+        "category_id": str(category.id),
+        "date": datetime(2026, 8, 20, 12, tzinfo=timezone.utc).isoformat(),
+        "amount": "18.40",
+        "description": "Baker & Cook",
+    }
+    body.update(extra)
+    return client.post("/cashflow/transactions", json=body, headers=headers)
+
+
+def test_a_code_round_trips(client, headers, account, category):
+    response = _post(client, headers, account, category, mcc="5814")
+    assert response.status_code == 201, response.text
+    assert response.json()["mcc"] == "5814"
+
+
+def test_the_code_is_optional(client, headers, account, category):
+    """Every transaction logged before this column existed has none, and so does
+    anyone who never turns the field on."""
+    response = _post(client, headers, account, category)
+    assert response.status_code == 201, response.text
+    assert response.json()["mcc"] is None
+
+
+def test_a_malformed_code_is_refused(client, headers, account, category):
+    """Four digits or nothing — a free-text field here would be worthless later."""
+    assert _post(client, headers, account, category, mcc="58").status_code == 422
+    assert _post(client, headers, account, category, mcc="58140").status_code == 422
+    assert _post(client, headers, account, category, mcc="dining").status_code == 422
+
+
+def test_a_code_can_be_added_or_corrected_afterwards(client, headers, account, category):
+    """
+    The code is usually learnt after the fact — from a statement, or from looking
+    it up later — so it has to be editable, not entry-only.
+    """
+    created = _post(client, headers, account, category).json()
+    response = client.put(
+        f"/cashflow/transactions/{created['id']}", json={"mcc": "5812"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["mcc"] == "5812"
+
+
+def test_the_code_changes_nothing_else(client, db_session, headers, account, category):
+    """
+    The whole safety property. Two identical transactions, one carrying a code:
+    same amount, same category, same effect on the balance chain.
+    """
+    plain = _post(client, headers, account, category).json()
+    coded = _post(client, headers, account, category, mcc="5814").json()
+
+    assert plain["category_id"] == coded["category_id"]
+    assert plain["transaction_type"] == coded["transaction_type"]
+    assert Decimal(plain["amount"]) == Decimal(coded["amount"])
+
+    db_session.expire_all()
+    latest = (
+        db_session.query(models.AccountBalance)
+        .filter(models.AccountBalance.account_id == account.id)
+        .order_by(models.AccountBalance.date.desc())
+        .first()
+    )
+    # Both were charged; neither was treated specially because of a code.
+    assert Decimal(str(latest.balance)) == Decimal("-36.80")

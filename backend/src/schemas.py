@@ -406,6 +406,8 @@ class TransactionBase(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
+    # Optional, and recorded rather than evaluated — see models.Transaction.mcc.
+    mcc: Optional[str] = Field(None, pattern=r"^\d{4}$")
 
 
 class TransactionCreate(TransactionBase):
@@ -443,6 +445,7 @@ class TransactionUpdate(BaseModel):
     # split already recorded is preserved.
     owed_by: Optional[str] = Field(None, max_length=120)
     owed_amount: Optional[PositiveDecimal] = None
+    mcc: Optional[str] = Field(None, pattern=r"^\d{4}$")
 
 
 class TransactionResponse(TransactionBase):

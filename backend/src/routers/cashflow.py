@@ -75,6 +75,7 @@ def log_transaction(
         # A receivable arising from a private account stays private, the same way
         # the account it was paid from does.
         owner_user_id=db_account.owner_user_id,
+        mcc=transaction.mcc,
     )
 
     db.commit()
