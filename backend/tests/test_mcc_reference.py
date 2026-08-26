@@ -171,11 +171,52 @@ def test_the_code_is_optional(client, headers, account, category):
     assert response.json()["mcc"] is None
 
 
+@pytest.mark.parametrize(
+    "blank,label",
+    [(None, "explicit null"), ("", "empty string"), ("   ", "whitespace")],
+)
+def test_blank_means_unknown_not_invalid(client, headers, account, category, blank, label):
+    """
+    The code is optional even with the field switched on — most people do not know
+    the MCC for most purchases. A cleared text field sends "" rather than null from
+    all three clients, so blank has to mean "I don't know", never a 422.
+    """
+    response = _post(client, headers, account, category, mcc=blank)
+    assert response.status_code == 201, f"{label}: {response.text}"
+    assert response.json()["mcc"] is None
+
+
+def test_a_recorded_code_can_be_blanked_out_again(client, headers, account, category):
+    """Recording one by mistake must be as undoable as leaving it out."""
+    created = _post(client, headers, account, category, mcc="5814").json()
+    assert created["mcc"] == "5814"
+
+    response = client.put(
+        f"/cashflow/transactions/{created['id']}", json={"mcc": ""}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["mcc"] is None
+
+
+def test_leaving_mcc_out_of_an_edit_does_not_clear_it(client, headers, account, category):
+    """
+    Omitted and blank are different requests. Editing a description must not
+    silently discard a code the user took the trouble to look up.
+    """
+    created = _post(client, headers, account, category, mcc="5814").json()
+    response = client.put(
+        f"/cashflow/transactions/{created['id']}",
+        json={"description": "Coffee, corrected"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["mcc"] == "5814"
+
+
 def test_a_malformed_code_is_refused(client, headers, account, category):
     """Four digits or nothing — a free-text field here would be worthless later."""
-    assert _post(client, headers, account, category, mcc="58").status_code == 422
-    assert _post(client, headers, account, category, mcc="58140").status_code == 422
-    assert _post(client, headers, account, category, mcc="dining").status_code == 422
+    for bad in ("58", "58140", "dining", "58 1", "５８１４"):
+        assert _post(client, headers, account, category, mcc=bad).status_code == 422, bad
 
 
 def test_a_code_can_be_added_or_corrected_afterwards(client, headers, account, category):

@@ -1,6 +1,6 @@
 # src/schemas.py
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -32,6 +32,32 @@ PercentDecimal = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
 # An emergency-fund target of 0 is meaningful ("I'm not targeting one"); 120
 # months is already far beyond any advice, so it's a generous sanity ceiling.
 EmergencyMonths = Annotated[Decimal, Field(ge=0, le=120, allow_inf_nan=False)]
+
+
+def _blank_to_none(value: object) -> object:
+    """Treat an empty or whitespace-only string as "not given"."""
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+# A merchant category code: four digits, or nothing at all.
+#
+# The blank-coercion is the load-bearing half. An MCC is optional even when the
+# user has the field switched on -- most people do not know the code for most
+# purchases -- and a cleared text field sends "" rather than null from all three
+# clients. Without this, "I don't know it" would be a 422, and each client would
+# separately have to remember to convert; that is exactly the sort of per-client
+# detail this codebase has been bitten by before.
+# Note the nesting: the pattern constrains the *str*, and Optional wraps the
+# constrained type. Putting the pattern on the union instead makes `null` fail
+# it too, which is the opposite of optional.
+# `[0-9]` rather than `\d`: Python's `\d` matches Unicode decimal digits, so a
+# full-width "５８１４" would validate and then never match a code in the catalogue.
+MerchantCategoryCode = Annotated[
+    Optional[Annotated[str, Field(pattern=r"^[0-9]{4}$")]],
+    BeforeValidator(_blank_to_none),
+]
 
 # A password long enough to be meaningfully hashed. Empty/1-char passwords are
 # a red flag for automated account creation.
@@ -407,7 +433,7 @@ class TransactionBase(BaseModel):
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
     # Optional, and recorded rather than evaluated — see models.Transaction.mcc.
-    mcc: Optional[str] = Field(None, pattern=r"^\d{4}$")
+    mcc: MerchantCategoryCode = None
 
 
 class TransactionCreate(TransactionBase):
@@ -445,7 +471,8 @@ class TransactionUpdate(BaseModel):
     # split already recorded is preserved.
     owed_by: Optional[str] = Field(None, max_length=120)
     owed_amount: Optional[PositiveDecimal] = None
-    mcc: Optional[str] = Field(None, pattern=r"^\d{4}$")
+    # Omit to leave it alone; send null or "" to clear one that was recorded.
+    mcc: MerchantCategoryCode = None
 
 
 class TransactionResponse(TransactionBase):
