@@ -238,9 +238,12 @@ fun TransactionsScreen(
         it.transactionType == TransactionType.EXPENSE &&
             it.accountId in visibleAccountIds &&
             (categoryRange == null || it.date in categoryRange) &&
-            // Settling a debt is cash leaving an account, but it is not spending — the bill was
-            // charged when it was paid.
-            Reimbursements.countsAsSpending(categoriesById[it.categoryId]?.name)
+            // Transfers and settlements are cash leaving an account without being spending: you
+            // still have the money, or the bill was already charged when it was paid.
+            Reimbursements.countsAsSpending(
+                categoriesById[it.categoryId]?.name,
+                isTransfer = it.transferId != null,
+            )
     }
 
     // Every expense category that's shown up in the selected period, used to populate the filter

@@ -103,14 +103,30 @@ class ReimbursementsTest {
     fun `keeps a repayment out of the spending breakdown`() {
         // Otherwise the same dinner is charged twice: once when the bill was paid, and again
         // when the debt was settled.
-        assertFalse(Reimbursements.countsAsSpending("Reimbursement"))
+        assertFalse(Reimbursements.countsAsSpending("Reimbursement", isTransfer = false))
+    }
+
+    @Test
+    fun `keeps a transfer out of the spending breakdown`() {
+        // Moving your own money between your own accounts is not spending — you still have it.
+        // A transfer's withdrawal leg is an expense row with a real category, so nothing else
+        // would exclude it.
+        assertFalse(Reimbursements.countsAsSpending("Transfer", isTransfer = true))
+    }
+
+    @Test
+    fun `excludes a transfer whatever its category is called`() {
+        // The transfer flag is the signal, not the category name: a household that renamed its
+        // Transfer category must not start counting them.
+        assertFalse(Reimbursements.countsAsSpending("Moving money", isTransfer = true))
+        assertFalse(Reimbursements.countsAsSpending(null, isTransfer = true))
     }
 
     @Test
     fun `leaves ordinary categories alone`() {
-        assertTrue(Reimbursements.countsAsSpending("Dining"))
-        assertTrue(Reimbursements.countsAsSpending("Investment"))
-        assertTrue(Reimbursements.countsAsSpending(null))
+        assertTrue(Reimbursements.countsAsSpending("Dining", isTransfer = false))
+        assertTrue(Reimbursements.countsAsSpending("Investment", isTransfer = false))
+        assertTrue(Reimbursements.countsAsSpending(null, isTransfer = false))
     }
 }
 

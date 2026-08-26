@@ -369,9 +369,11 @@ Rules worth not re-deriving:
 - The amount field is never reduced by the split. The whole sum left the account, and showing
   the user's share instead would contradict their bank. `TransactionRow` puts the owed portion
   underneath in orange; web and Android do the same.
-- `Reimbursements.countsAsSpending` filters `expenseTransactions`, which is what keeps a
-  repayment out of Top Categories. Without it the card reads "Reimbursement · 100%" — the
-  distortion the whole feature exists to prevent.
+- `Reimbursements.countsAsSpending` filters `expenseTransactions`, keeping both repayments and
+  **transfers** out of Top Categories. Without it the card reads "Reimbursement · 100%"; the
+  transfer half is the older bug — this was the one rollup that never applied the
+  transfers-aren't-spending rule the backend and `HistoryGroups` both use. Pass the real
+  `transferId != nil`, never a literal.
 - `SplitChange` has three cases because the API distinguishes an omitted key from an explicit
   null, and defaults to `.unchanged` so an unrelated description edit cannot silently drop a
   split.

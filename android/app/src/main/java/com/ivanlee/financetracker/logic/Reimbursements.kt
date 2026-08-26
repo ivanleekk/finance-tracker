@@ -77,13 +77,24 @@ object Reimbursements {
     const val REIMBURSEMENT_CATEGORY_NAME = "Reimbursement"
 
     /**
-     * Whether a category belongs in a "where did my money go" breakdown.
+     * Whether a row belongs in a "where did my money go" breakdown.
      *
-     * Paying someone back is cash leaving an account, so it is an expense row and shows up in the
-     * activity list — but it is not spending. The spending was charged when the bill was paid,
-     * and letting a repayment into the breakdown charges the same dinner twice, in the one view
-     * whose whole job is to say what you spent money on.
+     * Two kinds of expense row are cash leaving an account without being spending, and both
+     * reach the activity list correctly — the money really did move — while neither belongs in
+     * the breakdown:
+     *
+     * - A **transfer** between your own accounts. You still have the money. This is the same rule
+     *   the budget and runway rollups apply server-side, and the same one `HistoryGroups` applies
+     *   to section totals; the breakdown was the one place left out, so a big transfer could top
+     *   the chart.
+     * - A **settlement**. The spending was charged when the bill was paid, so counting the
+     *   repayment charges the same dinner twice.
+     *
+     * Both are identified the way the rest of the app identifies them: a transfer by carrying a
+     * transfer id, a settlement by its system category name.
      */
-    fun countsAsSpending(categoryName: String?): Boolean =
-        categoryName != REIMBURSEMENT_CATEGORY_NAME
+    fun countsAsSpending(categoryName: String?, isTransfer: Boolean): Boolean {
+        if (isTransfer) return false
+        return categoryName != REIMBURSEMENT_CATEGORY_NAME
+    }
 }

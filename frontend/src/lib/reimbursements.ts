@@ -74,15 +74,27 @@ export function counterpartyTotals(balances: CounterpartyBalanceResponse[]): {
 export const REIMBURSEMENT_CATEGORY_NAME = "Reimbursement";
 
 /**
- * Whether a category belongs in a "where did my money go" breakdown.
+ * Whether a row belongs in a "where did my money go" breakdown.
  *
- * Paying someone back is cash leaving an account, so it is an expense row and
- * shows up in the activity list — but it is not spending. The spending was
- * charged when the bill was paid, and letting a repayment into the breakdown
- * charges the same dinner twice, in the one view whose whole job is to say what
- * you spent money on. The backend excludes it from the burn rate for the same
- * reason.
+ * Two kinds of expense row are cash leaving an account without being spending,
+ * and both reach the activity list correctly — the money really did move — while
+ * neither belongs in the breakdown:
+ *
+ * - A **transfer** between your own accounts. You still have the money. This is
+ *   the same rule the budget and runway rollups apply server-side, and the same
+ *   one `historyGroups` applies to section totals; the breakdown was the one
+ *   place that had been left out, so a big transfer could top the chart.
+ * - A **settlement**. The spending was charged when the bill was paid, so
+ *   counting the repayment charges the same dinner twice. The backend excludes
+ *   it from the burn rate for exactly this reason.
+ *
+ * Both are identified the way the rest of the app identifies them: a transfer by
+ * carrying a `transfer_id`, a settlement by its system category name.
  */
-export function countsAsSpending(categoryName: string | null | undefined): boolean {
+export function countsAsSpending(
+    categoryName: string | null | undefined,
+    isTransfer: boolean,
+): boolean {
+    if (isTransfer) return false;
     return categoryName !== REIMBURSEMENT_CATEGORY_NAME;
 }

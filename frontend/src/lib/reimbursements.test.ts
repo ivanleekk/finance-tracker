@@ -68,12 +68,26 @@ describe("countsAsSpending", () => {
     it("keeps a repayment out of the spending breakdown", () => {
         // Otherwise the same dinner is charged twice: once when the bill was
         // paid, and again when the debt was settled.
-        expect(countsAsSpending("Reimbursement")).toBe(false);
+        expect(countsAsSpending("Reimbursement", false)).toBe(false);
+    });
+
+    it("keeps a transfer out of the spending breakdown", () => {
+        // Moving your own money between your own accounts is not spending — you
+        // still have it. A transfer's withdrawal leg is an expense row with a
+        // real category, so nothing else would exclude it.
+        expect(countsAsSpending("Transfer", true)).toBe(false);
+    });
+
+    it("excludes a transfer whatever its category is called", () => {
+        // The transfer flag is the signal, not the category name: a household
+        // that renamed its Transfer category must not start counting them.
+        expect(countsAsSpending("Moving money", true)).toBe(false);
+        expect(countsAsSpending(null, true)).toBe(false);
     });
 
     it("leaves ordinary categories alone", () => {
-        expect(countsAsSpending("Dining")).toBe(true);
-        expect(countsAsSpending("Investment")).toBe(true);
-        expect(countsAsSpending(undefined)).toBe(true);
+        expect(countsAsSpending("Dining", false)).toBe(true);
+        expect(countsAsSpending("Investment", false)).toBe(true);
+        expect(countsAsSpending(undefined, false)).toBe(true);
     });
 });

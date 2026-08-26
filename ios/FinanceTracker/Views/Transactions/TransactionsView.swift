@@ -56,9 +56,13 @@ struct TransactionsView: View {
             $0.transactionType == .expense
                 && visibleAccountIds.contains($0.accountId)
                 && (range?.contains($0.date) ?? true)
-                // Settling a debt is cash leaving an account, but it is not
-                // spending — the bill was charged when it was paid.
-                && Reimbursements.countsAsSpending(categoriesById[$0.categoryId]?.name)
+                // Transfers and settlements are cash leaving an account without
+                // being spending: you still have the money, or the bill was
+                // already charged when it was paid.
+                && Reimbursements.countsAsSpending(
+                    categoriesById[$0.categoryId]?.name,
+                    isTransfer: $0.transferId != nil
+                )
         }
     }
 

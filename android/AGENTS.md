@@ -310,7 +310,10 @@ Rules worth not re-deriving:
 - The amount field is never reduced by the split. `TransactionRow` puts the owed portion
   underneath in `warningColor()`; web and iOS do the same.
 - `Reimbursements.countsAsSpending` filters `expenseTransactions` in `TransactionsScreen`,
-  keeping a repayment out of Top Categories. Without it the card reads "Reimbursement · 100%".
+  keeping both repayments and **transfers** out of Top Categories. Without it the card reads
+  "Reimbursement · 100%"; the transfer half is the older bug — this was the one rollup that
+  never applied the transfers-aren't-spending rule the backend and `HistoryGroups` both use.
+  Pass the real `transferId != null`, never a literal.
 - Build a `TransactionUpdate` through the `transactionUpdate(...)` factory, never by hand — it
   is what maps `SplitChange` onto the omit/`JsonNull`/value encoding the backend expects.
 - The split section only renders for `TransactionType.EXPENSE`; income has no counterparty.

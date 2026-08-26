@@ -59,13 +59,27 @@ struct ReimbursementsTests {
     @Test func keepsARepaymentOutOfTheSpendingBreakdown() {
         // Otherwise the same dinner is charged twice: once when the bill was
         // paid, and again when the debt was settled.
-        #expect(!Reimbursements.countsAsSpending("Reimbursement"))
+        #expect(!Reimbursements.countsAsSpending("Reimbursement", isTransfer: false))
+    }
+
+    @Test func keepsATransferOutOfTheSpendingBreakdown() {
+        // Moving your own money between your own accounts is not spending — you
+        // still have it. A transfer's withdrawal leg is an expense row with a
+        // real category, so nothing else would exclude it.
+        #expect(!Reimbursements.countsAsSpending("Transfer", isTransfer: true))
+    }
+
+    @Test func excludesATransferWhateverItsCategoryIsCalled() {
+        // The transfer flag is the signal, not the category name: a household
+        // that renamed its Transfer category must not start counting them.
+        #expect(!Reimbursements.countsAsSpending("Moving money", isTransfer: true))
+        #expect(!Reimbursements.countsAsSpending(nil, isTransfer: true))
     }
 
     @Test func leavesOrdinaryCategoriesAlone() {
-        #expect(Reimbursements.countsAsSpending("Dining"))
-        #expect(Reimbursements.countsAsSpending("Investment"))
-        #expect(Reimbursements.countsAsSpending(nil))
+        #expect(Reimbursements.countsAsSpending("Dining", isTransfer: false))
+        #expect(Reimbursements.countsAsSpending("Investment", isTransfer: false))
+        #expect(Reimbursements.countsAsSpending(nil, isTransfer: false))
     }
 
     @Test func oneNameInBothDirectionsIsTwoRows() {
