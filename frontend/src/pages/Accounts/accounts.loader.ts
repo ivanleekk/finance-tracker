@@ -1,5 +1,5 @@
 import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
-import type { AccountResponse, BalanceResponse, CurrencyResponse, LinkedEquityRow } from "../../types/types";
+import type { AccountResponse, BalanceResponse, CounterpartyBalanceResponse, CurrencyResponse, LinkedEquityRow } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
 
 export type AccountWithHistory = AccountResponse & {
@@ -12,6 +12,9 @@ export type AccountsLoaderData = {
     // Properties netted against the loans secured on them. Empty until the
     // household records an illiquid asset.
     equity: LinkedEquityRow[];
+    // Outstanding debts either way. These sit in no account, so the summary
+    // needs them handed in or it reports money you are owed as money gone.
+    owed: CounterpartyBalanceResponse[];
 };
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsLoaderData> {
@@ -22,11 +25,12 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     }
     // All three are household-scoped and independent — fetch in one round-trip
     // instead of fetching balances in a second wave after accounts+currencies.
-    const [accountsRes, currenciesRes, balancesRes, equityRes] = await Promise.all([
+    const [accountsRes, currenciesRes, balancesRes, equityRes, owedRes] = await Promise.all([
         ssrFetch(`/accounts/household/${householdId}`),
         ssrFetch(`/reference/currencies`),
         ssrFetch(`/accounts/balances/household/${householdId}`),
-        ssrFetch(`/accounts/household/${householdId}/equity`)
+        ssrFetch(`/accounts/household/${householdId}/equity`),
+        ssrFetch(`/cashflow/reimbursements/household/${householdId}`)
     ]);
 
     if (!accountsRes.ok) {
@@ -40,6 +44,7 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     const allBalances: BalanceResponse[] = await balancesRes.json();
     // Equity is a nice-to-have panel; a failure here shouldn't take the page down.
     const equity: LinkedEquityRow[] = equityRes.ok ? await equityRes.json() : [];
+    const owed: CounterpartyBalanceResponse[] = owedRes.ok ? await owedRes.json() : [];
 
     const balanceMap: Record<string, BalanceResponse[]> = {};
     allBalances.forEach(b => {
@@ -55,7 +60,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<AccountsL
     return {
         accounts: accountsWithHistory,
         currencies,
-        equity
+        equity,
+        owed
     };
 }
 

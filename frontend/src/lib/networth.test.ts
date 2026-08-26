@@ -98,6 +98,66 @@ describe("summarizeAccounts", () => {
     });
 });
 
+describe("summarizeAccounts with money owed", () => {
+    // The hole this fills: splitting a $120 bill takes $120 out of the bank and
+    // records $40 of spending. Without the receivable, net worth reports the
+    // other $80 as having simply evaporated.
+    const savings = account({ history: [bal("2026-01-01", 1_000)] });
+
+    it("counts money owed to you as an asset", () => {
+        const totals = summarizeAccounts([savings], { owedToYou: 80, youOwe: 0 });
+        expect(totals.totalAssets).toBe(1_080);
+        expect(totals.net).toBe(1_080);
+        expect(totals.receivables).toBe(80);
+    });
+
+    it("keeps money owed to you out of liquid now", () => {
+        // You cannot spend it this week. Treating it as spendable is how a
+        // runway starts lying — the same reason property is excluded.
+        const totals = summarizeAccounts([savings], { owedToYou: 80, youOwe: 0 });
+        expect(totals.liquidNow).toBe(1_000);
+    });
+
+    it("counts money you owe as a liability", () => {
+        const totals = summarizeAccounts([savings], { owedToYou: 0, youOwe: 45 });
+        expect(totals.liabilities).toBe(45);
+        expect(totals.net).toBe(955);
+    });
+
+    it("nets the two directions into net worth without merging them", () => {
+        const totals = summarizeAccounts([savings], { owedToYou: 80, youOwe: 45 });
+        expect(totals.receivables).toBe(80);
+        expect(totals.liabilities).toBe(45);
+        expect(totals.net).toBe(1_035);
+    });
+
+    it("changes nothing when nobody owes anybody", () => {
+        expect(summarizeAccounts([savings])).toEqual(summarizeAccounts([savings], { owedToYou: 0, youOwe: 0 }));
+    });
+
+    it("survives a non-finite total rather than poisoning net worth", () => {
+        const totals = summarizeAccounts([savings], { owedToYou: NaN, youOwe: 45 });
+        expect(totals.totalAssets).toBe(1_000);
+        expect(totals.net).toBe(955);
+    });
+});
+
+describe("netWorthBreakdown with money owed", () => {
+    const savings = account({ history: [bal("2026-01-01", 1_000)] });
+
+    it("gives money owed its own slice rather than burying it in Other", () => {
+        const breakdown = netWorthBreakdown([savings], 0, { owedToYou: 80, youOwe: 0 });
+        const owed = breakdown.slices.find(s => s.key === "owed");
+        expect(owed?.value).toBe(80);
+        expect(breakdown.slices.find(s => s.key === "other")).toBeUndefined();
+    });
+
+    it("omits the slice when nobody owes you", () => {
+        const breakdown = netWorthBreakdown([savings], 0);
+        expect(breakdown.slices.find(s => s.key === "owed")).toBeUndefined();
+    });
+});
+
 describe("cashChartAccountsOf", () => {
     it("excludes property and liabilities, keeping spendable assets", () => {
         const accounts = [

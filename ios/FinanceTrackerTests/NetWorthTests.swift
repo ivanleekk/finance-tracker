@@ -53,6 +53,71 @@ struct NetWorthTests {
         #expect(latestBalanceHome([]) == 0)
     }
 
+    // MARK: Money owed
+    //
+    // The hole this fills: splitting a $120 bill takes $120 out of the bank and
+    // records $40 of spending. Without the receivable, net worth reports the
+    // other $80 as having simply evaporated.
+
+    @Test func moneyOwedToYouCountsAsAnAsset() {
+        let savings = account(history: [balance(1_000)])
+        let totals = summarizeAccounts([savings], owed: OwedTotals(owedToYou: 80, youOwe: 0))
+        #expect(totals.totalAssets == 1_080)
+        #expect(totals.net == 1_080)
+        #expect(totals.receivables == 80)
+    }
+
+    @Test func moneyOwedToYouStaysOutOfLiquidNow() {
+        // You cannot spend it this week. Treating it as spendable is how a
+        // runway starts lying — the same reason property is excluded.
+        let savings = account(history: [balance(1_000)])
+        let totals = summarizeAccounts([savings], owed: OwedTotals(owedToYou: 80, youOwe: 0))
+        #expect(totals.liquidNow == 1_000)
+    }
+
+    @Test func moneyYouOweCountsAsALiability() {
+        let savings = account(history: [balance(1_000)])
+        let totals = summarizeAccounts([savings], owed: OwedTotals(owedToYou: 0, youOwe: 45))
+        #expect(totals.liabilities == 45)
+        #expect(totals.net == 955)
+    }
+
+    @Test func theTwoDirectionsNetIntoNetWorthWithoutMerging() {
+        let savings = account(history: [balance(1_000)])
+        let totals = summarizeAccounts([savings], owed: OwedTotals(owedToYou: 80, youOwe: 45))
+        #expect(totals.receivables == 80)
+        #expect(totals.liabilities == 45)
+        #expect(totals.net == 1_035)
+    }
+
+    @Test func nothingChangesWhenNobodyOwesAnybody() {
+        let savings = account(history: [balance(1_000)])
+        #expect(summarizeAccounts([savings]).net == summarizeAccounts([savings], owed: .none).net)
+    }
+
+    @Test func aNonFiniteTotalDoesNotPoisonNetWorth() {
+        let savings = account(history: [balance(1_000)])
+        let totals = summarizeAccounts([savings], owed: OwedTotals(owedToYou: .nan, youOwe: 45))
+        #expect(totals.totalAssets == 1_000)
+        #expect(totals.net == 955)
+    }
+
+    @Test func moneyOwedGetsItsOwnSliceRatherThanBuryingItInOther() {
+        let savings = account(history: [balance(1_000)])
+        let breakdown = netWorthBreakdown(
+            accounts: [savings], portfolioValue: 0,
+            owed: OwedTotals(owedToYou: 80, youOwe: 0)
+        )
+        #expect(breakdown.slices.first { $0.key == "owed" }?.value == 80)
+        #expect(breakdown.slices.first { $0.key == "other" } == nil)
+    }
+
+    @Test func theOwedSliceIsOmittedWhenNobodyOwesYou() {
+        let savings = account(history: [balance(1_000)])
+        let breakdown = netWorthBreakdown(accounts: [savings], portfolioValue: 0)
+        #expect(breakdown.slices.first { $0.key == "owed" } == nil)
+    }
+
     // MARK: summarizeAccounts
 
     @Test func summarizeAccountsCountsPropertyAlongsideTheLoanAgainstIt() {

@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.data.model.CounterpartyBalanceResponse
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.AssetResponse
 import com.ivanlee.financetracker.data.model.BalanceResponse
@@ -51,6 +52,8 @@ import com.ivanlee.financetracker.logic.RunwayTone
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.monthYear
+import com.ivanlee.financetracker.logic.OwedTotals
+import com.ivanlee.financetracker.logic.Reimbursements
 import com.ivanlee.financetracker.logic.netWorthBreakdown
 import com.ivanlee.financetracker.logic.shortDay
 import com.ivanlee.financetracker.state.QuickAddViewModel
@@ -101,6 +104,9 @@ fun DashboardScreen(
     var metrics by remember { mutableStateOf<PortfolioMetricsResponse?>(null) }
     var emergencyFund by remember { mutableStateOf<EmergencyFundResponse?>(null) }
     var projection by remember { mutableStateOf<NetWorthProjectionResponse?>(null) }
+    // Outstanding debts either way. They sit in no account, so net worth has to be told
+    // about them or a split bill's unreturned half looks like money that evaporated.
+    var owed by remember { mutableStateOf<List<CounterpartyBalanceResponse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var lastLoadedAt by remember { mutableStateOf<Instant?>(null) }
@@ -141,6 +147,13 @@ fun DashboardScreen(
                         Api.get<NetWorthProjectionResponse>("/accounts/household/${h.id}/projection?months=360")
                     }.getOrNull()
                 }
+                val owedReq = async {
+                    runCatching {
+                        Api.get<List<CounterpartyBalanceResponse>>(
+                            "/cashflow/reimbursements/household/${h.id}"
+                        )
+                    }.getOrNull()
+                }
 
                 accounts = accountsReq.await()
                 balances = balancesReq.await()
@@ -153,6 +166,7 @@ fun DashboardScreen(
                 metrics = metricsReq.await()
                 emergencyFund = fundReq.await()
                 projection = projectionReq.await()
+                owed = owedReq.await() ?: emptyList()
             }
             lastLoadedAt = Instant.now()
         } catch (e: Exception) {
@@ -200,14 +214,24 @@ fun DashboardScreen(
     val latestHoldings = visibleSnapshots.filter { it.date == latestSnapshotDate && it.quantity > 0 }
     val currentPortfolioValue = latestHoldings.sumOf { it.currentValueHomeCurrency }
     val topHoldings = latestHoldings.sortedByDescending { it.currentValueHomeCurrency }.take(4)
-    val netWorth = currentCash + currentPortfolioValue
+    // Debts either way belong in net worth: a receivable is a claim you hold, a payable is one
+    // held against you. Kept in step with the split donut below, which draws its own "Owed to
+    // You" slice from the same figures — a headline that ignored them while the chart showed
+    // them would be worse than neither.
+    val owedTotals = Reimbursements.totals(owed)
+    val netWorth =
+        currentCash + currentPortfolioValue + owedTotals.owedToYou - owedTotals.youOwe
 
-    val worthBreakdown = remember(visibleAccounts, visibleBalances, currentPortfolioValue) {
+    val worthBreakdown = remember(visibleAccounts, visibleBalances, currentPortfolioValue, owed) {
         val byAccount = visibleBalances.groupBy { it.accountId }
         val inputs = visibleAccounts.map { account ->
             NetWorthAccountInput(account.kind, account.liquidity, byAccount[account.id] ?: emptyList())
         }
-        netWorthBreakdown(inputs, currentPortfolioValue)
+        netWorthBreakdown(
+            inputs,
+            currentPortfolioValue,
+            OwedTotals(owedToYou = owedTotals.owedToYou, youOwe = owedTotals.youOwe),
+        )
     }
 
     val recentTransactions = transactions

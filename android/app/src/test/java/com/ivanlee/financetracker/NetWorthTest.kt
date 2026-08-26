@@ -4,9 +4,11 @@ import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.model.LiquidityStatus
 import com.ivanlee.financetracker.logic.NetWorthAccountInput
 import com.ivanlee.financetracker.logic.latestBalanceHome
+import com.ivanlee.financetracker.logic.OwedTotals
 import com.ivanlee.financetracker.logic.netWorthBreakdown
 import com.ivanlee.financetracker.logic.summarizeAccounts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.time.Instant
@@ -87,6 +89,86 @@ class NetWorthTest {
         val cpf = account(liquidity = LiquidityStatus.TIME_LOCKED, history = listOf(balance(30_000.0)))
         val srs = account(liquidity = LiquidityStatus.RETIREMENT, history = listOf(balance(20_000.0)))
         assertEquals(50_000.0, summarizeAccounts(listOf(cpf, srs)).retirement, 0.0)
+    }
+
+    // ---- money owed ---------------------------------------------------------------------------
+    //
+    // The hole this fills: splitting a $120 bill takes $120 out of the bank and records $40 of
+    // spending. Without the receivable, net worth reports the other $80 as having evaporated.
+
+    @Test
+    fun `money owed to you counts as an asset`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val totals = summarizeAccounts(listOf(savings), OwedTotals(owedToYou = 80.0))
+        assertEquals(1_080.0, totals.totalAssets, 0.0)
+        assertEquals(1_080.0, totals.net, 0.0)
+        assertEquals(80.0, totals.receivables, 0.0)
+    }
+
+    @Test
+    fun `money owed to you stays out of liquid now`() {
+        // You cannot spend it this week. Treating it as spendable is how a runway starts
+        // lying — the same reason property is excluded.
+        val savings = account(history = listOf(balance(1_000.0)))
+        val totals = summarizeAccounts(listOf(savings), OwedTotals(owedToYou = 80.0))
+        assertEquals(1_000.0, totals.liquidNow, 0.0)
+    }
+
+    @Test
+    fun `money you owe counts as a liability`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val totals = summarizeAccounts(listOf(savings), OwedTotals(youOwe = 45.0))
+        assertEquals(45.0, totals.liabilities, 0.0)
+        assertEquals(955.0, totals.net, 0.0)
+    }
+
+    @Test
+    fun `the two directions net into net worth without merging`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val totals = summarizeAccounts(listOf(savings), OwedTotals(owedToYou = 80.0, youOwe = 45.0))
+        assertEquals(80.0, totals.receivables, 0.0)
+        assertEquals(45.0, totals.liabilities, 0.0)
+        assertEquals(1_035.0, totals.net, 0.0)
+    }
+
+    @Test
+    fun `nothing changes when nobody owes anybody`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        assertEquals(
+            summarizeAccounts(listOf(savings)).net,
+            summarizeAccounts(listOf(savings), OwedTotals.NONE).net,
+            0.0,
+        )
+    }
+
+    @Test
+    fun `a non-finite total does not poison net worth`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val totals = summarizeAccounts(
+            listOf(savings),
+            OwedTotals(owedToYou = Double.NaN, youOwe = 45.0),
+        )
+        assertEquals(1_000.0, totals.totalAssets, 0.0)
+        assertEquals(955.0, totals.net, 0.0)
+    }
+
+    @Test
+    fun `money owed gets its own slice rather than burying it in other`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val breakdown = netWorthBreakdown(
+            listOf(savings),
+            portfolioValue = 0.0,
+            owed = OwedTotals(owedToYou = 80.0),
+        )
+        assertEquals(80.0, breakdown.slices.first { it.key == "owed" }.value, 0.0)
+        assertTrue(breakdown.slices.none { it.key == "other" })
+    }
+
+    @Test
+    fun `the owed slice is omitted when nobody owes you`() {
+        val savings = account(history = listOf(balance(1_000.0)))
+        val breakdown = netWorthBreakdown(listOf(savings), portfolioValue = 0.0)
+        assertTrue(breakdown.slices.none { it.key == "owed" })
     }
 
     // ---- netWorthBreakdown ------------------------------------------------------------------

@@ -30,10 +30,27 @@ export type AccountTotals = {
     liquidNow: number;
     retirement: number;
     property: number;
+    /** Money other people owe the household. An asset, but not a spendable one. */
+    receivables: number;
     currencies: string[];
 };
 
-export function summarizeAccounts(accounts: AccountLike[]): AccountTotals {
+/**
+ * Outstanding debts either way, from the ledger's counterparty balances.
+ *
+ * These sit in no `FinancialAccount`, which is the whole reason they need
+ * passing in: without them a split bill takes the full amount out of the bank
+ * and puts nothing back, so net worth reports money you are still owed as money
+ * that simply evaporated.
+ */
+export type OwedTotals = { owedToYou: number; youOwe: number };
+
+const NOTHING_OWED: OwedTotals = { owedToYou: 0, youOwe: 0 };
+
+export function summarizeAccounts(
+    accounts: AccountLike[],
+    owed: OwedTotals = NOTHING_OWED,
+): AccountTotals {
     let totalAssets = 0, liabilities = 0, liquidNow = 0, retirement = 0, property = 0;
     const currencySet = new Set<string>();
 
@@ -56,6 +73,15 @@ export function summarizeAccounts(accounts: AccountLike[]): AccountTotals {
         if (acc.liquidity === LiquidityStatus.Illiquid) property += balance;
     });
 
+    // A receivable is a real asset — someone owing you $80 is $80 you have a
+    // claim on — but it is deliberately kept out of `liquidNow`, for the same
+    // reason property is: you cannot spend it this week, and treating it as
+    // spendable is how a runway starts lying. A payable is a real debt.
+    const receivables = Number.isFinite(owed.owedToYou) ? owed.owedToYou : 0;
+    const payables = Number.isFinite(owed.youOwe) ? owed.youOwe : 0;
+    totalAssets += receivables;
+    liabilities += payables;
+
     return {
         totalAssets,
         liabilities,
@@ -63,6 +89,7 @@ export function summarizeAccounts(accounts: AccountLike[]): AccountTotals {
         liquidNow,
         retirement,
         property,
+        receivables,
         currencies: Array.from(currencySet).sort(),
     };
 }
@@ -87,16 +114,25 @@ export type NetWorthBreakdown = {
  * bucket. A negative bucket (e.g. overdrawn cash) is dropped the same way —
  * it still reduces net worth, just not through a pie wedge.
  */
-export function netWorthBreakdown(accounts: AccountLike[], portfolioValue: number): NetWorthBreakdown {
-    const totals = summarizeAccounts(accounts);
-    // Anything not liquid/retirement/property (e.g. market_liquid accounts).
-    const other = totals.totalAssets - totals.liquidNow - totals.retirement - totals.property;
+export function netWorthBreakdown(
+    accounts: AccountLike[],
+    portfolioValue: number,
+    owed: OwedTotals = NOTHING_OWED,
+): NetWorthBreakdown {
+    const totals = summarizeAccounts(accounts, owed);
+    // Anything not liquid/retirement/property/owed (e.g. market_liquid accounts).
+    // Receivables are subtracted out and given their own slice rather than left
+    // to fall into "Other assets", where a debt someone owes you would be
+    // indistinguishable from an account you forgot to classify.
+    const other =
+        totals.totalAssets - totals.liquidNow - totals.retirement - totals.property - totals.receivables;
 
     const slices: NetWorthSlice[] = [
         { key: "cash", label: "Cash", value: totals.liquidNow },
         { key: "investments", label: "Investments", value: portfolioValue },
         { key: "retirement", label: "Retirement & locked", value: totals.retirement },
         { key: "property", label: "Property", value: totals.property },
+        { key: "owed", label: "Owed to you", value: totals.receivables },
         { key: "other", label: "Other assets", value: other },
     ].filter(s => s.value > 0.01);
 

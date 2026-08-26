@@ -13,6 +13,7 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { summarizeAccounts, cashChartAccountsOf, latestBalanceHome } from "../../lib/networth";
+import { counterpartyTotals } from "../../lib/reimbursements";
 import { AccountKind, LiquidityStatus, TaxTreatment } from "../../types/types";
 import type { AccountsLoaderData } from "./accounts.loader";
 import type { AccountResponse, BalanceResponse, LoanScheduleResponse } from "../../types/types";
@@ -83,7 +84,7 @@ export default function Accounts() {
     const { activeHousehold } = useHousehold();
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { accounts: allAccounts = [], currencies = [], equity: allEquity = [] } = (useLoaderData() as AccountsLoaderData) || {};
+    const { accounts: allAccounts = [], currencies = [], equity: allEquity = [], owed = [] } = (useLoaderData() as AccountsLoaderData) || {};
     const accounts = useMemo(
         () => allAccounts.filter(a => isVisibleInViewMode(a.owner_user_id, viewMode, user?.id)),
         [allAccounts, viewMode, user?.id]
@@ -254,7 +255,12 @@ export default function Accounts() {
         return accounts.find(a => a.id === historyAccountId) || null;
     }, [accounts, historyAccountId]);
 
-    const summaryStats = useMemo(() => summarizeAccounts(accounts), [accounts]);
+    // Debts either way sit in no account, so they have to be handed in — otherwise
+    // the summary reports money you are still owed as money that evaporated.
+    const summaryStats = useMemo(
+        () => summarizeAccounts(accounts, counterpartyTotals(owed)),
+        [accounts, owed],
+    );
 
     const totalEquity = useMemo(
         () => equityRows.reduce((sum, row) => sum + Number(row.equity), 0),

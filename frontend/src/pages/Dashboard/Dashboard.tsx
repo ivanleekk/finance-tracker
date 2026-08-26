@@ -12,6 +12,7 @@ import type { PortfolioTimeseriesPoint } from "../../types/types"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
 import { sampleProjection, netWorthBreakdown } from "../../lib/networth"
+import { counterpartyTotals } from "../../lib/reimbursements"
 import { runwayLabel, runwayTone } from "../../lib/budgets"
 import { Link } from "react-router"
 
@@ -31,7 +32,8 @@ export default function Dashboard() {
         timeseries = [],
         metrics = null,
         projection = null,
-        emergencyFund = null
+        emergencyFund = null,
+        owed = []
     } = (useLoaderData() as DashboardLoaderData) || {};
     const revalidator = useRevalidator();
     const [searchParams] = useSearchParams();
@@ -100,7 +102,13 @@ export default function Dashboard() {
         return totalsByDate[latestDate] || 0;
     }, [timeseries]);
 
-    const netWorth = currentCash + currentPortfolioValue;
+    // Debts either way belong in net worth: a receivable is a claim you hold, a
+    // payable is one held against you. Kept in step with the split donut below,
+    // which draws its own "Owed to you" slice from the same figures — a headline
+    // that ignored them while the chart showed them would be worse than neither.
+    const owedTotals = useMemo(() => counterpartyTotals(owed), [owed]);
+    const netWorth =
+        currentCash + currentPortfolioValue + owedTotals.owedToYou - owedTotals.youOwe;
 
     const worthBreakdown = useMemo(() => {
         const likeAccounts = accounts.map(a => ({
@@ -110,8 +118,11 @@ export default function Dashboard() {
             currency: a.currency,
             history: balances[a.id] ?? [],
         }));
-        return netWorthBreakdown(likeAccounts, currentPortfolioValue);
-    }, [accounts, balances, currentPortfolioValue]);
+        // Debts either way sit in no account, so they have to be handed in —
+        // otherwise a split bill's unreturned half shows up as money that
+        // simply evaporated out of net worth.
+        return netWorthBreakdown(likeAccounts, currentPortfolioValue, owedTotals);
+    }, [accounts, balances, currentPortfolioValue, owedTotals]);
 
     // The outlook only says something worth reading once there is debt to
     // amortize or property to grow — otherwise it's a flat line at today's
