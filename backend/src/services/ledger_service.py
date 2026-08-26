@@ -821,3 +821,44 @@ def _visible_manual_entry_ids(
     )
     hidden = {entry_id for entry_id, owner in rows if owner is not None and owner != user.id}
     return {entry_id for entry_id, _ in rows} - hidden
+
+
+def post_balance_adjustment(
+    db: Session,
+    *,
+    account: models.FinancialAccount,
+    transaction: models.Transaction,
+    delta_home: Decimal,
+) -> Optional[models.JournalEntry]:
+    """
+    A manual reconciliation: "this account really holds X", with no explanation.
+
+    The one-sided fact single entry could simply assert. A ledger has to name the
+    other side, and equity is where the unexplained belongs — in its own account,
+    so a reconciliation stays visible as a reconciliation instead of disappearing
+    into whatever category happened to be handy.
+
+    `delta_home` is **signed**: positive when the account turned out to hold more
+    than the chain said, negative when less.
+    """
+    delta = _dec(delta_home)
+    if abs(delta) <= BALANCE_TOLERANCE:
+        return None
+
+    account_line = ledger_account_for_financial_account(db, account)
+    plug = equity_account(db, account.household_id, models.LedgerAccountRole.adjustment)
+
+    if delta > 0:
+        lines = [debit(account_line.id, delta), credit(plug.id, delta)]
+    else:
+        lines = [debit(plug.id, -delta), credit(account_line.id, -delta)]
+
+    return post_entry(
+        db,
+        household_id=account.household_id,
+        date=transaction.date,
+        lines=lines,
+        description=transaction.description,
+        source=models.JournalSource.balance_adjustment,
+        source_id=transaction.id,
+    )

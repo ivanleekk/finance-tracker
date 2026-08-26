@@ -11,6 +11,7 @@ from src.auth import get_current_user, verify_household_access, verify_private_o
 from src.services.snapshot_engine import run_snapshot_range
 from src.services.dividend_engine import sync_dividends_range, materialize_scheduled_dividends
 from src.services.account_service import sync_transaction_to_balances
+from src.services import ledger_service
 from src.services.performance import calculate_performance_metrics, fetch_rf_and_benchmark_rows
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
@@ -149,6 +150,12 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
                 sync_transaction_to_balances(db, db_trade.account_id, old_date, -old_impact)
                 sync_transaction_to_balances(db, db_trade.account_id, new_date, new_impact)
 
+            # The trade's *cash* movement, mirrored into the ledger. `post_entry`
+            # replaces the entry this row already had, so an edited trade cannot
+            # leave a stale half behind.
+            db.flush()
+            ledger_service.post_transaction(db, db_transaction)
+
             return db_transaction
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
@@ -175,6 +182,13 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
     # Sync to account balance for new transaction
     new_multiplier = 1 if trans_type == models.TransactionType.income else -1
     sync_transaction_to_balances(db, db_trade.account_id, db_trade.date.date(), amount_in_acc * new_multiplier)
+
+    # The trade's *cash* movement, mirrored into the ledger. A buy debits the
+    # Investment category and credits the funding account, exactly as the
+    # transaction it mirrors says; the holding itself stays valued by
+    # snapshot_engine and is deliberately absent from the journal.
+    db.flush()
+    ledger_service.post_transaction(db, db_transaction)
 
     return db_transaction
 
@@ -826,6 +840,9 @@ def delete_trade(
             if db_transaction:
                 multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
                 sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * multiplier))
+                ledger_service.delete_entry_for(
+                    db, models.JournalSource.transaction, db_transaction.id
+                )
                 db.delete(db_transaction)
         db.delete(t)
 
