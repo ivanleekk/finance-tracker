@@ -637,7 +637,7 @@ struct TransactionFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId])
+            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId, mcc])
             .onAppear {
                 if accountId == nil {
                     let defaultAccount = accounts.first { $0.id == session.user?.defaultAccountId }
