@@ -25,11 +25,29 @@ struct AccountTotals {
     var liquidNow: Double = 0
     var retirement: Double = 0
     var property: Double = 0
+    /// Money other people owe the household. An asset, but not a spendable one.
+    var receivables: Double = 0
 
     var net: Double { totalAssets - liabilities }
 }
 
-func summarizeAccounts(_ accounts: [NetWorthAccountInput]) -> AccountTotals {
+/// Outstanding debts either way, from the ledger's counterparty balances.
+///
+/// These sit in no `FinancialAccount`, which is the whole reason they need
+/// passing in: without them a split bill takes the full amount out of the bank
+/// and puts nothing back, so net worth reports money you are still owed as money
+/// that simply evaporated.
+struct OwedTotals {
+    var owedToYou: Double = 0
+    var youOwe: Double = 0
+
+    static let none = OwedTotals()
+}
+
+func summarizeAccounts(
+    _ accounts: [NetWorthAccountInput],
+    owed: OwedTotals = .none
+) -> AccountTotals {
     var totals = AccountTotals()
     for account in accounts {
         let balance = latestBalanceHome(account.history)
@@ -49,6 +67,15 @@ func summarizeAccounts(_ accounts: [NetWorthAccountInput]) -> AccountTotals {
         case .marketLiquid: break
         }
     }
+
+    // A receivable is a real asset — someone owing you $80 is $80 you have a
+    // claim on — but it is deliberately kept out of `liquidNow`, for the same
+    // reason property is: you cannot spend it this week, and treating it as
+    // spendable is how a runway starts lying. A payable is a real debt.
+    totals.receivables = owed.owedToYou.isFinite ? owed.owedToYou : 0
+    totals.totalAssets += totals.receivables
+    totals.liabilities += owed.youOwe.isFinite ? owed.youOwe : 0
+
     return totals
 }
 
@@ -76,16 +103,25 @@ struct NetWorthBreakdown {
 /// wedge, and net worth is "these assets, minus that debt," not one blended
 /// bucket. A negative bucket (e.g. overdrawn cash) is dropped the same way —
 /// it still reduces net worth, just not through a wedge.
-func netWorthBreakdown(accounts: [NetWorthAccountInput], portfolioValue: Double) -> NetWorthBreakdown {
-    let totals = summarizeAccounts(accounts)
-    // Anything not liquid/retirement/property (e.g. market_liquid accounts).
-    let other = totals.totalAssets - totals.liquidNow - totals.retirement - totals.property
+func netWorthBreakdown(
+    accounts: [NetWorthAccountInput],
+    portfolioValue: Double,
+    owed: OwedTotals = .none
+) -> NetWorthBreakdown {
+    let totals = summarizeAccounts(accounts, owed: owed)
+    // Anything not liquid/retirement/property/owed (e.g. market_liquid accounts).
+    // Receivables are subtracted out and given their own slice rather than left
+    // to fall into "Other Assets", where a debt someone owes you would be
+    // indistinguishable from an account you forgot to classify.
+    let other = totals.totalAssets - totals.liquidNow - totals.retirement
+        - totals.property - totals.receivables
 
     let slices = [
         NetWorthSlice(key: "cash", label: "Cash", value: totals.liquidNow),
         NetWorthSlice(key: "investments", label: "Investments", value: portfolioValue),
         NetWorthSlice(key: "retirement", label: "Retirement & Locked", value: totals.retirement),
         NetWorthSlice(key: "property", label: "Property", value: totals.property),
+        NetWorthSlice(key: "owed", label: "Owed to You", value: totals.receivables),
         NetWorthSlice(key: "other", label: "Other Assets", value: other),
     ].filter { $0.value > 0.01 }
 

@@ -26,6 +26,9 @@ struct DashboardView: View {
     @State private var metrics: PortfolioMetricsResponse?
     @State private var emergencyFund: EmergencyFundResponse?
     @State private var projection: NetWorthProjectionResponse?
+    /// Outstanding debts either way. They sit in no account, so net worth has to
+    /// be told about them or a split bill's unreturned half looks like money gone.
+    @State private var owed: [CounterpartyBalanceResponse] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var lastLoadedAt: Date?
@@ -74,6 +77,9 @@ struct DashboardView: View {
             snapshots: snapshots,
             timeseries: timeseries,
             subPortfolios: subPortfolios,
+            // Outstanding debts either way. They sit in no account, so net worth has to
+            // be told about them or a split bill's unreturned half looks like money gone.
+            owed: owed,
             isVisible: { [viewModeStore, session] ownerId in
                 viewModeStore.isVisible(ownerUserId: ownerId, currentUserId: session.user?.id)
             }
@@ -342,6 +348,7 @@ struct DashboardView: View {
             async let metricsReq: PortfolioMetricsResponse? = optionalGet("/portfolio/household/\(household.id)/metrics")
             async let emergencyFundReq: EmergencyFundResponse? = optionalGet("/cashflow/household/\(household.id)/emergency-fund")
             async let projectionReq: NetWorthProjectionResponse? = optionalGet("/accounts/household/\(household.id)/projection?months=360")
+            async let owedReq: [CounterpartyBalanceResponse]? = optionalGet("/cashflow/reimbursements/household/\(household.id)")
 
             (accounts, balances, transactions, categories, snapshots, timeseries, subPortfolios, assets) =
                 try await (accountsReq, balancesReq, txnsReq, categoriesReq, snapshotsReq, timeseriesReq, subPortfoliosReq, assetsReq)
@@ -352,6 +359,10 @@ struct DashboardView: View {
             // as the metrics/fund/projection calls take to come back.
             recompute()
             (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
+            owed = await owedReq ?? []
+            // Recompute once more now that `owed` has landed — it wasn't part of the
+            // primary batch above, so the first pass published net worth without it.
+            recompute()
             lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription
@@ -384,9 +395,15 @@ struct DashboardDerived {
     var breakdown = NetWorthBreakdown(slices: [], liabilities: 0, sliceTotal: 0)
     var bands: [NetWorthBandPoint] = []
     var recentTransactions: [TransactionResponse] = []
+    /// Outstanding debts either way, netted for the headline.
+    var owedTotals = OwedTotals.none
 
-    /// Net worth = liquid accounts (net of liabilities) + investments.
-    var netWorth: Double { currentCash + currentPortfolioValue }
+    /// Net worth = liquid accounts (net of liabilities) + investments + what people owe
+    /// you, less what you owe them. Debts either way belong here: a receivable is a claim
+    /// you hold, a payable is one held against you. Kept in step with the split donut,
+    /// which draws its own "Owed to You" slice from the same figures — a headline that
+    /// ignored them while the chart showed them would be worse than neither.
+    var netWorth: Double { currentCash + currentPortfolioValue + owedTotals.owedToYou - owedTotals.youOwe }
 
     init() {}
 
@@ -397,8 +414,11 @@ struct DashboardDerived {
         snapshots allSnapshots: [PortfolioSnapshotResponse],
         timeseries allTimeseries: [PortfolioTimeseriesPoint],
         subPortfolios: [SubPortfolioResponse],
+        owed: [CounterpartyBalanceResponse] = [],
         isVisible: (String?) -> Bool
     ) {
+        let owedTotalsRaw = Reimbursements.totals(owed)
+        owedTotals = OwedTotals(owedToYou: owedTotalsRaw.owedToYou, youOwe: owedTotalsRaw.youOwe)
         accounts = allAccounts.filter { isVisible($0.ownerUserId) }
         let visibleAccountIds = Set(accounts.map(\.id))
         let visibleSubPortfolioIds = Set(
@@ -439,7 +459,8 @@ struct DashboardDerived {
             accounts: accounts.map {
                 NetWorthAccountInput(kind: $0.kind, liquidity: $0.liquidity, history: historyByAccount[$0.id] ?? [])
             },
-            portfolioValue: currentPortfolioValue
+            portfolioValue: currentPortfolioValue,
+            owed: owedTotals
         )
 
         bands = netWorthBands(
@@ -628,6 +649,14 @@ struct TransactionRow: View {
                     .compactMap(\.self).joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // The amount on the right stays the full sum, because that is
+                // what left the account. This says how much of it wasn't yours,
+                // which is otherwise invisible on a list of full amounts.
+                if let owedBy = transaction.owedBy, let owedAmount = transaction.owedAmount {
+                    Text("\(owedAmount.currency(transaction.currency ?? baseCurrency)) owed by \(owedBy)")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
             Spacer()
             Text((isIncome ? "+" : "−") + transaction.amount.currency(transaction.currency ?? baseCurrency))

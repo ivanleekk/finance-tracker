@@ -17,6 +17,7 @@ export default [
     route("/dividends", "pages/Dividends/Dividends.tsx"),
     route("/transactions", "pages/Transactions/Transactions.tsx"),
     route("/budgets", "pages/Budgets/Budgets.tsx"),
+    route("/reimbursements", "pages/Reimbursements/Reimbursements.tsx"),
     route("/recurring", "pages/Recurring/Recurring.tsx"),
     route("/goals", "pages/Goals/Goals.tsx"),
     route("/goals/:id", "pages/Goals/GoalDetail.tsx"),

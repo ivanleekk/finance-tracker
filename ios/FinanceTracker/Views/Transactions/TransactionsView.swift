@@ -56,6 +56,13 @@ struct TransactionsView: View {
             $0.transactionType == .expense
                 && visibleAccountIds.contains($0.accountId)
                 && (range?.contains($0.date) ?? true)
+                // Transfers and settlements are cash leaving an account without
+                // being spending: you still have the money, or the bill was
+                // already charged when it was paid.
+                && Reimbursements.countsAsSpending(
+                    categoriesById[$0.categoryId]?.name,
+                    isTransfer: $0.transferId != nil
+                )
         }
     }
 
@@ -430,6 +437,11 @@ struct TransactionFormView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingNewCategory = false
+    /// Part of this bill is somebody else's. The amount above stays the full sum
+    /// that leaves the account — this only records whose it was.
+    @State private var isSplitting: Bool
+    @State private var owedByText: String
+    @State private var owedAmountText: String
 
     init(
         accounts: [AccountResponse],
@@ -449,6 +461,10 @@ struct TransactionFormView: View {
         _description = State(initialValue: existing?.description ?? "")
         _accountId = State(initialValue: existing?.accountId)
         _categoryId = State(initialValue: existing?.categoryId)
+        let existingOwed = existing?.owedAmount
+        _isSplitting = State(initialValue: existing?.owedBy != nil && existingOwed != nil)
+        _owedByText = State(initialValue: existing?.owedBy ?? "")
+        _owedAmountText = State(initialValue: existingOwed.map(Self.amountString) ?? "")
     }
 
     /// Editable string for a stored amount: drop the trailing ".0" on whole numbers.
@@ -464,8 +480,44 @@ struct TransactionFormView: View {
         Double(amountText.replacingOccurrences(of: ",", with: ""))
     }
 
+    private var owedAmount: Double? {
+        Reimbursements.parseMoney(owedAmountText)
+    }
+
+    private var splitAssessment: SplitAssessment {
+        Reimbursements.assessSplit(amount: amount, owed: owedAmount)
+    }
+
+    /// The sentence under the split fields. It restates the split as the two
+    /// numbers the user actually cares about, because "they owe 80" on a 120
+    /// bill means nothing until you can see what it leaves you.
+    private var splitHint: String {
+        switch splitAssessment {
+        case .incomplete:
+            return "The full amount still leaves your account — only your share counts towards budgets."
+        case let .invalid(reason):
+            return reason
+        case let .valid(yourShare, owed):
+            let currency = session.activeHousehold?.baseCurrency ?? "USD"
+            return "Your share: \(yourShare.currency(currency)). They owe you \(owed.currency(currency))."
+        }
+    }
+
+    private var trimmedOwedBy: String {
+        owedByText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A split that is switched on but not yet complete blocks saving, rather
+    /// than being silently dropped — the user asked for it and would not notice
+    /// it going missing.
+    private var splitIsUsable: Bool {
+        guard isSplitting else { return true }
+        guard case .valid = splitAssessment else { return false }
+        return !trimmedOwedBy.isEmpty
+    }
+
     private var canSave: Bool {
-        amount ?? 0 > 0 && accountId != nil && categoryId != nil && !isSaving
+        amount ?? 0 > 0 && accountId != nil && categoryId != nil && !isSaving && splitIsUsable
     }
 
     var body: some View {
@@ -514,6 +566,31 @@ struct TransactionFormView: View {
                     }
                 }
 
+                // Splitting a bill. The amount above is untouched: the whole sum
+                // really did leave the account. This only records how much of it
+                // was somebody else's, so the budget charges you for your share
+                // and the rest becomes a debt they owe you.
+                if type == .expense {
+                    Section {
+                        Toggle("Someone owes me for part of this", isOn: $isSplitting.animation())
+                        if isSplitting {
+                            TextField("Who (e.g. Alice)", text: $owedByText)
+                                .textInputAutocapitalization(.words)
+                            HStack {
+                                Text("They owe")
+                                TextField("0.00", text: $owedAmountText)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                    } footer: {
+                        if isSplitting {
+                            Text(splitHint)
+                                .foregroundStyle(splitAssessment.isInvalid ? .red : .secondary)
+                        }
+                    }
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -546,6 +623,19 @@ struct TransactionFormView: View {
         }
     }
 
+    /// What this edit should do to the split already recorded.
+    ///
+    /// Switching the toggle off means *remove* it, which is a different request
+    /// from leaving it alone — so a form that opened with no split and still has
+    /// none sends nothing rather than an explicit clear.
+    private var splitChange: SplitChange {
+        if isSplitting, let owedAmount, !trimmedOwedBy.isEmpty {
+            return .set(owedBy: trimmedOwedBy, owedAmount: owedAmount)
+        }
+        let hadSplit = existing?.owedBy != nil && existing?.owedAmount != nil
+        return hadSplit ? .clear : .unchanged
+    }
+
     private func save() {
         guard let amount, let accountId, let categoryId else { return }
         isSaving = true
@@ -559,7 +649,8 @@ struct TransactionFormView: View {
                         amount: amount,
                         description: description,
                         accountId: accountId,
-                        categoryId: categoryId
+                        categoryId: categoryId,
+                        split: splitChange
                     )
                     let _: TransactionResponse = try await APIClient.shared.put(
                         "/cashflow/transactions/\(existing.id)", body: body
@@ -570,7 +661,9 @@ struct TransactionFormView: View {
                         amount: amount,
                         description: description.isEmpty ? nil : description,
                         accountId: accountId,
-                        categoryId: categoryId
+                        categoryId: categoryId,
+                        owedBy: isSplitting ? trimmedOwedBy : nil,
+                        owedAmount: isSplitting ? owedAmount : nil
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(
                         "/cashflow/transactions", body: body

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
+import { assessSplit, countsAsSpending, parseMoney } from "../../lib/reimbursements"
 import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -68,6 +69,22 @@ const historyGranularityStorageKey = (householdId: string) => `ft:tx-group-by:${
  * no stored conversion is left out of the group totals rather than distorting them.
  * The iOS and Android ports of this rule live in `HistoryGroups.swift` / `HistoryGroups.kt`.
  */
+/**
+ * The sentence under the split fields. It restates the split as the two numbers
+ * the user actually cares about, because "they owe 80" on a 120 bill is only
+ * meaningful once you can see that leaves you 40.
+ */
+function splitHint(amountRaw: string, owedRaw: string, currency: string): string {
+    const assessment = assessSplit(parseMoney(amountRaw), parseMoney(owedRaw));
+    if (assessment.kind === "incomplete") {
+        return "The full amount still leaves your account — only your share counts towards budgets.";
+    }
+    if (assessment.kind === "invalid") return assessment.reason;
+    const money = (value: number) =>
+        new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
+    return `Your share: ${money(assessment.yourShare)}. They owe you ${money(assessment.owed)}.`;
+}
+
 function homeValueOf(storedHomeAmount: number | null | undefined, nativeAmount: number, nativeCurrency: string | null | undefined, baseCurrency: string): number | null {
     if (storedHomeAmount !== null && storedHomeAmount !== undefined) {
         const n = Math.abs(Number(storedHomeAmount));
@@ -98,6 +115,8 @@ type UnifiedHistoryItem = {
     householdName: string;
     description: string | null;
     ownerUserId: string | null;
+    /** Set where part of this expense was somebody else's; null on trades. */
+    split: { owedBy: string; owedAmount: number } | null;
 };
 
 export default function Transactions() {
@@ -183,8 +202,13 @@ export default function Transactions() {
         amount: "",
         currency: activeHousehold?.base_currency || "USD",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-        description: ""
+        description: "",
+        // Part of this bill is somebody else's. The amount above stays the full
+        // sum that leaves the account — this only says whose it was.
+        owedBy: "",
+        owedAmount: ""
     });
+    const [isSplitting, setIsSplitting] = useState(false);
 
     // Form state for transfers
     const [transferData, setTransferData] = useState({
@@ -249,22 +273,30 @@ export default function Transactions() {
         e.preventDefault();
         setIsSubmitting(true);
         try {
+            const owedBy = isSplitting ? formData.owedBy.trim() : "";
+            const owedAmount = isSplitting ? parseFloat(formData.owedAmount) : NaN;
+            const isSplit = owedBy.length > 0 && Number.isFinite(owedAmount) && owedAmount > 0;
             await api.post("/cashflow/transactions", {
                 account_id: formData.accountId,
                 category_id: formData.categoryId,
                 date: formData.date,
                 amount: parseFloat(formData.amount),
                 currency: formData.currency,
-                description: formData.description
+                description: formData.description,
+                // Sent together or not at all — the API rejects half a split.
+                ...(isSplit ? { owed_by: owedBy, owed_amount: owedAmount } : {})
             });
             setIsLogModalOpen(false);
+            setIsSplitting(false);
             setFormData({
                 accountId: defaultAccountId(),
                 categoryId: "",
                 amount: "",
                 currency: activeHousehold?.base_currency || "USD",
                 date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-                description: ""
+                description: "",
+                owedBy: "",
+                owedAmount: ""
             });
             revalidator.revalidate();
         } catch (error) {
@@ -355,7 +387,9 @@ export default function Transactions() {
                 subportfolioName: spName,
                 householdName: activeHousehold.name,
                 description: t.description || null,
-                ownerUserId: account?.owner_user_id || null
+                ownerUserId: account?.owner_user_id || null,
+                // A trade is never split — you don't buy shares on someone's behalf here.
+                split: null
             };
         });
 
@@ -396,7 +430,10 @@ export default function Transactions() {
                     subportfolioName: null,
                     householdName: activeHousehold.name,
                     description: tx.description || null,
-                    ownerUserId: account?.owner_user_id || null
+                    ownerUserId: account?.owner_user_id || null,
+                    split: tx.owed_by && tx.owed_amount
+                        ? { owedBy: tx.owed_by, owedAmount: Number(tx.owed_amount) }
+                        : null
                 };
             });
 
@@ -498,6 +535,7 @@ export default function Transactions() {
         transactions.forEach(tx => {
             if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
             if (!isInCategoryPeriod(new Date(tx.date))) return;
+            if (!countsAsSpending(categories.find(c => c.id === tx.category_id)?.name, !!tx.transfer_id)) return;
             const account = accounts.find(a => a.id === tx.account_id);
             if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
             const id = tx.category_id || "uncategorized";
@@ -547,6 +585,9 @@ export default function Transactions() {
             const catId = tx.category_id || "uncategorized";
             if (hiddenCategoryIds.has(catId)) return;
             const name = categoryMap.get(tx.category_id) || "Uncategorized";
+            // Transfers and settlements are cash leaving an account without being
+            // spending: you still have the money, or the bill was already charged.
+            if (!countsAsSpending(name, !!tx.transfer_id)) return;
             const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
             const existing = byCategory.get(catId);
             byCategory.set(catId, { name, amount: (existing?.amount ?? 0) + homeAmount });
@@ -977,6 +1018,54 @@ export default function Transactions() {
                             />
                         </div>
 
+                        {/*
+                          Splitting a bill. The amount above is untouched: the whole
+                          sum really did leave the account. This only records how much
+                          of it was somebody else's, so the budget charges you for your
+                          share and the rest becomes a debt they owe you.
+                        */}
+                        <div className="rounded-lg border border-dashed border-base-300 dark:border-base-700 p-3 space-y-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={isSplitting}
+                                    onChange={(e) => setIsSplitting(e.target.checked)}
+                                    className="rounded border-base-300 dark:border-base-600 text-primary-600 focus:ring-primary-500"
+                                />
+                                <span className="text-sm font-medium text-base-700 dark:text-base-300">
+                                    Someone owes me for part of this
+                                </span>
+                            </label>
+                            {isSplitting && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Who</label>
+                                            <Input
+                                                placeholder="e.g. Alice"
+                                                value={formData.owedBy}
+                                                onChange={(e) => setFormData({ ...formData, owedBy: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-base-700 dark:text-base-300">They owe</label>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                placeholder="0.00"
+                                                value={formData.owedAmount}
+                                                onChange={(e) => setFormData({ ...formData, owedAmount: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-base-500 dark:text-base-400">
+                                        {splitHint(formData.amount, formData.owedAmount, baseCurrency)}
+                                    </p>
+                                </>
+                            )}
+                        </div>
+
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => setIsLogModalOpen(false)}>
                                 Cancel
@@ -1172,6 +1261,16 @@ export default function Transactions() {
                                                 {item.description && (
                                                     <p className="text-xs text-base-400 dark:text-base-500 leading-tight">
                                                         {item.description}
+                                                    </p>
+                                                )}
+                                                {/*
+                                                  The row still shows the full amount, because that is what
+                                                  left the account. This says how much of it wasn't yours,
+                                                  which is otherwise invisible on a page of full amounts.
+                                                */}
+                                                {item.split && (
+                                                    <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
+                                                        {formatHomeAmount(item.split.owedAmount)} owed by {item.split.owedBy}
                                                     </p>
                                                 )}
                                                 <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">

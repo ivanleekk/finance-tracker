@@ -6,7 +6,7 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
-from src.services import loan_service
+from src.services import ledger_service, loan_service
 from src.services.snapshot_engine import run_snapshot_range
 from sqlalchemy import desc, func, select
 from decimal import Decimal
@@ -373,10 +373,28 @@ def add_account_balance(
             category_id=adjustment_cat.id,
             date=trans_datetime,
             amount=abs(delta),
+            # Recorded in the account's own currency, so it needs the home-currency
+            # equivalent like every other row — the budget rollups read
+            # `amount_home_currency` and fall back to the raw amount, which for a
+            # foreign-currency account is a different number wearing the same label.
+            amount_home_currency=abs(delta) * Decimal(str(rate)),
+            currency=acc_curr,
+            exchange_rate=1.0,
             description=f"Automated reconciliation for {balance.date}",
             transaction_type=models.TransactionType.income if delta > 0 else models.TransactionType.expense
         )
         db.add(adj_transaction)
+        db.flush()
+
+        # A reconciliation asserts "this account really holds X" without saying
+        # where the difference came from. Single entry could just move the number;
+        # a ledger has to put the other side somewhere, and an equity plug is
+        # where the unexplained belongs — kept in its own account so a
+        # reconciliation stays visible as a reconciliation instead of hiding
+        # inside real spending.
+        ledger_service.post_balance_adjustment(
+            db, account=db_account, transaction=adj_transaction, delta_home=Decimal(str(delta)) * Decimal(str(rate))
+        )
     
     # Propagate the "correction" forward through automated records
     propagate_balance_change(db, balance.account_id, balance.date, delta)

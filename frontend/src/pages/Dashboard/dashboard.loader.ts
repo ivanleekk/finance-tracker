@@ -8,7 +8,8 @@ import type {
     PortfolioTimeseriesPoint,
     PortfolioMetricsResponse,
     NetWorthProjectionResponse,
-    EmergencyFundResponse
+    EmergencyFundResponse,
+    CounterpartyBalanceResponse,
 } from "../../types/types";
 
 export type DashboardLoaderData = {
@@ -25,6 +26,9 @@ export type DashboardLoaderData = {
     projection: NetWorthProjectionResponse | null;
     // Runway: how long liquid cash covers recent spending. Null if unavailable.
     emergencyFund: EmergencyFundResponse | null;
+    // Outstanding debts either way. These sit in no account, so without them net
+    // worth reports a split bill's unreturned half as money that evaporated.
+    owed: CounterpartyBalanceResponse[];
 };
 
 export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<DashboardLoaderData> {
@@ -41,7 +45,7 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         })}` : "");
 
     try {
-        const [accountsRes, subPortfoliosRes, transactionsRes, timeseriesRes, metricsRes, allBalancesRes, projectionRes, emergencyFundRes] = await Promise.all([
+        const [accountsRes, subPortfoliosRes, transactionsRes, timeseriesRes, metricsRes, allBalancesRes, projectionRes, emergencyFundRes, owedRes] = await Promise.all([
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
@@ -49,7 +53,8 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             ssrFetch(metricsUrl),
             ssrFetch(`/accounts/balances/household/${householdId}`),
             ssrFetch(`/accounts/household/${householdId}/projection?months=360`),
-            ssrFetch(`/cashflow/household/${householdId}/emergency-fund`)
+            ssrFetch(`/cashflow/household/${householdId}/emergency-fund`),
+            ssrFetch(`/cashflow/reimbursements/household/${householdId}`)
         ]);
 
         const [accounts, subPortfolios, transactions, timeseries, metrics] = await Promise.all([
@@ -64,6 +69,8 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
         // The projection is supplementary — never let it break the dashboard.
         const projection: NetWorthProjectionResponse | null = projectionRes.ok ? await projectionRes.json() : null;
         const emergencyFund: EmergencyFundResponse | null = emergencyFundRes.ok ? await emergencyFundRes.json() : null;
+        // Supplementary like the projection — a failure here must not blank the dashboard.
+        const owed: CounterpartyBalanceResponse[] = owedRes.ok ? await owedRes.json() : [];
 
         const balanceMap: Record<string, BalanceResponse[]> = {};
         allBalances.forEach(b => {
@@ -78,6 +85,7 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             transactions,
             timeseries,
             metrics,
+            owed,
             projection,
             emergencyFund
         };
@@ -92,7 +100,8 @@ export async function dashboardLoader({ request }: LoaderFunctionArgs): Promise<
             timeseries: [],
             metrics: null,
             projection: null,
-            emergencyFund: null
+            emergencyFund: null,
+            owed: []
         };
     }
 }

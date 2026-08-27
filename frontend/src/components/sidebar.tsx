@@ -14,6 +14,7 @@ import {
     Settings,
     PiggyBank,
     Repeat,
+    HandCoins,
     Menu,
     X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
     { text: "Dividends", href: "/dividends", icon: <CircleDollarSign /> },
     { text: "Transactions", href: "/transactions", icon: <History /> },
     { text: "Budgets", href: "/budgets", icon: <PiggyBank /> },
+    { text: "Shared", href: "/reimbursements", icon: <HandCoins /> },
     { text: "Recurring", href: "/recurring", icon: <Repeat /> },
     { text: "Trade", href: "/trade", icon: <ArrowRightLeft /> },
     { text: "Goals", href: "/goals", icon: <Target /> },

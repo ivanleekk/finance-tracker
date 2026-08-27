@@ -28,7 +28,9 @@ import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
+import com.ivanlee.financetracker.data.model.SplitChange
 import com.ivanlee.financetracker.data.model.TransactionUpdate
+import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.DateField
@@ -38,6 +40,10 @@ import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
+import com.ivanlee.financetracker.ui.components.SwitchRow
+import com.ivanlee.financetracker.logic.Reimbursements
+import com.ivanlee.financetracker.logic.SplitAssessment
+import com.ivanlee.financetracker.logic.currency
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -68,6 +74,11 @@ fun TransactionFormScreen(
     var accountId by remember { mutableStateOf<String?>(null) }
     var categoryId by remember { mutableStateOf<String?>(null) }
     var showNewCategory by remember { mutableStateOf(false) }
+    // Part of this bill is somebody else's. The amount above stays the full sum that leaves
+    // the account — this only records whose it was.
+    var splitting by remember { mutableStateOf(false) }
+    var owedByText by remember { mutableStateOf("") }
+    var owedAmountText by remember { mutableStateOf("") }
 
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -93,6 +104,9 @@ fun TransactionFormScreen(
                 description = txn.description.orEmpty()
                 accountId = txn.accountId
                 categoryId = txn.categoryId
+                splitting = txn.owedBy != null && txn.owedAmount != null
+                owedByText = txn.owedBy.orEmpty()
+                owedAmountText = txn.owedAmount?.toString().orEmpty()
             } else {
                 accountId = accounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId }?.id
                     ?: accounts.firstOrNull { it.id == h.defaultFundingAccountId }?.id
@@ -111,9 +125,31 @@ fun TransactionFormScreen(
     }
 
     val amount = amountText.replace(",", "").toDoubleOrNull()
-    val canSave = (amount ?: 0.0) > 0 && accountId != null && categoryId != null && !saving
     val selectedCurrency = accounts.firstOrNull { it.id == accountId }?.currency
         ?: sessionVm.activeHousehold?.baseCurrency
+
+    val owedAmount = Reimbursements.parseMoney(owedAmountText)
+    val splitAssessment = Reimbursements.assessSplit(amount, owedAmount)
+    val trimmedOwedBy = owedByText.trim()
+    // A split that is switched on but not yet complete blocks saving, rather than being silently
+    // dropped — the user asked for it and would not notice it going missing.
+    val splitIsUsable = !splitting ||
+        (splitAssessment is SplitAssessment.Valid && trimmedOwedBy.isNotEmpty())
+
+    val canSave =
+        (amount ?: 0.0) > 0 && accountId != null && categoryId != null && !saving && splitIsUsable
+
+    /**
+     * What this edit should do to the split already recorded. Switching the toggle off means
+     * *remove* it, which is a different request from leaving it alone — so a form that opened
+     * with no split and still has none sends nothing rather than an explicit clear.
+     */
+    val splitChange: SplitChange = when {
+        splitting && owedAmount != null && trimmedOwedBy.isNotEmpty() ->
+            SplitChange.Set(owedBy = trimmedOwedBy, owedAmount = owedAmount)
+        existing?.owedBy != null && existing?.owedAmount != null -> SplitChange.Clear
+        else -> SplitChange.Unchanged
+    }
 
     fun save() {
         if (!canSave) return
@@ -125,13 +161,14 @@ fun TransactionFormScreen(
                 if (current != null) {
                     Api.put<TransactionUpdate, TransactionResponse>(
                         "/cashflow/transactions/${current.id}",
-                        TransactionUpdate(
+                        transactionUpdate(
                             date = date,
                             amount = amount!!,
                             // Always sent — an empty string is how you clear a description.
                             description = description,
                             accountId = accountId!!,
                             categoryId = categoryId!!,
+                            split = splitChange,
                         ),
                     )
                 } else {
@@ -143,6 +180,8 @@ fun TransactionFormScreen(
                             description = description.ifBlank { null },
                             accountId = accountId!!,
                             categoryId = categoryId!!,
+                            owedBy = if (splitting) trimmedOwedBy else null,
+                            owedAmount = if (splitting) owedAmount else null,
                         ),
                     )
                 }
@@ -207,6 +246,47 @@ fun TransactionFormScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            // Splitting a bill. The amount above is untouched: the whole sum really did leave
+            // the account. This only records how much of it was somebody else's, so the budget
+            // charges you for your share and the rest becomes a debt they owe you.
+            if (type == TransactionType.EXPENSE) {
+                SectionCard {
+                    SwitchRow(
+                        title = "Someone owes me for part of this",
+                        checked = splitting,
+                        onCheckedChange = { splitting = it },
+                    )
+                    if (splitting) {
+                        FormField("Who (e.g. Alice)", owedByText, { owedByText = it })
+                        MoneyField(
+                            "They owe",
+                            owedAmountText,
+                            { owedAmountText = it },
+                            currencyCode = selectedCurrency,
+                        )
+                        val hint = when (splitAssessment) {
+                            is SplitAssessment.Incomplete ->
+                                "The full amount still leaves your account — only your share counts towards budgets."
+                            is SplitAssessment.Invalid -> splitAssessment.reason
+                            is SplitAssessment.Valid -> {
+                                val currency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
+                                "Your share: ${splitAssessment.yourShare.currency(currency)}. " +
+                                    "They owe you ${splitAssessment.owed.currency(currency)}."
+                            }
+                        }
+                        Text(
+                            hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (splitAssessment is SplitAssessment.Invalid) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
             }
 
             Button(onClick = ::save, enabled = canSave) {

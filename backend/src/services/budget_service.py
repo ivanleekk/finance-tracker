@@ -22,6 +22,7 @@ import uuid
 from sqlalchemy.orm import Session, joinedload
 
 from src import models
+from src.services import ledger_service
 from src.services.date_utils import add_months
 
 CENTS = Decimal("0.01")
@@ -98,33 +99,64 @@ def _spend_by_category(
 
     Transfers are excluded: moving money between your own accounts is not
     spending, and counting it would make every budget look blown.
+
+    Two corrections come from the ledger. Money fronted for someone else is
+    subtracted, because the transaction records what left the account and the
+    ledger records whose it was — a dinner you paid for and split three ways is
+    a third of your budget, not all of it. And spending somebody else paid for on
+    your behalf is added, because it never touched an account of yours and so has
+    no transaction at all, only a journal entry and a debt.
     """
     account_ids = _visible_account_ids(db, household_id, user)
-    if not account_ids:
-        return {}, {}
 
-    rows = (
-        db.query(models.Transaction)
-        .filter(
-            models.Transaction.account_id.in_(account_ids),
-            models.Transaction.transaction_type == models.TransactionType.expense,
-            models.Transaction.transfer_id.is_(None),
-            models.Transaction.date >= datetime.combine(start, datetime.min.time()).replace(tzinfo=timezone.utc),
-            models.Transaction.date < datetime.combine(end, datetime.min.time()).replace(tzinfo=timezone.utc)
-            + _one_day(),
+    # A household with no visible accounts can still have spending somebody else
+    # paid for, which by definition sits in no account.
+    rows: List[models.Transaction] = []
+    if account_ids:
+        rows = (
+            db.query(models.Transaction)
+            .filter(
+                models.Transaction.account_id.in_(account_ids),
+                models.Transaction.transaction_type == models.TransactionType.expense,
+                models.Transaction.transfer_id.is_(None),
+                models.Transaction.date
+                >= datetime.combine(start, datetime.min.time()).replace(tzinfo=timezone.utc),
+                models.Transaction.date
+                < datetime.combine(end, datetime.min.time()).replace(tzinfo=timezone.utc)
+                + _one_day(),
+            )
+            .all()
         )
-        .all()
-    )
 
     totals: Dict[uuid.UUID, Decimal] = {}
     months: Dict[uuid.UUID, set[date]] = {}
+
+    splits = ledger_service.counterparty_split_by_transaction(db, [row.id for row in rows])
     for row in rows:
         amount = row.amount_home_currency
         if amount is None:
             amount = row.amount
-        totals[row.category_id] = totals.get(row.category_id, Decimal("0")) + _dec(amount)
+        own_share = _dec(amount)
+        split = splits.get(row.id)
+        if split is not None:
+            own_share -= split[1]
+        if own_share <= 0:
+            # Fronted in full for someone else. None of it is yours, so it is not
+            # a spend month either — a month whose only expense was somebody
+            # else's should not drag the runway average down.
+            continue
+        totals[row.category_id] = totals.get(row.category_id, Decimal("0")) + own_share
         row_date = row.date.date()
         months.setdefault(row.category_id, set()).add(date(row_date.year, row_date.month, 1))
+
+    ledger_only = ledger_service.ledger_only_category_movement(db, household_id, start, end, user)
+    for category_id, movements in ledger_only.items():
+        for moved_on, amount in movements:
+            if amount <= 0:
+                continue
+            totals[category_id] = totals.get(category_id, Decimal("0")) + amount
+            months.setdefault(category_id, set()).add(date(moved_on.year, moved_on.month, 1))
+
     return totals, months
 
 

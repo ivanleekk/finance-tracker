@@ -11,11 +11,33 @@ from src.auth import get_current_user, verify_household_access, verify_private_o
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from src.services.transaction_service import create_transaction
-from src.services import recurring_service, budget_service
+from src.services import ledger_service, recurring_service, budget_service
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
 
 # --- TRANSACTIONS ---
+
+
+def _with_split(
+    db: Session, transactions: List[models.Transaction]
+) -> List[schemas.TransactionResponse]:
+    """
+    Attach each row's counterparty split, read back from the ledger.
+
+    The split is not a column: it lives in the journal entry, where it cannot
+    drift out of step with the receivable it created. One grouped query covers
+    the whole page, so a list endpoint pays for it once rather than per row.
+    """
+    splits = ledger_service.counterparty_split_by_transaction(db, [t.id for t in transactions])
+    responses = []
+    for row in transactions:
+        response = schemas.TransactionResponse.model_validate(row)
+        split = splits.get(row.id)
+        if split is not None:
+            response.owed_by, response.owed_amount = split
+        responses.append(response)
+    return responses
+
 
 @router.post("/transactions", response_model=schemas.TransactionResponse, status_code=status.HTTP_201_CREATED)
 def log_transaction(
@@ -48,11 +70,16 @@ def log_transaction(
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
         description=transaction.description,
+        owed_by=transaction.owed_by.strip() if transaction.owed_by else None,
+        owed_amount=transaction.owed_amount,
+        # A receivable arising from a private account stays private, the same way
+        # the account it was paid from does.
+        owner_user_id=db_account.owner_user_id,
     )
 
     db.commit()
     db.refresh(db_transaction)
-    return db_transaction
+    return _with_split(db, [db_transaction])[0]
 
 @router.post("/transfers", response_model=List[schemas.TransactionResponse], status_code=status.HTTP_201_CREATED)
 def create_transfer(
@@ -146,7 +173,12 @@ def create_transfer(
     # 5. Sync balances
     sync_transaction_to_balances(db, transfer.from_account_id, transfer.date.date(), -transfer.amount)
     sync_transaction_to_balances(db, transfer.to_account_id, transfer.date.date(), Decimal(str(deposit_amount)))
-    
+
+    # 6. One ledger entry for the pair. Two rows, but a single event.
+    ledger_service.post_transfer(
+        db, transfer_id=transfer_id, withdrawal=withdrawal, deposit=deposit
+    )
+
     db.commit()
     db.refresh(withdrawal)
     db.refresh(deposit)
@@ -186,7 +218,7 @@ def get_household_transactions(
         # Ordered only when limited: "the newest N" is meaningless without it, and the
         # unlimited path stays byte-for-byte what it was.
         query = query.order_by(models.Transaction.date.desc()).limit(limit)
-    return query.all()
+    return _with_split(db, query.all())
 
 @router.put(
     "/transactions/{transaction_id}", response_model=schemas.TransactionResponse
@@ -228,11 +260,16 @@ def update_transaction(
         db_transaction.transaction_type = new_category.type
 
     update_data = transaction_update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
+    # The split is not a column on this row — it is applied to the ledger entry
+    # further down. Setting it here would put a stray attribute on the model.
+    column_updates = {
+        k: v for k, v in update_data.items() if k not in ("owed_by", "owed_amount")
+    }
+    for key, value in column_updates.items():
         setattr(db_transaction, key, value)
 
     # Recalculate amount_home_currency if needed
-    if any(k in update_data for k in ('amount', 'currency', 'date', 'account_id')):
+    if any(k in column_updates for k in ('amount', 'currency', 'date', 'account_id')):
         target_account = db_account
         if transaction_update.account_id:
             target_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transaction_update.account_id).first()
@@ -255,9 +292,36 @@ def update_transaction(
         sync_transaction_to_balances(db, db_transaction.account_id, old_date, -old_impact)
         sync_transaction_to_balances(db, db_transaction.account_id, new_date, new_impact)
 
+    # Repost rather than patch: `post_entry` replaces the entry this row already
+    # had, so an edited amount can never leave a stale half of it behind. The
+    # split is carried over unless the caller changed it — editing the
+    # description of a shared dinner should not quietly make it all yours.
+    db.flush()
+    split = ledger_service.counterparty_split_by_transaction(db, [db_transaction.id]).get(
+        db_transaction.id
+    )
+    owed_by, owed_amount = split if split is not None else (None, None)
+    if "owed_by" in update_data or "owed_amount" in update_data:
+        owed_by = (transaction_update.owed_by or "").strip() or None
+        owed_amount = transaction_update.owed_amount
+    if owed_amount is not None and owed_by is not None:
+        # A reduced amount can strand a split that no longer fits inside it.
+        ceiling = db_transaction.amount_home_currency or db_transaction.amount
+        owed_amount = min(Decimal(str(owed_amount)), Decimal(str(ceiling)))
+    target_account = db.query(models.FinancialAccount).filter(
+        models.FinancialAccount.id == db_transaction.account_id
+    ).first()
+    ledger_service.post_transaction(
+        db,
+        db_transaction,
+        owed_by=owed_by,
+        owed_amount=owed_amount,
+        owner_user_id=target_account.owner_user_id if target_account else None,
+    )
+
     db.commit()
     db.refresh(db_transaction)
-    return db_transaction
+    return _with_split(db, [db_transaction])[0]
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(
@@ -280,6 +344,9 @@ def delete_transaction(
     sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * Decimal(str(exchange_rate)) * multiplier))
     
     transfer_id = db_transaction.transfer_id
+    ledger_service.delete_entry_for(db, models.JournalSource.transaction, db_transaction.id)
+    if transfer_id:
+        ledger_service.delete_entry_for(db, models.JournalSource.transfer, transfer_id)
     db.delete(db_transaction)
 
     # If transfer, delete counterpart
@@ -296,6 +363,211 @@ def delete_transaction(
 
     db.commit()
     return
+
+
+# --- REIMBURSEMENTS ---
+#
+# Paying for other people, and being paid for. The single-entry model had no way
+# to say "this left my account but wasn't my spending", so a shared dinner made
+# the payer's budget look blown and the other person's look healthy. These three
+# endpoints are the ledger's answer: one for the debt you take on when you front
+# money, one for the debt you take on when somebody fronts it for you, and one
+# for settling either.
+
+
+def _reimbursement_category(db: Session, household_id: uuid.UUID) -> models.Category:
+    """
+    The system category settlements are filed under.
+
+    Settling is a cash movement, not a purchase — the spending was recorded when
+    the bill was paid. Filing it here keeps it out of the burn rate (the name is
+    in ``SYSTEM_CATEGORY_NAMES``) so the same dinner is not charged twice.
+    """
+    category = (
+        db.query(models.Category)
+        .filter(
+            models.Category.household_id == household_id,
+            models.Category.name == models.SYSTEM_CATEGORY_REIMBURSEMENT,
+        )
+        .first()
+    )
+    if category is None:
+        category = models.Category(
+            id=uuid.uuid7(),
+            household_id=household_id,
+            name=models.SYSTEM_CATEGORY_REIMBURSEMENT,
+            type="expense",
+        )
+        db.add(category)
+        db.flush()
+    return category
+
+
+@router.get(
+    "/reimbursements/household/{household_id}",
+    response_model=List[schemas.CounterpartyBalanceResponse],
+)
+def get_counterparty_balances(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Who still owes the household money, and who it still owes."""
+    verify_household_access(household_id, current_user, db)
+    balances = ledger_service.counterparty_balances(db, household_id, current_user)
+    return [
+        schemas.CounterpartyBalanceResponse(
+            counterparty_name=row.counterparty_name,
+            direction=(
+                schemas.CounterpartyDirection.owed_to_you
+                if row.role == models.LedgerAccountRole.receivable
+                else schemas.CounterpartyDirection.you_owe
+            ),
+            amount=row.amount,
+        )
+        for row in balances
+    ]
+
+
+@router.post(
+    "/reimbursements/on-behalf",
+    response_model=schemas.CounterpartyBalanceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_spend_on_your_behalf(
+    payload: schemas.SpendOnYourBehalfCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Record that somebody else paid for something of yours.
+
+    No account is involved because no account moved: this is the case single
+    entry could not write down at all. The cost lands in your category, so your
+    budget sees it, and the matching debt lands on their payable.
+    """
+    verify_household_access(payload.household_id, current_user, db)
+    verify_private_owner_visibility(payload.owner_user_id, current_user)
+
+    category = (
+        db.query(models.Category)
+        .filter(
+            models.Category.id == payload.category_id,
+            models.Category.household_id == payload.household_id,
+        )
+        .first()
+    )
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    name = payload.counterparty_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Counterparty name cannot be blank")
+
+    ledger_service.post_spend_on_your_behalf(
+        db,
+        household_id=payload.household_id,
+        category=category,
+        counterparty_name=name,
+        amount=payload.amount,
+        date=payload.date,
+        description=payload.description,
+        owner_user_id=payload.owner_user_id,
+    )
+    db.commit()
+
+    account = ledger_service.payable_account(
+        db, payload.household_id, name, payload.owner_user_id
+    )
+    return schemas.CounterpartyBalanceResponse(
+        counterparty_name=name,
+        direction=schemas.CounterpartyDirection.you_owe,
+        amount=ledger_service.account_balance(db, account.id),
+    )
+
+
+@router.post(
+    "/reimbursements/settle",
+    response_model=schemas.TransactionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def settle_with_counterparty(
+    payload: schemas.SettlementCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Clear a debt in either direction.
+
+    Real money moves, so this creates a real transaction and the account balance
+    follows it. What it must not do is charge a category: the spending was
+    recorded when the bill was paid, and charging it again here would double it.
+    """
+    account = (
+        db.query(models.FinancialAccount)
+        .filter(models.FinancialAccount.id == payload.account_id)
+        .first()
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    verify_household_access(account.household_id, current_user, db)
+    verify_private_owner_visibility(account.owner_user_id, current_user)
+
+    name = payload.counterparty_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Counterparty name cannot be blank")
+
+    receiving = payload.direction == schemas.CounterpartyDirection.owed_to_you
+    role = (
+        models.LedgerAccountRole.receivable
+        if receiving
+        else models.LedgerAccountRole.payable
+    )
+
+    category = _reimbursement_category(db, account.household_id)
+    home_currency = account.household.base_currency or "USD"
+    account_currency = account.currency or "USD"
+    rate_to_home = fetch_and_cache_exchange_rates(
+        db, account_currency, home_currency, payload.date.date()
+    )
+
+    txn = models.Transaction(
+        id=uuid.uuid7(),
+        account_id=account.id,
+        category_id=category.id,
+        date=payload.date,
+        amount=payload.amount,
+        amount_home_currency=payload.amount * Decimal(str(rate_to_home)),
+        currency=account_currency,
+        exchange_rate=1.0,
+        description=payload.description
+        or (f"Repaid by {name}" if receiving else f"Repaid {name}"),
+        # Direction of the cash, not of any spending: receiving a repayment adds
+        # to the account, paying one back takes from it.
+        transaction_type=(
+            models.TransactionType.income if receiving else models.TransactionType.expense
+        ),
+    )
+    db.add(txn)
+    sync_transaction_to_balances(
+        db,
+        account.id,
+        payload.date.date(),
+        payload.amount if receiving else -payload.amount,
+    )
+    db.flush()
+
+    ledger_service.post_settlement(
+        db,
+        transaction=txn,
+        counterparty_name=name,
+        role=role,
+        owner_user_id=account.owner_user_id,
+    )
+    db.commit()
+    db.refresh(txn)
+    return schemas.TransactionResponse.model_validate(txn)
+
 
 # --- CATEGORIES ---
 

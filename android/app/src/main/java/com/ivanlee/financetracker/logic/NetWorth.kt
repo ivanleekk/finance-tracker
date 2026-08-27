@@ -29,11 +29,29 @@ data class AccountTotals(
     val liquidNow: Double = 0.0,
     val retirement: Double = 0.0,
     val property: Double = 0.0,
+    /** Money other people owe the household. An asset, but not a spendable one. */
+    val receivables: Double = 0.0,
 ) {
     val net: Double get() = totalAssets - liabilities
 }
 
-fun summarizeAccounts(accounts: List<NetWorthAccountInput>): AccountTotals {
+/**
+ * Outstanding debts either way, from the ledger's counterparty balances.
+ *
+ * These sit in no `FinancialAccount`, which is the whole reason they need passing in: without
+ * them a split bill takes the full amount out of the bank and puts nothing back, so net worth
+ * reports money you are still owed as money that simply evaporated.
+ */
+data class OwedTotals(val owedToYou: Double = 0.0, val youOwe: Double = 0.0) {
+    companion object {
+        val NONE = OwedTotals()
+    }
+}
+
+fun summarizeAccounts(
+    accounts: List<NetWorthAccountInput>,
+    owed: OwedTotals = OwedTotals.NONE,
+): AccountTotals {
     var totalAssets = 0.0
     var liabilities = 0.0
     var liquidNow = 0.0
@@ -59,7 +77,21 @@ fun summarizeAccounts(accounts: List<NetWorthAccountInput>): AccountTotals {
         }
     }
 
-    return AccountTotals(totalAssets, liabilities, liquidNow, retirement, property)
+    // A receivable is a real asset — someone owing you $80 is $80 you have a claim on — but it
+    // is deliberately kept out of `liquidNow`, for the same reason property is: you cannot
+    // spend it this week, and treating it as spendable is how a runway starts lying. A payable
+    // is a real debt.
+    val receivables = if (owed.owedToYou.isFinite()) owed.owedToYou else 0.0
+    val payables = if (owed.youOwe.isFinite()) owed.youOwe else 0.0
+
+    return AccountTotals(
+        totalAssets = totalAssets + receivables,
+        liabilities = liabilities + payables,
+        liquidNow = liquidNow,
+        retirement = retirement,
+        property = property,
+        receivables = receivables,
+    )
 }
 
 /** One wedge of the Net Worth Split donut: a bucket name and its home-currency value. */
@@ -84,16 +116,25 @@ data class NetWorthBreakdown(
  * one blended bucket. A negative bucket (e.g. overdrawn cash) is dropped the same way — it
  * still reduces net worth, just not through a wedge.
  */
-fun netWorthBreakdown(accounts: List<NetWorthAccountInput>, portfolioValue: Double): NetWorthBreakdown {
-    val totals = summarizeAccounts(accounts)
-    // Anything not liquid/retirement/property (e.g. market_liquid accounts).
-    val other = totals.totalAssets - totals.liquidNow - totals.retirement - totals.property
+fun netWorthBreakdown(
+    accounts: List<NetWorthAccountInput>,
+    portfolioValue: Double,
+    owed: OwedTotals = OwedTotals.NONE,
+): NetWorthBreakdown {
+    val totals = summarizeAccounts(accounts, owed)
+    // Anything not liquid/retirement/property/owed (e.g. market_liquid accounts). Receivables
+    // are subtracted out and given their own slice rather than left to fall into "Other
+    // Assets", where a debt someone owes you would be indistinguishable from an account you
+    // forgot to classify.
+    val other = totals.totalAssets - totals.liquidNow - totals.retirement -
+        totals.property - totals.receivables
 
     val slices = listOf(
         NetWorthSlice("cash", "Cash", totals.liquidNow),
         NetWorthSlice("investments", "Investments", portfolioValue),
         NetWorthSlice("retirement", "Retirement & Locked", totals.retirement),
         NetWorthSlice("property", "Property", totals.property),
+        NetWorthSlice("owed", "Owed to You", totals.receivables),
         NetWorthSlice("other", "Other Assets", other),
     ).filter { it.value > 0.01 }
 

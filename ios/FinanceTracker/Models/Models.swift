@@ -392,6 +392,12 @@ struct TransactionResponse: Codable, Identifiable {
     let description: String?
     let transactionType: TransactionType
     let transferId: String?
+    /// Part of this expense was somebody else's. `amount` is still the full sum
+    /// that left the account — the split says whose it was, not what happened to
+    /// the money. Absent means none of it was, which is also how every row
+    /// logged before the ledger existed decodes.
+    let owedBy: String?
+    @OptionalMoneyAmount var owedAmount: Double?
 }
 
 struct TransactionCreate: Encodable {
@@ -400,6 +406,21 @@ struct TransactionCreate: Encodable {
     let description: String?
     let accountId: String
     let categoryId: String
+    /// Sent together or not at all — the API rejects half a split.
+    var owedBy: String?
+    var owedAmount: Double?
+}
+
+/// How an edit should treat the split already recorded against a transaction.
+///
+/// Three states, not two, because "leave it alone" and "remove it" are different
+/// requests and the API distinguishes them by omission versus explicit null. An
+/// unrelated description edit must not quietly make a shared dinner all yours,
+/// so `.unchanged` is the default.
+enum SplitChange {
+    case unchanged
+    case clear
+    case set(owedBy: String, owedAmount: Double)
 }
 
 /// PUT /cashflow/transactions/{id} (schemas.TransactionUpdate).
@@ -410,6 +431,73 @@ struct TransactionUpdate: Encodable {
     let description: String
     let accountId: String
     let categoryId: String
+    var split: SplitChange = .unchanged
+
+    private enum CodingKeys: String, CodingKey {
+        case date, amount, description, accountId, categoryId, owedBy, owedAmount
+    }
+
+    /// Hand-written because the synthesized encoder cannot express the
+    /// difference between "omit this key" and "send null", and that difference
+    /// is exactly what tells the backend to preserve a split rather than drop it.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(date, forKey: .date)
+        try container.encode(amount, forKey: .amount)
+        try container.encode(description, forKey: .description)
+        try container.encode(accountId, forKey: .accountId)
+        try container.encode(categoryId, forKey: .categoryId)
+        switch split {
+        case .unchanged:
+            break
+        case .clear:
+            try container.encodeNil(forKey: .owedBy)
+            try container.encodeNil(forKey: .owedAmount)
+        case let .set(owedBy, owedAmount):
+            try container.encode(owedBy, forKey: .owedBy)
+            try container.encode(owedAmount, forKey: .owedAmount)
+        }
+    }
+}
+
+// MARK: - Reimbursements
+
+/// Which way a debt runs, named from the household's point of view.
+enum CounterpartyDirection: String, Codable {
+    case owedToYou = "owed_to_you"
+    case youOwe = "you_owe"
+}
+
+/// GET /cashflow/reimbursements/household/{id}.
+struct CounterpartyBalanceResponse: Codable, Identifiable, Hashable {
+    let counterpartyName: String
+    let direction: CounterpartyDirection
+    @MoneyAmount var amount: Double
+
+    /// One person can appear in both directions, so the name alone is not an id.
+    var id: String { "\(direction.rawValue):\(counterpartyName)" }
+}
+
+/// POST /cashflow/reimbursements/on-behalf. Somebody else paid for something of
+/// yours: no account and no amount leaving one, because none did.
+struct SpendOnYourBehalfCreate: Encodable {
+    let householdId: String
+    let categoryId: String
+    let counterpartyName: String
+    let amount: Double
+    let date: Date
+    let description: String?
+}
+
+/// POST /cashflow/reimbursements/settle. Money actually changing hands to clear
+/// a debt — it moves an account balance but charges no category.
+struct SettlementCreate: Encodable {
+    let accountId: String
+    let counterpartyName: String
+    let direction: CounterpartyDirection
+    let amount: Double
+    let date: Date
+    let description: String?
 }
 
 /// POST /cashflow/transfers (schemas.TransferCreate). Creates a linked
