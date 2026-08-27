@@ -39,7 +39,8 @@ type Props = {
     accounts: AccountResponse[]
     categories: CategoryResponse[]
     currencies: CurrencyResponse[]
-    mccOptions: { value: string; label: string }[]
+    /** Includes a disabled header row marking the start of the brand block. */
+    mccOptions: { value: string; label: string; disabled?: boolean }[]
     user: UserResponse | null | undefined
 
     formData: TransactionFormData

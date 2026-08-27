@@ -16,6 +16,7 @@ export default [
     route("/portfolio", "pages/Portfolio/Portfolio.tsx"),
     route("/dividends", "pages/Dividends/Dividends.tsx"),
     route("/transactions", "pages/Transactions/Transactions.tsx"),
+    route("/transactions/mccs", "pages/Transactions/mccs.resource.ts"),
     route("/budgets", "pages/Budgets/Budgets.tsx"),
     route("/reimbursements", "pages/Reimbursements/Reimbursements.tsx"),
     route("/recurring", "pages/Recurring/Recurring.tsx"),

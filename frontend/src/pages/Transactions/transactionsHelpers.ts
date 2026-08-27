@@ -1,4 +1,5 @@
 import type { HistoryGranularity } from "../../lib/historyGroups"
+import type { MccResponse } from "../../types/types"
 import { assessSplit, parseMoney } from "../../lib/reimbursements"
 
 /**
@@ -106,4 +107,63 @@ export function splitHint(amountRaw: string, owedRaw: string, currency: string):
     const money = (value: number) =>
         new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
     return `Your share: ${money(assessment.yourShare)}. They owe you ${money(assessment.owed)}.`;
+}
+
+/**
+ * A blank transaction form.
+ *
+ * A factory rather than a constant because two of the fields depend on context
+ * (the preselected account, the household's currency) and because the object is
+ * mutated by the form. Used for both the initial state and the reset after a
+ * successful submit — those were two copies of the same literal, which is how a
+ * newly added field ends up populated on open and silently dropped on reset.
+ */
+export function emptyTransactionForm(accountId: string, currency: string) {
+    return {
+        accountId,
+        categoryId: "",
+        amount: "",
+        currency,
+        date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
+        description: "",
+        // Optional even when the field is shown — most purchases have no code the
+        // user knows, so blank is the normal state, not an error.
+        mcc: "",
+        // Part of this bill is somebody else's. The amount stays the full sum
+        // that leaves the account — this only says whose it was.
+        owedBy: "",
+        owedAmount: "",
+    };
+}
+
+/**
+ * The merchant-code picker's options, in the order the endpoint served them.
+ *
+ * The catalogue arrives general-codes-first with the ~400 airline and hotel
+ * brands last, so there is nothing to sort here — that ordering is part of the
+ * endpoint's contract and pinned by a backend test, which is why no client
+ * sorts. `is_brand` earns its place on the wire by marking where that block
+ * starts, so the list gets a header instead of sliding from Groceries straight
+ * into UNITED AIRLINES with no explanation.
+ *
+ * The header is a disabled option: `Select` skips disabled entries when
+ * committing and when moving the highlight, and filters on the label, so it
+ * simply disappears while searching.
+ *
+ * A blank first option keeps "I don't know it" a click rather than a chore of
+ * clearing a value.
+ */
+export function mccSelectOptions(mccs: MccResponse[]) {
+    const options: { value: string; label: string; disabled?: boolean }[] = [
+        { value: "", label: "— None —" },
+    ];
+    let brandHeaderAdded = false;
+    for (const m of mccs) {
+        if (m.is_brand && !brandHeaderAdded) {
+            brandHeaderAdded = true;
+            options.push({ value: `__group-${m.group}`, label: m.group, disabled: true });
+        }
+        options.push({ value: m.code, label: `${m.code} · ${m.name}` });
+    }
+    return options;
 }

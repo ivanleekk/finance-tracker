@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
-import { useLoaderData, useNavigation, useRevalidator } from "react-router"
+import { useLoaderData, useNavigation, useRevalidator, useFetcher } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
@@ -9,6 +9,7 @@ import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
+import type { MccResponse } from "../../types/types"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
 import { TopBar } from "../../components/TopBar"
@@ -23,6 +24,8 @@ import {
     HISTORY_GRANULARITIES,
     categoryFilterStorageKey,
     categoryIcon,
+    emptyTransactionForm,
+    mccSelectOptions,
     historyGranularityStorageKey,
     type CategoryPeriodPreset,
     type UnifiedHistoryItem,
@@ -35,7 +38,7 @@ export default function Transactions() {
     const { activeHousehold } = useHousehold()
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [], mccs = [] } = (useLoaderData() as HistoryLoaderData) || {};
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
 
@@ -93,6 +96,20 @@ export default function Transactions() {
 
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+
+    // The MCC catalogue is ~70KB and the field it feeds is hidden unless the user
+    // asked for it, so it is not in the page loader — it is pulled from its own
+    // resource route the first time the dialog opens, and only for users who have
+    // the setting on. iOS and Android skip the fetch on the same condition.
+    const mccFetcher = useFetcher<{ mccs: MccResponse[] }>();
+    const mccs = mccFetcher.data?.mccs ?? [];
+
+    const openLogModal = () => {
+        setIsLogModalOpen(true);
+        if (user?.record_merchant_codes && !mccFetcher.data && mccFetcher.state === "idle") {
+            mccFetcher.load("/transactions/mccs");
+        }
+    };
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState<'transaction' | 'transfer'>('transaction');
 
@@ -108,21 +125,8 @@ export default function Transactions() {
         : "";
 
     // Form state for normal transactions
-    const [formData, setFormData] = useState({
-        accountId: defaultAccountId(),
-        categoryId: "",
-        amount: "",
-        currency: activeHousehold?.base_currency || "USD",
-        date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-        description: "",
-        // Optional even when the field is shown — most purchases have no code the
-        // user knows, so blank is the normal state, not an error.
-        mcc: "",
-        // Part of this bill is somebody else's. The amount stays the full sum
-        // that leaves the account — this only says whose it was.
-        owedBy: "",
-        owedAmount: ""
-    });
+    const blankForm = () => emptyTransactionForm(defaultAccountId(), activeHousehold?.base_currency || "USD");
+    const [formData, setFormData] = useState(blankForm);
     const [isSplitting, setIsSplitting] = useState(false);
 
     // Form state for transfers
@@ -144,14 +148,7 @@ export default function Transactions() {
 
     const baseCurrency = activeHousehold.base_currency || "USD";
 
-    // The catalogue already arrives general-codes-first with the ~400 airline and
-    // hotel brands last, so there is nothing to sort here. Select filters on the
-    // label, so a brand is still one search away. A blank first option keeps
-    // "I don't know it" a click, not a chore of clearing a value.
-    const mccOptions = useMemo(() => [
-        { value: "", label: "— None —" },
-        ...mccs.map(m => ({ value: m.code, label: `${m.code} · ${m.name}` })),
-    ], [mccs]);
+    const mccOptions = useMemo(() => mccSelectOptions(mccs), [mccs]);
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;
@@ -215,17 +212,7 @@ export default function Transactions() {
             });
             setIsLogModalOpen(false);
             setIsSplitting(false);
-            setFormData({
-                accountId: defaultAccountId(),
-                categoryId: "",
-                amount: "",
-                currency: activeHousehold?.base_currency || "USD",
-                date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-                description: "",
-                mcc: "",
-                owedBy: "",
-                owedAmount: ""
-            });
+            setFormData(blankForm());
             revalidator.revalidate();
         } catch (error) {
             console.error("Failed to log transaction", error);
@@ -328,7 +315,7 @@ export default function Transactions() {
                 title="Transactions"
                 commandPlaceholder="coffee 5.20…"
                 cta={
-                    <Button variant="cta" onClick={() => setIsLogModalOpen(true)} className="flex items-center gap-2">
+                    <Button variant="cta" onClick={openLogModal} className="flex items-center gap-2">
                         <PlusCircle className="h-4 w-4" />
                         Log Transaction
                     </Button>
