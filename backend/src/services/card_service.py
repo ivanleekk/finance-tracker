@@ -25,7 +25,7 @@ import uuid
 from sqlalchemy.orm import Session, joinedload
 
 from src import models
-from src.services.budget_service import _dec, _money
+from src.services.money import dec, money
 
 
 ONE_DAY = timedelta(days=1)
@@ -186,7 +186,7 @@ def _card_spend_by_category(
     for txn in query.all():
         # The amount that actually hit the card: the entered amount converted at
         # the rate recorded on the row, which is the account-currency figure.
-        charged = _dec(txn.amount) * _dec(txn.exchange_rate if txn.exchange_rate else 1)
+        charged = dec(txn.amount) * dec(txn.exchange_rate if txn.exchange_rate else 1)
         key = txn.card_category_id or default_id
         totals[key] = totals.get(key, Decimal("0")) + charged
     return totals
@@ -219,7 +219,7 @@ def card_limit_statuses(
 
         categories = [c for c in card.categories if c.limit_id == limit.id]
         spent = sum((totals.get(c.id, Decimal("0")) for c in categories), Decimal("0"))
-        amount = _dec(limit.amount)
+        amount = dec(limit.amount)
 
         days_total = (end - start).days + 1
         # Clamp: viewing a past or future cycle must not project off the end.
@@ -241,15 +241,15 @@ def card_limit_statuses(
             CardLimitStatus(
                 limit=limit,
                 category_names=[c.name for c in categories],
-                amount=_money(amount),
-                spent=_money(spent),
-                remaining=_money(remaining),
+                amount=money(amount),
+                spent=money(spent),
+                remaining=money(remaining),
                 percent_used=float(spent / amount * 100) if amount > 0 else 0.0,
                 period_start=start,
                 period_end=end,
                 days_elapsed=days_elapsed,
                 days_total=days_total,
-                projected_spend=_money(projected),
+                projected_spend=money(projected),
                 projected_missed=projected_missed,
                 settled=settled,
             )
@@ -281,7 +281,7 @@ def card_category_breakdown(
     start, end = statement_bounds(card, on)
     totals = _card_spend_by_category(db, card, start, end)
     rows = [
-        CardCategoryStatus(category=c, spent=_money(totals.get(c.id, Decimal("0"))))
+        CardCategoryStatus(category=c, spent=money(totals.get(c.id, Decimal("0"))))
         for c in card.categories
     ]
     rows.sort(key=lambda r: r.spent, reverse=True)

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import Cards from './Cards';
 import { render } from '../../test-utils';
@@ -130,5 +130,68 @@ describe('Cards page', () => {
             expect(screen.getByText('No cards set up yet.')).toBeInTheDocument();
         });
         expect(container.textContent).toContain('liability account');
+    });
+});
+
+describe('Card setup form', () => {
+    /**
+     * These exist because the first version of this page shipped every Select
+     * with `value=""` and a no-op `onChange`. `Select` is fully controlled, so
+     * nothing stuck: the account never got picked, and "Minimum — reach it"
+     * could not be chosen at all, which made a minimum spend impossible to
+     * create through the UI. Every unit test still passed, because the bug was
+     * in the wiring rather than the logic.
+     */
+    const withAccounts = (): CardsLoaderData => ({
+        cards: [],
+        statuses: {},
+        availableAccounts: [
+            {
+                id: 'acc-9',
+                name: 'Citi Rewards',
+                kind: 'liability',
+            } as CardsLoaderData['availableAccounts'][number],
+        ],
+    });
+
+    it('keeps the account the user picked', async () => {
+        render(<Cards />, undefined, { loader: withAccounts });
+
+        fireEvent.click(await screen.findByRole('button', { name: /Set up a card/i }));
+        // Open the Account select and choose the only option.
+        fireEvent.click(await screen.findByRole('combobox', { name: /Account/i }));
+        fireEvent.click(await screen.findByRole('option', { name: 'Citi Rewards' }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('combobox', { name: /Account/i })).toHaveTextContent(
+                'Citi Rewards'
+            );
+        });
+    });
+
+    it('lets a minimum spend be chosen, not just a cap', async () => {
+        const withCard = (): CardsLoaderData => ({
+            ...loaderData(),
+            availableAccounts: [],
+        });
+        render(<Cards />, undefined, { loader: withCard });
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
+
+        // The direction select carries no label, so it is found by what it
+        // currently reads.
+        await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(0));
+        const direction = screen
+            .getAllByRole('combobox')
+            .find(el => /Cap/.test(el.textContent || ''));
+        expect(direction).toBeDefined();
+
+        // The floor option has to be reachable and has to stick — it is the
+        // whole of the minimum-spend feature on this screen.
+        fireEvent.click(direction!);
+        fireEvent.click(await screen.findByRole('option', { name: /Minimum/i }));
+        await waitFor(() => {
+            expect(direction).toHaveTextContent(/Minimum/);
+        });
     });
 });
