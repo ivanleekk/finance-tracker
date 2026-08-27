@@ -385,8 +385,8 @@ struct ReferenceMcc: Codable, Hashable {
     let code: String
     let name: String
     let group: String
-    /// "true" for the airline/hotel brand block, which the picker sorts to the end.
-    let isBrand: String
+    /// The 3000-3999 airline/hotel brand block. Rows arrive with these last already.
+    let isBrand: Bool
 }
 
 struct CategoryResponse: Codable, Identifiable, Hashable {
@@ -454,8 +454,9 @@ struct TransactionUpdate: Encodable {
     let categoryId: String
     var split: SplitChange = .unchanged
 
-    /// Always sent, like `description`: "" clears a code that was recorded.
-    var mcc: String = ""
+    /// Always sent, like `description`. No default: `""` *clears* a recorded code,
+    /// so the destructive value must never be the one you get by forgetting.
+    let mcc: String
 
     private enum CodingKeys: String, CodingKey {
         case date, amount, description, accountId, categoryId, owedBy, owedAmount, mcc

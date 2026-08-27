@@ -425,6 +425,25 @@ class CategoryResponse(CategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MccResponse(BaseModel):
+    """
+    A row of the merchant category code catalogue (`GET /reference/mccs`).
+
+    A typed model rather than the `Dict[str, str]` its neighbours `/currencies`
+    and `/timezones` return, because unlike those this row is not all strings:
+    `is_brand` is a boolean, and squeezing it into `"true"`/`"false"` pushed the
+    job of parsing it back out into three separate clients.
+    """
+
+    code: str
+    name: str
+    group: str
+    # True for the 3000-3999 airline/hotel/car-rental brand block. Rows arrive
+    # already ordered with these last, so this is for grouping and labelling —
+    # no client needs to sort on it.
+    is_brand: bool
+
+
 class TransactionBase(BaseModel):
     date: datetime
     # Income/expense sign is derived from the category, so the amount is a

@@ -256,8 +256,8 @@ export type MccResponse = {
   code: string;
   name: string;
   group: string;
-  /** "true" for the airline/hotel brand block, which a picker leaves to search. */
-  is_brand: string;
+  /** The 3000-3999 airline/hotel brand block. Rows arrive with these last already. */
+  is_brand: boolean;
 };
 
 export type TransactionResponse = {

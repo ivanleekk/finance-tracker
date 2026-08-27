@@ -82,10 +82,10 @@ _BRAND_GROUP = "Airline, hotel and car rental brands"
 
 
 @lru_cache(maxsize=1)
-def _mcc_catalogue() -> List[Dict[str, str]]:
+def _mcc_catalogue() -> List[schemas.MccResponse]:
     """
     Every merchant category code that has a usable name, with its ISO range as a
-    group.
+    group, ordered the way a picker wants to show them.
 
     Wording comes from the first source that has one, preferring Stripe's over
     ISO's: ISO's descriptions are terse and occasionally truncated mid-word
@@ -95,31 +95,39 @@ def _mcc_catalogue() -> List[Dict[str, str]]:
 
     Codes with no description from any source (3780, for one) are dropped rather
     than rendered as "(no description)", which is noise in a list this long.
+
+    **Ordering is part of the contract**: the ~300 general codes come first, then
+    the ~400 brand codes, each block by code. Every client wants exactly this
+    order — the brand block is real but rarely wanted, and it reads as noise
+    sitting between Groceries and Restaurants. Sorting it once here, where
+    `is_brand` is already known and the result is cached for the process
+    lifetime, is free; leaving it to the clients meant three separate re-sorts
+    of the same list and a hook on the iOS picker to make one of them possible.
+    Search still reaches the brand block wherever a client offers it.
     """
-    catalogue: List[Dict[str, str]] = []
+    catalogue: List[schemas.MccResponse] = []
     for mcc in iso18245.get_all_mccs():
         name = mcc.stripe_description or mcc.usda_description or mcc.iso_description
         if not name:
             continue
         is_brand = mcc.range.start == _BRAND_RANGE_START
-        catalogue.append({
-            "code": mcc.mcc,
-            "name": name,
-            "group": _BRAND_GROUP if is_brand else mcc.range.description,
-            # Lets a client show the ~300 general codes first and leave the ~400
-            # brand entries to search, without hardcoding the range boundary.
-            "is_brand": "true" if is_brand else "false",
-        })
-    return sorted(catalogue, key=lambda row: row["code"])
+        catalogue.append(schemas.MccResponse(
+            code=mcc.mcc,
+            name=name,
+            group=_BRAND_GROUP if is_brand else mcc.range.description,
+            is_brand=is_brand,
+        ))
+    return sorted(catalogue, key=lambda row: (row.is_brand, row.code))
 
 
-@router.get("/mccs", response_model=List[Dict[str, str]])
+@router.get("/mccs", response_model=List[schemas.MccResponse])
 def get_mccs():
     """
     Merchant category codes (ISO 18245), for the optional MCC field on a card
     transaction.
 
-    Static reference data — the same shape as /currencies and /timezones, so the
-    clients' existing searchable reference picker renders it with no new UI.
+    Static reference data — near enough the shape of /currencies and /timezones
+    that the clients' existing searchable reference picker renders it with no new
+    UI, and already in the order they all want to display.
     """
     return _mcc_catalogue()

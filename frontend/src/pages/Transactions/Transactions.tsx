@@ -232,20 +232,14 @@ export default function Transactions() {
 
     const baseCurrency = activeHousehold.base_currency || "USD";
 
-    // General codes first, brands after. The 3000-3999 block is ~400 airline and
-    // hotel brands — real, occasionally wanted, and pure noise if it sits between
-    // Groceries and Restaurants. Select filters on the label, so a brand is still
-    // one search away. A blank first option keeps "I don't know it" a click.
-    const mccOptions = useMemo(() => {
-        const label = (m: typeof mccs[number]) => `${m.code} · ${m.name}`;
-        const general = mccs.filter(m => m.is_brand !== "true");
-        const brands = mccs.filter(m => m.is_brand === "true");
-        return [
-            { value: "", label: "— None —" },
-            ...general.map(m => ({ value: m.code, label: label(m) })),
-            ...brands.map(m => ({ value: m.code, label: label(m) })),
-        ];
-    }, [mccs]);
+    // The catalogue already arrives general-codes-first with the ~400 airline and
+    // hotel brands last, so there is nothing to sort here. Select filters on the
+    // label, so a brand is still one search away. A blank first option keeps
+    // "I don't know it" a click, not a chore of clearing a value.
+    const mccOptions = useMemo(() => [
+        { value: "", label: "— None —" },
+        ...mccs.map(m => ({ value: m.code, label: `${m.code} · ${m.name}` })),
+    ], [mccs]);
 
     const handleDelete = async (item: UnifiedHistoryItem) => {
         if (!window.confirm(`Are you sure you want to delete this ${item.categoryType}? This action cannot be undone.`)) return;

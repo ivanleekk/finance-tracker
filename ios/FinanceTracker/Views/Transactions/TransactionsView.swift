@@ -606,13 +606,7 @@ struct TransactionFormView: View {
                                 selection: $mcc,
                                 id: \ReferenceMcc.code,
                                 label: { "\($0.code) — \($0.name)" },
-                                searchText: { "\($0.code) \($0.name) \($0.group)" },
-                                // General codes first; the ~400 airline and hotel brands
-                                // sink to the end rather than sitting between 2xxx and
-                                // 4xxx. Matches web and Android.
-                                reorder: { $0.sorted { a, b in
-                                    (a.isBrand == "true" ? 1 : 0) < (b.isBrand == "true" ? 1 : 0)
-                                } }
+                                searchText: { "\($0.code) \($0.name) \($0.group)" }
                             )
                         } label: {
                             LabeledContent("Merchant code", value: mcc.isEmpty ? "Not recorded" : mcc)

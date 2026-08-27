@@ -119,7 +119,7 @@ def test_brand_codes_are_labelled_as_what_they_are(client):
     rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
     assert rows["3000"]["name"] == "UNITED AIRLINES"
     assert rows["3000"]["group"] == "Airline, hotel and car rental brands"
-    assert rows["3000"]["is_brand"] == "true"
+    assert rows["3000"]["is_brand"] is True
 
 
 def test_general_codes_are_separable_from_brands(client):
@@ -128,11 +128,41 @@ def test_general_codes_are_separable_from_brands(client):
     search. The flag is what makes that possible without hardcoding 3000-3999.
     """
     rows = client.get("/reference/mccs").json()
-    general = [r for r in rows if r["is_brand"] == "false"]
-    brands = [r for r in rows if r["is_brand"] == "true"]
+    general = [r for r in rows if not r["is_brand"]]
+    brands = [r for r in rows if r["is_brand"]]
     assert 200 < len(general) < 400
     assert len(brands) > 300
     assert {r["group"] for r in general} != {"Airline, hotel and car rental brands"}
+
+
+def test_the_flag_is_a_boolean(client):
+    """
+    Not the string "true". It was one once, and three clients each had to parse
+    it back out — where any value other than that exact literal silently read as
+    "general".
+    """
+    rows = client.get("/reference/mccs").json()
+    assert all(isinstance(row["is_brand"], bool) for row in rows)
+
+
+def test_brands_come_last_and_each_block_is_ordered_by_code(client):
+    """
+    The order is the contract, not a client's job. Every client wants general
+    codes first — the brand block is rarely wanted and reads as noise between
+    Groceries and Restaurants — so sorting it here means no client sorts at all.
+    """
+    rows = client.get("/reference/mccs").json()
+
+    flags = [row["is_brand"] for row in rows]
+    # Every general row precedes every brand row: no True appears before a False.
+    assert flags == sorted(flags), "brand codes are not all at the end"
+
+    general = [r["code"] for r in rows if not r["is_brand"]]
+    brands = [r["code"] for r in rows if r["is_brand"]]
+    assert general == sorted(general)
+    assert brands == sorted(brands)
+    # The boundary lands where ISO's private-use band starts.
+    assert brands[0] == "3000"
 
 
 def test_the_catalogue_needs_no_login(client):

@@ -97,8 +97,20 @@ fun TransactionFormScreen(
             coroutineScope {
                 val a = async { Api.get<List<AccountResponse>>("/accounts/household/${h.id}") }
                 val c = async { Api.get<List<CategoryResponse>>("/cashflow/categories/household/${h.id}") }
+                // Joined to the same block rather than fetched after it: the picker is
+                // reachable as soon as the form is, and a slow catalogue never delays
+                // the fields that matter. Only worth asking for at all when the user
+                // turned the field on. A failure leaves the picker empty rather than
+                // taking the form down with it, so it carries its own catch.
+                val m = async {
+                    if (sessionVm.user?.recordsMerchantCodes == true) {
+                        runCatching { Api.get<List<ReferenceMcc>>("/reference/mccs") }
+                            .getOrDefault(emptyList())
+                    } else emptyList()
+                }
                 accounts = a.await()
                 categories = c.await()
+                mccs = m.await()
             }
             if (transactionId != null) {
                 // Transactions are only listed per household — no single-transaction GET.
@@ -122,12 +134,6 @@ fun TransactionFormScreen(
             }
         } catch (e: Exception) {
             error = e.message ?: "Couldn't load the form."
-        }
-
-        // Reference data, and only worth fetching for users who turned the field on.
-        // A failure here leaves the picker empty rather than blocking the form.
-        if (sessionVm.user?.recordsMerchantCodes == true && mccs.isEmpty()) {
-            mccs = runCatching { Api.get<List<ReferenceMcc>>("/reference/mccs") }.getOrDefault(emptyList())
         }
     }
 
@@ -313,7 +319,7 @@ fun TransactionFormScreen(
                 SectionCard {
                     FormField(
                         "Merchant code (optional)",
-                        if (mcc.isBlank()) "" else mcc,
+                        mcc,
                         {},
                         placeholder = "Leave blank if you don't know it",
                         supportingText = "Recorded only — nothing is calculated from it.",
@@ -336,12 +342,11 @@ fun TransactionFormScreen(
     }
 
     if (showMccPicker) {
-        // General codes first; the ~400 airline and hotel brands sort to the end so
-        // they don't sit between Groceries and Restaurants. Search still reaches them.
-        val ordered = remember(mccs) { mccs.sortedBy { it.isBrand == "true" } }
+        // No sort: the catalogue arrives general-codes-first with the ~400 airline
+        // and hotel brands last. Search still reaches them.
         SearchablePickerDialog(
             title = "Merchant code",
-            options = ordered,
+            options = mccs,
             optionLabel = { "${it.code} — ${it.name}" },
             optionKey = { it.code },
             searchText = { "${it.code} ${it.name} ${it.group}" },

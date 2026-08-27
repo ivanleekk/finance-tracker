@@ -492,9 +492,9 @@ struct TimezonePicker: View {
 }
 
 /// Generic searchable single-select list backed by a `/reference/*` endpoint.
-/// Internal rather than private
-/// because the transaction form reaches for it too — the MCC catalogue is the same
-/// shape as currencies and timezones, so it needs no picker of its own.
+/// Internal rather than private because the transaction form reaches for it too —
+/// the MCC catalogue is the same shape as currencies and timezones, so it needs no
+/// picker of its own.
 struct ReferencePicker<Item: Decodable & Hashable>: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -504,11 +504,6 @@ struct ReferencePicker<Item: Decodable & Hashable>: View {
     let id: (Item) -> String
     let label: (Item) -> String
     let searchText: (Item) -> String
-    /// Applied once after loading. Defaults to whatever order the endpoint returned,
-    /// which is right for currencies and timezones; the MCC catalogue uses it to sink
-    /// ~400 airline and hotel brand codes below the general ones, matching web and
-    /// Android. Search still reaches them.
-    var reorder: ([Item]) -> [Item] = { $0 }
 
     @State private var items: [Item] = []
     @State private var isLoading = true
@@ -558,7 +553,7 @@ struct ReferencePicker<Item: Decodable & Hashable>: View {
             isLoading = true
             defer { isLoading = false }
             do {
-                items = reorder(try await APIClient.shared.get(path))
+                items = try await APIClient.shared.get(path)
             } catch {
                 errorMessage = error.localizedDescription
             }

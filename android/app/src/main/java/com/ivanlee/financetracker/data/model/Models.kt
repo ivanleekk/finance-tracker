@@ -263,8 +263,8 @@ data class ReferenceMcc(
     val code: String,
     val name: String,
     val group: String,
-    /** "true" for the airline/hotel brand block, which the picker sorts to the end. */
-    val isBrand: String,
+    /** The 3000-3999 airline/hotel brand block. Rows arrive with these last already. */
+    val isBrand: Boolean,
 )
 
 @Serializable
@@ -355,8 +355,11 @@ data class TransactionUpdate(
     val categoryId: String,
     val owedBy: JsonElement? = null,
     val owedAmount: JsonElement? = null,
-    /** Always sent, like [description]: "" clears a code that was recorded. */
-    val mcc: String = "",
+    /**
+     * Always sent, like [description]. No default: `""` *clears* a recorded code,
+     * so the destructive value must never be the one you get by forgetting.
+     */
+    val mcc: String,
 )
 
 fun transactionUpdate(
@@ -365,7 +368,7 @@ fun transactionUpdate(
     description: String,
     accountId: String,
     categoryId: String,
-    mcc: String = "",
+    mcc: String,
     split: SplitChange = SplitChange.Unchanged,
 ): TransactionUpdate = TransactionUpdate(
     date = date,
