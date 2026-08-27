@@ -10,6 +10,8 @@ import api from "../../lib/api"
 import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
 import type { MccResponse } from "../../types/types"
+import type { CardPickerData } from "./cardCategories.resource"
+import { headroomByCategory, headroomLabel } from "../../lib/cards"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
 import { TopBar } from "../../components/TopBar"
@@ -104,8 +106,46 @@ export default function Transactions() {
     const mccFetcher = useFetcher<{ mccs: MccResponse[] }>();
     const mccs = mccFetcher.data?.mccs ?? [];
 
+    // The card behind the selected account, if it is one. Loaded on demand for
+    // the same reason the MCC catalogue is: most accounts are not cards.
+    const cardFetcher = useFetcher<CardPickerData>();
+    const cardData = cardFetcher.data ?? null;
+
+    const loadCardFor = (accountId: string) => {
+        if (!accountId) return;
+        cardFetcher.load(`/transactions/card/${accountId}`);
+    };
+
+    // "Dining · $240 left" at the moment of choosing — the one point where the
+    // number can still change the decision.
+    const cardCategoryOptions = useMemo(() => {
+        if (!cardData?.card) return [];
+        const money = (value: number) =>
+            new Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: cardData.card?.currency || activeHousehold?.base_currency || "USD",
+                maximumFractionDigits: 0,
+            }).format(value);
+        const headroom = cardData.status
+            ? headroomByCategory(cardData.card, cardData.status)
+            : new Map();
+        return [
+            { value: "", label: "— Card's default —" },
+            ...cardData.card.categories.map(c => {
+                const row = headroom.get(c.id);
+                return {
+                    value: c.id,
+                    label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name,
+                };
+            }),
+        ];
+    }, [cardData, activeHousehold]);
+
     const openLogModal = () => {
         setIsLogModalOpen(true);
+        // The form opens with an account already selected, so the headroom has
+        // to be fetched for it too — not only when the user changes it.
+        loadCardFor(formData.accountId);
         if (user?.record_merchant_codes && !mccFetcher.data && mccFetcher.state === "idle") {
             mccFetcher.load("/transactions/mccs");
         }
@@ -207,6 +247,9 @@ export default function Transactions() {
                 // Blank is sent as-is; the API treats "" as "not given" rather than
                 // rejecting it, so there is nothing to convert here.
                 mcc: formData.mcc,
+                // Omitted when blank: the API reads a missing key as "use the
+                // card's default", which is exactly what blank means here.
+                ...(formData.cardCategoryId ? { card_category_id: formData.cardCategoryId } : {}),
                 // Sent together or not at all — the API rejects half a split.
                 ...(isSplit ? { owed_by: owedBy, owed_amount: owedAmount } : {})
             });
@@ -556,6 +599,8 @@ export default function Transactions() {
                 categories={categories}
                 currencies={currencies}
                 mccOptions={mccOptions}
+                cardCategoryOptions={cardCategoryOptions}
+                onAccountChange={loadCardFor}
                 user={user}
                 formData={formData}
                 setFormData={setFormData}

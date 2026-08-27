@@ -15,6 +15,8 @@ export type TransactionFormData = {
     date: string
     description: string
     mcc: string
+    /** The card's own category, when the account is a card. "" = the card's default. */
+    cardCategoryId: string
     // Part of this bill is somebody else's. The amount stays the full sum that
     // leaves the account — this only says whose it was.
     owedBy: string
@@ -41,6 +43,11 @@ type Props = {
     currencies: CurrencyResponse[]
     /** Includes a disabled header row marking the start of the brand block. */
     mccOptions: { value: string; label: string; disabled?: boolean }[]
+
+    /** Empty unless the selected account is a card. Labels carry this cycle's headroom. */
+    cardCategoryOptions: { value: string; label: string }[]
+    /** Called when the account changes, so the card's headroom can be fetched. */
+    onAccountChange: (accountId: string) => void
     user: UserResponse | null | undefined
 
     formData: TransactionFormData
@@ -88,6 +95,8 @@ export function LogTransactionDialog({
     categories,
     currencies,
     mccOptions,
+    cardCategoryOptions,
+    onAccountChange,
     user,
     formData,
     setFormData,
@@ -146,7 +155,13 @@ export function LogTransactionDialog({
                                 required
                                 placeholder="Select Account"
                                 value={formData.accountId}
-                                onChange={(accountId) => setFormData({ ...formData, accountId })}
+                                onChange={(accountId) => {
+                                    // Moving to a different card makes any pick
+                                    // from the old one meaningless, so it is
+                                    // cleared here as well as server-side.
+                                    setFormData({ ...formData, accountId, cardCategoryId: "" });
+                                    onAccountChange(accountId);
+                                }}
                                 options={accounts.map(acc => ({ value: acc.id, label: acc.name }))}
                             />
                         </div>
@@ -302,6 +317,26 @@ export function LogTransactionDialog({
                       and it is optional even here, since most purchases have no code
                       the user happens to know.
                     */}
+                    {/*
+                      Only when the selected account is actually a card. The
+                      headroom sits in the label because this is the one moment
+                      the number can still change the decision — a meter you have
+                      to go and look at will not stop anyone overspending.
+                    */}
+                    {cardCategoryOptions.length > 0 && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                Card category
+                            </label>
+                            <Select
+                                placeholder="Card's default"
+                                value={formData.cardCategoryId}
+                                onChange={(cardCategoryId) => setFormData({ ...formData, cardCategoryId })}
+                                options={cardCategoryOptions}
+                            />
+                        </div>
+                    )}
+
                     {user?.record_merchant_codes && (
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-700 dark:text-base-300">

@@ -129,6 +129,9 @@ export function emptyTransactionForm(accountId: string, currency: string) {
         // Optional even when the field is shown — most purchases have no code the
         // user knows, so blank is the normal state, not an error.
         mcc: "",
+        // The card's own category, when the account is a card. Blank means the
+        // card's default, which is where untagged spend lands.
+        cardCategoryId: "",
         // Part of this bill is somebody else's. The amount stays the full sum
         // that leaves the account — this only says whose it was.
         owedBy: "",

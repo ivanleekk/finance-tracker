@@ -603,3 +603,80 @@ export type EmergencyFundResponse = {
   months_of_history: number;
   on_track: boolean;
 };
+
+
+// --- Cards & spend limits ---
+
+export type CycleBasis = "statement" | "calendar";
+export type LimitDirection = "ceiling" | "floor";
+export type LimitResetBasis = "cycle" | "calendar_month" | "quarter" | "year";
+
+export interface CardLimitResponse {
+  id: string;
+  card_id: string;
+  name: string;
+  amount: string;
+  direction: LimitDirection;
+  reset_basis: LimitResetBasis;
+}
+
+export interface CardCategoryResponse {
+  id: string;
+  card_id: string;
+  name: string;
+  is_default: boolean;
+  sort_order: number;
+  /** Null means tracked but unmetered. */
+  limit_id: string | null;
+}
+
+export interface CardResponse {
+  id: string;
+  financial_account_id: string;
+  account_name: string;
+  currency: string | null;
+  cycle_basis: CycleBasis;
+  statement_day: number;
+  categories: CardCategoryResponse[];
+  limits: CardLimitResponse[];
+}
+
+/**
+ * Deliberately the same shape as BudgetStatusRow, so the budget bar and pace
+ * helpers read it unchanged. `direction` says which way to read `remaining`.
+ */
+export interface CardLimitStatusRow {
+  limit_id: string;
+  name: string;
+  category_names: string[];
+  direction: LimitDirection;
+  amount: string;
+  spent: string;
+  /** Ceiling: headroom left. Floor: how much more is still needed. */
+  remaining: string;
+  percent_used: number;
+  period_start: string;
+  period_end: string;
+  days_elapsed: number;
+  days_total: number;
+  projected_spend: string;
+  /** Ceiling: on pace to burst. Floor: on pace to fall short. */
+  projected_missed: boolean;
+  settled: boolean;
+}
+
+export interface CardCategorySpendRow {
+  card_category_id: string;
+  name: string;
+  spent: string;
+}
+
+export interface CardStatusResponse {
+  card_id: string;
+  account_name: string;
+  currency: string | null;
+  cycle_start: string;
+  cycle_end: string;
+  limits: CardLimitStatusRow[];
+  categories: CardCategorySpendRow[];
+}
