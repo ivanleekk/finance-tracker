@@ -8,6 +8,7 @@
         "build": "react-router build",
         "start": "react-router-serve ./build/server/index.js",
         "lint": "eslint .",
+        "typecheck": "react-router typegen && tsc -b",
         "preview": "vite preview",
         "test": "vitest",
         "test:coverage": "vitest run --coverage"

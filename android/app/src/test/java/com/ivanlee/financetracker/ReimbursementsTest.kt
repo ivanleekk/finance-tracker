@@ -202,6 +202,9 @@ class ReimbursementCodingTest {
             description = "Group dinner",
             accountId = "acc-1",
             categoryId = "cat-1",
+            // The form always sends a code (blank when there is none); this helper
+            // is about the split keys, so it sends what an untouched field would.
+            mcc = "",
             split = split,
         )
     ).let { Api.json.parseToJsonElement(it).jsonObject }

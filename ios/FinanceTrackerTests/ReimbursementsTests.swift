@@ -171,7 +171,10 @@ struct ReimbursementCodingTests {
             description: "Group dinner",
             accountId: "acc-1",
             categoryId: "cat-1",
-            split: split
+            split: split,
+            // The form always sends a code (blank when there is none); these tests
+            // are about the split keys, so this is what an untouched field sends.
+            mcc: ""
         )
     }
 

@@ -189,6 +189,8 @@ struct UserResponse: Codable, Identifiable {
     /// response still decodes; the defaults below mirror the server's.
     let hidePrivateFromHousehold: Bool?
     let defaultNewItemsPrivate: Bool?
+    /// Reveals the optional MCC field on the transaction form. Recorded, never evaluated.
+    let recordMerchantCodes: Bool?
     /// When true, private (vault) items require a biometric/passcode unlock to be shown.
     let requireFaceIdForVault: Bool?
     /// Preselected account for new expense/income transactions (QuickAdd, New Transaction).
@@ -196,6 +198,9 @@ struct UserResponse: Codable, Identifiable {
 
     var hidesPrivateFromHousehold: Bool { hidePrivateFromHousehold ?? true }
     var defaultsNewItemsPrivate: Bool { defaultNewItemsPrivate ?? true }
+    /// Off unless the user asked for it — a four-digit field on every form would
+    /// tax everyone for a minority feature.
+    var recordsMerchantCodes: Bool { recordMerchantCodes ?? false }
     /// Backend defaults this to true; treat an absent value as false so we never lock a
     /// user out on a stale/minimal decode.
     var requiresFaceIdForVault: Bool { requireFaceIdForVault ?? false }
@@ -215,6 +220,7 @@ struct UserUpdate: Encodable {
     var baseColor: String? = nil
     var hidePrivateFromHousehold: Bool? = nil
     var defaultNewItemsPrivate: Bool? = nil
+    var recordMerchantCodes: Bool? = nil
     var requireFaceIdForVault: Bool? = nil
     var defaultAccountId: String? = nil
     /// Set true to explicitly clear defaultAccountId back to "always ask" — a nil
@@ -374,6 +380,15 @@ struct BalanceCreate: Encodable {
 
 // MARK: - Cash flow
 
+/// A row from GET /reference/mccs — static reference data, like currencies.
+struct ReferenceMcc: Codable, Hashable {
+    let code: String
+    let name: String
+    let group: String
+    /// The 3000-3999 airline/hotel brand block. Rows arrive with these last already.
+    let isBrand: Bool
+}
+
 struct CategoryResponse: Codable, Identifiable, Hashable {
     let id: String
     let householdId: String
@@ -398,6 +413,9 @@ struct TransactionResponse: Codable, Identifiable {
     /// logged before the ledger existed decodes.
     let owedBy: String?
     @OptionalMoneyAmount var owedAmount: Double?
+    /// The merchant category code, when the user happened to know it. Four digits
+    /// or absent — nothing in the app derives anything from it.
+    let mcc: String?
 }
 
 struct TransactionCreate: Encodable {
@@ -409,6 +427,9 @@ struct TransactionCreate: Encodable {
     /// Sent together or not at all — the API rejects half a split.
     var owedBy: String?
     var owedAmount: Double?
+    /// Blank is sent as-is: the API reads "" as "not given" rather than rejecting
+    /// it, so an empty picker needs no special-casing here.
+    var mcc: String? = nil
 }
 
 /// How an edit should treat the split already recorded against a transaction.
@@ -433,8 +454,12 @@ struct TransactionUpdate: Encodable {
     let categoryId: String
     var split: SplitChange = .unchanged
 
+    /// Always sent, like `description`. No default: `""` *clears* a recorded code,
+    /// so the destructive value must never be the one you get by forgetting.
+    let mcc: String
+
     private enum CodingKeys: String, CodingKey {
-        case date, amount, description, accountId, categoryId, owedBy, owedAmount
+        case date, amount, description, accountId, categoryId, owedBy, owedAmount, mcc
     }
 
     /// Hand-written because the synthesized encoder cannot express the
@@ -447,6 +472,7 @@ struct TransactionUpdate: Encodable {
         try container.encode(description, forKey: .description)
         try container.encode(accountId, forKey: .accountId)
         try container.encode(categoryId, forKey: .categoryId)
+        try container.encode(mcc, forKey: .mcc)
         switch split {
         case .unchanged:
             break

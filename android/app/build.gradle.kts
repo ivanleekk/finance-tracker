@@ -67,6 +67,16 @@ android {
     }
 }
 
+// Pins the JDK the compilers *run on*, which is a different thing from the `jvmTarget`
+// above (what they compile *for*). Kotlin 2.0.21 bundles an IntelliJ `JavaVersion.parse`
+// that cannot read a four-part version string, so a host JDK like 26.0.2.1 fails the build
+// with a bare "26.0.2.1" and no other explanation; AGP 8.7 does not support a JDK that new
+// either. Pinning here means the build no longer depends on whatever `java` happens to be
+// first on the developer's PATH.
+kotlin {
+    jvmToolchain(17)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

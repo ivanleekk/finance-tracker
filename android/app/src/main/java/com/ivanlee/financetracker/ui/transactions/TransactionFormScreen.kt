@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
+import com.ivanlee.financetracker.data.model.ReferenceMcc
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
@@ -38,6 +39,7 @@ import com.ivanlee.financetracker.ui.components.DetailScaffold
 import com.ivanlee.financetracker.ui.components.DropdownField
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
+import com.ivanlee.financetracker.ui.components.SearchablePickerDialog
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.SwitchRow
@@ -74,6 +76,11 @@ fun TransactionFormScreen(
     var accountId by remember { mutableStateOf<String?>(null) }
     var categoryId by remember { mutableStateOf<String?>(null) }
     var showNewCategory by remember { mutableStateOf(false) }
+    // Empty means "not recorded", which is the normal case — most purchases have
+    // no code the user happens to know.
+    var mcc by remember { mutableStateOf("") }
+    var mccs by remember { mutableStateOf<List<ReferenceMcc>>(emptyList()) }
+    var showMccPicker by remember { mutableStateOf(false) }
     // Part of this bill is somebody else's. The amount above stays the full sum that leaves
     // the account — this only records whose it was.
     var splitting by remember { mutableStateOf(false) }
@@ -90,8 +97,20 @@ fun TransactionFormScreen(
             coroutineScope {
                 val a = async { Api.get<List<AccountResponse>>("/accounts/household/${h.id}") }
                 val c = async { Api.get<List<CategoryResponse>>("/cashflow/categories/household/${h.id}") }
+                // Joined to the same block rather than fetched after it: the picker is
+                // reachable as soon as the form is, and a slow catalogue never delays
+                // the fields that matter. Only worth asking for at all when the user
+                // turned the field on. A failure leaves the picker empty rather than
+                // taking the form down with it, so it carries its own catch.
+                val m = async {
+                    if (sessionVm.user?.recordsMerchantCodes == true) {
+                        runCatching { Api.get<List<ReferenceMcc>>("/reference/mccs") }
+                            .getOrDefault(emptyList())
+                    } else emptyList()
+                }
                 accounts = a.await()
                 categories = c.await()
+                mccs = m.await()
             }
             if (transactionId != null) {
                 // Transactions are only listed per household — no single-transaction GET.
@@ -107,6 +126,7 @@ fun TransactionFormScreen(
                 splitting = txn.owedBy != null && txn.owedAmount != null
                 owedByText = txn.owedBy.orEmpty()
                 owedAmountText = txn.owedAmount?.toString().orEmpty()
+                mcc = txn.mcc.orEmpty()
             } else {
                 accountId = accounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId }?.id
                     ?: accounts.firstOrNull { it.id == h.defaultFundingAccountId }?.id
@@ -169,6 +189,8 @@ fun TransactionFormScreen(
                             accountId = accountId!!,
                             categoryId = categoryId!!,
                             split = splitChange,
+                            // Always sent, like description: "" clears a recorded code.
+                            mcc = mcc,
                         ),
                     )
                 } else {
@@ -182,6 +204,8 @@ fun TransactionFormScreen(
                             categoryId = categoryId!!,
                             owedBy = if (splitting) trimmedOwedBy else null,
                             owedAmount = if (splitting) owedAmount else null,
+                            // Blank goes as-is; the API reads "" as "not given".
+                            mcc = mcc,
                         ),
                     )
                 }
@@ -289,10 +313,46 @@ fun TransactionFormScreen(
                 }
             }
 
+            // Only for users who asked for it in Settings — a four-digit code field on
+            // every form would tax everyone for a minority feature.
+            if (sessionVm.user?.recordsMerchantCodes == true) {
+                SectionCard {
+                    FormField(
+                        "Merchant code (optional)",
+                        mcc,
+                        {},
+                        placeholder = "Leave blank if you don't know it",
+                        supportingText = "Recorded only — nothing is calculated from it.",
+                        trailingIcon = {
+                            TextButton(onClick = { showMccPicker = true }) {
+                                Text(if (mcc.isBlank()) "Choose" else "Change")
+                            }
+                        },
+                    )
+                    if (mcc.isNotBlank()) {
+                        TextButton(onClick = { mcc = "" }) { Text("Clear code") }
+                    }
+                }
+            }
+
             Button(onClick = ::save, enabled = canSave) {
                 Text(if (saving) "Saving…" else "Save transaction")
             }
         }
+    }
+
+    if (showMccPicker) {
+        // No sort: the catalogue arrives general-codes-first with the ~400 airline
+        // and hotel brands last. Search still reaches them.
+        SearchablePickerDialog(
+            title = "Merchant code",
+            options = mccs,
+            optionLabel = { "${it.code} — ${it.name}" },
+            optionKey = { it.code },
+            searchText = { "${it.code} ${it.name} ${it.group}" },
+            onSelect = { mcc = it.code },
+            onDismiss = { showMccPicker = false },
+        )
     }
 
     val household = sessionVm.activeHousehold

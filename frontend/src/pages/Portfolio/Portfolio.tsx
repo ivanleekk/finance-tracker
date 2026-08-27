@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useLoaderData, useRevalidator, useNavigation, useSearchParams, Link } from "react-router"
 import { StatCard } from "../../components/ui/StatCard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card"
@@ -6,7 +6,7 @@ import { Badge } from "../../components/ui/Badge"
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
-import { cn, returnBasis } from "../../lib/utils"
+import { cn } from "../../lib/utils"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
@@ -14,43 +14,12 @@ import type { SubPortfolioResponse, AssetResponse } from "../../types/types"
 import type { PortfolioLoaderData } from "./portfolio.loader"
 import { TimeframeSelector } from "../../components/ui/TimeframeSelector"
 import { TopBar } from "../../components/TopBar"
+import { ALLOCATION_COLORS, makeCurrencyFormatter, type Holding } from "./portfolioHelpers"
+import { usePortfolioData } from "./usePortfolioData"
+import { AssetPanel, CashPanel, EditSubPortfolioPanel, PricePanel } from "./PortfolioPanels"
 
 export { portfolioLoader as loader } from "./portfolio.loader";
 
-type Holding = {
-    assetId: string;
-    ticker: string;
-    name: string;
-    shares: number;
-    avgCost: number; // Home currency
-    currentPrice: number; // Home currency
-    currency: string; // Ticker's base currency
-    avgCostNative: number;
-    currentPriceNative: number;
-    assetType: string;
-    pricingMode: "market" | "manual";
-};
-
-const ALLOCATION_COLORS = ["#38bdf8", "#4ade80", "#fbbf24", "#e879f9", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf"];
-
-type PortfolioData = {
-    stats: {
-        equity: string;
-        unrealized: string;
-        unrealizedPercent: number;
-        realized: string;
-        sharpe: string;
-        sortino: string;
-        treynor: string;
-        alpha: string;
-        beta: string;
-        drawdown: string;
-        twr: string;
-        irr: string;
-    };
-    history: any[];
-    holdings: Holding[];
-};
 
 
 
@@ -62,12 +31,7 @@ export default function Portfolio() {
     const [searchParams] = useSearchParams()
     const startDate = searchParams.get("start_date")
 
-    const formatCurrency = (val: number, code?: string) => new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: code || activeHousehold?.base_currency || 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    }).format(val);
+    const formatCurrency = makeCurrencyFormatter(activeHousehold?.base_currency);
 
     const formatCompactCurrency = (val: number) => new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -286,184 +250,16 @@ export default function Portfolio() {
         }
     };
 
-    const portfoliosData = useMemo(() => {
-        const dataMap: Record<string, PortfolioData> = {};
+    // Snapshots, trades and metrics reconciled per tab into what the page renders.
+    const { portfoliosData, dividendData, sortedHoldings, rawData } = usePortfolioData({
+        latestSnapshots, timeseries, assets, subportfolios, metrics, dividends,
+        activeTab, timeframe, sortConfig,
+        baseCurrency: activeHousehold?.base_currency, startDate,
+    })
 
-        const binHistory = (history: any[]) => {
-            if (timeframe === "Daily") return history;
-
-            const binned = new Map<string, number>();
-            history.forEach(item => {
-                const d = new Date(item.date);
-                let key = "";
-                if (timeframe === "Weekly") {
-                    const startOfWeek = new Date(d);
-                    const day = d.getDay();
-                    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-                    startOfWeek.setDate(diff);
-                    key = startOfWeek.toISOString().split('T')[0];
-                } else if (timeframe === "Monthly") {
-                    key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-                } else if (timeframe === "Yearly") {
-                    key = `${d.getFullYear()}-01-01`;
-                }
-                binned.set(key, item.equity);
-            });
-
-            return Array.from(binned.entries())
-                .filter(([date]) => !startDate || date >= startDate)
-                // ⚡ Bolt: Fast string comparison instead of localeCompare
-                .sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)))
-                .map(([date, equity]) => ({ date, equity }));
-        };
-
-        const computeStats = (hlds: Holding[], realizedPnL: number, history: any[], equity: number, m?: any): PortfolioData => {
-            let costBasis = 0;
-            for (const h of hlds) {
-                costBasis += h.shares * h.avgCost;
-            }
-            const unrealized = equity - costBasis;
-            const unrealizedPercent = costBasis > 0 ? (unrealized / costBasis) * 100 : 0;
-
-            const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`;
-            const sign = (val: number) => val >= 0 ? '+' : '';
-
-            if (history.length === 0) {
-                history = [{ date: new Date().toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' }), equity: 0 }];
-            }
-
-            return {
-                stats: {
-                    equity: formatCurrency(equity),
-                    unrealized: `${sign(unrealized)}${formatCurrency(Math.abs(unrealized))}`,
-                    unrealizedPercent: (m?.simple_return ?? 0) * 100 || unrealizedPercent,
-                    realized: `${sign(realizedPnL)}${formatCurrency(Math.abs(realizedPnL))}`,
-                    sharpe: m?.sharpe_ratio !== undefined && m?.sharpe_ratio !== null ? m.sharpe_ratio.toFixed(2) : "N/A",
-                    sortino: m?.sortino_ratio !== undefined && m?.sortino_ratio !== null ? m.sortino_ratio.toFixed(2) : "N/A",
-                    treynor: m?.treynor_ratio !== undefined && m?.treynor_ratio !== null ? m.treynor_ratio.toFixed(2) : "N/A",
-                    alpha: m?.alpha !== undefined && m?.alpha !== null ? formatPercent(m.alpha) : "N/A",
-                    beta: m?.beta !== undefined && m?.beta !== null ? m.beta.toFixed(2) : "N/A",
-                    drawdown: m?.volatility !== undefined && m?.volatility !== null ? formatPercent(m.volatility) : "N/A",
-                    twr: m?.time_weighted_return !== undefined && m?.time_weighted_return !== null ? formatPercent(m.time_weighted_return) : "N/A",
-                    irr: m?.money_weighted_return !== undefined && m?.money_weighted_return !== null ? formatPercent(m.money_weighted_return) : "N/A",
-                    returnBasis: returnBasis(m?.annualized)
-                },
-                history,
-                holdings: hlds
-            };
-        };
-
-        // Equity curve from pre-aggregated (date, sub_portfolio) totals — already summed
-        // across assets server-side, so this just sorts/bins/windows.
-        const buildHistory = (points: typeof timeseries) => {
-            const history = points
-                .slice()
-                .sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)))
-                .map(t => ({ date: t.date, equity: Number(t.total_value_home_currency) }))
-                .filter(item => !startDate || item.date >= startDate);
-            return binHistory(history);
-        };
-
-        // Holdings table from the latest-date-only per-asset rows (server-filtered via
-        // latest_only=true, so every row here is already "current").
-        const buildHoldings = (latestSnaps: typeof latestSnapshots) => {
-            const assetMap = new Map(assets.map(a => [a.id, a]));
-            const holdingMap = new Map<string, Holding>();
-
-            latestSnaps
-                .filter(s => s.quantity > 0.001)
-                .forEach(s => {
-                    const asset = assetMap.get(s.asset_id);
-                    const ticker = asset?.ticker || "UNKNOWN";
-                    const currency = asset?.currency || "USD";
-                    
-                    const currentPriceHome = Number(s.price) * (s.exchange_rate_used || 1.0);
-                    const costBasisHome = Number(s.average_cost_basis_home_currency ?? (Number(s.average_cost_basis) * (s.exchange_rate_used || 1.0)));
-                    const currentPriceNative = Number(s.price);
-                    const costBasisNative = Number(s.average_cost_basis);
-
-                    if (holdingMap.has(ticker)) {
-                        const existing = holdingMap.get(ticker)!;
-                        const totalShares = existing.shares + s.quantity;
-                        
-                        // Weighted average for home currency
-                        const totalCostHome = (existing.shares * existing.avgCost) + (s.quantity * costBasisHome);
-                        existing.avgCost = totalShares > 0 ? totalCostHome / totalShares : 0;
-                        
-                        // Weighted average for native currency
-                        const totalCostNative = (existing.shares * existing.avgCostNative) + (s.quantity * costBasisNative);
-                        existing.avgCostNative = totalShares > 0 ? totalCostNative / totalShares : 0;
-                        
-                        existing.shares = totalShares;
-                        existing.currentPrice = currentPriceHome;
-                        existing.currentPriceNative = currentPriceNative;
-                    } else {
-                        holdingMap.set(ticker, {
-                            assetId: s.asset_id,
-                            ticker: ticker,
-                            name: asset?.name || "Unknown Asset",
-                            shares: s.quantity,
-                            avgCost: costBasisHome,
-                            currentPrice: currentPriceHome,
-                            currency: currency,
-                            avgCostNative: costBasisNative,
-                            currentPriceNative: currentPriceNative,
-                            assetType: asset?.type || "other",
-                            pricingMode: asset?.pricing_mode || "market"
-                        });
-                    }
-                });
-
-            const holdings: Holding[] = Array.from(holdingMap.values());
-
-            const currentEquity = latestSnaps.reduce((sum, s) => sum + Number(s.current_value_home_currency), 0);
-
-            return { holdings, currentEquity };
-        };
-
-        // Overall
-        const overallHoldings = buildHoldings(latestSnapshots);
-        dataMap["Overall"] = computeStats(
-            overallHoldings.holdings,
-            0,
-            buildHistory(timeseries),
-            overallHoldings.currentEquity,
-            metrics?.overall_metrics
-        );
-
-        // Subportfolios
-        for (const sp of subportfolios) {
-            const spHoldings = buildHoldings(latestSnapshots.filter(s => s.sub_portfolio_id === sp.id));
-            const spMetric = metrics?.sub_portfolio_metrics.find(m => m.sub_portfolio_id === sp.id);
-            dataMap[sp.name] = computeStats(
-                spHoldings.holdings,
-                0,
-                buildHistory(timeseries.filter(t => t.sub_portfolio_id === sp.id)),
-                spHoldings.currentEquity,
-                spMetric?.metrics
-            );
-        }
-
-        return dataMap;
-    }, [latestSnapshots, timeseries, assets, subportfolios, timeframe, metrics, startDate]);
-
-    // Dividends for the active tab (all sub-portfolios when "Overall"), newest first.
-    // Kept above the early return so hook order stays stable across renders.
-    const dividendData = useMemo(() => {
-        const sp = subportfolios.find(s => s.name === activeTab);
-        const assetById = new Map(assets.map(a => [a.id, a]));
-        const relevant = dividends
-            .filter(d => activeTab === "Overall" || d.sub_portfolio_id === sp?.id)
-            .map(d => ({
-                ...d,
-                ticker: assetById.get(d.asset_id)?.ticker || "UNKNOWN",
-                homeAmount: d.amount_home_currency ?? d.amount,
-            }))
-            .sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : 0)));
-        const total = relevant.reduce((sum, d) => sum + (Number(d.homeAmount) || 0), 0);
-        return { rows: relevant, total };
-    }, [dividends, assets, subportfolios, activeTab]);
-
+    // After the hook, never before it: this guard used to sit between two
+    // `useMemo` calls, so a render without a household ran a different number of
+    // hooks than one with it.
     if (!activeHousehold) {
         return (
             <div className="flex-1 flex items-center justify-center p-8 text-base-500">
@@ -474,37 +270,6 @@ export default function Portfolio() {
 
     const isLoading = navigation.state === "loading" || revalidator.state === "loading";
 
-    // Default to Overall if tab is deleted
-    const rawData = portfoliosData[activeTab] || portfoliosData["Overall"];
-    
-    const sortedHoldings = useMemo(() => {
-        if (!rawData.holdings) return [];
-        const sortable = [...rawData.holdings];
-        if (sortConfig !== null) {
-            sortable.sort((a, b) => {
-                let aValue: any;
-                let bValue: any;
-
-                switch (sortConfig.key) {
-                    case 'asset': aValue = a.ticker; bValue = b.ticker; break;
-                    case 'shares': aValue = a.shares; bValue = b.shares; break;
-                    case 'avgCost': aValue = a.avgCost; bValue = b.avgCost; break;
-                    case 'price': aValue = a.currentPrice; bValue = b.currentPrice; break;
-                    case 'value': aValue = a.shares * a.currentPrice; bValue = b.shares * b.currentPrice; break;
-                    case 'return': 
-                        aValue = (a.shares * a.currentPrice) - (a.shares * a.avgCost);
-                        bValue = (b.shares * b.currentPrice) - (b.shares * b.avgCost);
-                        break;
-                    default: aValue = 0; bValue = 0;
-                }
-
-                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
-            });
-        }
-        return sortable;
-    }, [rawData.holdings, sortConfig]);
 
     const requestSort = (key: string) => {
         let direction: 'asc' | 'desc' = 'asc';
@@ -698,219 +463,39 @@ export default function Portfolio() {
                 </div>
             )}
 
-            {isManagingCash && activeSubportfolioObj && (
-                <Card className="bg-emerald-50/30 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800 border-dashed">
-                    <CardContent className="pt-6 space-y-4">
-                        {cashError && (
-                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                                {cashError}
-                            </div>
-                        )}
-                        <div className="flex items-end gap-4 flex-wrap">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Action</label>
-                                <Select
-                                    className="h-[42px] w-36"
-                                    value={cashDirection}
-                                    onChange={(v) => setCashDirection(v as "deposit" | "withdraw")}
-                                    options={[
-                                        { value: "deposit", label: "Deposit" },
-                                        { value: "withdraw", label: "Withdraw" },
-                                    ]}
-                                />
-                            </div>
-                            <div className="flex-1 min-w-[160px] space-y-2">
-                                <label className="text-sm font-medium text-base-900 dark:text-base-50">
-                                    {cashDirection === "deposit" ? "From Account" : "To Account"}
-                                </label>
-                                <Select
-                                    className="h-[42px]"
-                                    value={cashAccountId}
-                                    onChange={setCashAccountId}
-                                    placeholder="No accounts available"
-                                    options={accounts.map(acc => ({ value: acc.id, label: `${acc.name} (${acc.currency})` }))}
-                                />
-                            </div>
-                            <div className="flex-1 min-w-[120px] space-y-2">
-                                <Input
-                                    label={`Amount (${accounts.find(a => a.id === cashAccountId)?.currency || activeHousehold.base_currency || "USD"})`}
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    placeholder="0.00"
-                                    value={cashAmount}
-                                    onChange={e => setCashAmount(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Input
-                                    label="Date"
-                                    type="date"
-                                    value={cashDate}
-                                    onChange={e => setCashDate(e.target.value)}
-                                />
-                            </div>
-                            <Button
-                                variant="primary"
-                                className="h-[42px]"
-                                onClick={handleCashMove}
-                                disabled={isSubmittingCash || accounts.length === 0}
-                            >
-                                {isSubmittingCash ? "Saving..." : (cashDirection === "deposit" ? "Deposit Cash" : "Withdraw Cash")}
-                            </Button>
-                        </div>
-                        <p className="text-xs text-base-500 dark:text-base-400">
-                            {cashDirection === "deposit"
-                                ? `Moves cash from the selected account into ${activeTab}, where it counts toward the portfolio's value until you invest or withdraw it.`
-                                : `Moves uninvested cash out of ${activeTab} back into the selected account.`}
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
+            <CashPanel
+                isManagingCash={isManagingCash} activeSubportfolioObj={activeSubportfolioObj}
+                activeTab={activeTab} accounts={accounts} activeHousehold={activeHousehold}
+                cashDirection={cashDirection} setCashDirection={setCashDirection}
+                cashAccountId={cashAccountId} setCashAccountId={setCashAccountId}
+                cashAmount={cashAmount} setCashAmount={setCashAmount}
+                cashDate={cashDate} setCashDate={setCashDate}
+                cashError={cashError} isSubmittingCash={isSubmittingCash}
+                handleCashMove={handleCashMove}
+            />
 
-            {editingAsset && (
-                <Card className="border-primary-200 dark:border-primary-800 border-dashed">
-                    <CardHeader>
-                        <CardTitle>Edit {editingAsset.ticker}</CardTitle>
-                        <CardDescription>
-                            Fixing the ticker or currency recalculates this asset's valuations back to your first trade — the numbers below refresh once it saves.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {assetError && (
-                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                                {assetError}
-                            </div>
-                        )}
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <Input
-                                label="Ticker"
-                                value={assetForm.ticker}
-                                onChange={e => setAssetForm({ ...assetForm, ticker: e.target.value.toUpperCase() })}
-                                placeholder="G3B.SI"
-                            />
-                            <Input
-                                label="Name"
-                                value={assetForm.name}
-                                onChange={e => setAssetForm({ ...assetForm, name: e.target.value })}
-                            />
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Currency</label>
-                                <Select
-                                    className="h-[42px]"
-                                    value={assetForm.currency}
-                                    onChange={currency => setAssetForm({ ...assetForm, currency })}
-                                    options={(currencies.length > 0
-                                        ? currencies.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))
-                                        : [{ value: assetForm.currency, label: assetForm.currency }])}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-900 dark:text-base-50">Pricing</label>
-                                <Select
-                                    className="h-[42px]"
-                                    value={assetForm.pricing_mode}
-                                    onChange={mode => setAssetForm({ ...assetForm, pricing_mode: mode as "market" | "manual" })}
-                                    options={[
-                                        { value: "market", label: "Automatic (market data)" },
-                                        { value: "manual", label: "Manual (I record prices)" },
-                                    ]}
-                                />
-                            </div>
-                        </div>
-                        <p className="text-xs text-base-500 dark:text-base-400">
-                            The ticker has to match the exchange symbol we look prices up by — Singapore listings end in <span className="font-mono">.SI</span>, London in <span className="font-mono">.L</span>. Renaming an automatically-priced asset re-fetches its price history under the new symbol.
-                        </p>
-                        <div className="flex items-center gap-2">
-                            <Button variant="primary" onClick={handleUpdateAsset} disabled={isSubmittingAsset}>
-                                {isSubmittingAsset ? "Saving..." : "Save Asset"}
-                            </Button>
-                            <Button variant="ghost" onClick={() => setEditingAsset(null)}>Cancel</Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+            <AssetPanel
+                editingAsset={editingAsset} setEditingAsset={setEditingAsset}
+                assetForm={assetForm} setAssetForm={setAssetForm} currencies={currencies}
+                assetError={assetError} isSubmittingAsset={isSubmittingAsset}
+                handleUpdateAsset={handleUpdateAsset}
+            />
 
-            {priceHolding && (
-                <Card className="bg-secondary-50/30 dark:bg-secondary-900/10 border-secondary-200 dark:border-secondary-800 border-dashed">
-                    <CardContent className="pt-6 space-y-4">
-                        {priceError && (
-                            <div className="p-3 rounded text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                                {priceError}
-                            </div>
-                        )}
-                        <div className="flex items-end gap-4 flex-wrap">
-                            <div className="flex-1 min-w-[120px] space-y-2">
-                                <Input
-                                    label={`${priceHolding.ticker} price (${priceHolding.currency})`}
-                                    type="number"
-                                    step="0.0001"
-                                    min="0"
-                                    placeholder="0.00"
-                                    value={priceValue}
-                                    onChange={e => setPriceValue(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Input
-                                    label="As of Date"
-                                    type="date"
-                                    value={priceDate}
-                                    onChange={e => setPriceDate(e.target.value)}
-                                />
-                            </div>
-                            <Button
-                                variant="primary"
-                                className="h-[42px]"
-                                onClick={handleRecordPrice}
-                                disabled={isSubmittingPrice}
-                            >
-                                {isSubmittingPrice ? "Saving..." : "Record Price"}
-                            </Button>
-                            <Button variant="ghost" className="h-[42px]" onClick={() => setPriceHolding(null)}>Cancel</Button>
-                        </div>
-                        <p className="text-xs text-base-500 dark:text-base-400">
-                            {priceHolding.ticker} is priced manually. The recorded price applies from the chosen date forward until you record a newer one; valuations are recalculated immediately.
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
+            <PricePanel
+                priceHolding={priceHolding} setPriceHolding={setPriceHolding}
+                priceValue={priceValue} setPriceValue={setPriceValue}
+                priceDate={priceDate} setPriceDate={setPriceDate}
+                priceError={priceError} isSubmittingPrice={isSubmittingPrice}
+                handleRecordPrice={handleRecordPrice}
+            />
 
-            {isEditing && activeSubportfolioObj && (
-                <Card className="bg-primary-50/30 border-primary-200 border-dashed">
-                    <CardContent className="pt-6 flex items-end gap-4">
-                        <div className="flex-1 space-y-2">
-                            <Input
-                                label="Name"
-                                value={editName}
-                                onChange={e => setEditName(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium text-base-900 dark:text-base-50">Risk Profile</label>
-                            <Select
-                                className="h-[42px]"
-                                value={editRisk}
-                                onChange={setEditRisk}
-                                options={[
-                                    { value: "Conservative", label: "Conservative" },
-                                    { value: "Moderate", label: "Moderate" },
-                                    { value: "Aggressive", label: "Aggressive" },
-                                ]}
-                            />
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <Input
-                                label="Target Amount"
-                                type="number"
-                                value={editTarget}
-                                onChange={e => setEditTarget(e.target.value)}
-                            />
-                        </div>
-                        <Button variant="primary" className="h-[42px]" onClick={handleUpdateSubPortfolio}>Save Changes</Button>
-                    </CardContent>
-                </Card>
-            )}
+            <EditSubPortfolioPanel
+                isEditing={isEditing} activeSubportfolioObj={activeSubportfolioObj}
+                editName={editName} setEditName={setEditName}
+                editRisk={editRisk} setEditRisk={setEditRisk}
+                editTarget={editTarget} setEditTarget={setEditTarget}
+                handleUpdateSubPortfolio={handleUpdateSubPortfolio}
+            />
 
             {/* Top Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">

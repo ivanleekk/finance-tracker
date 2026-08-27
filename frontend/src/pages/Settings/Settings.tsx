@@ -67,6 +67,7 @@ export default function Settings() {
     // Privacy
     const [hidePrivate, setHidePrivate] = useState(user.hide_private_from_household);
     const [defaultPrivate, setDefaultPrivate] = useState(user.default_new_items_private);
+    const [recordMcc, setRecordMcc] = useState(user.record_merchant_codes);
     const [savingPrivacy, setSavingPrivacy] = useState(false);
 
     // Default expense account (preselected in Transactions and ⌘K quick-add)
@@ -163,7 +164,7 @@ export default function Settings() {
         }
     };
 
-    const savePrivacy = async (patch: Partial<{ hide_private_from_household: boolean; default_new_items_private: boolean }>) => {
+    const savePrivacy = async (patch: Partial<{ hide_private_from_household: boolean; default_new_items_private: boolean; record_merchant_codes: boolean }>) => {
         setSavingPrivacy(true);
         try {
             await api.put("/users", patch);
@@ -598,6 +599,16 @@ export default function Settings() {
                                             <div className="text-xs text-base-500 dark:text-base-400">Applies to new accounts, goals and ⌘K entries</div>
                                         </div>
                                         <Toggle checked={defaultPrivate} onChange={(v) => { setDefaultPrivate(v); savePrivacy({ default_new_items_private: v }); }} />
+                                    </div>
+                                    <div className="flex items-center justify-between py-2.5 border-t border-base-100 dark:border-base-800">
+                                        <div>
+                                            <div className="text-sm font-medium text-base-900 dark:text-base-50">Record merchant codes</div>
+                                            <div className="text-xs text-base-500 dark:text-base-400">
+                                                Adds an optional MCC field when logging a transaction. Nothing is
+                                                calculated from it — it's recorded so you can look it up later.
+                                            </div>
+                                        </div>
+                                        <Toggle checked={recordMcc} onChange={(v) => { setRecordMcc(v); savePrivacy({ record_merchant_codes: v }); }} />
                                     </div>
                                     {savingPrivacy && <div className="text-xs text-base-400 pt-1">Saving…</div>}
                                 </CardContent>

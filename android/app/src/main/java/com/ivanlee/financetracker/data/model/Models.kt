@@ -44,6 +44,8 @@ data class UserResponse(
     /** Private-vault preferences (schemas.UserBase). Optional so an older backend still decodes. */
     val hidePrivateFromHousehold: Boolean? = null,
     val defaultNewItemsPrivate: Boolean? = null,
+    /** Reveals the optional MCC field on the transaction form. Recorded, never evaluated. */
+    val recordMerchantCodes: Boolean? = null,
     /**
      * When true, private (vault) items require a biometric/device-credential unlock.
      * The backend column is `require_face_id_for_vault` — an iOS-flavoured name for a
@@ -57,6 +59,9 @@ data class UserResponse(
 ) {
     val hidesPrivateFromHousehold: Boolean get() = hidePrivateFromHousehold ?: true
     val defaultsNewItemsPrivate: Boolean get() = defaultNewItemsPrivate ?: true
+
+    /** Off unless asked for — a code field on every form taxes everyone for a few. */
+    val recordsMerchantCodes: Boolean get() = recordMerchantCodes ?: false
 
     /**
      * Backend defaults this to true; treat an absent value as false so we never lock a user
@@ -81,6 +86,8 @@ data class UserUpdate(
     val baseColor: String? = null,
     val hidePrivateFromHousehold: Boolean? = null,
     val defaultNewItemsPrivate: Boolean? = null,
+    /** Reveals the optional MCC field on the transaction form. Recorded, never evaluated. */
+    val recordMerchantCodes: Boolean? = null,
     @SerialName("require_face_id_for_vault")
     val requireBiometricForVault: Boolean? = null,
     val defaultAccountId: String? = null,
@@ -250,6 +257,16 @@ data class BalanceCreate(
 
 // MARK: - Cash flow
 
+/** A row from GET /reference/mccs — static reference data, like currencies. */
+@Serializable
+data class ReferenceMcc(
+    val code: String,
+    val name: String,
+    val group: String,
+    /** The 3000-3999 airline/hotel brand block. Rows arrive with these last already. */
+    val isBrand: Boolean,
+)
+
 @Serializable
 data class CategoryResponse(
     val id: String,
@@ -281,6 +298,11 @@ data class TransactionResponse(
     val owedBy: String? = null,
     @Serializable(with = OptionalMoneySerializer::class)
     val owedAmount: Double? = null,
+    /**
+     * The merchant category code, when the user happened to know it. Four digits or
+     * absent — nothing in the app derives anything from it.
+     */
+    val mcc: String? = null,
 )
 
 @Serializable
@@ -294,6 +316,11 @@ data class TransactionCreate(
     /** Sent together or not at all — the API rejects half a split. */
     val owedBy: String? = null,
     val owedAmount: Double? = null,
+    /**
+     * Blank is sent as-is: the API reads "" as "not given" rather than rejecting it,
+     * so an empty picker needs no special-casing here.
+     */
+    val mcc: String? = null,
 )
 
 /**
@@ -328,6 +355,11 @@ data class TransactionUpdate(
     val categoryId: String,
     val owedBy: JsonElement? = null,
     val owedAmount: JsonElement? = null,
+    /**
+     * Always sent, like [description]. No default: `""` *clears* a recorded code,
+     * so the destructive value must never be the one you get by forgetting.
+     */
+    val mcc: String,
 )
 
 fun transactionUpdate(
@@ -336,6 +368,7 @@ fun transactionUpdate(
     description: String,
     accountId: String,
     categoryId: String,
+    mcc: String,
     split: SplitChange = SplitChange.Unchanged,
 ): TransactionUpdate = TransactionUpdate(
     date = date,
@@ -343,6 +376,7 @@ fun transactionUpdate(
     description = description,
     accountId = accountId,
     categoryId = categoryId,
+    mcc = mcc,
     owedBy = when (split) {
         SplitChange.Unchanged -> null
         SplitChange.Clear -> JsonNull

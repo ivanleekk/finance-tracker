@@ -90,6 +90,27 @@ fun ProfileSettingsScreen(sessionVm: SessionViewModel, onBack: () -> Unit) {
                 trailingIcon = { TextButton(onClick = { showPicker = true }) { Text("Change") } },
             )
         }
+        // Saves on toggle rather than waiting for the button below, which applies to
+        // the text fields. Standard for switches, and it keeps the setting honest:
+        // what you see is what the server has.
+        SectionCard {
+            SwitchRow(
+                title = "Record merchant codes",
+                subtitle = "Adds an optional MCC field when logging a transaction. Nothing is " +
+                    "calculated from it — it's recorded so you can look it up later, and it's " +
+                    "fine to leave blank when you don't know it.",
+                checked = sessionVm.user?.recordsMerchantCodes ?: false,
+                onCheckedChange = { value ->
+                    scope.launch {
+                        try {
+                            sessionVm.updateUser(UserUpdate(recordMerchantCodes = value))
+                        } catch (e: Exception) {
+                            error = e.message ?: "Couldn't save that setting."
+                        }
+                    }
+                },
+            )
+        }
         Button(
             enabled = name.isNotBlank() && !saving,
             onClick = {
