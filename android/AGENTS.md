@@ -8,6 +8,19 @@ when the two disagree, that's a bug in one of them, so read `ios/AGENTS.md` alon
 
 - **Kotlin 2.0 / Jetpack Compose**, Material 3. `minSdk 26`, `compileSdk`/`targetSdk 34`,
   Java 17 bytecode. Gradle 8.13 + AGP 8.7.3 via the wrapper.
+- **The JDK is pinned to 17, and it takes two pins, not one.** The build ignores whatever
+  `java` is first on your PATH — deliberately, because it used to follow it and broke. A
+  host JDK of 26.0.2.1 failed *every* invocation, `./gradlew help` included, with a bare
+  `26.0.2.1` as the entire error message: the Kotlin bundled in Gradle parses its own host
+  version with an IntelliJ helper that cannot read a four-part string, and AGP 8.7 does not
+  support a JDK that new regardless. Two different JVMs were involved and each needs its own
+  pin — `gradle/gradle-daemon-jvm.properties` for the daemon that compiles the `.gradle.kts`
+  scripts, and `kotlin { jvmToolchain(17) }` for the compilers run over app sources. A
+  project toolchain alone does not fix it, because the build scripts are compiled before any
+  project toolchain exists. Both provision through the foojay resolver in
+  `settings.gradle.kts`, so a machine with no JDK 17 downloads one instead of failing. Do
+  not "fix" a JDK problem by exporting `JAVA_HOME`; change the pin, and regenerate the daemon
+  file with `./gradlew updateDaemonJvm --jvm-version=<n>` rather than editing its URLs.
 - **No third-party runtime dependencies beyond AndroidX + OkHttp + kotlinx.serialization** —
   the same rule iOS follows. Charts are drawn on a Compose `Canvas` (`ui/components/Charts.kt`)
   rather than pulled from a charting library: there are three fixed chart types over small,
