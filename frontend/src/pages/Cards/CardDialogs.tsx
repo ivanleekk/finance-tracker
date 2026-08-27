@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Form } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Form, useFetcher } from "react-router";
 import { Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -102,12 +102,28 @@ export function SetUpCardDialog({
     );
 }
 
+/**
+ * Submitted through a fetcher rather than the page's own Form so the fields can
+ * be cleared once the server has actually accepted them. A plain Form leaves
+ * the previous limit's name and amount sitting in the inputs, which is one
+ * mis-click away from creating it twice.
+ */
 function AddLimitForm({ card }: { card: CardResponse }) {
+    const fetcher = useFetcher<{ error?: string; success?: boolean }>();
+    const formRef = useRef<HTMLFormElement>(null);
     const [direction, setDirection] = useState("ceiling");
     const [resetBasis, setResetBasis] = useState("cycle");
 
+    const saved = fetcher.state === "idle" && fetcher.data?.success;
+    useEffect(() => {
+        if (!saved) return;
+        formRef.current?.reset();
+        setDirection("ceiling");
+        setResetBasis("cycle");
+    }, [saved]);
+
     return (
-        <Form method="post" className="grid grid-cols-2 gap-2">
+        <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="_intent" value="createLimit" />
             <input type="hidden" name="cardId" value={card.id} />
             <div className="col-span-2">
@@ -135,18 +151,38 @@ function AddLimitForm({ card }: { card: CardResponse }) {
                     ? "The spend you need to reach — a fee waiver or a bonus qualifier."
                     : "Enter caps as a spend figure. A cap the issuer states in rewards (“max $60 cashback”) has to be converted — at 10%, that is $600 of spend."}
             </p>
-            <Button type="submit" variant="secondary" size="sm" className="col-span-2">
+            {fetcher.data?.error && (
+                <p className="col-span-2 text-xs text-red-600 dark:text-red-400">
+                    {fetcher.data.error}
+                </p>
+            )}
+            <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                className="col-span-2"
+                disabled={fetcher.state !== "idle"}
+            >
                 Add limit
             </Button>
-        </Form>
+        </fetcher.Form>
     );
 }
 
 function AddCategoryForm({ card }: { card: CardResponse }) {
+    const fetcher = useFetcher<{ error?: string; success?: boolean }>();
+    const formRef = useRef<HTMLFormElement>(null);
     const [limitId, setLimitId] = useState("");
 
+    const saved = fetcher.state === "idle" && fetcher.data?.success;
+    useEffect(() => {
+        if (!saved) return;
+        formRef.current?.reset();
+        setLimitId("");
+    }, [saved]);
+
     return (
-        <Form method="post" className="grid grid-cols-2 gap-2">
+        <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="_intent" value="createCategory" />
             <input type="hidden" name="cardId" value={card.id} />
             <Input name="name" placeholder="e.g. Online" required />
@@ -159,10 +195,21 @@ function AddCategoryForm({ card }: { card: CardResponse }) {
                     ...card.limits.map(l => ({ value: l.id, label: l.name })),
                 ]}
             />
-            <Button type="submit" variant="secondary" size="sm" className="col-span-2">
+            {fetcher.data?.error && (
+                <p className="col-span-2 text-xs text-red-600 dark:text-red-400">
+                    {fetcher.data.error}
+                </p>
+            )}
+            <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                className="col-span-2"
+                disabled={fetcher.state !== "idle"}
+            >
                 Add category
             </Button>
-        </Form>
+        </fetcher.Form>
     );
 }
 
