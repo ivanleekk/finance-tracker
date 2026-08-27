@@ -77,5 +77,15 @@ When constructing pages, follow these approved layouts:
 5. **Data Entry Modals:** Standardized forms for "Add Goal", "Link Account", and "Add Transaction" using the atomic form field components.
 
 ## Agent Directives
+- **Typecheck with `pnpm run typecheck`, never `tsc --noEmit`.** `tsconfig.json` is
+  solution-style — `"files": []` plus references to `tsconfig.app.json` and
+  `tsconfig.node.json` — so a bare `tsc --noEmit` type-checks **zero files** and exits 0 no
+  matter what is broken. That is not a hypothetical: it silently reported success over a
+  large refactor that had introduced dozens of real errors. The script runs `tsc -b`, which
+  follows the references, preceded by `react-router typegen` so generated route module types
+  exist if a loader ever imports them. It exits non-zero on error, so it is safe in CI.
+- **The repo is not type-clean, so judge by the delta, not the total.** `dev` currently has
+  38 errors. A change is fine if it adds none of its own; "all green" is not achievable yet
+  and waiting for it just means never typechecking.
 - **Check Schemas:** Always verify the Pydantic schemas in `backend/src/schemas.py` before binding API data to the frontend state.
 - **Aesthetics Matter:** The design must WOW the user. Ensure smooth hover effects, micro-animations, glassmorphism (if applicable), and flawless 4pt alignment. A basic MVP-looking UI is unacceptable.
