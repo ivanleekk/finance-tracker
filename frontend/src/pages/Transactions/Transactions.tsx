@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from "react"
-import { assessSplit, countsAsSpending, parseMoney } from "../../lib/reimbursements"
 import { useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -10,114 +9,27 @@ import { useHousehold } from "../../lib/HouseholdContext"
 import api from "../../lib/api"
 import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
-import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/Dialog"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
 import { TopBar } from "../../components/TopBar"
 import { OwnershipTag } from "../../components/ui/OwnershipTag"
 import { useAuth } from "../../lib/AuthContext"
-import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext"
-import { groupHistory, type HistoryGranularity } from "../../lib/historyGroups"
+import { useViewMode } from "../../lib/ViewModeContext"
+import type { HistoryGranularity } from "../../lib/historyGroups"
+import { LogTransactionDialog } from "./LogTransactionDialog"
+import { useTransactionHistory } from "./useTransactionHistory"
+import {
+    CATEGORY_PERIOD_OPTIONS,
+    HISTORY_GRANULARITIES,
+    categoryFilterStorageKey,
+    categoryIcon,
+    historyGranularityStorageKey,
+    type CategoryPeriodPreset,
+    type UnifiedHistoryItem,
+} from "./transactionsHelpers"
 import { cn } from "../../lib/utils"
 
 export { transactionsLoader as loader } from "./transactions.loader";
-
-const CATEGORY_COLORS = ["var(--chart-cat-1)", "var(--chart-cat-2)", "var(--chart-cat-3)", "var(--chart-cat-4)", "var(--chart-cat-5)"];
-// Neutral fallback for buckets that aren't a real household category (the "Other" rollup slice, "Uncategorized").
-const OTHER_SLICE_COLOR = "var(--base-400)";
-
-type CategoryPeriodPreset = "all" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "this_year" | "specific_month" | "custom";
-
-const CATEGORY_PERIOD_OPTIONS: { value: CategoryPeriodPreset; label: string }[] = [
-    { value: "all", label: "All time" },
-    { value: "this_month", label: "This month" },
-    { value: "last_month", label: "Last month" },
-    { value: "last_3_months", label: "Last 3 months" },
-    { value: "last_6_months", label: "Last 6 months" },
-    { value: "this_year", label: "This year" },
-    { value: "specific_month", label: "Specific month" },
-    { value: "custom", label: "Custom range" },
-];
-
-const categoryFilterStorageKey = (householdId: string) => `ft:tx-category-filter:${householdId}`;
-
-function categoryIcon(name: string): string {
-    const low = name.toLowerCase();
-    if (/(food|dining|restaurant|cafe|coffee|lunch|dinner)/.test(low)) return "☕";
-    if (/(transport|taxi|grab|uber|mrt|bus|fuel|petrol)/.test(low)) return "🚕";
-    if (/(grocery|groceries|supermarket|fairprice)/.test(low)) return "🛒";
-    if (/(entertain|movie|netflix|game)/.test(low)) return "🎬";
-    if (/(shop|retail)/.test(low)) return "🛍️";
-    if (/(hous|rent|mortgage)/.test(low)) return "🏠";
-    if (/(salary|income|payroll)/.test(low)) return "💰";
-    if (/(invest|dividend)/.test(low)) return "💵";
-    return "💳";
-}
-
-const HISTORY_GRANULARITIES: { value: HistoryGranularity; label: string }[] = [
-    { value: "day", label: "Day" },
-    { value: "month", label: "Month" },
-    { value: "year", label: "Year" },
-];
-
-const historyGranularityStorageKey = (householdId: string) => `ft:tx-group-by:${householdId}`;
-
-/**
- * Best guess at a row's value in the household's base currency: the figure the
- * backend already converted, or the row's own amount when it was already booked
- * in the base currency. Anything else stays `null` — a foreign-currency row with
- * no stored conversion is left out of the group totals rather than distorting them.
- * The iOS and Android ports of this rule live in `HistoryGroups.swift` / `HistoryGroups.kt`.
- */
-/**
- * The sentence under the split fields. It restates the split as the two numbers
- * the user actually cares about, because "they owe 80" on a 120 bill is only
- * meaningful once you can see that leaves you 40.
- */
-function splitHint(amountRaw: string, owedRaw: string, currency: string): string {
-    const assessment = assessSplit(parseMoney(amountRaw), parseMoney(owedRaw));
-    if (assessment.kind === "incomplete") {
-        return "The full amount still leaves your account — only your share counts towards budgets.";
-    }
-    if (assessment.kind === "invalid") return assessment.reason;
-    const money = (value: number) =>
-        new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
-    return `Your share: ${money(assessment.yourShare)}. They owe you ${money(assessment.owed)}.`;
-}
-
-function homeValueOf(storedHomeAmount: number | null | undefined, nativeAmount: number, nativeCurrency: string | null | undefined, baseCurrency: string): number | null {
-    if (storedHomeAmount !== null && storedHomeAmount !== undefined) {
-        const n = Math.abs(Number(storedHomeAmount));
-        if (Number.isFinite(n)) return n;
-    }
-    if (nativeCurrency && nativeCurrency === baseCurrency) return Math.abs(nativeAmount);
-    return null;
-}
-
-type UnifiedHistoryItem = {
-    id: string;
-    type: string; // 'buy', 'sell', 'deposit', 'withdrawal', 'income', 'expense'
-    categoryType: 'trade' | 'transaction';
-    assetOrCategory: string;
-    amountNative: number;
-    currencyNative: string;
-    amountAccount: number;
-    currencyAccount: string;
-    /** Value in the household's base currency, or null when it can't be converted. */
-    amountHome: number | null;
-    shares: number | null;
-    date: Date;
-    status: string;
-    accountId: string;
-    accountName: string;
-    subportfolioId: string | null;
-    subportfolioName: string | null;
-    householdName: string;
-    description: string | null;
-    ownerUserId: string | null;
-    /** Set where part of this expense was somebody else's; null on trades. */
-    split: { owedBy: string; owedAmount: number } | null;
-};
 
 export default function Transactions() {
     const { activeHousehold } = useHousehold()
@@ -203,13 +115,13 @@ export default function Transactions() {
         currency: activeHousehold?.base_currency || "USD",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
         description: "",
-        // Part of this bill is somebody else's. The amount above stays the full
-        // sum that leaves the account — this only says whose it was.
-        owedBy: "",
-        owedAmount: "",
         // Optional even when the field is shown — most purchases have no code the
         // user knows, so blank is the normal state, not an error.
-        mcc: ""
+        mcc: "",
+        // Part of this bill is somebody else's. The amount stays the full sum
+        // that leaves the account — this only says whose it was.
+        owedBy: "",
+        owedAmount: ""
     });
     const [isSplitting, setIsSplitting] = useState(false);
 
@@ -310,9 +222,9 @@ export default function Transactions() {
                 currency: activeHousehold?.base_currency || "USD",
                 date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
                 description: "",
+                mcc: "",
                 owedBy: "",
-                owedAmount: "",
-                mcc: ""
+                owedAmount: ""
             });
             revalidator.revalidate();
         } catch (error) {
@@ -353,279 +265,6 @@ export default function Transactions() {
 
     const isLoading = navigation.state === "loading";
 
-    const tradeTransactionIds = useMemo(
-        () => new Set(trades.map(t => t.transaction_id).filter(Boolean)),
-        [trades]
-    );
-
-    const transactionMap = useMemo(
-        () => new Map(transactions.map(tx => [tx.id, tx])),
-        [transactions]
-    );
-
-    const combinedHistory = useMemo(() => {
-        // Maps for O(1) lookups
-        const assetMap = new Map(assets.map(a => [a.id, a.ticker]));
-        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
-        const subportfolioMap = new Map(subportfolios.map(sp => [sp.id, sp.name]));
-
-        // 1. Process Trades
-        const tradeItems: UnifiedHistoryItem[] = trades.map(t => {
-            const ticker = assetMap.get(t.asset_id) || "UNKNOWN";
-            const account = accounts.find(a => a.id === t.account_id);
-            const accountName = account?.name || "Unknown Account";
-            const spName = t.sub_portfolio_id ? (subportfolioMap.get(t.sub_portfolio_id) || "Unknown Sub-Portfolio") : null;
-            
-            const nativeAmount = Number(t.quantity) * Number(t.price);
-            const accountAmount = nativeAmount * Number(t.exchange_rate);
-            // A trade only has a home-currency figure through the funding transaction it
-            // settled against. Cash-settled trades (settle_from_cash) never create one, so
-            // they stay out of the group totals rather than being summed in the wrong currency.
-            const fundingTx = t.transaction_id ? transactionMap.get(t.transaction_id) : undefined;
-            const homeAmount = homeValueOf(fundingTx?.amount_home_currency, nativeAmount, t.currency || account?.currency, baseCurrency);
-
-            return {
-                id: `trade-${t.id}`,
-                type: t.type, // 'buy' or 'sell'
-                categoryType: 'trade',
-                assetOrCategory: ticker,
-                amountNative: nativeAmount,
-                currencyNative: t.currency || "USD",
-                amountAccount: accountAmount,
-                currencyAccount: account?.currency || "USD",
-                amountHome: homeAmount,
-                shares: Number(t.quantity),
-                date: new Date(t.date),
-                status: "completed",
-                accountId: t.account_id,
-                accountName: accountName,
-                subportfolioId: t.sub_portfolio_id || null,
-                subportfolioName: spName,
-                householdName: activeHousehold.name,
-                description: t.description || null,
-                ownerUserId: account?.owner_user_id || null,
-                // A trade is never split — you don't buy shares on someone's behalf here.
-                split: null
-            };
-        });
-
-        // 2. Process Transactions (Filtering out those linked to trades)
-        const txItems: UnifiedHistoryItem[] = transactions
-            .filter(tx => !tradeTransactionIds.has(tx.id))
-            .map(tx => {
-                const categoryName = categoryMap.get(tx.category_id) || "Uncategorized";
-                const account = accounts.find(a => a.id === tx.account_id);
-                const accountName = account?.name || "Unknown Account";
-
-                const isExpense = tx.transaction_type === 'expense';
-                let typeStr = isExpense ? "withdrawal" : "deposit";
-                if (tx.transfer_id) {
-                    typeStr = isExpense ? "transfer_out" : "transfer_in";
-                }
-
-                const nativeAmount = Math.abs(Number(tx.amount));
-                const accountAmount = nativeAmount * (Number(tx.exchange_rate) || 1);
-                const homeAmount = homeValueOf(tx.amount_home_currency, nativeAmount, tx.currency || account?.currency, baseCurrency);
-
-                return {
-                    id: `tx-${tx.id}`,
-                    type: typeStr,
-                    categoryType: 'transaction',
-                    assetOrCategory: categoryName,
-                    amountNative: nativeAmount,
-                    currencyNative: tx.currency || account?.currency || "USD",
-                    amountAccount: accountAmount,
-                    currencyAccount: account?.currency || "USD",
-                    amountHome: homeAmount,
-                    shares: null,
-                    date: new Date(tx.date),
-                    status: "completed",
-                    accountId: tx.account_id,
-                    accountName: accountName,
-                    subportfolioId: null,
-                    subportfolioName: null,
-                    householdName: activeHousehold.name,
-                    description: tx.description || null,
-                    ownerUserId: account?.owner_user_id || null,
-                    split: tx.owed_by && tx.owed_amount
-                        ? { owedBy: tx.owed_by, owedAmount: Number(tx.owed_amount) }
-                        : null
-                };
-            });
-
-        // 3. Unify and Sort
-        return [...tradeItems, ...txItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-    }, [trades, transactions, assets, categories, accounts, subportfolios, activeHousehold.name, tradeTransactionIds, transactionMap, baseCurrency]);
-
-    const isInflow = (type: string) => ['deposit', 'income', 'sell', 'transfer_in'].includes(type);
-
-    const filteredHistory = useMemo(() => {
-        return combinedHistory.filter(item => {
-            if (!isVisibleInViewMode(item.ownerUserId, viewMode, user?.id)) return false;
-            if (filterCategory !== "all" && item.categoryType !== filterCategory) return false;
-            if (filterAccount !== "all" && item.accountId !== filterAccount) return false;
-            if (filterSubportfolio !== "all") {
-                if (filterSubportfolio === "none" && item.subportfolioId !== null) return false;
-                if (filterSubportfolio !== "none" && item.subportfolioId !== filterSubportfolio) return false;
-            }
-            if (filterFlow !== "all" && (filterFlow === "income") !== isInflow(item.type)) return false;
-            return true;
-        });
-    }, [combinedHistory, filterCategory, filterAccount, filterSubportfolio, filterFlow, viewMode, user?.id]);
-
-    const groupedHistory = useMemo(
-        () => groupHistory(filteredHistory, historyGranularity),
-        [filteredHistory, historyGranularity]
-    );
-
-    const cashflowData = useMemo(() => {
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const weeks = [0, 1, 2, 3, 4].map(() => ({ in: 0, out: 0 }));
-        let totalIn = 0, totalOut = 0;
-        transactions.forEach(tx => {
-            if (tradeTransactionIds.has(tx.id)) return;
-            const d = new Date(tx.date);
-            if (d < monthStart) return;
-            const account = accounts.find(a => a.id === tx.account_id);
-            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
-            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
-            const weekIdx = Math.min(4, Math.floor((d.getDate() - 1) / 7));
-            if (tx.transaction_type === 'income') {
-                weeks[weekIdx].in += homeAmount;
-                totalIn += homeAmount;
-            } else {
-                weeks[weekIdx].out += homeAmount;
-                totalOut += homeAmount;
-            }
-        });
-        const max = Math.max(1, ...weeks.map(w => Math.max(w.in, w.out)));
-        return { weeks, totalIn, totalOut, max, monthLabel: now.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) };
-    }, [transactions, accounts, viewMode, user?.id, tradeTransactionIds]);
-
-    // Date window the top-categories card (chips + pie chart) is scoped to. Kept separate from
-    // the "Activity Type/Account/Sub-Portfolio" filters below, which apply to the full history list.
-    const categoryPeriodRange = useMemo(() => {
-        const now = new Date();
-        switch (categoryPeriod) {
-            case "this_month":
-                return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: null as Date | null };
-            case "last_month":
-                return { start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: new Date(now.getFullYear(), now.getMonth(), 1) };
-            case "last_3_months":
-                return { start: new Date(now.getFullYear(), now.getMonth() - 2, 1), end: null };
-            case "last_6_months":
-                return { start: new Date(now.getFullYear(), now.getMonth() - 5, 1), end: null };
-            case "this_year":
-                return { start: new Date(now.getFullYear(), 0, 1), end: null };
-            case "specific_month": {
-                // categoryPeriodStart doubles as the month anchor (always stored as a full
-                // YYYY-MM-DD so it stays valid for the custom range's date input too); only its
-                // year/month are read. End is exclusive — the 1st of the following month.
-                if (!categoryPeriodStart) return null;
-                const [year, month] = categoryPeriodStart.split("-").map(Number);
-                if (!year || !month) return null;
-                return { start: new Date(year, month - 1, 1), end: new Date(year, month, 1) };
-            }
-            case "custom":
-                return {
-                    start: categoryPeriodStart ? new Date(`${categoryPeriodStart}T00:00:00`) : null,
-                    end: categoryPeriodEnd ? new Date(`${categoryPeriodEnd}T23:59:59.999`) : null,
-                };
-            default:
-                return null;
-        }
-    }, [categoryPeriod, categoryPeriodStart, categoryPeriodEnd]);
-
-    const isInCategoryPeriod = (date: Date) => {
-        if (!categoryPeriodRange) return true;
-        if (categoryPeriodRange.start && date < categoryPeriodRange.start) return false;
-        if (categoryPeriodRange.end && date >= categoryPeriodRange.end) return false;
-        return true;
-    };
-
-    // Every expense category that's actually shown up in the selected period, used to populate the
-    // filter chips (independent of which ones are currently hidden, so a hidden chip stays visible to re-enable).
-    const expenseCategoryOptions = useMemo(() => {
-        const seen = new Map<string, string>();
-        transactions.forEach(tx => {
-            if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
-            if (!isInCategoryPeriod(new Date(tx.date))) return;
-            if (!countsAsSpending(categories.find(c => c.id === tx.category_id)?.name, !!tx.transfer_id)) return;
-            const account = accounts.find(a => a.id === tx.account_id);
-            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
-            const id = tx.category_id || "uncategorized";
-            if (!seen.has(id)) {
-                const name = categories.find(c => c.id === tx.category_id)?.name || "Uncategorized";
-                seen.set(id, name);
-            }
-        });
-        return Array.from(seen.entries())
-            .map(([id, name]) => ({ id, name }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, categoryPeriodRange]);
-
-    // Stable id -> color mapping derived from the household's full expense-category list (sorted by
-    // id, not by amount), so a category keeps the same pie/legend color no matter what's hidden or
-    // which period is selected. "Other"/"Uncategorized" always get the same neutral fallback.
-    const categoryColorMap = useMemo(() => {
-        const expenseCats = categories
-            .filter(c => c.type === 'expense')
-            .slice()
-            .sort((a, b) => a.id.localeCompare(b.id));
-        const map = new Map<string, string>();
-        expenseCats.forEach((c, i) => map.set(c.id, CATEGORY_COLORS[i % CATEGORY_COLORS.length]));
-        return map;
-    }, [categories]);
-
-    const colorForSlice = (id: string) => categoryColorMap.get(id) ?? OTHER_SLICE_COLOR;
-
-    const toggleHiddenCategory = (id: string) => {
-        setHiddenCategoryIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            return next;
-        });
-    };
-
-    const resetCategoryFilter = () => setHiddenCategoryIds(new Set());
-
-    const categoryBreakdown = useMemo(() => {
-        const categoryMap = new Map(categories.map(c => [c.id, c.name]));
-        const byCategory = new Map<string, { name: string; amount: number }>();
-        transactions.forEach(tx => {
-            if (tx.transaction_type !== 'expense' || tradeTransactionIds.has(tx.id)) return;
-            if (!isInCategoryPeriod(new Date(tx.date))) return;
-            const account = accounts.find(a => a.id === tx.account_id);
-            if (!isVisibleInViewMode(account?.owner_user_id ?? null, viewMode, user?.id)) return;
-            const catId = tx.category_id || "uncategorized";
-            if (hiddenCategoryIds.has(catId)) return;
-            const name = categoryMap.get(tx.category_id) || "Uncategorized";
-            // Transfers and settlements are cash leaving an account without being
-            // spending: you still have the money, or the bill was already charged.
-            if (!countsAsSpending(name, !!tx.transfer_id)) return;
-            const homeAmount = Math.abs(Number(tx.amount_home_currency ?? tx.amount));
-            const existing = byCategory.get(catId);
-            byCategory.set(catId, { name, amount: (existing?.amount ?? 0) + homeAmount });
-        });
-        const all = Array.from(byCategory.entries())
-            .map(([id, v]) => ({ id, name: v.name, amount: v.amount, icon: categoryIcon(v.name) }))
-            .sort((a, b) => b.amount - a.amount);
-        const total = all.reduce((sum, c) => sum + c.amount, 0);
-        const top = all.slice(0, 4);
-        const max = Math.max(1, ...top.map(c => c.amount));
-        return { all, top, max, total };
-    }, [transactions, categories, accounts, viewMode, user?.id, tradeTransactionIds, hiddenCategoryIds, categoryPeriodRange]);
-
-    // Cap the pie chart at 6 slices + "Other" so it stays legible once a household has a long tail of categories.
-    const pieSlices = useMemo(() => {
-        const items = categoryBreakdown.all;
-        if (items.length <= 6) return items;
-        const top = items.slice(0, 6);
-        const otherAmount = items.slice(6).reduce((sum, c) => sum + c.amount, 0);
-        return [...top, { id: "other", name: "Other", amount: otherAmount, icon: "•" }];
-    }, [categoryBreakdown.all]);
-
     const getIcon = (type: string) => {
         if (type === 'deposit' || type === 'income' || type === 'transfer_in') return <ArrowDownRight className="h-5 w-5 text-green-500" />
         if (type === 'withdrawal' || type === 'expense' || type === 'transfer_out') return <ArrowUpRight className="h-5 w-5 text-red-500" />
@@ -656,6 +295,32 @@ export default function Transactions() {
             hour: '2-digit', minute: '2-digit'
         });
     }
+
+    const toggleHiddenCategory = (id: string) => {
+        setHiddenCategoryIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const resetCategoryFilter = () => setHiddenCategoryIds(new Set());
+
+    // Trades + transactions reconciled into one filtered, grouped, charted view.
+    const {
+        colorForSlice,
+        groupedHistory,
+        cashflowData,
+        expenseCategoryOptions,
+        categoryBreakdown,
+        pieSlices,
+    } = useTransactionHistory({
+        trades, transactions, assets, categories, accounts, subportfolios,
+        user, viewMode, activeHousehold, baseCurrency,
+        filterCategory, filterAccount, filterSubportfolio, filterFlow,
+        hiddenCategoryIds, categoryPeriod, categoryPeriodStart, categoryPeriodEnd,
+        historyGranularity,
+    })
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -895,293 +560,35 @@ export default function Transactions() {
             </div>
 
             {/* Log Transaction Modal */}
-            <Dialog isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)}>
-                <DialogHeader>
-                    <DialogTitle className="text-base-900 dark:text-base-50">{activeTab === 'transaction' ? 'Log Daily Transaction' : 'Internal Transfer'}</DialogTitle>
-                    <p className="text-sm text-base-500 dark:text-base-400">
-                        {activeTab === 'transaction'
-                            ? 'Record food, retail, or income items manually.'
-                            : 'Move money between your accounts seamlessly.'}
-                    </p>
-                </DialogHeader>
-
-                {/* Tab Switcher */}
-                <div className="flex p-1 bg-base-100 dark:bg-base-900 rounded-lg mb-6">
-                    <button
-                        type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transaction' ? 'bg-white dark:bg-base-700 shadow-sm text-primary-600 dark:text-primary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
-                        onClick={() => setActiveTab('transaction')}
-                    >
-                        Income/Expense
-                    </button>
-                    <button
-                        type="button"
-                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'transfer' ? 'bg-white dark:bg-base-700 shadow-sm text-secondary-600 dark:text-secondary-400' : 'text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200'}`}
-                        onClick={() => setActiveTab('transfer')}
-                    >
-                        Transfer
-                    </button>
-                </div>
-
-                {activeTab === 'transaction' ? (
-                    <form onSubmit={handleLogTransaction} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Account</label>
-                                <Select
-                                    required
-                                    placeholder="Select Account"
-                                    value={formData.accountId}
-                                    onChange={(accountId) => setFormData({ ...formData, accountId })}
-                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-base-700 dark:text-base-300">Category</label>
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsCreatingCategory(!isCreatingCategory)}
-                                        className="text-xs text-primary-600 hover:underline"
-                                    >
-                                        {isCreatingCategory ? "Cancel" : "+ New Category"}
-                                    </button>
-                                </div>
-                                {isCreatingCategory ? (
-                                    <div className="space-y-2 rounded-lg border border-dashed border-base-300 dark:border-base-700 p-2">
-                                        <Input
-                                            placeholder="e.g. Food, Salary"
-                                            value={newCategoryName}
-                                            onChange={(e) => setNewCategoryName(e.target.value)}
-                                        />
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex flex-1 p-0.5 bg-base-100 dark:bg-base-900 rounded-md">
-                                                {(["expense", "income"] as const).map(t => (
-                                                    <button
-                                                        key={t}
-                                                        type="button"
-                                                        onClick={() => setNewCategoryType(t)}
-                                                        className={`flex-1 py-1 text-xs font-medium rounded transition-all capitalize ${newCategoryType === t ? 'bg-white dark:bg-base-700 shadow-sm text-base-900 dark:text-base-50' : 'text-base-500 dark:text-base-400'}`}
-                                                    >
-                                                        {t}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                disabled={!newCategoryName.trim() || isSavingCategory}
-                                                onClick={handleCreateCategory}
-                                            >
-                                                {isSavingCategory ? "Adding…" : "Add"}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <Select
-                                        required
-                                        placeholder="Select Category"
-                                        value={formData.categoryId}
-                                        onChange={(categoryId) => setFormData({ ...formData, categoryId })}
-                                        options={categories.map(cat => ({ value: cat.id, label: `${cat.name} (${cat.type})` }))}
-                                    />
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Currency</label>
-                                <Select
-                                    required
-                                    placeholder="Select Currency"
-                                    value={formData.currency}
-                                    onChange={(currency) => setFormData({ ...formData, currency })}
-                                    options={currencies.map(curr => ({ value: curr.code, label: `${curr.code} - ${curr.name}` }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    required
-                                    placeholder="0.00"
-                                    value={formData.amount}
-                                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
-                                <Input
-                                    type="date"
-                                    required
-                                    value={formData.date.split('T')[0]}
-                                    onChange={(e) => setFormData({ ...formData, date: e.target.value + 'T12:00:00Z' })}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
-                            <Input
-                                placeholder="e.g. Groceries, Dinner, Salary..."
-                                value={formData.description}
-                                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            />
-                        </div>
-
-                        {/*
-                          Splitting a bill. The amount above is untouched: the whole
-                          sum really did leave the account. This only records how much
-                          of it was somebody else's, so the budget charges you for your
-                          share and the rest becomes a debt they owe you.
-                        */}
-                        <div className="rounded-lg border border-dashed border-base-300 dark:border-base-700 p-3 space-y-3">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={isSplitting}
-                                    onChange={(e) => setIsSplitting(e.target.checked)}
-                                    className="rounded border-base-300 dark:border-base-600 text-primary-600 focus:ring-primary-500"
-                                />
-                                <span className="text-sm font-medium text-base-700 dark:text-base-300">
-                                    Someone owes me for part of this
-                                </span>
-                            </label>
-                            {isSplitting && (
-                                <>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Who</label>
-                                            <Input
-                                                placeholder="e.g. Alice"
-                                                value={formData.owedBy}
-                                                onChange={(e) => setFormData({ ...formData, owedBy: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-base-700 dark:text-base-300">They owe</label>
-                                            <Input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                placeholder="0.00"
-                                                value={formData.owedAmount}
-                                                onChange={(e) => setFormData({ ...formData, owedAmount: e.target.value })}
-                                            />
-                                        </div>
-                                    </div>
-                                    <p className="text-xs text-base-500 dark:text-base-400">
-                                        {splitHint(formData.amount, formData.owedAmount, baseCurrency)}
-                                    </p>
-                                </>
-                            )}
-                        </div>
-
-                        {/*
-                          Only for users who asked for it in Settings. A four-digit code
-                          field on every form would tax everyone for a minority feature —
-                          and it is optional even here, since most purchases have no code
-                          the user happens to know.
-                        */}
-                        {user?.record_merchant_codes && (
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">
-                                    Merchant code <span className="font-normal text-base-400">(optional)</span>
-                                </label>
-                                <Select
-                                    placeholder="Leave blank if you don't know it"
-                                    value={formData.mcc}
-                                    onChange={(mcc) => setFormData({ ...formData, mcc })}
-                                    options={mccOptions}
-                                />
-                                <p className="text-xs text-base-500 dark:text-base-400">
-                                    Recorded only — nothing is calculated from it.
-                                </p>
-                            </div>
-                        )}
-
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => setIsLogModalOpen(false)}>
-                                Cancel
-                            </Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting ? "Logging..." : "Log Transaction"}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                ) : (
-                    <form onSubmit={handleTransfer} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">From Account</label>
-                                <Select
-                                    required
-                                    placeholder="Select Source"
-                                    value={transferData.fromAccountId}
-                                    onChange={(fromAccountId) => setTransferData({ ...transferData, fromAccountId })}
-                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.toAccountId }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">To Account</label>
-                                <Select
-                                    required
-                                    placeholder="Select Destination"
-                                    value={transferData.toAccountId}
-                                    onChange={(toAccountId) => setTransferData({ ...transferData, toAccountId })}
-                                    options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.fromAccountId }))}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Amount</label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    required
-                                    placeholder="0.00"
-                                    value={transferData.amount}
-                                    onChange={(e) => setTransferData({ ...transferData, amount: e.target.value })}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-base-700 dark:text-base-300">Date</label>
-                                <Input
-                                    type="date"
-                                    required
-                                    value={transferData.date.split('T')[0]}
-                                    onChange={(e) => setTransferData({ ...transferData, date: e.target.value + 'T12:00:00Z' })}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
-                            <Input
-                                placeholder="e.g. Savings transfer, Monthly rent..."
-                                value={transferData.description}
-                                onChange={(e) => setTransferData({ ...transferData, description: e.target.value })}
-                            />
-                        </div>
-
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => setIsLogModalOpen(false)}>
-                                Cancel
-                            </Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting ? "Processing..." : "Transfer Funds"}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                )}
-            </Dialog>
+            <LogTransactionDialog
+                isOpen={isLogModalOpen}
+                onClose={() => setIsLogModalOpen(false)}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                accounts={accounts}
+                categories={categories}
+                currencies={currencies}
+                mccOptions={mccOptions}
+                user={user}
+                formData={formData}
+                setFormData={setFormData}
+                onSubmitTransaction={handleLogTransaction}
+                transferData={transferData}
+                setTransferData={setTransferData}
+                onSubmitTransfer={handleTransfer}
+                isSubmitting={isSubmitting}
+                isSplitting={isSplitting}
+                setIsSplitting={setIsSplitting}
+                baseCurrency={baseCurrency}
+                isCreatingCategory={isCreatingCategory}
+                setIsCreatingCategory={setIsCreatingCategory}
+                newCategoryName={newCategoryName}
+                setNewCategoryName={setNewCategoryName}
+                newCategoryType={newCategoryType}
+                setNewCategoryType={setNewCategoryType}
+                isSavingCategory={isSavingCategory}
+                onCreateCategory={handleCreateCategory}
+            />
 
             {/* Filters */}
             <Card className="bg-base-50/50 dark:bg-base-900/50">
