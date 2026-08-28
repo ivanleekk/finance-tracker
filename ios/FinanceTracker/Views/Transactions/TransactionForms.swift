@@ -33,6 +33,13 @@ struct TransactionFormView: View {
     /// Empty means "not recorded", which is the normal case — most purchases have
     /// no code the user happens to know.
     @State private var mcc: String
+    /// The card's own category, when the selected account is a card. Empty means
+    /// the card's default, which is where untagged spend lands.
+    @State private var cardCategoryId: String
+    /// Loaded on demand when a card account is selected — most accounts are not
+    /// cards, so this is not fetched with the form.
+    @State private var card: CardResponse?
+    @State private var cardHeadroom: [String: CardLimitStatusRow] = [:]
 
     init(
         accounts: [AccountResponse],
@@ -57,6 +64,7 @@ struct TransactionFormView: View {
         _owedByText = State(initialValue: existing?.owedBy ?? "")
         _owedAmountText = State(initialValue: existingOwed.map(Self.amountString) ?? "")
         _mcc = State(initialValue: existing?.mcc ?? "")
+        _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
     }
 
     /// Editable string for a stored amount: drop the trailing ".0" on whole numbers.
@@ -183,6 +191,23 @@ struct TransactionFormView: View {
                     }
                 }
 
+                // Only when the selected account is actually a card. The headroom
+                // sits in the row because this is the one moment the number can
+                // still change the decision — a meter you have to go and look at
+                // will not stop anyone overspending.
+                if let card {
+                    Section {
+                        Picker("Card category", selection: $cardCategoryId) {
+                            Text("Card's default").tag("")
+                            ForEach(card.categories) { category in
+                                Text(cardCategoryLabel(category)).tag(category.id)
+                            }
+                        }
+                    } footer: {
+                        Text("Which of this card's own categories the spend counts towards.")
+                    }
+                }
+
                 // Only for users who asked for it in Settings — a four-digit code
                 // field on every form would tax everyone for a minority feature.
                 if session.user?.recordsMerchantCodes == true {
@@ -219,13 +244,20 @@ struct TransactionFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId, mcc])
+            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId, mcc, cardCategoryId])
             .onAppear {
                 if accountId == nil {
                     let defaultAccount = accounts.first { $0.id == session.user?.defaultAccountId }
                     accountId = (defaultAccount ?? accounts.first)?.id
                 }
                 if categoryId == nil { categoryId = filteredCategories.first?.id }
+                Task { await loadCard(for: accountId) }
+            }
+            .onChange(of: accountId) { _, newValue in
+                // A pick from the old card is meaningless on a new one, so it is
+                // cleared here as well as server-side.
+                cardCategoryId = ""
+                Task { await loadCard(for: newValue) }
             }
             .sheet(isPresented: $showingNewCategory) {
                 CategoryEditView(category: nil, householdId: householdId, lockedType: type) { created in
@@ -249,6 +281,41 @@ struct TransactionFormView: View {
         return hadSplit ? .clear : .unchanged
     }
 
+    /// The card behind an account, with this cycle's headroom — or nothing, which
+    /// is the common answer rather than an error. Fetched on demand because most
+    /// accounts are not cards and most households have none.
+    private func loadCard(for accountId: String?) async {
+        guard let accountId else {
+            card = nil
+            cardHeadroom = [:]
+            return
+        }
+        do {
+            let cards: [CardResponse] = try await APIClient.shared.get(
+                "/cards/household/\(householdId)"
+            )
+            guard let match = cards.first(where: { $0.financialAccountId == accountId }) else {
+                card = nil
+                cardHeadroom = [:]
+                return
+            }
+            card = match
+            let status: CardStatusResponse = try await APIClient.shared.get("/cards/\(match.id)/status")
+            cardHeadroom = Cards.headroomByCategory(card: match, status: status)
+        } catch {
+            // A missing meter makes the picker plainer, not the form unusable.
+            cardHeadroom = [:]
+        }
+    }
+
+    /// "Dining · $240 left" when the category is metered, otherwise just its name.
+    private func cardCategoryLabel(_ category: CardCategoryResponse) -> String {
+        guard let row = cardHeadroom[category.id] else { return category.name }
+        let currency = card?.currency ?? session.activeHousehold?.baseCurrency ?? "USD"
+        let headroom = Cards.headroomLabel(for: row) { $0.currencyWhole(currency) }
+        return "\(category.name) · \(headroom)"
+    }
+
     private func save() {
         guard let amount, let accountId, let categoryId else { return }
         isSaving = true
@@ -264,7 +331,10 @@ struct TransactionFormView: View {
                         accountId: accountId,
                         categoryId: categoryId,
                         split: splitChange,
-                        mcc: mcc
+                        mcc: mcc,
+                        // Empty means "the card's default", which the API reads
+                        // from an explicit null rather than an empty string.
+                        cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
                     )
                     let _: TransactionResponse = try await APIClient.shared.put(
                         "/cashflow/transactions/\(existing.id)", body: body

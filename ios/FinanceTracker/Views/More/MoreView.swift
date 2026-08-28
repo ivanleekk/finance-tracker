@@ -140,6 +140,11 @@ struct MoreView: View {
                         Label("Shared Spending", systemImage: "person.2.arrow.trianglehead.counterclockwise")
                     }
                     NavigationLink {
+                        CardsView()
+                    } label: {
+                        Label("Cards", systemImage: "creditcard")
+                    }
+                    NavigationLink {
                         RecurringView()
                     } label: {
                         Label("Recurring", systemImage: "repeat")
