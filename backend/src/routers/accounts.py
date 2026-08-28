@@ -310,6 +310,25 @@ def add_account_balance(
         models.AccountBalance.date == balance.date
     ).first()
 
+    # An account's *first* balance is an opening balance, not a reconciliation,
+    # and the difference matters: `is_manual` marks a checkpoint that
+    # `propagate_balance_change` refuses to move through. A reconciliation should
+    # be a checkpoint — it says "I counted, and it was this much on this date",
+    # which a later-entered transaction must not silently overwrite. An opening
+    # balance asserts nothing of the kind. There is no history behind it to
+    # correct, so there is nothing for it to be a checkpoint *against*.
+    #
+    # Marking it manual made every new account plant an anchor at its creation
+    # date, so a transaction entered with an earlier date — a purchase from last
+    # week, on a card you just set up — updated its own day and then stopped
+    # dead, leaving the headline balance reading zero forever.
+    others = db.query(models.AccountBalance.id).filter(
+        models.AccountBalance.account_id == balance.account_id
+    )
+    if db_balance:
+        others = others.filter(models.AccountBalance.id != db_balance.id)
+    is_opening_balance = others.first() is None
+
     # Calculate delta for propagation if there's already a balance chain
     # What would the balance have been on this date?
     if db_balance:
@@ -331,7 +350,8 @@ def add_account_balance(
     if db_balance:
         db_balance.balance = balance.balance
         db_balance.balance_home_currency = float(balance.balance) * rate
-        db_balance.is_manual = True
+        # Editing the opening balance leaves it an opening balance.
+        db_balance.is_manual = not is_opening_balance
     else:
         db_balance = models.AccountBalance(
             id=uuid.uuid7(),
@@ -339,7 +359,7 @@ def add_account_balance(
             date=balance.date,
             balance=balance.balance,
             balance_home_currency=float(balance.balance) * rate,
-            is_manual=True
+            is_manual=not is_opening_balance,
         )
         db.add(db_balance)
     
