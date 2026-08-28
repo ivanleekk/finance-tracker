@@ -193,6 +193,12 @@ struct CardLimitMeter: View {
             }
             .frame(height: 6)
 
+            if Cards.measuresNothing(row) {
+                Text("No categories point at this limit yet, so it isn't measuring anything.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             if Cards.tone(for: row) == .atRisk {
                 Text(
                     row.direction == .floor

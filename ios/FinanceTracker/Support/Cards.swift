@@ -80,6 +80,39 @@ enum Cards {
         return out
     }
 
+    /// The card behind an account, with this cycle's headroom — or nil, which is
+    /// the ordinary answer for an account that is not a card rather than an error.
+    ///
+    /// Shared by the transaction form and Quick Add so the two cannot drift into
+    /// saying different things about the same card. Fetched on demand at both
+    /// call sites, because most accounts are not cards and most households have
+    /// none.
+    static func load(
+        householdId: String,
+        accountId: String
+    ) async -> (card: CardResponse, headroom: [String: CardLimitStatusRow])? {
+        do {
+            let cards: [CardResponse] = try await APIClient.shared.get("/cards/household/\(householdId)")
+            guard let card = cards.first(where: { $0.financialAccountId == accountId }) else { return nil }
+            // A missing meter makes the picker plainer, never the form unusable,
+            // so the status is allowed to fail on its own.
+            let status: CardStatusResponse? = try? await APIClient.shared.get("/cards/\(card.id)/status")
+            return (card, status.map { headroomByCategory(card: card, status: $0) } ?? [:])
+        } catch {
+            return nil
+        }
+    }
+
+    /// A limit with no categories pointing at it measures nothing.
+    ///
+    /// A setup mistake rather than a state worth rendering as a meter: the user
+    /// made a cap and never said what counts towards it. Left alone it draws a
+    /// perfectly plausible "0 of $1,000" bar and reads as "nothing spent yet",
+    /// which is the one thing it must not be mistaken for.
+    static func measuresNothing(_ row: CardLimitStatusRow) -> Bool {
+        row.categoryNames.isEmpty
+    }
+
     /// The limits worth interrupting someone about — burst, or on pace to be.
     ///
     /// Used for the Dashboard's exception row, which shows nothing at all when

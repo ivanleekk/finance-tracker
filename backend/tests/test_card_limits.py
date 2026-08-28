@@ -483,7 +483,7 @@ class TestCardEndpoints:
         assert client.post("/cards", json=body, headers=headers).status_code == 201
         assert client.post("/cards", json=body, headers=headers).status_code == 409
 
-    def test_the_first_category_becomes_the_default_without_being_asked(
+    def test_a_category_added_later_does_not_steal_the_default(
         self, client, headers, card_account
     ):
         card = client.post(
@@ -491,14 +491,18 @@ class TestCardEndpoints:
             json={"financial_account_id": str(card_account.id), "statement_day": 18},
             headers=headers,
         ).json()
-        # Untagged spend has to land somewhere from the very first transaction.
+        # The card is seeded with a default, so a category added afterwards must
+        # not quietly steal it — untagged spend would move with it.
         res = client.post(
             f"/cards/{card['id']}/categories",
-            json={"name": "Everything else", "is_default": False},
+            json={"name": "Dining", "is_default": False},
             headers=headers,
         )
         assert res.status_code == 201
-        assert res.json()["is_default"] is True
+        assert res.json()["is_default"] is False
+
+        refreshed = client.get(f"/cards/{card['id']}", headers=headers).json()
+        assert [c["name"] for c in refreshed["categories"] if c["is_default"]] == ["Everything else"]
 
     def test_making_one_category_default_demotes_the_previous_one(
         self, client, headers, card_account
@@ -567,8 +571,8 @@ class TestCardEndpoints:
         assert client.delete(f"/cards/limits/{limit['id']}", headers=headers).status_code == 204
 
         refreshed = client.get(f"/cards/{card['id']}", headers=headers).json()
-        assert [c["name"] for c in refreshed["categories"]] == ["Dining"]
-        assert refreshed["categories"][0]["limit_id"] is None
+        dining = next(c for c in refreshed["categories"] if c["name"] == "Dining")
+        assert dining["limit_id"] is None, "the category survives, merely unmetered"
 
     def test_a_category_in_use_is_a_409_not_a_500(
         self, client, headers, db_session, card_account, dining
@@ -733,3 +737,59 @@ class TestTransactionIntegrity:
         )
         assert edited.status_code == 200
         assert edited.json()["card_category_id"] == cat["id"], "a description edit must not untag"
+
+
+class TestUntaggedSpendAlwaysLands:
+    """
+    Untagged spend is resolved *to* the card's default category when a cycle is
+    totalled. A card without a default has nowhere to put it, so the spend was
+    computed and then dropped — set a card up, add a cap, spend on it, and the
+    meter read zero. Telling someone they have full headroom when they have none
+    is the exact opposite of what this feature is for.
+    """
+
+    def test_a_new_card_can_meter_spending_immediately(self, client, headers, card_account, db_session, dining):
+        card = client.post(
+            "/cards",
+            json={"financial_account_id": str(card_account.id), "statement_day": 18},
+            headers=headers,
+        ).json()
+        assert [c["name"] for c in card["categories"] if c["is_default"]] == ["Everything else"], \
+            "a card is seeded with somewhere for untagged spend to land"
+
+        db_card = db_session.query(models.Card).filter(models.Card.id == uuid.UUID(card["id"])).first()
+        # No card category picked, exactly as a quick-add entry arrives.
+        _spend(db_session, card_account, dining, 250, date(2026, 9, 1))
+
+        db_session.refresh(db_card)
+        _, _, rows = card_service.card_category_breakdown(db_session, db_card, on=date(2026, 9, 5))
+        assert [(r.category.name, r.spent) for r in rows] == [("Everything else", Decimal("250.00"))]
+
+    def test_the_default_category_cannot_be_deleted_out_from_under_the_spend(
+        self, client, headers, card_account
+    ):
+        card = client.post(
+            "/cards",
+            json={"financial_account_id": str(card_account.id), "statement_day": 18},
+            headers=headers,
+        ).json()
+        default_id = next(c["id"] for c in card["categories"] if c["is_default"])
+
+        res = client.delete(f"/cards/categories/{default_id}", headers=headers)
+        assert res.status_code == 409
+        assert "at least one category" in res.json()["detail"]
+
+    def test_deleting_the_default_is_refused_while_another_could_take_over(
+        self, client, headers, card_account
+    ):
+        card = client.post(
+            "/cards",
+            json={"financial_account_id": str(card_account.id), "statement_day": 18},
+            headers=headers,
+        ).json()
+        default_id = next(c["id"] for c in card["categories"] if c["is_default"])
+        client.post(f"/cards/{card['id']}/categories", json={"name": "Dining"}, headers=headers)
+
+        res = client.delete(f"/cards/categories/{default_id}", headers=headers)
+        assert res.status_code == 409
+        assert "the default" in res.json()["detail"].lower()

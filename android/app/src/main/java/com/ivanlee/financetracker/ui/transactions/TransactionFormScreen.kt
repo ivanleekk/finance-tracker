@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.data.loadCardForAccount
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
@@ -378,33 +379,19 @@ fun TransactionFormScreen(
         }
     }
 
-    // Reloads whenever the account changes, including the first time one is picked.
-    // A pick from the old card is meaningless on a new one, so it is cleared here as
-    // well as server-side.
+    // Reloads whenever the account changes, including the first time one is
+    // picked. A pick from the old card is meaningless on a new one, so it is
+    // cleared here as well as server-side.
     LaunchedEffect(accountId, sessionVm.activeHousehold?.id) {
         val householdId = sessionVm.activeHousehold?.id
         val account = accountId
-        if (householdId == null || account == null) {
-            card = null
-            cardHeadroom = emptyMap()
-            return@LaunchedEffect
+        val loaded = if (householdId == null || account == null) null
+                     else loadCardForAccount(householdId, account)
+        if (loaded?.card?.id != card?.id) {
+            cardCategoryId = existing?.cardCategoryId.takeIf { existing?.accountId == account }
         }
-        val match = runCatching {
-            Api.get<List<CardResponse>>("/cards/household/$householdId")
-                .firstOrNull { it.financialAccountId == account }
-        }.getOrNull()
-        if (match == null) {
-            card = null
-            cardHeadroom = emptyMap()
-            cardCategoryId = null
-            return@LaunchedEffect
-        }
-        if (match.id != card?.id) cardCategoryId = existing?.cardCategoryId.takeIf { existing?.accountId == account }
-        card = match
-        // A missing meter makes the picker plainer, not the form unusable.
-        cardHeadroom = runCatching {
-            Cards.headroomByCategory(match, Api.get<CardStatusResponse>("/cards/${match.id}/status"))
-        }.getOrDefault(emptyMap())
+        card = loaded?.card
+        cardHeadroom = loaded?.headroom ?: emptyMap()
     }
 
     if (showCardCategoryPicker) {

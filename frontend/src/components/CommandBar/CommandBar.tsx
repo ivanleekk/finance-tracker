@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useNavigate, useRevalidator } from "react-router";
+import { useEffect, useRef, useState, useCallback, useMemo} from "react";
+import { useNavigate, useRevalidator, useFetcher } from "react-router";
 import { useCommandBar } from "../../lib/CommandBarContext";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
@@ -26,6 +26,8 @@ import {
     TransferView,
 } from "./CommandBarViews";
 import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
+import type { CardPickerData } from "../../pages/Transactions/cardCategories.resource";
+import { cardCategoryPickerOptions } from "../../lib/cards";
 
 
 export function CommandBar() {
@@ -44,6 +46,10 @@ export function CommandBar() {
     const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string | null>(null);
     const [categoryOverride, setCategoryOverride] = useState<{ name: string; icon: string } | null>(null);
     const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
+    // The card behind the chosen account, if it is one. Fetched on demand — most
+    // accounts are not cards, and the command bar is meant to be fast.
+    const [cardCategoryId, setCardCategoryId] = useState("");
+    const cardFetcher = useFetcher<CardPickerData>();
     const [successInfo, setSuccessInfo] = useState<{ big: string; sub: string } | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [undoData, setUndoData] = useState<{ path: string } | null>(null);
@@ -148,6 +154,36 @@ export function CommandBar() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, activeTicker, parsed.type]);
+
+    const routedAccount = (fallback: AccountResponse | null): AccountResponse | null => {
+        const userDefault = accounts.find(a => a.id === user?.default_account_id) || null;
+        if (!hasHousehold) return fallback || userDefault;
+        if (ownership === "private") {
+            return accounts.find(a => a.owner_user_id === user?.id) || fallback || userDefault;
+        }
+        return accounts.find(a => !a.owner_user_id) || fallback || userDefault;
+    };
+
+    // The account the expense will actually be charged to.
+    const chosenAccountId = expenseAccountId
+        ?? (parsed.type === "expense" ? routedAccount(parsed.account)?.id : undefined)
+        ?? null;
+
+    // Reuses the resource route the transaction form already loads this from,
+    // rather than a second copy of "find the card, then fetch its status".
+    useEffect(() => {
+        setCardCategoryId("");
+        if (chosenAccountId) cardFetcher.load(`/transactions/card/${chosenAccountId}`);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chosenAccountId]);
+
+    const cardCategoryOptions = useMemo(
+        () => cardCategoryPickerOptions(
+            cardFetcher.data ?? null,
+            activeHousehold?.base_currency ?? "USD",
+        ),
+        [cardFetcher.data, activeHousehold],
+    );
 
     if (!isOpen) return null;
 
@@ -270,15 +306,6 @@ export function CommandBar() {
     /** When ownership routing is shown, resolve which real account to charge: the user's own
      * private account if "private" is chosen, otherwise a shared (owner_user_id null) account.
      * Falls back to whatever the parser matched if no account of the right kind exists. */
-    const routedAccount = (fallback: AccountResponse | null): AccountResponse | null => {
-        const userDefault = accounts.find(a => a.id === user?.default_account_id) || null;
-        if (!hasHousehold) return fallback || userDefault;
-        if (ownership === "private") {
-            return accounts.find(a => a.owner_user_id === user?.id) || fallback || userDefault;
-        }
-        return accounts.find(a => !a.owner_user_id) || fallback || userDefault;
-    };
-
     const finishSuccess = (big: string, sub: string, undo: { path: string } | null) => {
         setSuccessInfo({ big, sub });
         setUndoData(undo);
@@ -315,6 +342,9 @@ export function CommandBar() {
                     amount: parsed.amount,
                     transaction_type: "expense",
                     description: parsed.merchant,
+                    // Omitted when blank: the API reads a missing key as "use the
+                    // card's default", which is what blank means here.
+                    ...(cardCategoryId ? { card_category_id: cardCategoryId } : {}),
                 });
                 finishSuccess(`−$${fmtA(parsed.amount)}`, `${category.name} · ${account.name}${!expenseAccountId && hasHousehold ? (ownership === "private" ? " · Private" : " · Household") : ""}`, { path: `/cashflow/transactions/${res.data.id}` });
             } else if (parsed.type === "balance") {
@@ -521,6 +551,9 @@ export function CommandBar() {
                             setQuery={setQuery}
                             categoryOverride={categoryOverride}
                             setCategoryOverride={setCategoryOverride}
+                            cardCategoryOptions={cardCategoryOptions}
+                            cardCategoryId={cardCategoryId}
+                            setCardCategoryId={setCardCategoryId}
                             expenseAccountId={expenseAccountId}
                             setExpenseAccountId={setExpenseAccountId}
                         />

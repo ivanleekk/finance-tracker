@@ -11,7 +11,7 @@ import { downloadFromApi } from "../../lib/download"
 import type { HistoryLoaderData } from "./transactions.loader"
 import type { MccResponse } from "../../types/types"
 import type { CardPickerData } from "./cardCategories.resource"
-import { headroomByCategory, headroomLabel } from "../../lib/cards"
+import { cardCategoryPickerOptions } from "../../lib/cards"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
 import { TopBar } from "../../components/TopBar"
@@ -117,29 +117,11 @@ export default function Transactions() {
     };
 
     // "Dining · $240 left" at the moment of choosing — the one point where the
-    // number can still change the decision.
-    const cardCategoryOptions = useMemo(() => {
-        if (!cardData?.card) return [];
-        const money = (value: number) =>
-            new Intl.NumberFormat(undefined, {
-                style: "currency",
-                currency: cardData.card?.currency || activeHousehold?.base_currency || "USD",
-                maximumFractionDigits: 0,
-            }).format(value);
-        const headroom = cardData.status
-            ? headroomByCategory(cardData.card, cardData.status)
-            : new Map();
-        return [
-            { value: "", label: "— Card's default —" },
-            ...cardData.card.categories.map(c => {
-                const row = headroom.get(c.id);
-                return {
-                    value: c.id,
-                    label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name,
-                };
-            }),
-        ];
-    }, [cardData, activeHousehold]);
+    // number can still change the decision. Shared with the command bar.
+    const cardCategoryOptions = useMemo(
+        () => cardCategoryPickerOptions(cardData, activeHousehold?.base_currency ?? "USD"),
+        [cardData, activeHousehold],
+    );
 
     const openLogModal = () => {
         setIsLogModalOpen(true);

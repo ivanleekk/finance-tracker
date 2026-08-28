@@ -285,27 +285,18 @@ struct TransactionFormView: View {
     /// is the common answer rather than an error. Fetched on demand because most
     /// accounts are not cards and most households have none.
     private func loadCard(for accountId: String?) async {
-        guard let accountId else {
+        guard let householdId = session.activeHousehold?.id, let accountId else {
             card = nil
             cardHeadroom = [:]
             return
         }
-        do {
-            let cards: [CardResponse] = try await APIClient.shared.get(
-                "/cards/household/\(householdId)"
-            )
-            guard let match = cards.first(where: { $0.financialAccountId == accountId }) else {
-                card = nil
-                cardHeadroom = [:]
-                return
-            }
-            card = match
-            let status: CardStatusResponse = try await APIClient.shared.get("/cards/\(match.id)/status")
-            cardHeadroom = Cards.headroomByCategory(card: match, status: status)
-        } catch {
-            // A missing meter makes the picker plainer, not the form unusable.
+        guard let loaded = await Cards.load(householdId: householdId, accountId: accountId) else {
+            card = nil
             cardHeadroom = [:]
+            return
         }
+        card = loaded.card
+        cardHeadroom = loaded.headroom
     }
 
     /// "Dining · $240 left" when the category is metered, otherwise just its name.

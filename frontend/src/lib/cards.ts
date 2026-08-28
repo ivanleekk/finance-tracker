@@ -1,4 +1,4 @@
-import type { CardLimitStatusRow, CardResponse, CardStatusResponse } from "../types/types";
+import type { CardCategoryResponse, CardLimitStatusRow, CardResponse, CardStatusResponse } from "../types/types";
 
 /**
  * Presentation logic for per-card spend limits.
@@ -21,6 +21,20 @@ export type CardLimitTone = "over" | "at-risk" | "ok";
  * showing — a warning after the cycle closes is useless, so the pace projection
  * is what earns its place.
  */
+/**
+ * A limit with no categories pointing at it measures nothing.
+ *
+ * It is a setup mistake rather than a state worth rendering as a meter: the user
+ * made a cap and never said what counts towards it. Left alone it draws a
+ * perfectly plausible "0 of $1,000" bar and reads as "nothing spent yet",
+ * which is the one thing it must not be mistaken for.
+ */
+export function limitMeasuresNothing(
+    row: Pick<CardLimitStatusRow, "category_names">
+): boolean {
+    return row.category_names.length === 0;
+}
+
 export function cardLimitTone(
     row: Pick<CardLimitStatusRow, "direction" | "settled" | "projected_missed">
 ): CardLimitTone {
@@ -104,4 +118,36 @@ export function headroomByCategory(
  */
 export function limitsNeedingAttention(rows: CardLimitStatusRow[]): CardLimitStatusRow[] {
     return rows.filter(row => cardLimitTone(row) !== "ok");
+}
+
+
+/**
+ * The card-category picker's options, headroom and all.
+ *
+ * Shared by the transaction form and the command bar so the two cannot drift
+ * into saying different things about the same card. Takes the resource route's
+ * payload directly — `{ card: null }` is the ordinary answer for an account
+ * that is not a card, and yields no options at all, which is what hides the
+ * picker.
+ */
+export function cardCategoryPickerOptions(
+    data: { card: CardResponse | null; status: CardStatusResponse | null } | null,
+    fallbackCurrency: string
+): { value: string; label: string }[] {
+    if (!data?.card) return [];
+    const currency = data.card.currency || fallbackCurrency;
+    const money = (value: number) =>
+        new Intl.NumberFormat(undefined, {
+            style: "currency",
+            currency,
+            maximumFractionDigits: 0,
+        }).format(value);
+    const headroom = data.status ? headroomByCategory(data.card, data.status) : new Map();
+    return [
+        { value: "", label: "— Card's default —" },
+        ...data.card.categories.map((c: CardCategoryResponse) => {
+            const row = headroom.get(c.id);
+            return { value: c.id, label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name };
+        }),
+    ];
 }
