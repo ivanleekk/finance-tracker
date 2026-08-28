@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CardCategoryCreate
+import com.ivanlee.financetracker.data.model.CardCategoryDefaultUpdate
 import com.ivanlee.financetracker.data.model.CardCategoryResponse
 import com.ivanlee.financetracker.data.model.CardCreate
 import com.ivanlee.financetracker.data.model.CardLimitCreate
@@ -246,19 +247,40 @@ fun CardManageDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(categoryLabel(category), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = {
-                            scope.launch {
-                                try {
-                                    Api.delete("/cards/categories/${category.id}")
-                                    categories = categories.filterNot { it.id == category.id }
-                                    onChanged()
-                                } catch (e: Exception) {
-                                    // A category still tagged on transactions comes
-                                    // back as a 409 with an explanation.
-                                    error = e.message ?: "Couldn't remove that category."
-                                }
+                        Row {
+                            if (!category.isDefault) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            val updated = Api.put<CardCategoryDefaultUpdate, CardCategoryResponse>(
+                                                "/cards/categories/${category.id}",
+                                                CardCategoryDefaultUpdate(),
+                                            )
+                                            categories = categories.map {
+                                                if (it.id == updated.id) updated else it.copy(isDefault = false)
+                                            }
+                                            error = null
+                                            onChanged()
+                                        } catch (e: Exception) {
+                                            error = e.message ?: "Couldn't set that category as default."
+                                        }
+                                    }
+                                }) { Text("Make default") }
                             }
-                        }) { Text("Remove") }
+                            TextButton(onClick = {
+                                scope.launch {
+                                    try {
+                                        Api.delete("/cards/categories/${category.id}")
+                                        categories = categories.filterNot { it.id == category.id }
+                                        onChanged()
+                                    } catch (e: Exception) {
+                                        // A category still tagged on transactions comes
+                                        // back as a 409 with an explanation.
+                                        error = e.message ?: "Couldn't remove that category."
+                                    }
+                                }
+                            }) { Text("Remove") }
+                        }
                     }
                 }
 

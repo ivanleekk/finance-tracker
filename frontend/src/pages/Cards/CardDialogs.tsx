@@ -279,17 +279,32 @@ export function ManageCardDialog({
                                             <span className="ml-2 text-xs text-base-400">unmetered</span>
                                         )}
                                     </span>
-                                    <Form method="post" className="shrink-0">
-                                        <input type="hidden" name="_intent" value="deleteCategory" />
-                                        <input type="hidden" name="categoryId" value={category.id} />
-                                        <button
-                                            type="submit"
-                                            aria-label={`Remove ${category.name}`}
-                                            className="rounded p-1 text-base-400 hover:text-red-500"
-                                        >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                    </Form>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        {!category.is_default && (
+                                            <Form method="post">
+                                                <input type="hidden" name="_intent" value="updateCategory" />
+                                                <input type="hidden" name="categoryId" value={category.id} />
+                                                <input type="hidden" name="make_default" value="on" />
+                                                <button
+                                                    type="submit"
+                                                    className="rounded px-1.5 py-0.5 text-xs text-base-500 hover:text-base-900 dark:hover:text-base-50"
+                                                >
+                                                    Make default
+                                                </button>
+                                            </Form>
+                                        )}
+                                        <Form method="post">
+                                            <input type="hidden" name="_intent" value="deleteCategory" />
+                                            <input type="hidden" name="categoryId" value={category.id} />
+                                            <button
+                                                type="submit"
+                                                aria-label={`Remove ${category.name}`}
+                                                className="rounded p-1 text-base-400 hover:text-red-500"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                        </Form>
+                                    </div>
                                 </li>
                             ))}
                         </ul>

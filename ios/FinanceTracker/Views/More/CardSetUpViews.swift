@@ -166,6 +166,25 @@ struct CardManageView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            if !category.isDefault {
+                                Button {
+                                    Task { await makeDefault(category) }
+                                } label: {
+                                    Label("Default", systemImage: "star")
+                                }
+                                .tint(.orange)
+                            }
+                        }
+                        .contextMenu {
+                            if !category.isDefault {
+                                Button {
+                                    Task { await makeDefault(category) }
+                                } label: {
+                                    Label("Make default", systemImage: "star")
+                                }
+                            }
+                        }
                     }
                     .onDelete { offsets in
                         Task { await deleteCategories(at: offsets) }
@@ -274,6 +293,27 @@ struct CardManageView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func makeDefault(_ category: CardCategoryResponse) async {
+        do {
+            let updated: CardCategoryResponse = try await APIClient.shared.put(
+                "/cards/categories/\(category.id)",
+                body: CardCategoryDefaultUpdate()
+            )
+            categories = categories.map { $0.id == updated.id ? updated : CardCategoryResponse(
+                id: $0.id,
+                cardId: $0.cardId,
+                name: $0.name,
+                isDefault: false,
+                sortOrder: $0.sortOrder,
+                limitId: $0.limitId
+            ) }
+            errorMessage = nil
+            await onChanged()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

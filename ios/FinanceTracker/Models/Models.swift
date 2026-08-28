@@ -1271,6 +1271,12 @@ struct CardCategoryCreate: Encodable {
     let limitId: String?
 }
 
+/// Sets a category as its card's default. `isDefault` is the only field sent —
+/// the backend's `exclude_unset` leaves name/limit alone on an omitted key.
+struct CardCategoryDefaultUpdate: Encodable {
+    let isDefault = true
+}
+
 struct BudgetStatusRow: Codable, Identifiable, Hashable {
     let budgetId: String
     let categoryIds: [String]

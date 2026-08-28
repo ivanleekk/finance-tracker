@@ -1337,3 +1337,12 @@ data class CardCategoryCreate(
     val name: String,
     val limitId: String? = null,
 )
+
+/**
+ * Sets a category as its card's default. `isDefault` is the only field sent —
+ * the backend's `exclude_unset` leaves name/limit alone on an omitted key.
+ */
+@Serializable
+data class CardCategoryDefaultUpdate(
+    val isDefault: Boolean = true,
+)
