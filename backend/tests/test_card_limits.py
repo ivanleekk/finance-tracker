@@ -202,6 +202,23 @@ class TestStatementBounds:
             date(2026, 9, 30),
         )
 
+    def test_the_ends_of_the_calendar_answer_instead_of_crashing(self, db_session, card_account):
+        """
+        `on` is a query parameter, so it has to answer for any date it accepts.
+        `date` spans years 1..9999, and asking for the cycle at either end used
+        to reach for the month beyond it — year 0 or year 10000 — and raise,
+        surfacing as a 500 on GET /cards/{id}/status.
+        """
+        card = _card(db_session, card_account, day=31)
+
+        start, end = card_service.statement_bounds(card, date(9999, 12, 31))
+        assert start <= date(9999, 12, 31) <= end
+        assert end <= date.max
+
+        start, end = card_service.statement_bounds(card, date(1, 1, 1))
+        assert start <= date(1, 1, 1) <= end
+        assert start >= date.min
+
     def test_every_day_of_a_year_lands_in_exactly_one_cycle(self, db_session, card_account):
         """No gaps and no overlaps — the property that makes the meter trustworthy."""
         card = _card(db_session, card_account, day=31)

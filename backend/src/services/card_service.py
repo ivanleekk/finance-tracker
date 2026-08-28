@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import MAXYEAR, MINYEAR, date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 import uuid
@@ -48,6 +48,21 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
     return (year + 1, 1) if month == 12 else (year, month + 1)
 
 
+def _neighbouring_close(year: int, month: int, day: int) -> Optional[date]:
+    """
+    The card's closing date in a neighbouring month, or None at the ends of the
+    representable calendar.
+
+    `date` spans years 1..9999, so the month either side of those ends does not
+    exist. Asking for a cycle there is not a real question — no card statement
+    closes in the year 10000 — but `on` is a query parameter, so it has to
+    answer rather than raise.
+    """
+    if not MINYEAR <= year <= MAXYEAR:
+        return None
+    return _clamped_day(year, month, day)
+
+
 def statement_bounds(card: models.Card, on: date) -> tuple[date, date]:
     """
     The card's cycle containing `on`, as an inclusive [start, end] pair.
@@ -68,12 +83,14 @@ def statement_bounds(card: models.Card, on: date) -> tuple[date, date]:
     this_close = _clamped_day(on.year, on.month, day)
 
     if on <= this_close:
-        prev_year, prev_month = _previous_month(on.year, on.month)
-        start = _clamped_day(prev_year, prev_month, day) + ONE_DAY
+        prev_close = _neighbouring_close(*_previous_month(on.year, on.month), day)
+        # The first representable day, when there is no month before this one.
+        start = prev_close + ONE_DAY if prev_close else date.min
         return start, this_close
 
-    next_year, next_month = _next_month(on.year, on.month)
-    return this_close + ONE_DAY, _clamped_day(next_year, next_month, day)
+    next_close = _neighbouring_close(*_next_month(on.year, on.month), day)
+    start = this_close + ONE_DAY if this_close < date.max else date.max
+    return start, next_close or date.max
 
 
 def limit_bounds(card: models.Card, limit: models.CardLimit, on: date) -> tuple[date, date]:
