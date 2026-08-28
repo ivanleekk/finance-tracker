@@ -144,6 +144,23 @@ export function netWorthBreakdown(
 }
 
 /** Accounts that belong on the spendable-cash chart: assets, minus property. */
+/**
+ * The accounts worth offering when someone is *starting* something — logging a
+ * transaction, funding a trade, picking a default.
+ *
+ * Archived accounts are closed, so putting them in a picker invites new activity
+ * on an account the user has finished with. They are deliberately still included
+ * everywhere else: they keep their balances, so totals do not move when an
+ * account is archived, and they still label the history they are attached to.
+ * A closed account has been zeroed and contributes nothing to a total anyway;
+ * one that still holds money genuinely should be counted.
+ */
+export function selectableAccounts<T extends Pick<AccountResponse, "is_archived">>(
+    accounts: T[]
+): T[] {
+    return accounts.filter(a => !a.is_archived);
+}
+
 export function cashChartAccountsOf<T extends Pick<AccountResponse, "kind" | "liquidity">>(accounts: T[]): T[] {
     return accounts.filter(
         a => a.kind !== AccountKind.Liability && a.liquidity !== LiquidityStatus.Illiquid

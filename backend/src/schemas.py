@@ -254,6 +254,8 @@ class AccountCreate(AccountBase):
 
 class AccountUpdate(AccountLoanTerms):
     name: Optional[str] = None
+    # Close an account without erasing it. See models.FinancialAccount.is_archived.
+    is_archived: Optional[bool] = None
     liquidity: Optional[LiquidityStatus] = None
     tax_status: Optional[TaxTreatment] = None
     kind: Optional[AccountKind] = None
@@ -267,6 +269,7 @@ class AccountUpdate(AccountLoanTerms):
 class AccountResponse(AccountBase):
     id: uuid.UUID
     household_id: uuid.UUID
+    is_archived: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 

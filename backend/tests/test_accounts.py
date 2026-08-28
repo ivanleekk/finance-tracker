@@ -508,3 +508,97 @@ def test_get_household_balances(client, auth_headers, test_household, db_session
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
+
+
+# --- Archiving ------------------------------------------------------------
+
+
+def _fresh_account(client, headers, household_id, name="Closeable"):
+    return client.post("/accounts", headers=headers, json={
+        "household_id": str(household_id), "name": name, "kind": "asset",
+        "liquidity": "liquid", "tax_status": "taxable", "currency": "USD",
+    }).json()
+
+
+class TestArchiving:
+    """
+    An account that has been used cannot be deleted, because every journal entry
+    is balanced across two or more accounts — erasing the entries that touch one
+    also erases the other side. Receivables reach net worth, so deleting a closed
+    bank account could quietly change what the household is worth. Archiving is
+    what that case gets instead.
+    """
+
+    def test_an_unused_account_is_still_deleted_outright(self, client, auth_headers, test_household):
+        # Nothing to preserve and nothing to be surprised by.
+        account = _fresh_account(client, auth_headers, test_household.id, "Never used")
+        assert client.delete(f"/accounts/{account['id']}", headers=auth_headers).status_code == 204
+
+    def test_an_account_with_history_refuses_and_says_to_archive(
+        self, client, auth_headers, test_household
+    ):
+        account = _fresh_account(client, auth_headers, test_household.id, "Used once")
+        # An opening balance alone is enough: it posts a ledger entry.
+        client.post("/accounts/balances", headers=auth_headers, json={
+            "account_id": account["id"], "date": "2026-08-28", "balance": 100,
+        })
+
+        res = client.delete(f"/accounts/{account['id']}", headers=auth_headers)
+        assert res.status_code == 409, "used to be a 500 from the journal_lines FK"
+        assert "archive" in res.json()["detail"].lower()
+
+    def test_archiving_is_an_ordinary_field_edit_and_reversible(
+        self, client, auth_headers, test_household
+    ):
+        account = _fresh_account(client, auth_headers, test_household.id, "To close")
+        assert account["is_archived"] is False
+
+        archived = client.put(
+            f"/accounts/{account['id']}", headers=auth_headers, json={"is_archived": True}
+        )
+        assert archived.status_code == 200
+        assert archived.json()["is_archived"] is True
+
+        reopened = client.put(
+            f"/accounts/{account['id']}", headers=auth_headers, json={"is_archived": False}
+        )
+        assert reopened.json()["is_archived"] is False
+
+    def test_renaming_an_archived_account_does_not_reopen_it(
+        self, client, auth_headers, test_household
+    ):
+        # `exclude_unset` again: an omitted key must leave the flag alone.
+        account = _fresh_account(client, auth_headers, test_household.id, "Closed")
+        client.put(f"/accounts/{account['id']}", headers=auth_headers, json={"is_archived": True})
+
+        renamed = client.put(
+            f"/accounts/{account['id']}", headers=auth_headers, json={"name": "Closed (old)"}
+        )
+        assert renamed.json()["name"] == "Closed (old)"
+        assert renamed.json()["is_archived"] is True
+
+    def test_an_archived_account_still_appears_with_its_history(
+        self, client, auth_headers, test_household
+    ):
+        """
+        Archiving hides an account from where you *start* work, not from the
+        record. It keeps its balances, so totals never move on archiving — a
+        closed account has been zeroed and contributes nothing anyway, and one
+        that still holds money genuinely should be counted.
+        """
+        account = _fresh_account(client, auth_headers, test_household.id, "Has money")
+        client.post("/accounts/balances", headers=auth_headers, json={
+            "account_id": account["id"], "date": "2026-08-28", "balance": 250,
+        })
+        client.put(f"/accounts/{account['id']}", headers=auth_headers, json={"is_archived": True})
+
+        listed = client.get(
+            f"/accounts/household/{test_household.id}", headers=auth_headers
+        ).json()
+        row = next(a for a in listed if a["id"] == account["id"])
+        assert row["is_archived"] is True, "the client decides where to show it"
+
+        balances = client.get(
+            f"/accounts/balances/household/{test_household.id}", headers=auth_headers
+        ).json()
+        assert any(b["account_id"] == account["id"] for b in balances), "history is untouched"

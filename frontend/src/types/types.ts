@@ -158,6 +158,8 @@ export type AccountResponse = {
 
   // Ties a property to the loan secured against it (settable from either side).
   linked_account_id?: string | null;
+  /** Closed but kept: hidden from pickers, still counted and still labels its history. */
+  is_archived?: boolean;
 };
 
 export type AmortizationRow = {

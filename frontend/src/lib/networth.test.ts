@@ -5,8 +5,7 @@ import {
     cashChartAccountsOf,
     sampleProjection,
     netWorthBreakdown,
-    type AccountLike,
-} from "./networth";
+    type AccountLike, selectableAccounts } from "./networth";
 import { AccountKind, LiquidityStatus } from "../types/types";
 import type { BalanceResponse, NetWorthProjectionPoint } from "../types/types";
 
@@ -255,5 +254,22 @@ describe("sampleProjection", () => {
     it("handles an empty or single-point projection", () => {
         expect(sampleProjection([])).toEqual([]);
         expect(sampleProjection([point("2026-01-01", 100)])).toEqual([]);
+    });
+});
+
+describe('selectableAccounts', () => {
+    const open = { id: 'a', is_archived: false } as never;
+    const closed = { id: 'b', is_archived: true } as never;
+    const legacy = { id: 'c' } as never; // rows from before the column existed
+
+    it('keeps archived accounts out of pickers', () => {
+        // Offering a closed account invites new activity on one the user has
+        // finished with.
+        expect(selectableAccounts([open, closed]).map((a: { id: string }) => a.id)).toEqual(['a']);
+    });
+
+    it('treats a missing flag as open, not archived', () => {
+        // The field is optional on the wire; absent must never hide an account.
+        expect(selectableAccounts([legacy])).toHaveLength(1);
     });
 });

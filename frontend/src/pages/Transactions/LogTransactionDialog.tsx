@@ -3,6 +3,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "../../component
 import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
+import { selectableAccounts } from "../../lib/networth"
 import type { AccountResponse, CategoryResponse, CurrencyResponse, UserResponse } from "../../types/types"
 import { splitHint } from "./transactionsHelpers"
 
@@ -162,7 +163,7 @@ export function LogTransactionDialog({
                                     setFormData({ ...formData, accountId, cardCategoryId: "" });
                                     onAccountChange(accountId);
                                 }}
-                                options={accounts.map(acc => ({ value: acc.id, label: acc.name }))}
+                                options={selectableAccounts(accounts).map(acc => ({ value: acc.id, label: acc.name }))}
                             />
                         </div>
                         <div className="space-y-2">
@@ -373,7 +374,7 @@ export function LogTransactionDialog({
                                 placeholder="Select Source"
                                 value={transferData.fromAccountId}
                                 onChange={(fromAccountId) => setTransferData({ ...transferData, fromAccountId })}
-                                options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.toAccountId }))}
+                                options={selectableAccounts(accounts).map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.toAccountId }))}
                             />
                         </div>
                         <div className="space-y-2">
@@ -383,7 +384,7 @@ export function LogTransactionDialog({
                                 placeholder="Select Destination"
                                 value={transferData.toAccountId}
                                 onChange={(toAccountId) => setTransferData({ ...transferData, toAccountId })}
-                                options={accounts.map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.fromAccountId }))}
+                                options={selectableAccounts(accounts).map(acc => ({ value: acc.id, label: acc.name, disabled: acc.id === transferData.fromAccountId }))}
                             />
                         </div>
                     </div>

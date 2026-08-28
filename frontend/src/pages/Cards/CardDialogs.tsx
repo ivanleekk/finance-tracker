@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
+import { selectableAccounts } from "../../lib/networth";
 import { Dialog } from "../../components/ui/Dialog";
 import { LimitRow } from "./CardMeters";
 import type { AccountResponse, CardResponse } from "../../types/types";
@@ -64,7 +65,7 @@ export function SetUpCardDialog({
                         required
                         value={accountId}
                         onChange={setAccountId}
-                        options={accounts.map(a => ({ value: a.id, label: a.name }))}
+                        options={selectableAccounts(accounts).map(a => ({ value: a.id, label: a.name }))}
                     />
                     <Select
                         label="Limits reset on"

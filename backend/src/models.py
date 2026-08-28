@@ -327,6 +327,18 @@ class FinancialAccount(Base):
     # SET NULL on delete: dropping a goal must never take a real account with it.
     sub_portfolio_id = Column(UUID(as_uuid=True), ForeignKey("sub_portfolios.id", ondelete="SET NULL"), nullable=True, index=True)
 
+    # Closed, but keep its history. Archiving is what a used account gets instead
+    # of deletion: every journal entry spans two accounts, so deleting one side
+    # would silently rewrite the other's balance — and receivables reach net
+    # worth, so "close an old account" could change what you are worth.
+    #
+    # It hides the account from the places you *start* new work — the account
+    # list and every picker — and takes it out of current totals. It is not a
+    # tombstone: the balances, transactions and journal entries all stay exactly
+    # where they were, so past figures do not move, and un-archiving is a
+    # one-field edit.
+    is_archived = Column(Boolean, nullable=False, default=False, server_default="false")
+
     household = relationship("Household", back_populates="accounts", foreign_keys=[household_id])
     owner = relationship("User", foreign_keys=[owner_user_id])
     linked_account = relationship("FinancialAccount", remote_side=[id], foreign_keys=[linked_account_id])

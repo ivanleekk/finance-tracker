@@ -191,6 +191,43 @@ def delete_account(
             detail=f"{rule_count} recurring transaction(s) still use this account. Delete them first.",
         )
 
+    # An account that has been used cannot be deleted, and the reason is the
+    # ledger rather than squeamishness. Every journal entry is balanced across
+    # two or more accounts, so erasing the entries that touch this one also
+    # erases the other side: a category's history, an equity plug, or another
+    # account's balance. Receivables reach net worth, so deleting a closed bank
+    # account could quietly change what the household is worth, and past budget
+    # months would be recomputed from a ledger that no longer says what happened.
+    #
+    # Archiving exists for that case, so this refuses and points at it. Deleting
+    # an account that never got used is still a delete — there is nothing to
+    # preserve and nothing to be surprised by.
+    ledger_account_ids = [
+        row.id
+        for row in db.query(models.LedgerAccount.id).filter(
+            models.LedgerAccount.financial_account_id == account_id
+        ).all()
+    ]
+    entry_count = 0
+    if ledger_account_ids:
+        entry_count = (
+            db.query(models.JournalLine.entry_id)
+            .filter(models.JournalLine.ledger_account_id.in_(ledger_account_ids))
+            .distinct()
+            .count()
+        )
+    if entry_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This account has {entry_count} ledger "
+                f"{'entry' if entry_count == 1 else 'entries'} behind "
+                f"{'it, and it is' if entry_count == 1 else 'it, and they are'} shared with other "
+                "accounts and categories — deleting it would change balances elsewhere. "
+                "Archive it instead to close it without losing the history."
+            ),
+        )
+
     # An earmarked account leaves snapshot rows behind in its sub-portfolio (#252).
     # Capture what's needed to rebuild before the row is gone, then replay: the
     # replay clears the range and simply won't re-emit rows for an account that no

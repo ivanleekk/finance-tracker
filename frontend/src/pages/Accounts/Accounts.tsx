@@ -61,6 +61,7 @@ export default function Accounts() {
     const editAccountFetcher = useFetcher();
     const updateBalanceFetcher = useFetcher();
     const deleteAccountFetcher = useFetcher();
+    const archiveAccountFetcher = useFetcher();
     const deleteBalanceFetcher = useFetcher();
     // The amortization schedule is large and only wanted on demand, so it is
     // fetched from the API directly rather than loaded with the page.
@@ -76,7 +77,7 @@ export default function Accounts() {
     const [updateBalanceData, setUpdateBalanceData] = useState({ accountId: "", date: new Date().toISOString().split('T')[0], balance: "" });
 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [accountToDelete, setAccountToDelete] = useState<{ id: string, name: string } | null>(null);
+    const [accountToDelete, setAccountToDelete] = useState<{ id: string; name: string; is_archived?: boolean } | null>(null);
 
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
@@ -110,11 +111,14 @@ export default function Accounts() {
     }, [updateBalanceFetcher.state, updateBalanceFetcher.data]);
 
     useEffect(() => {
+        if (archiveAccountFetcher.state === "idle" && archiveAccountFetcher.data?.success) {
+            setIsDeleteModalOpen(false);
+        }
         if (deleteAccountFetcher.state === "idle" && deleteAccountFetcher.data?.success) {
             setIsDeleteModalOpen(false);
             setAccountToDelete(null);
         }
-    }, [deleteAccountFetcher.state, deleteAccountFetcher.data]);
+    }, [deleteAccountFetcher.state, deleteAccountFetcher.data, archiveAccountFetcher.state, archiveAccountFetcher.data]);
 
     useEffect(() => {
         if (deleteBalanceFetcher.state === "idle" && deleteBalanceFetcher.data?.error) {
@@ -200,14 +204,21 @@ export default function Accounts() {
     );
 
     const accountGroups = useMemo(() => {
+        // Archived accounts come out of the liquidity and liability groups and
+        // get their own section at the end. They keep their balances and still
+        // count towards the totals above — archiving closes an account, it does
+        // not pretend the money was never there.
+        const isOpen = (acc: { is_archived?: boolean }) => !acc.is_archived;
         const groups = ACCOUNT_GROUPS.map(group => {
             const groupAccounts = assetAccounts
+                .filter(isOpen)
                 .filter(acc => group.liquidities.includes(acc.liquidity))
                 .sort((a, b) => getCurrentBalanceDetails(b.history).balanceHome - getCurrentBalanceDetails(a.history).balanceHome);
             const groupTotal = groupAccounts.reduce((sum, acc) => sum + getCurrentBalanceDetails(acc.history).balanceHome, 0);
             return { ...group, accounts: groupAccounts, total: groupTotal, isLiability: false };
         });
         const liabilityAccounts = accounts
+            .filter(isOpen)
             .filter(acc => acc.kind === AccountKind.Liability)
             .sort((a, b) => getCurrentBalanceDetails(b.history).balanceHome - getCurrentBalanceDetails(a.history).balanceHome);
         groups.push({
@@ -218,6 +229,21 @@ export default function Accounts() {
             total: -liabilityAccounts.reduce((sum, acc) => sum + getCurrentBalanceDetails(acc.history).balanceHome, 0),
             isLiability: true,
         });
+        const archived = accounts
+            .filter(acc => acc.is_archived)
+            .sort((a, b) => a.name.localeCompare(b.name));
+        if (archived.length > 0) {
+            groups.push({
+                key: "archived",
+                label: "Archived",
+                liquidities: [],
+                accounts: archived,
+                // No total: these are closed, and a heading figure would invite
+                // reading them as a live bucket.
+                total: 0,
+                isLiability: false,
+            });
+        }
         return groups.filter(group => group.accounts.length > 0);
     }, [accounts, assetAccounts]);
 
@@ -711,6 +737,9 @@ export default function Accounts() {
                                     <CardDescription>
                                         Are you sure you want to delete <strong className="text-base-900 dark:text-base-50">{accountToDelete.name}</strong>?
                                         This action cannot be undone and will delete all associated balance history.
+                                        {" "}An account that has been used can't be deleted — its ledger entries are
+                                        shared with other accounts and categories — so archive it instead to close it
+                                        without losing the history.
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent>
@@ -727,6 +756,16 @@ export default function Accounts() {
                                             </Button>
                                         </div>
                                     </deleteAccountFetcher.Form>
+                                    <archiveAccountFetcher.Form method="post" className="pt-3">
+                                        <input type="hidden" name="_intent" value="setArchived" />
+                                        <input type="hidden" name="accountId" value={accountToDelete.id} />
+                                        <input type="hidden" name="archived" value={accountToDelete.is_archived ? "false" : "true"} />
+                                        <Button variant="secondary" type="submit" className="w-full"
+                                            disabled={archiveAccountFetcher.state !== "idle"}>
+                                            {accountToDelete.is_archived ? "Reopen account" : "Archive instead"}
+                                        </Button>
+                                    </archiveAccountFetcher.Form>
+
                                 </CardContent>
                             </Card>
                         </div>
