@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo} from "react";
 import { useNavigate, useRevalidator } from "react-router";
 import { useCommandBar } from "../../lib/CommandBarContext";
 import { useHousehold } from "../../lib/HouseholdContext";
@@ -25,7 +25,8 @@ import {
     TradeView,
     TransferView,
 } from "./CommandBarViews";
-import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
+import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse, CardResponse, CardStatusResponse, CardLimitStatusRow } from "../../types/types";
+import { headroomByCategory, headroomLabel } from "../../lib/cards";
 
 
 export function CommandBar() {
@@ -44,6 +45,10 @@ export function CommandBar() {
     const [selectedSubPortfolioId, setSelectedSubPortfolioId] = useState<string | null>(null);
     const [categoryOverride, setCategoryOverride] = useState<{ name: string; icon: string } | null>(null);
     const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
+    // The card behind the chosen account, if it is one. Fetched on demand — most
+    // accounts are not cards, and the command bar is meant to be fast.
+    const [cardCategoryId, setCardCategoryId] = useState("");
+    const [cardData, setCardData] = useState<{ card: CardResponse; headroom: Map<string, CardLimitStatusRow> } | null>(null);
     const [successInfo, setSuccessInfo] = useState<{ big: string; sub: string } | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [undoData, setUndoData] = useState<{ path: string } | null>(null);
@@ -148,6 +153,54 @@ export function CommandBar() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, activeTicker, parsed.type]);
+
+    const routedAccount = (fallback: AccountResponse | null): AccountResponse | null => {
+        const userDefault = accounts.find(a => a.id === user?.default_account_id) || null;
+        if (!hasHousehold) return fallback || userDefault;
+        if (ownership === "private") {
+            return accounts.find(a => a.owner_user_id === user?.id) || fallback || userDefault;
+        }
+        return accounts.find(a => !a.owner_user_id) || fallback || userDefault;
+    };
+
+    // The account the expense will actually be charged to.
+    const chosenAccountId = expenseAccountId
+        ?? (parsed.type === "expense" ? routedAccount(parsed.account)?.id : undefined)
+        ?? null;
+
+    useEffect(() => {
+        let cancelled = false;
+        setCardCategoryId("");
+        if (!activeHousehold || !chosenAccountId) { setCardData(null); return; }
+        (async () => {
+            try {
+                const { data: cards } = await api.get<CardResponse[]>(`/cards/household/${activeHousehold.id}`);
+                const card = cards.find(c => c.financial_account_id === chosenAccountId);
+                if (!card) { if (!cancelled) setCardData(null); return; }
+                const { data: status } = await api.get<CardStatusResponse>(`/cards/${card.id}/status`);
+                if (!cancelled) setCardData({ card, headroom: headroomByCategory(card, status) });
+            } catch {
+                // A missing meter makes the picker plainer, never the bar unusable.
+                if (!cancelled) setCardData(null);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [activeHousehold, chosenAccountId]);
+
+    const cardCategoryOptions = useMemo(() => {
+        if (!cardData) return [];
+        const money = (v: number) => new Intl.NumberFormat(undefined, {
+            style: "currency", currency: cardData.card.currency || activeHousehold?.base_currency || "USD",
+            maximumFractionDigits: 0,
+        }).format(v);
+        return [
+            { value: "", label: "— Card's default —" },
+            ...cardData.card.categories.map(c => {
+                const row = cardData.headroom.get(c.id);
+                return { value: c.id, label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name };
+            }),
+        ];
+    }, [cardData, activeHousehold]);
 
     if (!isOpen) return null;
 
@@ -270,15 +323,6 @@ export function CommandBar() {
     /** When ownership routing is shown, resolve which real account to charge: the user's own
      * private account if "private" is chosen, otherwise a shared (owner_user_id null) account.
      * Falls back to whatever the parser matched if no account of the right kind exists. */
-    const routedAccount = (fallback: AccountResponse | null): AccountResponse | null => {
-        const userDefault = accounts.find(a => a.id === user?.default_account_id) || null;
-        if (!hasHousehold) return fallback || userDefault;
-        if (ownership === "private") {
-            return accounts.find(a => a.owner_user_id === user?.id) || fallback || userDefault;
-        }
-        return accounts.find(a => !a.owner_user_id) || fallback || userDefault;
-    };
-
     const finishSuccess = (big: string, sub: string, undo: { path: string } | null) => {
         setSuccessInfo({ big, sub });
         setUndoData(undo);
@@ -315,6 +359,9 @@ export function CommandBar() {
                     amount: parsed.amount,
                     transaction_type: "expense",
                     description: parsed.merchant,
+                    // Omitted when blank: the API reads a missing key as "use the
+                    // card's default", which is what blank means here.
+                    ...(cardCategoryId ? { card_category_id: cardCategoryId } : {}),
                 });
                 finishSuccess(`−$${fmtA(parsed.amount)}`, `${category.name} · ${account.name}${!expenseAccountId && hasHousehold ? (ownership === "private" ? " · Private" : " · Household") : ""}`, { path: `/cashflow/transactions/${res.data.id}` });
             } else if (parsed.type === "balance") {
@@ -521,6 +568,9 @@ export function CommandBar() {
                             setQuery={setQuery}
                             categoryOverride={categoryOverride}
                             setCategoryOverride={setCategoryOverride}
+                            cardCategoryOptions={cardCategoryOptions}
+                            cardCategoryId={cardCategoryId}
+                            setCardCategoryId={setCardCategoryId}
                             expenseAccountId={expenseAccountId}
                             setExpenseAccountId={setExpenseAccountId}
                         />

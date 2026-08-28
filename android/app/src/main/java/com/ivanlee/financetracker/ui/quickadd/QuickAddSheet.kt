@@ -30,6 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.currencyWhole
+import com.ivanlee.financetracker.logic.Cards
+import com.ivanlee.financetracker.data.model.CardLimitStatusRow
+import com.ivanlee.financetracker.data.model.CardStatusResponse
+import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.AssetResponse
@@ -101,6 +106,31 @@ fun QuickAddSheet(
 
     var accountId by remember { mutableStateOf<String?>(null) }
     var categoryId by remember { mutableStateOf<String?>(null) }
+    // The card behind the selected account, if it is one. Fetched on demand —
+    // most accounts are not cards, and Quick Add is meant to be fast.
+    var card by remember { mutableStateOf<CardResponse?>(null) }
+    var cardHeadroom by remember { mutableStateOf<Map<String, CardLimitStatusRow>>(emptyMap()) }
+    var cardCategoryId by remember { mutableStateOf<String?>(null) }
+
+    // Reloads whenever the account changes. A pick from the old card is
+    // meaningless on a new one, so it is cleared here as well as server-side.
+    LaunchedEffect(accountId, sessionVm.activeHousehold?.id) {
+        val householdId = sessionVm.activeHousehold?.id
+        val account = accountId
+        cardCategoryId = null
+        if (householdId == null || account == null) {
+            card = null; cardHeadroom = emptyMap(); return@LaunchedEffect
+        }
+        val match = runCatching {
+            Api.get<List<CardResponse>>("/cards/household/$householdId")
+                .firstOrNull { it.financialAccountId == account }
+        }.getOrNull()
+        card = match
+        // A missing meter makes the picker plainer, never the sheet unusable.
+        cardHeadroom = if (match == null) emptyMap() else runCatching {
+            Cards.headroomByCategory(match, Api.get<CardStatusResponse>("/cards/${match.id}/status"))
+        }.getOrDefault(emptyMap())
+    }
     var fromAccountId by remember { mutableStateOf<String?>(null) }
     var toAccountId by remember { mutableStateOf<String?>(null) }
 
@@ -206,6 +236,7 @@ fun QuickAddSheet(
                             description = description.ifBlank { null },
                             accountId = accountId!!,
                             categoryId = categoryId!!,
+                            cardCategoryId = cardCategoryId,
                         ),
                     )
 
@@ -319,6 +350,21 @@ fun QuickAddSheet(
                 TextButton(onClick = { showNewCategory = true }) {
                     Icon(Icons.Filled.AddCircleOutline, contentDescription = null)
                     Text("  New Category")
+                }
+                // Only when the account is a card. Quick Add is a deliberately
+                // reduced surface — it leaves out the split and the merchant
+                // code — but this one earns its row: it carries the headroom,
+                // and logging card spend is exactly when that number can change
+                // a decision.
+                card?.let { activeCard ->
+                    val currency = activeCard.currency ?: baseCurrency
+                    DropdownField(
+                        label = "Card category",
+                        selected = activeCard.categories.firstOrNull { it.id == cardCategoryId },
+                        options = activeCard.categories,
+                        optionLabel = { Cards.categoryLabel(it, cardHeadroom) { v -> v.currencyWhole(currency) } },
+                        onSelect = { cardCategoryId = it.id },
+                    )
                 }
             }
 

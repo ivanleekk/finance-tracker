@@ -50,6 +50,11 @@ struct QuickAddView: View {
     // Cash-flow fields
     @State private var accountId: String?
     @State private var categoryId: String?
+    /// The card behind the selected account, if it is one. Fetched on demand —
+    /// most accounts are not cards, and Quick Add is meant to be fast.
+    @State private var card: CardResponse?
+    @State private var cardHeadroom: [String: CardLimitStatusRow] = [:]
+    @State private var cardCategoryId: String?
     @State private var fromAccountId: String?
     @State private var toAccountId: String?
 
@@ -142,6 +147,11 @@ struct QuickAddView: View {
             )
             .task { await loadIfNeeded() }
             .onChange(of: mode) { resetForMode() }
+            .onChange(of: accountId) { _, newValue in
+                // A pick from the old card is meaningless on a new one.
+                cardCategoryId = nil
+                Task { await loadCard(for: newValue) }
+            }
             .sheet(isPresented: $showingNewCategory) {
                 if let household {
                     CategoryEditView(category: nil, householdId: household.id, lockedType: mode == .income ? .income : .expense) { created in
@@ -205,6 +215,20 @@ struct QuickAddView: View {
                     showingNewCategory = true
                 } label: {
                     Label("New Category", systemImage: "plus.circle")
+                }
+            }
+            // Only when the account is a card. Quick Add is a deliberately
+            // reduced surface — it leaves out the split and the merchant code —
+            // but this one earns its row: it carries the headroom, and logging
+            // card spend is exactly when that number can change a decision.
+            if let card {
+                Section {
+                    Picker("Card category", selection: $cardCategoryId) {
+                        Text("Card's default").tag(String?.none)
+                        ForEach(card.categories) { category in
+                            Text(cardCategoryLabel(category)).tag(String?.some(category.id))
+                        }
+                    }
                 }
             }
         }
@@ -350,6 +374,38 @@ struct QuickAddView: View {
 
     // MARK: - Data
 
+    /// The card behind an account, with this cycle's headroom — or nothing, which
+    /// is the common answer rather than an error.
+    private func loadCard(for accountId: String?) async {
+        guard let householdId = session.activeHousehold?.id, let accountId else {
+            card = nil
+            cardHeadroom = [:]
+            return
+        }
+        do {
+            let cards: [CardResponse] = try await APIClient.shared.get("/cards/household/\(householdId)")
+            guard let match = cards.first(where: { $0.financialAccountId == accountId }) else {
+                card = nil
+                cardHeadroom = [:]
+                cardCategoryId = nil
+                return
+            }
+            card = match
+            let status: CardStatusResponse = try await APIClient.shared.get("/cards/\(match.id)/status")
+            cardHeadroom = Cards.headroomByCategory(card: match, status: status)
+        } catch {
+            // A missing meter makes the picker plainer, never the sheet unusable.
+            cardHeadroom = [:]
+        }
+    }
+
+    /// "Dining · $240 left" when the category is metered, otherwise just its name.
+    private func cardCategoryLabel(_ category: CardCategoryResponse) -> String {
+        guard let row = cardHeadroom[category.id] else { return category.name }
+        let currency = card?.currency ?? session.activeHousehold?.baseCurrency ?? "USD"
+        return "\(category.name) · \(Cards.headroomLabel(for: row) { $0.currencyWhole(currency) })"
+    }
+
     private func loadIfNeeded() async {
         guard !loaded, let household else { return }
         do {
@@ -423,7 +479,8 @@ struct QuickAddView: View {
             body: TransactionCreate(
                 date: date, amount: amount,
                 description: description.isEmpty ? nil : description,
-                accountId: accountId, categoryId: categoryId
+                accountId: accountId, categoryId: categoryId,
+                cardCategoryId: cardCategoryId
             )
         )
     }

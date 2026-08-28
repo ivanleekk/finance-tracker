@@ -11,6 +11,7 @@ import {
 } from "../../lib/commandParser";
 import type { ScanResult } from "./receiptScan";
 import { Select } from "../ui/Select";
+import { selectableAccounts } from "../../lib/networth";
 import type {
     AccountResponse,
     AssetResponse,
@@ -88,7 +89,7 @@ export function RestingView({ recent, accounts, onDemo }: { recent: TransactionR
     );
 }
 
-export function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, ownership, setOwnership, accounts, setQuery, categoryOverride, setCategoryOverride, expenseAccountId, setExpenseAccountId }: {
+export function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, ownership, setOwnership, accounts, setQuery, categoryOverride, setCategoryOverride, expenseAccountId, setExpenseAccountId, cardCategoryOptions, cardCategoryId, setCardCategoryId }: {
     parsed: Extract<ParsedCommand, { type: "expense" }>;
     defaultAccount: AccountResponse | null;
     scanned: ScanResult | null;
@@ -101,6 +102,10 @@ export function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, own
     setCategoryOverride: (v: { name: string; icon: string } | null) => void;
     expenseAccountId: string | null;
     setExpenseAccountId: (v: string | null) => void;
+    /** Empty unless the chosen account is a card. Labels carry this cycle's headroom. */
+    cardCategoryOptions: { value: string; label: string }[];
+    cardCategoryId: string;
+    setCardCategoryId: (v: string) => void;
 }) {
     const category = categoryOverride || parsed.category;
     const effectiveAccount = expenseAccountId ? accounts.find(a => a.id === expenseAccountId) || null : defaultAccount;
@@ -169,12 +174,28 @@ export function ExpenseView({ parsed, defaultAccount, scanned, hasHousehold, own
                         className="rounded-lg bg-base-50 dark:bg-base-950 focus-visible:ring-secondary-400"
                         value={effectiveAccount?.id || ""}
                         onChange={(id) => setExpenseAccountId(id || null)}
-                        options={accounts.map(a => ({ value: a.id, label: `${a.name} · ${a.currency}` }))}
+                        options={selectableAccounts(accounts).map(a => ({ value: a.id, label: `${a.name} · ${a.currency}` }))}
                     />
                 ) : (
                     <div className="text-xs text-red-500">No account available to charge yet.</div>
                 )}
             </div>
+            {/* Only when the chosen account is a card. Quick add is a reduced
+                surface — no split, no merchant code — but this row carries the
+                headroom, and logging card spend is when that can change a
+                decision. */}
+            {cardCategoryOptions.length > 0 && (
+                <div>
+                    <div className={labelClass}>Card category</div>
+                    <Select
+                        size="sm"
+                        className="rounded-lg bg-base-50 dark:bg-base-950 focus-visible:ring-secondary-400"
+                        value={cardCategoryId}
+                        onChange={setCardCategoryId}
+                        options={cardCategoryOptions}
+                    />
+                </div>
+            )}
             {hasHousehold && (
                 <div>
                     <div className={labelClass}>Post this expense to</div>
