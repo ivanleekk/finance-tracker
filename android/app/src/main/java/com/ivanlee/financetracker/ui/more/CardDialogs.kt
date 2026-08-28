@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CardCategoryCreate
 import com.ivanlee.financetracker.data.model.CardCategoryResponse
@@ -69,7 +70,7 @@ fun CardSetUpDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                accounts.forEach { account ->
+                selectableAccounts(accounts).forEach { account ->
                     TextButton(onClick = { accountId = account.id }) {
                         Text(
                             (if (account.id == accountId) "● " else "○ ") + account.name,

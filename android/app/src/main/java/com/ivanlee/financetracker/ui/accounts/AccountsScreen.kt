@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.model.LinkedEquityRow
@@ -90,13 +91,18 @@ fun AccountsScreen(
     // a $440k mortgage read as having $440k on hand. Liquidity describes how quickly an asset
     // could be spent and says nothing useful about a debt, so they get their own section below —
     // the way the web Accounts page and the iOS `AccountsListView` both group them.
+    // Archived accounts leave the liquidity and liability sections for one of their own at
+    // the end. They keep their balances and still count towards the totals — archiving
+    // closes an account, it does not pretend the money was never there.
+    val openAccounts = selectableAccounts(visibleAccounts)
     val grouped = LiquidityStatus.entries.mapNotNull { liquidity ->
-        val matching = visibleAccounts
+        val matching = openAccounts
             .filter { it.liquidity == liquidity && !it.isLiability }
             .sortedBy { it.name }
         if (matching.isEmpty()) null else liquidity to matching
     }
-    val liabilities = visibleAccounts.filter { it.isLiability }.sortedBy { it.name }
+    val liabilities = openAccounts.filter { it.isLiability }.sortedBy { it.name }
+    val archived = visibleAccounts.filter { it.isArchived == true }.sortedBy { it.name }
 
     val latestByAccount = remember(balances) {
         buildMap<String, BalanceResponse> {
@@ -160,6 +166,25 @@ fun AccountsScreen(
             item(key = "liabilities") {
                 SectionCard(title = "Loans & liabilities") {
                     liabilities.forEachIndexed { index, account ->
+                        if (index > 0) HorizontalDivider()
+                        AccountRow(
+                            account = account,
+                            latestBalance = latestByAccount[account.id],
+                            onClick = { onOpenAccount(account.id) },
+                            baseCurrency = baseCurrency,
+                            showsLiquidity = false,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (archived.isNotEmpty()) {
+            item(key = "archived") {
+                // No section total: these are closed, and a heading figure would
+                // invite reading them as a live bucket.
+                SectionCard(title = "Archived") {
+                    archived.forEachIndexed { index, account ->
                         if (index > 0) HorizontalDivider()
                         AccountRow(
                             account = account,

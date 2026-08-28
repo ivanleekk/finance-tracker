@@ -1,5 +1,9 @@
 package com.ivanlee.financetracker.ui.accounts
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import com.ivanlee.financetracker.data.model.AccountArchiveUpdate
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -61,8 +65,10 @@ fun AccountDetailScreen(
     var balances by remember { mutableStateOf<List<BalanceResponse>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(accountId, sessionVm.activeHousehold?.id) {
+    LaunchedEffect(accountId, sessionVm.activeHousehold?.id, reloadKey) {
         val h = sessionVm.activeHousehold ?: return@LaunchedEffect
         try {
             // The backend has no GET /accounts/{id} — accounts are only listed per household,
@@ -103,6 +109,31 @@ fun AccountDetailScreen(
                     onClick = {
                         menuOpen = false
                         onEdit(accountId)
+                    },
+                )
+                // Archiving is how a used account is closed. Deleting one is
+                // refused by the API, because its journal entries are shared with
+                // other accounts and categories.
+                DropdownMenuItem(
+                    text = { Text(if (account?.isArchived == true) "Reopen account" else "Archive account") },
+                    leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        val next = account?.isArchived != true
+                        scope.launch {
+                            try {
+                                // Only this key: the API's update uses
+                                // `exclude_unset`, so anything else in the body
+                                // would overwrite fields nobody touched.
+                                Api.put<AccountArchiveUpdate, AccountResponse>(
+                                    "/accounts/$accountId",
+                                    AccountArchiveUpdate(isArchived = next),
+                                )
+                                reloadKey++
+                            } catch (e: Exception) {
+                                error = e.message ?: "Couldn't update that account."
+                            }
+                        }
                     },
                 )
             }

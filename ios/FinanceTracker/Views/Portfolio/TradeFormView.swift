@@ -139,7 +139,7 @@ struct TradeFormView: View {
                     }
                     Picker("Funding Account", selection: $accountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }
@@ -285,7 +285,7 @@ struct CashMoveFormView: View {
                     }
                     Picker("Account", selection: $accountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }

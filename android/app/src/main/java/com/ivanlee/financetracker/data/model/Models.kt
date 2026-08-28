@@ -174,6 +174,11 @@ data class AccountResponse(
 
     /** Ties a property to the loan secured against it (settable from either side). */
     val linkedAccountId: String? = null,
+    /**
+     * Closed but kept. Optional on the wire, and a missing value means *open* —
+     * an absent flag must never hide an account.
+     */
+    val isArchived: Boolean? = null,
 ) {
     val isLiability: Boolean get() = kind == "liability"
 
@@ -209,6 +214,17 @@ data class AccountCreate(
     val linkedAccountId: String? = null,
 )
 
+/**
+ * Just the archive flag.
+ *
+ * A separate body from [AccountUpdate] on purpose: that type sends the account's
+ * whole identity (name, liquidity, kind, currency…), and closing an account
+ * should not restate all of it. The API's `exclude_unset` means the keys you
+ * leave out are the ones it leaves alone.
+ */
+@Serializable
+data class AccountArchiveUpdate(val isArchived: Boolean)
+
 /** PUT /accounts/{id} (schemas.AccountUpdate). */
 @Serializable
 data class AccountUpdate(
@@ -225,6 +241,12 @@ data class AccountUpdate(
     val loanStartDate: String? = null,
     val appreciationRateAnnual: Double? = null,
     val linkedAccountId: String? = null,
+    /**
+     * Null omits the key — `explicitNulls = false` drops it, which the backend's
+     * `exclude_unset` reads as "leave it alone". So renaming an account cannot
+     * silently reopen it.
+     */
+    val isArchived: Boolean? = null,
 )
 
 @Serializable

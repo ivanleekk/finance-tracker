@@ -23,7 +23,7 @@ struct CardSetUpView: View {
                 Section {
                     Picker("Account", selection: $accountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }

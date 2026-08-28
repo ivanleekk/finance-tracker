@@ -288,6 +288,9 @@ struct AccountResponse: Codable, Identifiable, Hashable {
     let currency: String
     /// nil = shared with the household; set = private to that user.
     let ownerUserId: String?
+    /// Closed but kept. Optional on the wire, and a missing value means *open* —
+    /// an absent flag must never hide an account.
+    let isArchived: Bool?
 
     // Loan terms — liability accounts only. All optional: without the full set
     // the account keeps whatever balance was last entered, exactly as before.
@@ -337,6 +340,9 @@ struct AccountCreate: Encodable {
     var loanStartDate: String? = nil
     var appreciationRateAnnual: Double? = nil
     var linkedAccountId: String? = nil
+    /// nil omits the key, which the backend's `exclude_unset` reads as "leave it
+    /// alone" — so renaming an account cannot silently reopen it.
+    var isArchived: Bool? = nil
 }
 
 /// PUT /accounts/{id} (schemas.AccountUpdate).
@@ -355,6 +361,16 @@ struct AccountUpdate: Encodable {
     var loanStartDate: String? = nil
     var appreciationRateAnnual: Double? = nil
     var linkedAccountId: String? = nil
+}
+
+/// Just the archive flag.
+///
+/// A separate body from `AccountUpdate` on purpose: that type sends the account's
+/// whole identity (name, liquidity, kind, currency…), and closing an account
+/// should not restate all of it. The API's `exclude_unset` means the keys you
+/// leave out are the ones it leaves alone.
+struct AccountArchiveUpdate: Encodable {
+    let isArchived: Bool
 }
 
 struct BalanceResponse: Codable, Identifiable {

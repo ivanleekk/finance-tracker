@@ -27,14 +27,22 @@ struct AccountsListView: View {
     /// how quickly you could spend it — and says nothing useful about a debt. They get their
     /// own section below, the way the web Accounts page has always grouped them.
     private var grouped: [(liquidity: LiquidityStatus, accounts: [AccountResponse])] {
+        // Archived accounts leave the liquidity and liability sections for one of
+        // their own at the end. They keep their balances and still count towards
+        // the totals — archiving closes an account, it does not pretend the money
+        // was never there.
         LiquidityStatus.allCases.compactMap { liquidity in
-            let matching = visibleAccounts.filter { $0.liquidity == liquidity && !$0.isLiability }
+            let matching = selectableAccounts(visibleAccounts).filter { $0.liquidity == liquidity && !$0.isLiability }
             return matching.isEmpty ? nil : (liquidity, matching.sorted { $0.name < $1.name })
         }
     }
 
     private var liabilities: [AccountResponse] {
-        visibleAccounts.filter(\.isLiability).sorted { $0.name < $1.name }
+        selectableAccounts(visibleAccounts).filter(\.isLiability).sorted { $0.name < $1.name }
+    }
+
+    private var archived: [AccountResponse] {
+        visibleAccounts.filter { $0.isArchived == true }.sorted { $0.name < $1.name }
     }
 
     /// The row plus its push. Shared by the liquidity sections and the liabilities one so the
@@ -93,6 +101,16 @@ struct AccountsListView: View {
             if !liabilities.isEmpty {
                 Section("Loans & liabilities") {
                     ForEach(liabilities) { account in
+                        accountLink(account, latestByAccount: latestByAccount)
+                    }
+                }
+            }
+
+            if !archived.isEmpty {
+                // No section total: these are closed, and a heading figure would
+                // invite reading them as a live bucket.
+                Section("Archived") {
+                    ForEach(archived) { account in
                         accountLink(account, latestByAccount: latestByAccount)
                     }
                 }
@@ -293,6 +311,17 @@ struct AccountDetailView: View {
                     } label: {
                         Label("Edit Account", systemImage: "pencil")
                     }
+                    // Archiving is how a used account is closed. Deleting one is
+                    // refused by the API, because its journal entries are shared
+                    // with other accounts and categories.
+                    Button {
+                        setArchived(!(account.isArchived == true))
+                    } label: {
+                        Label(
+                            account.isArchived == true ? "Reopen Account" : "Archive Account",
+                            systemImage: account.isArchived == true ? "tray.and.arrow.up" : "archivebox"
+                        )
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -321,6 +350,24 @@ struct AccountDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    /// Close or reopen the account. Only this one key is sent: the API's update
+    /// uses `exclude_unset`, so anything else in the body would overwrite fields
+    /// nobody touched.
+    private func setArchived(_ archived: Bool) {
+        Task {
+            do {
+                let _: AccountResponse = try await APIClient.shared.put(
+                    "/accounts/\(account.id)",
+                    body: AccountArchiveUpdate(isArchived: archived)
+                )
+                await reload()
+                await onChanged()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

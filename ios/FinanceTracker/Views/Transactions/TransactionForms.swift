@@ -149,7 +149,7 @@ struct TransactionFormView: View {
                 Section {
                     Picker("Account", selection: $accountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }
@@ -397,13 +397,13 @@ struct TransferFormView: View {
                 Section {
                     Picker("From", selection: $fromAccountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }
                     Picker("To", selection: $toAccountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }

@@ -13,6 +13,21 @@ func latestBalanceHome(_ history: [BalanceResponse]) -> Double {
 
 /// The minimal account shape `summarizeAccounts`/`netWorthBreakdown` need —
 /// kind + liquidity bucket + full balance history, mirroring web's `AccountLike`.
+/// The accounts worth offering when someone is *starting* something — logging a
+/// transaction, funding a trade, picking a default.
+///
+/// Swift port of the web's `selectableAccounts` in `lib/networth.ts`.
+///
+/// Archived accounts are closed, so putting one in a picker invites new activity
+/// on an account the user has finished with. They are deliberately still
+/// included everywhere else: they keep their balances, so totals do not move
+/// when an account is archived, and they still label the history attached to
+/// them. A closed account has been zeroed and contributes nothing to a total
+/// anyway; one that still holds money genuinely should be counted.
+func selectableAccounts(_ accounts: [AccountResponse]) -> [AccountResponse] {
+    accounts.filter { $0.isArchived != true }
+}
+
 struct NetWorthAccountInput {
     let kind: String?
     let liquidity: LiquidityStatus

@@ -206,7 +206,7 @@ struct SettlementFormView: View {
                 Section {
                     Picker(receiving ? "Into account" : "From account", selection: $accountId) {
                         Text("Select").tag(String?.none)
-                        ForEach(accounts) { account in
+                        ForEach(selectableAccounts(accounts)) { account in
                             Text(account.name).tag(String?.some(account.id))
                         }
                     }

@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
@@ -265,7 +266,7 @@ fun TransactionFormScreen(
                 DropdownField(
                     label = "Account",
                     selected = accounts.firstOrNull { it.id == accountId },
-                    options = accounts,
+                    options = selectableAccounts(accounts),
                     optionLabel = { it.name },
                     onSelect = { accountId = it.id },
                 )

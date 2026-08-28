@@ -396,7 +396,7 @@ struct RecurringFormView: View {
                     }
                     Picker("Account", selection: $accountId) {
                         Text("Choose…").tag("")
-                        ForEach(accounts) { Text($0.name).tag($0.id) }
+                        ForEach(selectableAccounts(accounts)) { Text($0.name).tag($0.id) }
                     }
                 } footer: {
                     Text("An income category adds to the account; an expense category subtracts.")

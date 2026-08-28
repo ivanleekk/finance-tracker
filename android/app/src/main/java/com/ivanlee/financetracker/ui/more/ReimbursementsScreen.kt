@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.CounterpartyBalanceResponse
@@ -317,7 +318,7 @@ private fun SettlementDialog(
                 DropdownField(
                     label = if (receiving) "Into account" else "From account",
                     selected = accounts.firstOrNull { it.id == accountId },
-                    options = accounts,
+                    options = selectableAccounts(accounts),
                     optionLabel = { it.name },
                     onSelect = { accountId = it.id },
                 )
