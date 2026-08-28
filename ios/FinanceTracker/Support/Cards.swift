@@ -80,6 +80,16 @@ enum Cards {
         return out
     }
 
+    /// A limit with no categories pointing at it measures nothing.
+    ///
+    /// A setup mistake rather than a state worth rendering as a meter: the user
+    /// made a cap and never said what counts towards it. Left alone it draws a
+    /// perfectly plausible "0 of $1,000" bar and reads as "nothing spent yet",
+    /// which is the one thing it must not be mistaken for.
+    static func measuresNothing(_ row: CardLimitStatusRow) -> Bool {
+        row.categoryNames.isEmpty
+    }
+
     /// The limits worth interrupting someone about — burst, or on pace to be.
     ///
     /// Used for the Dashboard's exception row, which shows nothing at all when

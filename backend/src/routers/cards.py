@@ -22,6 +22,9 @@ from src.services import card_service
 
 router = APIRouter(prefix="/cards", tags=["Cards"])
 
+# Where a card's untagged spend lands until the user says otherwise.
+DEFAULT_CARD_CATEGORY_NAME = "Everything else"
+
 
 def _account_or_404(db: Session, account_id: uuid.UUID) -> models.FinancialAccount:
     account = (
@@ -97,6 +100,24 @@ def create_card(
         statement_day=payload.statement_day,
     )
     db.add(card)
+    db.flush()
+
+    # Every card gets a default category from the moment it exists, because
+    # untagged spend is resolved *to* the default when the cycle is totalled. A
+    # card with no categories has nowhere to put it, so the spend was computed
+    # and then dropped: set up a card, add a cap, spend on it, and the meter
+    # read zero — telling the user they had full headroom when they had none.
+    #
+    # Seeding one also removes the setup cliff. A new card is useful immediately
+    # ("what did I put on this card this cycle") instead of only after the user
+    # has built a taxonomy, and they can rename or add to it later.
+    db.add(models.CardCategory(
+        id=uuid.uuid7(),
+        card_id=card.id,
+        name=DEFAULT_CARD_CATEGORY_NAME,
+        is_default=True,
+        sort_order=0,
+    ))
     db.commit()
     db.refresh(card)
     return _card_response(card, account)
@@ -359,10 +380,18 @@ def delete_category(
             status_code=409,
             detail=f"{in_use} transaction(s) are tagged with this category. Retag them before deleting it.",
         )
-    if category.is_default and len(card.categories) > 1:
+    if category.is_default:
+        # A card must always have a default, because that is where untagged
+        # spend is resolved when the cycle is totalled. Without one the spend is
+        # computed and then dropped, and the meter reads zero.
         raise HTTPException(
             status_code=409,
-            detail="This is the card's default category. Make another category the default first.",
+            detail=(
+                "This is the card's default category, and untagged spending lands in it. "
+                + ("Make another category the default first."
+                   if len(card.categories) > 1
+                   else "A card needs at least one category — rename this one instead of deleting it.")
+            ),
         )
     db.delete(category)
     db.commit()

@@ -5,6 +5,7 @@ import {
     cycleLabel,
     headroomByCategory,
     limitsNeedingAttention,
+    limitMeasuresNothing,
 } from './cards';
 import type { CardLimitStatusRow } from '../types/types';
 
@@ -133,5 +134,18 @@ describe('limitsNeedingAttention', () => {
 
     it('is empty when everything is fine, so the Dashboard shows nothing', () => {
         expect(limitsNeedingAttention([row(), row()])).toEqual([]);
+    });
+});
+
+describe('limitMeasuresNothing', () => {
+    it('flags a limit nothing points at', () => {
+        // A cap with no categories draws a plausible "0 of $1,000" bar that
+        // reads as "nothing spent yet" — the one thing it must not be mistaken
+        // for.
+        expect(limitMeasuresNothing(row({ category_names: [] }))).toBe(true);
+    });
+
+    it('leaves a wired-up limit alone', () => {
+        expect(limitMeasuresNothing(row({ category_names: ['Dining'] }))).toBe(false);
     });
 });

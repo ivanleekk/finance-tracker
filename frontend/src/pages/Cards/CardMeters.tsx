@@ -2,7 +2,7 @@ import { Form } from "react-router";
 import { Trash2 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { budgetBarPercent, periodElapsedPercent } from "../../lib/budgets";
-import { cardLimitTone, headroomLabel, type CardLimitTone } from "../../lib/cards";
+import { cardLimitTone, headroomLabel, limitMeasuresNothing, type CardLimitTone } from "../../lib/cards";
 import { cn } from "../../lib/utils";
 import type { CardCategorySpendRow, CardLimitStatusRow } from "../../types/types";
 
@@ -77,6 +77,12 @@ export function LimitMeter({
                     aria-hidden="true"
                 />
             </div>
+
+            {limitMeasuresNothing(row) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                    No categories point at this limit yet, so it isn't measuring anything.
+                </p>
+            )}
 
             {tone === "at-risk" && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">

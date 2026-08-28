@@ -283,6 +283,15 @@ fun CardLimitMeter(row: CardLimitStatusRow, currency: String) {
             )
         }
 
+        if (Cards.measuresNothing(row)) {
+            Text(
+                "No categories point at this limit yet, so it isn't measuring anything.",
+                style = MaterialTheme.typography.bodySmall,
+                color = warningColor(),
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+
         if (tone == Cards.Tone.AT_RISK) {
             Text(
                 if (row.direction == LimitDirection.FLOOR) {

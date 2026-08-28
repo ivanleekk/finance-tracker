@@ -21,6 +21,20 @@ export type CardLimitTone = "over" | "at-risk" | "ok";
  * showing — a warning after the cycle closes is useless, so the pace projection
  * is what earns its place.
  */
+/**
+ * A limit with no categories pointing at it measures nothing.
+ *
+ * It is a setup mistake rather than a state worth rendering as a meter: the user
+ * made a cap and never said what counts towards it. Left alone it draws a
+ * perfectly plausible "0 of $1,000" bar and reads as "nothing spent yet",
+ * which is the one thing it must not be mistaken for.
+ */
+export function limitMeasuresNothing(
+    row: Pick<CardLimitStatusRow, "category_names">
+): boolean {
+    return row.category_names.length === 0;
+}
+
 export function cardLimitTone(
     row: Pick<CardLimitStatusRow, "direction" | "settled" | "projected_missed">
 ): CardLimitTone {
