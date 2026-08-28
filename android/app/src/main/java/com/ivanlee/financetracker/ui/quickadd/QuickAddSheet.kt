@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.data.loadCardForAccount
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.Cards
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
@@ -118,18 +119,10 @@ fun QuickAddSheet(
         val householdId = sessionVm.activeHousehold?.id
         val account = accountId
         cardCategoryId = null
-        if (householdId == null || account == null) {
-            card = null; cardHeadroom = emptyMap(); return@LaunchedEffect
-        }
-        val match = runCatching {
-            Api.get<List<CardResponse>>("/cards/household/$householdId")
-                .firstOrNull { it.financialAccountId == account }
-        }.getOrNull()
-        card = match
-        // A missing meter makes the picker plainer, never the sheet unusable.
-        cardHeadroom = if (match == null) emptyMap() else runCatching {
-            Cards.headroomByCategory(match, Api.get<CardStatusResponse>("/cards/${match.id}/status"))
-        }.getOrDefault(emptyMap())
+        val loaded = if (householdId == null || account == null) null
+                     else loadCardForAccount(householdId, account)
+        card = loaded?.card
+        cardHeadroom = loaded?.headroom ?: emptyMap()
     }
     var fromAccountId by remember { mutableStateOf<String?>(null) }
     var toAccountId by remember { mutableStateOf<String?>(null) }

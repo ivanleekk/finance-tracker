@@ -382,21 +382,13 @@ struct QuickAddView: View {
             cardHeadroom = [:]
             return
         }
-        do {
-            let cards: [CardResponse] = try await APIClient.shared.get("/cards/household/\(householdId)")
-            guard let match = cards.first(where: { $0.financialAccountId == accountId }) else {
-                card = nil
-                cardHeadroom = [:]
-                cardCategoryId = nil
-                return
-            }
-            card = match
-            let status: CardStatusResponse = try await APIClient.shared.get("/cards/\(match.id)/status")
-            cardHeadroom = Cards.headroomByCategory(card: match, status: status)
-        } catch {
-            // A missing meter makes the picker plainer, never the sheet unusable.
+        guard let loaded = await Cards.load(householdId: householdId, accountId: accountId) else {
+            card = nil
             cardHeadroom = [:]
+            return
         }
+        card = loaded.card
+        cardHeadroom = loaded.headroom
     }
 
     /// "Dining · $240 left" when the category is metered, otherwise just its name.

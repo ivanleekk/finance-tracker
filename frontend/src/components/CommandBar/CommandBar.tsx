@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo} from "react";
-import { useNavigate, useRevalidator } from "react-router";
+import { useNavigate, useRevalidator, useFetcher } from "react-router";
 import { useCommandBar } from "../../lib/CommandBarContext";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
@@ -25,8 +25,9 @@ import {
     TradeView,
     TransferView,
 } from "./CommandBarViews";
-import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse, CardResponse, CardStatusResponse, CardLimitStatusRow } from "../../types/types";
-import { headroomByCategory, headroomLabel } from "../../lib/cards";
+import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
+import type { CardPickerData } from "../../pages/Transactions/cardCategories.resource";
+import { cardCategoryPickerOptions } from "../../lib/cards";
 
 
 export function CommandBar() {
@@ -48,7 +49,7 @@ export function CommandBar() {
     // The card behind the chosen account, if it is one. Fetched on demand — most
     // accounts are not cards, and the command bar is meant to be fast.
     const [cardCategoryId, setCardCategoryId] = useState("");
-    const [cardData, setCardData] = useState<{ card: CardResponse; headroom: Map<string, CardLimitStatusRow> } | null>(null);
+    const cardFetcher = useFetcher<CardPickerData>();
     const [successInfo, setSuccessInfo] = useState<{ big: string; sub: string } | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [undoData, setUndoData] = useState<{ path: string } | null>(null);
@@ -168,39 +169,21 @@ export function CommandBar() {
         ?? (parsed.type === "expense" ? routedAccount(parsed.account)?.id : undefined)
         ?? null;
 
+    // Reuses the resource route the transaction form already loads this from,
+    // rather than a second copy of "find the card, then fetch its status".
     useEffect(() => {
-        let cancelled = false;
         setCardCategoryId("");
-        if (!activeHousehold || !chosenAccountId) { setCardData(null); return; }
-        (async () => {
-            try {
-                const { data: cards } = await api.get<CardResponse[]>(`/cards/household/${activeHousehold.id}`);
-                const card = cards.find(c => c.financial_account_id === chosenAccountId);
-                if (!card) { if (!cancelled) setCardData(null); return; }
-                const { data: status } = await api.get<CardStatusResponse>(`/cards/${card.id}/status`);
-                if (!cancelled) setCardData({ card, headroom: headroomByCategory(card, status) });
-            } catch {
-                // A missing meter makes the picker plainer, never the bar unusable.
-                if (!cancelled) setCardData(null);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [activeHousehold, chosenAccountId]);
+        if (chosenAccountId) cardFetcher.load(`/transactions/card/${chosenAccountId}`);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chosenAccountId]);
 
-    const cardCategoryOptions = useMemo(() => {
-        if (!cardData) return [];
-        const money = (v: number) => new Intl.NumberFormat(undefined, {
-            style: "currency", currency: cardData.card.currency || activeHousehold?.base_currency || "USD",
-            maximumFractionDigits: 0,
-        }).format(v);
-        return [
-            { value: "", label: "— Card's default —" },
-            ...cardData.card.categories.map(c => {
-                const row = cardData.headroom.get(c.id);
-                return { value: c.id, label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name };
-            }),
-        ];
-    }, [cardData, activeHousehold]);
+    const cardCategoryOptions = useMemo(
+        () => cardCategoryPickerOptions(
+            cardFetcher.data ?? null,
+            activeHousehold?.base_currency ?? "USD",
+        ),
+        [cardFetcher.data, activeHousehold],
+    );
 
     if (!isOpen) return null;
 
