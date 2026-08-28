@@ -24,8 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 from src import models
 from src.services import ledger_service
 from src.services.date_utils import add_months
-
-CENTS = Decimal("0.01")
+from src.services.money import dec, money
 
 # How much history the runway calculation averages over. Long enough to smooth a
 # one-off big month, short enough to reflect a real change in lifestyle.
@@ -34,18 +33,6 @@ RUNWAY_LOOKBACK_MONTHS = 6
 # A household with no spending history has infinite runway, which is useless to
 # display. Cap what we report so the UI can say "12+ months".
 MAX_REPORTED_MONTHS = Decimal("99")
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(CENTS, rounding=ROUND_HALF_UP)
-
-
-def _dec(value) -> Decimal:
-    if value is None:
-        return Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
 
 
 def period_bounds(period: models.BudgetPeriod, on: date) -> tuple[date, date]:
@@ -136,7 +123,7 @@ def _spend_by_category(
         amount = row.amount_home_currency
         if amount is None:
             amount = row.amount
-        own_share = _dec(amount)
+        own_share = dec(amount)
         split = splits.get(row.id)
         if split is not None:
             own_share -= split[1]
@@ -226,7 +213,7 @@ def budget_statuses(
             Decimal("0"),
         )
 
-        limit = _dec(budget.amount)
+        limit = dec(budget.amount)
         days_total = (end - start).days + 1
         # Clamp: viewing a past or future period shouldn't project off the end.
         days_elapsed = min(max((on - start).days + 1, 0), days_total)
@@ -240,15 +227,15 @@ def budget_statuses(
             BudgetStatus(
                 budget=budget,
                 category_names=[category_names.get(cid, "Unknown") for cid in category_ids],
-                limit=_money(limit),
-                spent=_money(spent),
-                remaining=_money(limit - spent),
+                limit=money(limit),
+                spent=money(spent),
+                remaining=money(limit - spent),
                 percent_used=float(spent / limit * 100) if limit > 0 else 0.0,
                 period_start=start,
                 period_end=end,
                 days_elapsed=days_elapsed,
                 days_total=days_total,
-                projected_spend=_money(projected),
+                projected_spend=money(projected),
                 projected_over=limit > 0 and projected > limit,
             )
         )
@@ -285,7 +272,7 @@ def emergency_fund_status(
     on = on or datetime.now(timezone.utc).date()
 
     household = db.query(models.Household).filter(models.Household.id == household_id).first()
-    target_months = _dec(household.emergency_fund_target_months if household else None) or Decimal("6")
+    target_months = dec(household.emergency_fund_target_months if household else None) or Decimal("6")
 
     accounts = (
         db.query(models.FinancialAccount)
@@ -312,7 +299,7 @@ def emergency_fund_status(
         value = latest.balance_home_currency
         if value is None:
             value = latest.balance
-        liquid_total += _dec(value)
+        liquid_total += dec(value)
 
     # Trailing expenses, excluding transfers.
     lookback_start = add_months(date(on.year, on.month, 1), -RUNWAY_LOOKBACK_MONTHS)
@@ -358,12 +345,12 @@ def emergency_fund_status(
         # a false reassurance.
         months_covered = None
 
-    target_amount = _money(average_monthly * target_months)
-    shortfall = _money(max(target_amount - liquid_total, Decimal("0")))
+    target_amount = money(average_monthly * target_months)
+    shortfall = money(max(target_amount - liquid_total, Decimal("0")))
 
     return EmergencyFundStatus(
-        liquid_total=_money(liquid_total),
-        average_monthly_expenses=_money(average_monthly),
+        liquid_total=money(liquid_total),
+        average_monthly_expenses=money(average_monthly),
         months_covered=months_covered.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
         if months_covered is not None
         else None,

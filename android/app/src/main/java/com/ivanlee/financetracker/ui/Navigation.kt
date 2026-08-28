@@ -72,6 +72,7 @@ object Routes {
     const val APPEARANCE = "more/appearance"
     const val BUDGETS = "more/budgets"
     const val REIMBURSEMENTS = "more/reimbursements"
+    const val CARDS = "more/cards"
     const val BUDGET_FORM = "more/budgets/form?budgetId={budgetId}"
     const val RECURRING = "more/recurring"
     const val RECURRING_FORM = "more/recurring/form?ruleId={ruleId}"

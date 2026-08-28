@@ -23,9 +23,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
+import com.ivanlee.financetracker.data.model.CardLimitStatusRow
+import com.ivanlee.financetracker.data.model.CardResponse
+import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.ReferenceMcc
+import com.ivanlee.financetracker.logic.Cards
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
@@ -46,6 +51,7 @@ import com.ivanlee.financetracker.ui.components.SwitchRow
 import com.ivanlee.financetracker.logic.Reimbursements
 import com.ivanlee.financetracker.logic.SplitAssessment
 import com.ivanlee.financetracker.logic.currency
+import com.ivanlee.financetracker.logic.currencyWhole
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -79,6 +85,12 @@ fun TransactionFormScreen(
     // Empty means "not recorded", which is the normal case — most purchases have
     // no code the user happens to know.
     var mcc by remember { mutableStateOf("") }
+    // The card behind the selected account, if it is one. Fetched on demand,
+    // because most accounts are not cards and most households have none.
+    var card by remember { mutableStateOf<CardResponse?>(null) }
+    var cardHeadroom by remember { mutableStateOf<Map<String, CardLimitStatusRow>>(emptyMap()) }
+    var cardCategoryId by remember { mutableStateOf<String?>(null) }
+    var showCardCategoryPicker by remember { mutableStateOf(false) }
     var mccs by remember { mutableStateOf<List<ReferenceMcc>>(emptyList()) }
     var showMccPicker by remember { mutableStateOf(false) }
     // Part of this bill is somebody else's. The amount above stays the full sum that leaves
@@ -127,6 +139,7 @@ fun TransactionFormScreen(
                 owedByText = txn.owedBy.orEmpty()
                 owedAmountText = txn.owedAmount?.toString().orEmpty()
                 mcc = txn.mcc.orEmpty()
+                cardCategoryId = txn.cardCategoryId
             } else {
                 accountId = accounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId }?.id
                     ?: accounts.firstOrNull { it.id == h.defaultFundingAccountId }?.id
@@ -191,6 +204,8 @@ fun TransactionFormScreen(
                             split = splitChange,
                             // Always sent, like description: "" clears a recorded code.
                             mcc = mcc,
+                            // Null clears the tag; the factory sends JsonNull for it.
+                            cardCategoryId = cardCategoryId,
                         ),
                     )
                 } else {
@@ -206,6 +221,7 @@ fun TransactionFormScreen(
                             owedAmount = if (splitting) owedAmount else null,
                             // Blank goes as-is; the API reads "" as "not given".
                             mcc = mcc,
+                            cardCategoryId = cardCategoryId,
                         ),
                     )
                 }
@@ -250,7 +266,7 @@ fun TransactionFormScreen(
                 DropdownField(
                     label = "Account",
                     selected = accounts.firstOrNull { it.id == accountId },
-                    options = accounts,
+                    options = selectableAccounts(accounts),
                     optionLabel = { it.name },
                     onSelect = { accountId = it.id },
                 )
@@ -313,6 +329,27 @@ fun TransactionFormScreen(
                 }
             }
 
+            // Only when the selected account is actually a card. The headroom sits in
+            // the row because this is the one moment the number can still change the
+            // decision — a meter you have to go and look at will not stop anyone
+            // overspending.
+            card?.let { activeCard ->
+                val picked = activeCard.categories.firstOrNull { it.id == cardCategoryId }
+                SectionCard {
+                    FormField(
+                        "Card category",
+                        picked?.name ?: "Card's default",
+                        {},
+                        supportingText = "Which of this card's own categories the spend counts towards.",
+                        trailingIcon = {
+                            TextButton(onClick = { showCardCategoryPicker = true }) {
+                                Text(if (picked == null) "Choose" else "Change")
+                            }
+                        },
+                    )
+                }
+            }
+
             // Only for users who asked for it in Settings — a four-digit code field on
             // every form would tax everyone for a minority feature.
             if (sessionVm.user?.recordsMerchantCodes == true) {
@@ -338,6 +375,51 @@ fun TransactionFormScreen(
             Button(onClick = ::save, enabled = canSave) {
                 Text(if (saving) "Saving…" else "Save transaction")
             }
+        }
+    }
+
+    // Reloads whenever the account changes, including the first time one is picked.
+    // A pick from the old card is meaningless on a new one, so it is cleared here as
+    // well as server-side.
+    LaunchedEffect(accountId, sessionVm.activeHousehold?.id) {
+        val householdId = sessionVm.activeHousehold?.id
+        val account = accountId
+        if (householdId == null || account == null) {
+            card = null
+            cardHeadroom = emptyMap()
+            return@LaunchedEffect
+        }
+        val match = runCatching {
+            Api.get<List<CardResponse>>("/cards/household/$householdId")
+                .firstOrNull { it.financialAccountId == account }
+        }.getOrNull()
+        if (match == null) {
+            card = null
+            cardHeadroom = emptyMap()
+            cardCategoryId = null
+            return@LaunchedEffect
+        }
+        if (match.id != card?.id) cardCategoryId = existing?.cardCategoryId.takeIf { existing?.accountId == account }
+        card = match
+        // A missing meter makes the picker plainer, not the form unusable.
+        cardHeadroom = runCatching {
+            Cards.headroomByCategory(match, Api.get<CardStatusResponse>("/cards/${match.id}/status"))
+        }.getOrDefault(emptyMap())
+    }
+
+    if (showCardCategoryPicker) {
+        val activeCard = card
+        if (activeCard != null) {
+            val currency = activeCard.currency ?: sessionVm.activeHousehold?.baseCurrency ?: "USD"
+            SearchablePickerDialog(
+                title = "Card category",
+                options = activeCard.categories,
+                optionLabel = { Cards.categoryLabel(it, cardHeadroom) { v -> v.currencyWhole(currency) } },
+                optionKey = { it.id },
+                searchText = { it.name },
+                onSelect = { cardCategoryId = it.id },
+                onDismiss = { showCardCategoryPicker = false },
+            )
         }
     }
 

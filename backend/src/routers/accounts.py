@@ -191,6 +191,43 @@ def delete_account(
             detail=f"{rule_count} recurring transaction(s) still use this account. Delete them first.",
         )
 
+    # An account that has been used cannot be deleted, and the reason is the
+    # ledger rather than squeamishness. Every journal entry is balanced across
+    # two or more accounts, so erasing the entries that touch this one also
+    # erases the other side: a category's history, an equity plug, or another
+    # account's balance. Receivables reach net worth, so deleting a closed bank
+    # account could quietly change what the household is worth, and past budget
+    # months would be recomputed from a ledger that no longer says what happened.
+    #
+    # Archiving exists for that case, so this refuses and points at it. Deleting
+    # an account that never got used is still a delete — there is nothing to
+    # preserve and nothing to be surprised by.
+    ledger_account_ids = [
+        row.id
+        for row in db.query(models.LedgerAccount.id).filter(
+            models.LedgerAccount.financial_account_id == account_id
+        ).all()
+    ]
+    entry_count = 0
+    if ledger_account_ids:
+        entry_count = (
+            db.query(models.JournalLine.entry_id)
+            .filter(models.JournalLine.ledger_account_id.in_(ledger_account_ids))
+            .distinct()
+            .count()
+        )
+    if entry_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This account has {entry_count} ledger "
+                f"{'entry' if entry_count == 1 else 'entries'} behind "
+                f"{'it, and it is' if entry_count == 1 else 'it, and they are'} shared with other "
+                "accounts and categories — deleting it would change balances elsewhere. "
+                "Archive it instead to close it without losing the history."
+            ),
+        )
+
     # An earmarked account leaves snapshot rows behind in its sub-portfolio (#252).
     # Capture what's needed to rebuild before the row is gone, then replay: the
     # replay clears the range and simply won't re-emit rows for an account that no
@@ -310,6 +347,25 @@ def add_account_balance(
         models.AccountBalance.date == balance.date
     ).first()
 
+    # An account's *first* balance is an opening balance, not a reconciliation,
+    # and the difference matters: `is_manual` marks a checkpoint that
+    # `propagate_balance_change` refuses to move through. A reconciliation should
+    # be a checkpoint — it says "I counted, and it was this much on this date",
+    # which a later-entered transaction must not silently overwrite. An opening
+    # balance asserts nothing of the kind. There is no history behind it to
+    # correct, so there is nothing for it to be a checkpoint *against*.
+    #
+    # Marking it manual made every new account plant an anchor at its creation
+    # date, so a transaction entered with an earlier date — a purchase from last
+    # week, on a card you just set up — updated its own day and then stopped
+    # dead, leaving the headline balance reading zero forever.
+    others = db.query(models.AccountBalance.id).filter(
+        models.AccountBalance.account_id == balance.account_id
+    )
+    if db_balance:
+        others = others.filter(models.AccountBalance.id != db_balance.id)
+    is_opening_balance = others.first() is None
+
     # Calculate delta for propagation if there's already a balance chain
     # What would the balance have been on this date?
     if db_balance:
@@ -331,7 +387,8 @@ def add_account_balance(
     if db_balance:
         db_balance.balance = balance.balance
         db_balance.balance_home_currency = float(balance.balance) * rate
-        db_balance.is_manual = True
+        # Editing the opening balance leaves it an opening balance.
+        db_balance.is_manual = not is_opening_balance
     else:
         db_balance = models.AccountBalance(
             id=uuid.uuid7(),
@@ -339,7 +396,7 @@ def add_account_balance(
             date=balance.date,
             balance=balance.balance,
             balance_home_currency=float(balance.balance) * rate,
-            is_manual=True
+            is_manual=not is_opening_balance,
         )
         db.add(db_balance)
     

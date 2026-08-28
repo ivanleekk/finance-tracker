@@ -330,3 +330,20 @@ Rules worth not re-deriving:
 - Build a `TransactionUpdate` through the `transactionUpdate(...)` factory, never by hand — it
   is what maps `SplitChange` onto the omit/`JsonNull`/value encoding the backend expects.
 - The split section only renders for `TransactionType.EXPENSE`; income has no counterparty.
+
+## Cards & spend limits
+
+`ui/more/CardsScreen.kt` + `CardDialogs.kt` (More → Cards), the picker in
+`TransactionFormScreen`, and `logic/Cards.kt` — the Kotlin port of the web's `lib/cards.ts` and
+iOS's `Support/Cards.swift`. See the root AGENTS.md for the design; the client-side rules:
+
+- A ceiling and a floor must never read the same. `settled` means "burst" for a cap and "met"
+  for a minimum, so only a ceiling is ever `Tone.OVER`; "225 left" is headroom to protect and
+  "800 to go" is a shortfall to close.
+- The bar and pace fractions are **not** ported — a `CardLimitStatusRow` is field-for-field a
+  budget row, so `BudgetPresentation`'s already read it.
+- `cardCategoryId` on an update is a `JsonElement`, `JsonNull` for the clear, and goes through
+  the `transactionUpdate(...)` factory like the split. `explicitNulls = false` would drop a
+  plain Kotlin null, which the backend reads as "preserve" — leaving no way to untag a row.
+- `cycleLabel` formats in UTC like every other backend date here: a cycle boundary is a
+  calendar fact about the card, not an instant.

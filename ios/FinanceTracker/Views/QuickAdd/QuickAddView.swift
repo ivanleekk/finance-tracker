@@ -333,7 +333,7 @@ struct QuickAddView: View {
     private func accountPicker(title: String, selection: Binding<String?>) -> some View {
         Picker(title, selection: selection) {
             Text("Select").tag(String?.none)
-            ForEach(accounts) { account in
+            ForEach(selectableAccounts(accounts)) { account in
                 Text(account.name).tag(String?.some(account.id))
             }
         }

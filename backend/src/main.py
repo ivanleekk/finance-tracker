@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from src.routers import accounts, cashflow, portfolio, users, auth, reference, internal, exports
+from src.routers import accounts, cards, cashflow, portfolio, users, auth, reference, internal, exports
 
 # 1. Grab the current API URL from the environment (default to localhost for dev)
 api_url = os.getenv("API_URL", "http://localhost:8000")
@@ -122,6 +122,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(cashflow.router)
+app.include_router(cards.router)
 app.include_router(portfolio.router)
 app.include_router(reference.router)
 app.include_router(internal.router)

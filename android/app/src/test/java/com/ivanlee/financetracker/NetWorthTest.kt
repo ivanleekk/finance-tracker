@@ -1,5 +1,7 @@
 package com.ivanlee.financetracker
 
+import com.ivanlee.financetracker.logic.selectableAccounts
+import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.model.LiquidityStatus
 import com.ivanlee.financetracker.logic.NetWorthAccountInput
@@ -217,5 +219,36 @@ class NetWorthTest {
         val breakdown = netWorthBreakdown(listOf(brokerageCash), portfolioValue = 0.0)
         assertEquals(listOf("other"), breakdown.slices.map { it.key })
         assertEquals(listOf(5_000.0), breakdown.slices.map { it.value })
+    }
+}
+
+/**
+ * Archived accounts — twin of the web `selectableAccounts` tests in
+ * `lib/networth.test.ts` and iOS's `SelectableAccountsTests`.
+ */
+class SelectableAccountsTest {
+    private fun account(id: String, archived: Boolean?) = AccountResponse(
+        id = id,
+        householdId = "h",
+        name = "A",
+        liquidity = LiquidityStatus.LIQUID,
+        taxStatus = "taxable",
+        kind = "asset",
+        currency = "USD",
+        isArchived = archived,
+    )
+
+    @Test
+    fun `keeps archived accounts out of pickers`() {
+        // Offering a closed account invites new activity on one the user has
+        // finished with.
+        val kept = selectableAccounts(listOf(account("a", false), account("b", true)))
+        assertEquals(listOf("a"), kept.map { it.id })
+    }
+
+    @Test
+    fun `treats a missing flag as open`() {
+        // The field is optional on the wire; absent must never hide an account.
+        assertEquals(1, selectableAccounts(listOf(account("c", null))).size)
     }
 }

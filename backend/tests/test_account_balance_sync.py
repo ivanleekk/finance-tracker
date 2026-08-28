@@ -143,3 +143,93 @@ def test_propagation_through_auto_records(client, auth_headers, test_account, te
     assert db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 3)).first().balance == Decimal("110.00")
     assert db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 5)).first().balance == Decimal("160.00")
     assert db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 7)).first().balance == Decimal("180.00")
+
+
+def test_a_backdated_transaction_reaches_the_opening_balance(
+    client, auth_headers, test_account, test_category, db_session
+):
+    """
+    The bug this fixes: set an account up today with an opening balance, then
+    enter a purchase from last week, and the headline balance never moved.
+
+    An account's first balance is an opening balance, not a reconciliation.
+    Marking it manual made every new account plant a checkpoint at its creation
+    date, and `propagate_balance_change` refuses to move through one — so the
+    backdated transaction updated its own day and stopped dead.
+    """
+    client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(test_account.id),
+        "date": "2023-10-10",
+        "balance": "0.00",
+    })
+
+    opening = db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 10)).first()
+    assert opening.is_manual is False, "an opening balance is not a checkpoint"
+
+    # A purchase from before the account was set up.
+    client.post("/cashflow/transactions", headers=auth_headers, json={
+        "account_id": str(test_account.id),
+        "category_id": str(test_category.id),
+        "date": "2023-10-05T12:00:00Z",
+        "amount": "100.00",
+        "description": "Last week",
+    })
+
+    db_session.expire_all()
+    assert db_session.query(models.AccountBalance).filter_by(
+        date=date(2023, 10, 5)
+    ).first().balance == Decimal("100.00")
+    # The whole point: the opening balance moves with it rather than pinning
+    # the account at its starting figure forever.
+    assert db_session.query(models.AccountBalance).filter_by(
+        date=date(2023, 10, 10)
+    ).first().balance == Decimal("100.00")
+
+
+def test_a_later_balance_is_still_a_checkpoint(
+    client, auth_headers, test_account, test_category, db_session
+):
+    """
+    The half that must not regress. A *second* balance is a reconciliation —
+    "I counted, and it was this much" — and a transaction entered afterwards
+    with an earlier date must not silently overwrite it.
+    """
+    for on, amount in (("2023-10-01", "100.00"), ("2023-10-10", "1000.00")):
+        client.post("/accounts/balances", headers=auth_headers, json={
+            "account_id": str(test_account.id), "date": on, "balance": amount,
+        })
+
+    balances = {
+        b.date: b for b in db_session.query(models.AccountBalance).filter_by(
+            account_id=test_account.id
+        ).all()
+    }
+    assert balances[date(2023, 10, 1)].is_manual is False, "the first is the opening balance"
+    assert balances[date(2023, 10, 10)].is_manual is True, "the second is a reconciliation"
+
+    client.post("/cashflow/transactions", headers=auth_headers, json={
+        "account_id": str(test_account.id),
+        "category_id": str(test_category.id),
+        "date": "2023-10-05T12:00:00Z",
+        "amount": "50.00",
+        "description": "Between the two",
+    })
+
+    db_session.expire_all()
+    assert db_session.query(models.AccountBalance).filter_by(
+        date=date(2023, 10, 10)
+    ).first().balance == Decimal("1000.00")
+
+
+def test_editing_the_opening_balance_leaves_it_an_opening_balance(
+    client, auth_headers, test_account, db_session
+):
+    # Correcting the number you started from is not the same as reconciling.
+    for amount in ("0.00", "250.00"):
+        client.post("/accounts/balances", headers=auth_headers, json={
+            "account_id": str(test_account.id), "date": "2023-10-10", "balance": amount,
+        })
+
+    opening = db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 10)).first()
+    assert opening.balance == Decimal("250.00")
+    assert opening.is_manual is False

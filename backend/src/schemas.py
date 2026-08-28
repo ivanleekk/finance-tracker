@@ -254,6 +254,8 @@ class AccountCreate(AccountBase):
 
 class AccountUpdate(AccountLoanTerms):
     name: Optional[str] = None
+    # Close an account without erasing it. See models.FinancialAccount.is_archived.
+    is_archived: Optional[bool] = None
     liquidity: Optional[LiquidityStatus] = None
     tax_status: Optional[TaxTreatment] = None
     kind: Optional[AccountKind] = None
@@ -267,6 +269,7 @@ class AccountUpdate(AccountLoanTerms):
 class AccountResponse(AccountBase):
     id: uuid.UUID
     household_id: uuid.UUID
+    is_archived: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -444,6 +447,152 @@ class MccResponse(BaseModel):
     is_brand: bool
 
 
+# --- Cards & spend limits ---
+
+
+def _enum_to_value(value: object) -> object:
+    """
+    Accept either the SQLAlchemy enum member or the wire string it serialises to.
+
+    These fields are `Literal`s rather than the model enums so the JSON contract
+    is a plain string, but reading a row back hands us the enum member. Coercing
+    here keeps every response builder from having to remember `.value` — the
+    kind of per-call-site detail that gets missed on exactly one endpoint.
+    """
+    return getattr(value, "value", value)
+
+
+CycleBasisField = Annotated[Literal["statement", "calendar"], BeforeValidator(_enum_to_value)]
+LimitDirectionField = Annotated[Literal["ceiling", "floor"], BeforeValidator(_enum_to_value)]
+LimitResetField = Annotated[
+    Literal["cycle", "calendar_month", "quarter", "year"], BeforeValidator(_enum_to_value)
+]
+
+
+class CardBase(BaseModel):
+    cycle_basis: CycleBasisField = "statement"
+    # 1-31, clamped to the end of shorter months so a card closing on the 31st
+    # still closes in February.
+    statement_day: int = Field(1, ge=1, le=31)
+
+
+class CardCreate(CardBase):
+    financial_account_id: uuid.UUID
+
+
+class CardUpdate(BaseModel):
+    cycle_basis: Optional[CycleBasisField] = None
+    statement_day: Optional[int] = Field(None, ge=1, le=31)
+
+
+class CardLimitBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    # Always a currency figure. A cap the issuer states in rewards ("max $60
+    # cashback") has to be converted by the user, because nothing here knows a
+    # rate — see the note on models.CardLimit.
+    amount: PositiveDecimal
+    direction: LimitDirectionField = "ceiling"
+    reset_basis: LimitResetField = "cycle"
+
+
+class CardLimitCreate(CardLimitBase):
+    pass
+
+
+class CardLimitUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    amount: Optional[PositiveDecimal] = None
+    direction: Optional[LimitDirectionField] = None
+    reset_basis: Optional[LimitResetField] = None
+
+
+class CardLimitResponse(CardLimitBase):
+    id: uuid.UUID
+    card_id: uuid.UUID
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CardCategoryBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    is_default: bool = False
+    sort_order: int = 0
+
+
+class CardCategoryCreate(CardCategoryBase):
+    limit_id: Optional[uuid.UUID] = None
+
+
+class CardCategoryUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    is_default: Optional[bool] = None
+    sort_order: Optional[int] = None
+    # Three states, the same rule the reimbursement split and `mcc` already use:
+    # omitting the key leaves the limit alone, sending null detaches it. Without
+    # the distinction there is no way to make a metered category unmetered.
+    limit_id: Optional[uuid.UUID] = None
+
+
+class CardCategoryResponse(CardCategoryBase):
+    id: uuid.UUID
+    card_id: uuid.UUID
+    limit_id: Optional[uuid.UUID] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CardResponse(CardBase):
+    id: uuid.UUID
+    financial_account_id: uuid.UUID
+    account_name: str
+    currency: Optional[str] = None
+    categories: List[CardCategoryResponse] = []
+    limits: List[CardLimitResponse] = []
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CardLimitStatusRow(BaseModel):
+    """
+    One limit and how the current window is tracking against it.
+
+    Deliberately the same shape as `BudgetStatusRow`, so each client's existing
+    budget presentation renders it without new maths. `direction` is the
+    addition that tells the reader which way to read `remaining`.
+    """
+
+    limit_id: uuid.UUID
+    name: str
+    category_names: List[str]
+    direction: LimitDirectionField
+    amount: Decimal
+    spent: Decimal
+    # Ceiling: headroom left. Floor: how much more is still needed.
+    remaining: Decimal
+    percent_used: float
+    period_start: date
+    period_end: date
+    days_elapsed: int
+    days_total: int
+    projected_spend: Decimal
+    # Ceiling: on pace to burst. Floor: on pace to fall short.
+    projected_missed: bool
+    settled: bool
+
+
+class CardCategorySpendRow(BaseModel):
+    card_category_id: uuid.UUID
+    name: str
+    spent: Decimal
+
+
+class CardStatusResponse(BaseModel):
+    card_id: uuid.UUID
+    account_name: str
+    currency: Optional[str] = None
+    cycle_start: date
+    cycle_end: date
+    limits: List[CardLimitStatusRow]
+    categories: List[CardCategorySpendRow]
+
+
 class TransactionBase(BaseModel):
     date: datetime
     # Income/expense sign is derived from the category, so the amount is a
@@ -456,6 +605,9 @@ class TransactionBase(BaseModel):
     description: Optional[str] = None
     # Optional, and recorded rather than evaluated — see models.Transaction.mcc.
     mcc: MerchantCategoryCode = None
+    # Which of the card's own categories this counts towards. Null falls to the
+    # card's default, so untagged spend is still metered.
+    card_category_id: Optional[uuid.UUID] = None
 
 
 class TransactionCreate(TransactionBase):
@@ -495,6 +647,8 @@ class TransactionUpdate(BaseModel):
     owed_amount: Optional[PositiveDecimal] = None
     # Omit to leave it alone; send null or "" to clear one that was recorded.
     mcc: MerchantCategoryCode = None
+    # Same three-state rule: omit to preserve, send null to untag.
+    card_category_id: Optional[uuid.UUID] = None
 
 
 class TransactionResponse(TransactionBase):

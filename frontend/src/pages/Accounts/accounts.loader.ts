@@ -196,7 +196,28 @@ export async function action({ request }: ActionFunctionArgs) {
             method: "DELETE",
         });
 
-        if (!res.ok) return { error: "Failed to delete account" };
+        if (!res.ok) {
+            // The server explains *why* when an account has history — it points
+            // at archiving — so surface its words rather than a generic failure.
+            const detail = await res.json().catch(() => null);
+            return { error: detail?.detail || "Failed to delete account" };
+        }
+        return { success: true };
+    }
+
+    if (intent === "setArchived") {
+        const accountId = formData.get("accountId") as string;
+        const res = await ssrFetch(`/accounts/${accountId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            // Only this key: the update uses exclude_unset, so sending the rest
+            // of the form would overwrite fields nobody touched.
+            body: JSON.stringify({ is_archived: formData.get("archived") === "true" }),
+        });
+        if (!res.ok) {
+            const detail = await res.json().catch(() => null);
+            return { error: detail?.detail || "Failed to update the account" };
+        }
         return { success: true };
     }
 

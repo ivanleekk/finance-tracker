@@ -174,7 +174,8 @@ struct ReimbursementCodingTests {
             split: split,
             // The form always sends a code (blank when there is none); these tests
             // are about the split keys, so this is what an untouched field sends.
-            mcc: ""
+            mcc: "",
+            cardCategoryId: nil
         )
     }
 

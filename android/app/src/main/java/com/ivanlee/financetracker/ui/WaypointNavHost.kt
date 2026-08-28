@@ -20,6 +20,7 @@ import com.ivanlee.financetracker.ui.goals.GoalFormScreen
 import com.ivanlee.financetracker.ui.more.ApiServerScreen
 import com.ivanlee.financetracker.ui.more.AppearanceSettingsScreen
 import com.ivanlee.financetracker.ui.more.BudgetsScreen
+import com.ivanlee.financetracker.ui.more.CardsScreen
 import com.ivanlee.financetracker.ui.more.CreateHouseholdScreen
 import com.ivanlee.financetracker.ui.more.HouseholdSettingsScreen
 import com.ivanlee.financetracker.ui.more.MembersScreen
@@ -276,6 +277,7 @@ fun WaypointNavHost(
                     appearance = Routes.APPEARANCE,
                     budgets = Routes.BUDGETS,
                     reimbursements = Routes.REIMBURSEMENTS,
+                    cards = Routes.CARDS,
                     recurring = Routes.RECURRING,
                     categories = Routes.CATEGORIES,
                     reports = Routes.REPORTS,
@@ -309,6 +311,9 @@ fun WaypointNavHost(
         }
         composable(Routes.BUDGETS) {
             BudgetsScreen(sessionVm) { navController.popBackStack() }
+        }
+        composable(Routes.CARDS) {
+            CardsScreen(sessionVm = sessionVm, onBack = { navController.popBackStack() })
         }
         composable(Routes.REIMBURSEMENTS) {
             ReimbursementsScreen(sessionVm) { navController.popBackStack() }

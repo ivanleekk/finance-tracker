@@ -173,7 +173,7 @@ private struct DefaultAccountPicker: View {
             } label: {
                 row(title: "None — always ask", selected: selection == nil)
             }
-            ForEach(accounts) { account in
+            ForEach(selectableAccounts(accounts)) { account in
                 Button {
                     onSelect(account.id)
                     dismiss()

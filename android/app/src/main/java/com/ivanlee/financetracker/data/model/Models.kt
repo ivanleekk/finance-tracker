@@ -174,6 +174,11 @@ data class AccountResponse(
 
     /** Ties a property to the loan secured against it (settable from either side). */
     val linkedAccountId: String? = null,
+    /**
+     * Closed but kept. Optional on the wire, and a missing value means *open* —
+     * an absent flag must never hide an account.
+     */
+    val isArchived: Boolean? = null,
 ) {
     val isLiability: Boolean get() = kind == "liability"
 
@@ -209,6 +214,17 @@ data class AccountCreate(
     val linkedAccountId: String? = null,
 )
 
+/**
+ * Just the archive flag.
+ *
+ * A separate body from [AccountUpdate] on purpose: that type sends the account's
+ * whole identity (name, liquidity, kind, currency…), and closing an account
+ * should not restate all of it. The API's `exclude_unset` means the keys you
+ * leave out are the ones it leaves alone.
+ */
+@Serializable
+data class AccountArchiveUpdate(val isArchived: Boolean)
+
 /** PUT /accounts/{id} (schemas.AccountUpdate). */
 @Serializable
 data class AccountUpdate(
@@ -225,6 +241,12 @@ data class AccountUpdate(
     val loanStartDate: String? = null,
     val appreciationRateAnnual: Double? = null,
     val linkedAccountId: String? = null,
+    /**
+     * Null omits the key — `explicitNulls = false` drops it, which the backend's
+     * `exclude_unset` reads as "leave it alone". So renaming an account cannot
+     * silently reopen it.
+     */
+    val isArchived: Boolean? = null,
 )
 
 @Serializable
@@ -303,6 +325,8 @@ data class TransactionResponse(
      * absent — nothing in the app derives anything from it.
      */
     val mcc: String? = null,
+    /** Which of the card's own categories this counts towards, if any. */
+    val cardCategoryId: String? = null,
 )
 
 @Serializable
@@ -321,6 +345,8 @@ data class TransactionCreate(
      * so an empty picker needs no special-casing here.
      */
     val mcc: String? = null,
+    /** Null falls to the card's default category, so untagged spend is still metered. */
+    val cardCategoryId: String? = null,
 )
 
 /**
@@ -360,6 +386,13 @@ data class TransactionUpdate(
      * so the destructive value must never be the one you get by forgetting.
      */
     val mcc: String,
+    /**
+     * The card's own category. A [JsonElement] for the same reason the split is:
+     * `explicitNulls = false` drops a Kotlin null, and dropping it means
+     * "preserve" — which would leave no way to untag a transaction at all.
+     * [JsonNull] is the explicit clear.
+     */
+    val cardCategoryId: JsonElement? = null,
 )
 
 fun transactionUpdate(
@@ -370,6 +403,8 @@ fun transactionUpdate(
     categoryId: String,
     mcc: String,
     split: SplitChange = SplitChange.Unchanged,
+    /** Null clears the tag; a value sets it. Always sent either way. */
+    cardCategoryId: String? = null,
 ): TransactionUpdate = TransactionUpdate(
     date = date,
     amount = amount,
@@ -387,6 +422,8 @@ fun transactionUpdate(
         SplitChange.Clear -> JsonNull
         is SplitChange.Set -> JsonPrimitive(split.owedAmount)
     },
+    // Always sent: JsonNull when there is no pick, which is what clears it.
+    cardCategoryId = cardCategoryId?.let { JsonPrimitive(it) } ?: JsonNull,
 )
 
 // MARK: Reimbursements
@@ -1168,4 +1205,135 @@ data class EmergencyFundResponse(
     val shortfall: Double,
     val monthsOfHistory: Int = 0,
     val onTrack: Boolean = false,
+)
+
+
+// MARK: Cards & spend limits
+
+@Serializable
+enum class CycleBasis {
+    @SerialName("statement") STATEMENT,
+    @SerialName("calendar") CALENDAR,
+}
+
+@Serializable
+enum class LimitDirection {
+    @SerialName("ceiling") CEILING,
+    @SerialName("floor") FLOOR,
+}
+
+@Serializable
+enum class LimitResetBasis {
+    @SerialName("cycle") CYCLE,
+    @SerialName("calendar_month") CALENDAR_MONTH,
+    @SerialName("quarter") QUARTER,
+    @SerialName("year") YEAR,
+}
+
+@Serializable
+data class CardLimitResponse(
+    val id: String,
+    val cardId: String,
+    val name: String,
+    @Serializable(with = MoneySerializer::class)
+    val amount: Double,
+    val direction: LimitDirection,
+    val resetBasis: LimitResetBasis,
+)
+
+@Serializable
+data class CardCategoryResponse(
+    val id: String,
+    val cardId: String,
+    val name: String,
+    val isDefault: Boolean,
+    val sortOrder: Int,
+    /** Null means tracked but unmetered — deliberately distinct from "nothing left". */
+    val limitId: String? = null,
+)
+
+@Serializable
+data class CardResponse(
+    val id: String,
+    val financialAccountId: String,
+    val accountName: String,
+    val currency: String? = null,
+    val cycleBasis: CycleBasis,
+    val statementDay: Int,
+    val categories: List<CardCategoryResponse> = emptyList(),
+    val limits: List<CardLimitResponse> = emptyList(),
+)
+
+/**
+ * Deliberately the same shape as [BudgetStatusRow], so [BudgetPresentation]'s bar
+ * and pace fractions read it unchanged. [direction] is the one addition: it says
+ * which way to read [remaining].
+ */
+@Serializable
+data class CardLimitStatusRow(
+    val limitId: String,
+    val name: String,
+    val categoryNames: List<String> = emptyList(),
+    val direction: LimitDirection,
+    @Serializable(with = MoneySerializer::class)
+    val amount: Double,
+    @Serializable(with = MoneySerializer::class)
+    val spent: Double,
+    /** Ceiling: headroom left. Floor: how much more is still needed. */
+    @Serializable(with = MoneySerializer::class)
+    val remaining: Double,
+    val percentUsed: Double,
+    @Serializable(with = InstantSerializer::class)
+    val periodStart: Instant,
+    @Serializable(with = InstantSerializer::class)
+    val periodEnd: Instant,
+    val daysElapsed: Int,
+    val daysTotal: Int,
+    @Serializable(with = MoneySerializer::class)
+    val projectedSpend: Double,
+    /** Ceiling: on pace to burst. Floor: on pace to fall short. */
+    val projectedMissed: Boolean,
+    val settled: Boolean,
+)
+
+@Serializable
+data class CardCategorySpendRow(
+    val cardCategoryId: String,
+    val name: String,
+    @Serializable(with = MoneySerializer::class)
+    val spent: Double,
+)
+
+@Serializable
+data class CardStatusResponse(
+    val cardId: String,
+    val accountName: String,
+    val currency: String? = null,
+    @Serializable(with = InstantSerializer::class)
+    val cycleStart: Instant,
+    @Serializable(with = InstantSerializer::class)
+    val cycleEnd: Instant,
+    val limits: List<CardLimitStatusRow> = emptyList(),
+    val categories: List<CardCategorySpendRow> = emptyList(),
+)
+
+@Serializable
+data class CardCreate(
+    val financialAccountId: String,
+    val cycleBasis: String,
+    val statementDay: Int,
+)
+
+@Serializable
+data class CardLimitCreate(
+    val name: String,
+    val amount: Double,
+    val direction: String,
+    val resetBasis: String,
+)
+
+@Serializable
+data class CardCategoryCreate(
+    val name: String,
+    val limitId: String? = null,
 )

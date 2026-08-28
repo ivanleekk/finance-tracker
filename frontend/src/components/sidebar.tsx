@@ -16,8 +16,7 @@ import {
     Repeat,
     HandCoins,
     Menu,
-    X,
-} from "lucide-react";
+    X, CreditCard } from "lucide-react";
 import SidebarButton from "./sidebarButton";
 import { BrandMark } from "./BrandMark";
 import { useAuth } from "../lib/AuthContext";
@@ -29,6 +28,7 @@ const NAV_ITEMS = [
     { text: "Dividends", href: "/dividends", icon: <CircleDollarSign /> },
     { text: "Transactions", href: "/transactions", icon: <History /> },
     { text: "Budgets", href: "/budgets", icon: <PiggyBank /> },
+    { text: "Cards", href: "/cards", icon: <CreditCard /> },
     { text: "Shared", href: "/reimbursements", icon: <HandCoins /> },
     { text: "Recurring", href: "/recurring", icon: <Repeat /> },
     { text: "Trade", href: "/trade", icon: <ArrowRightLeft /> },

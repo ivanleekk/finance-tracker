@@ -190,3 +190,29 @@ struct NetWorthTests {
         #expect(breakdown.slices.map(\.value) == [5_000])
     }
 }
+
+/// Archived accounts — twin of the web `selectableAccounts` tests in
+/// `lib/networth.test.ts` and Android's `NetWorthTest`.
+struct SelectableAccountsTests {
+    private func account(_ id: String, archived: Bool?) -> AccountResponse {
+        let json = """
+        {"id":"\(id)","household_id":"h","name":"A","liquidity":"liquid",
+         "tax_status":"taxable","kind":"asset","currency":"USD","owner_user_id":null
+         \(archived == nil ? "" : ",\"is_archived\":\(archived! ? "true" : "false")")}
+        """
+        return try! APIClient.decoder.decode(AccountResponse.self, from: Data(json.utf8))
+    }
+
+    @Test func keepsArchivedAccountsOutOfPickers() {
+        // Offering a closed account invites new activity on one the user has
+        // finished with.
+        let open = account("a", archived: false)
+        let closed = account("b", archived: true)
+        #expect(selectableAccounts([open, closed]).map(\.id) == ["a"])
+    }
+
+    @Test func treatsAMissingFlagAsOpen() {
+        // The field is optional on the wire; absent must never hide an account.
+        #expect(selectableAccounts([account("c", archived: nil)]).count == 1)
+    }
+}

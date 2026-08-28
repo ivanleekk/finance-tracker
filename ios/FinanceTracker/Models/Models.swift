@@ -288,6 +288,9 @@ struct AccountResponse: Codable, Identifiable, Hashable {
     let currency: String
     /// nil = shared with the household; set = private to that user.
     let ownerUserId: String?
+    /// Closed but kept. Optional on the wire, and a missing value means *open* —
+    /// an absent flag must never hide an account.
+    let isArchived: Bool?
 
     // Loan terms — liability accounts only. All optional: without the full set
     // the account keeps whatever balance was last entered, exactly as before.
@@ -337,6 +340,9 @@ struct AccountCreate: Encodable {
     var loanStartDate: String? = nil
     var appreciationRateAnnual: Double? = nil
     var linkedAccountId: String? = nil
+    /// nil omits the key, which the backend's `exclude_unset` reads as "leave it
+    /// alone" — so renaming an account cannot silently reopen it.
+    var isArchived: Bool? = nil
 }
 
 /// PUT /accounts/{id} (schemas.AccountUpdate).
@@ -355,6 +361,16 @@ struct AccountUpdate: Encodable {
     var loanStartDate: String? = nil
     var appreciationRateAnnual: Double? = nil
     var linkedAccountId: String? = nil
+}
+
+/// Just the archive flag.
+///
+/// A separate body from `AccountUpdate` on purpose: that type sends the account's
+/// whole identity (name, liquidity, kind, currency…), and closing an account
+/// should not restate all of it. The API's `exclude_unset` means the keys you
+/// leave out are the ones it leaves alone.
+struct AccountArchiveUpdate: Encodable {
+    let isArchived: Bool
 }
 
 struct BalanceResponse: Codable, Identifiable {
@@ -416,6 +432,8 @@ struct TransactionResponse: Codable, Identifiable {
     /// The merchant category code, when the user happened to know it. Four digits
     /// or absent — nothing in the app derives anything from it.
     let mcc: String?
+    /// Which of the card's own categories this counts towards, if any.
+    let cardCategoryId: String?
 }
 
 struct TransactionCreate: Encodable {
@@ -430,6 +448,8 @@ struct TransactionCreate: Encodable {
     /// Blank is sent as-is: the API reads "" as "not given" rather than rejecting
     /// it, so an empty picker needs no special-casing here.
     var mcc: String? = nil
+    /// Nil falls to the card's default category, so untagged spend is still metered.
+    var cardCategoryId: String? = nil
 }
 
 /// How an edit should treat the split already recorded against a transaction.
@@ -458,8 +478,13 @@ struct TransactionUpdate: Encodable {
     /// so the destructive value must never be the one you get by forgetting.
     let mcc: String
 
+    /// The card's own category. Always sent, and nil encodes as an explicit
+    /// JSON null rather than an omitted key — omitting it would mean "preserve",
+    /// and there would then be no way to untag a transaction at all.
+    let cardCategoryId: String?
+
     private enum CodingKeys: String, CodingKey {
-        case date, amount, description, accountId, categoryId, owedBy, owedAmount, mcc
+        case date, amount, description, accountId, categoryId, owedBy, owedAmount, mcc, cardCategoryId
     }
 
     /// Hand-written because the synthesized encoder cannot express the
@@ -473,6 +498,9 @@ struct TransactionUpdate: Encodable {
         try container.encode(accountId, forKey: .accountId)
         try container.encode(categoryId, forKey: .categoryId)
         try container.encode(mcc, forKey: .mcc)
+        // `encode` rather than `encodeIfPresent`: nil has to reach the wire as
+        // null, because that is what clears the tag.
+        try container.encode(cardCategoryId, forKey: .cardCategoryId)
         switch split {
         case .unchanged:
             break
@@ -1131,6 +1159,116 @@ struct BudgetCreate: Encodable {
 struct BudgetUpdate: Encodable {
     var amount: Double? = nil
     var period: BudgetPeriod? = nil
+}
+
+// MARK: - Cards & spend limits
+
+enum CycleBasis: String, Codable, Hashable {
+    case statement
+    case calendar
+}
+
+enum LimitDirection: String, Codable, Hashable {
+    case ceiling
+    case floor
+}
+
+enum LimitResetBasis: String, Codable, Hashable {
+    case cycle
+    case calendarMonth = "calendar_month"
+    case quarter
+    case year
+}
+
+struct CardLimitResponse: Codable, Identifiable, Hashable {
+    let id: String
+    let cardId: String
+    let name: String
+    @MoneyAmount var amount: Double
+    let direction: LimitDirection
+    let resetBasis: LimitResetBasis
+}
+
+struct CardCategoryResponse: Codable, Identifiable, Hashable {
+    let id: String
+    let cardId: String
+    let name: String
+    let isDefault: Bool
+    let sortOrder: Int
+    /// Nil means tracked but unmetered — deliberately distinct from "nothing left".
+    let limitId: String?
+}
+
+struct CardResponse: Codable, Identifiable, Hashable {
+    let id: String
+    let financialAccountId: String
+    let accountName: String
+    let currency: String?
+    let cycleBasis: CycleBasis
+    let statementDay: Int
+    let categories: [CardCategoryResponse]
+    let limits: [CardLimitResponse]
+}
+
+/// Deliberately the same shape as `BudgetStatusRow`, so `BudgetPresentation`'s
+/// bar and pace fractions read it unchanged. `direction` is the one addition:
+/// it says which way to read `remaining`.
+struct CardLimitStatusRow: Codable, Identifiable, Hashable {
+    let limitId: String
+    let name: String
+    let categoryNames: [String]
+    let direction: LimitDirection
+    @MoneyAmount var amount: Double
+    @MoneyAmount var spent: Double
+    /// Ceiling: headroom left. Floor: how much more is still needed.
+    @MoneyAmount var remaining: Double
+    let percentUsed: Double
+    let periodStart: Date
+    let periodEnd: Date
+    let daysElapsed: Int
+    let daysTotal: Int
+    @MoneyAmount var projectedSpend: Double
+    /// Ceiling: on pace to burst. Floor: on pace to fall short.
+    let projectedMissed: Bool
+    let settled: Bool
+
+    var id: String { limitId }
+}
+
+struct CardCategorySpendRow: Codable, Identifiable, Hashable {
+    let cardCategoryId: String
+    let name: String
+    @MoneyAmount var spent: Double
+
+    var id: String { cardCategoryId }
+}
+
+struct CardStatusResponse: Codable, Hashable {
+    let cardId: String
+    let accountName: String
+    let currency: String?
+    let cycleStart: Date
+    let cycleEnd: Date
+    let limits: [CardLimitStatusRow]
+    let categories: [CardCategorySpendRow]
+}
+
+struct CardCreate: Encodable {
+    let financialAccountId: String
+    let cycleBasis: String
+    let statementDay: Int
+}
+
+struct CardLimitCreate: Encodable {
+    let name: String
+    let amount: Double
+    let direction: String
+    let resetBasis: String
+}
+
+struct CardCategoryCreate: Encodable {
+    let name: String
+    let limitId: String?
 }
 
 struct BudgetStatusRow: Codable, Identifiable, Hashable {

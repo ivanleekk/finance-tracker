@@ -39,6 +39,36 @@ def _with_split(
     return responses
 
 
+def _validated_card_category(
+    db: Session, category_id, account: models.FinancialAccount
+):
+    """
+    Check a card-category pick actually belongs to the account being charged.
+
+    A card category is one card's private taxonomy, so tagging a purchase on
+    account A with a category from card B is meaningless rather than merely
+    unusual — it would meter the wrong card. Rejected rather than silently
+    dropped, because the user picked something specific.
+    """
+    if category_id is None:
+        return None
+    card_category = (
+        db.query(models.CardCategory)
+        .join(models.Card, models.CardCategory.card_id == models.Card.id)
+        .filter(
+            models.CardCategory.id == category_id,
+            models.Card.financial_account_id == account.id,
+        )
+        .first()
+    )
+    if not card_category:
+        raise HTTPException(
+            status_code=400,
+            detail="That card category belongs to a different card.",
+        )
+    return card_category.id
+
+
 @router.post("/transactions", response_model=schemas.TransactionResponse, status_code=status.HTTP_201_CREATED)
 def log_transaction(
     transaction: schemas.TransactionCreate,
@@ -76,6 +106,7 @@ def log_transaction(
         # the account it was paid from does.
         owner_user_id=db_account.owner_user_id,
         mcc=transaction.mcc,
+        card_category_id=_validated_card_category(db, transaction.card_category_id, db_account),
     )
 
     db.commit()
@@ -266,6 +297,25 @@ def update_transaction(
     column_updates = {
         k: v for k, v in update_data.items() if k not in ("owed_by", "owed_amount")
     }
+
+    # A card category belongs to one card. Moving the transaction to another
+    # account — or to a bank account with no card at all — makes the existing
+    # pick meaningless, so it is cleared rather than left dangling into another
+    # card's taxonomy. An explicit pick in the same request still wins, and is
+    # validated against the account the row is moving to.
+    target_account = db_account
+    if transaction_update.account_id:
+        target_account = db.query(models.FinancialAccount).filter(
+            models.FinancialAccount.id == transaction_update.account_id
+        ).first()
+
+    if "card_category_id" in column_updates:
+        column_updates["card_category_id"] = _validated_card_category(
+            db, column_updates["card_category_id"], target_account
+        )
+    elif transaction_update.account_id and target_account.id != db_transaction.account_id:
+        column_updates["card_category_id"] = None
+
     for key, value in column_updates.items():
         setattr(db_transaction, key, value)
 
