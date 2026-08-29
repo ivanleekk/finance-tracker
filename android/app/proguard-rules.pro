@@ -16,3 +16,10 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# androidx-security-crypto pulls in com.google.crypto.tink, which is annotated with
+# error-prone annotations that are compile-only and absent at runtime.
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi

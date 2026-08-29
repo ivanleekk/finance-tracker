@@ -1,8 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+// Local-only signing material (gitignored, see android/.gitignore). Absent on a machine
+// that hasn't generated a keystore yet, in which case release builds stay unsigned rather
+// than failing configuration.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -21,6 +31,17 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        if (keystoreProperties.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // 10.0.2.2 is the emulator's alias for the host machine's loopback, so a
@@ -37,6 +58,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystoreProperties.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
