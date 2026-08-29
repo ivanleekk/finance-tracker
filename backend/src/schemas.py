@@ -93,7 +93,7 @@ class UserBase(BaseModel):
     secondary_color: str = "fuchsia"
     base_color: str = "mauve"
     hide_private_from_household: bool = True
-    require_face_id_for_vault: bool = True
+    require_face_id_for_vault: bool = False
     default_new_items_private: bool = True
     # Reveals the optional MCC field on the transaction form. See models.User.
     record_merchant_codes: bool = False
@@ -610,24 +610,39 @@ class TransactionBase(BaseModel):
     card_category_id: Optional[uuid.UUID] = None
 
 
+class TransactionSplitInput(BaseModel):
+    """One counterparty's share of a transaction being created or edited."""
+
+    counterparty_id: uuid.UUID
+    amount: PositiveDecimal
+
+
+class TransactionSplitRow(BaseModel):
+    """One counterparty's share of a transaction, read back from the ledger."""
+
+    counterparty_id: uuid.UUID
+    counterparty_name: str
+    amount: Decimal
+
+
 class TransactionCreate(TransactionBase):
     account_id: uuid.UUID
     category_id: uuid.UUID
-    # Part of this expense was somebody else's. `amount` stays the full sum that
-    # left the account — that really happened — while `owed_amount` is carved off
-    # onto `owed_by`'s receivable so budgets charge the household for its share
-    # only. A free-text name: the person need not be an app user.
-    owed_by: Optional[str] = Field(None, max_length=120)
-    owed_amount: Optional[PositiveDecimal] = None
+    # Part of this expense was one or more other people's. `amount` stays the
+    # full sum that left the account — that really happened — while each
+    # split's amount is carved off onto that counterparty's receivable, so
+    # budgets charge the household for its own share only.
+    splits: Optional[List[TransactionSplitInput]] = None
 
     @model_validator(mode="after")
     def _check_split(self):
-        if (self.owed_by is None) != (self.owed_amount is None):
-            raise ValueError("owed_by and owed_amount must be given together.")
-        if self.owed_amount is not None and self.owed_amount > self.amount:
-            raise ValueError("owed_amount cannot exceed the transaction amount.")
-        if self.owed_by is not None and not self.owed_by.strip():
-            raise ValueError("owed_by cannot be blank.")
+        if self.splits is not None:
+            total_owed = sum((s.amount for s in self.splits), Decimal("0"))
+            if total_owed > self.amount:
+                raise ValueError("Split amounts cannot exceed the transaction amount.")
+            counterparty_ids = [s.counterparty_id for s in self.splits]
+            if len(set(counterparty_ids)) != len(counterparty_ids):
+                raise ValueError("Each counterparty can only appear once in a split.")
         return self
 
 
@@ -640,11 +655,12 @@ class TransactionUpdate(BaseModel):
     description: Optional[str] = None
     account_id: Optional[uuid.UUID] = None
     category_id: Optional[uuid.UUID] = None
-    # Send either to change the split; send `owed_amount: null` to clear it and
-    # make the whole expense the household's own again. Leave both out and the
-    # split already recorded is preserved.
-    owed_by: Optional[str] = Field(None, max_length=120)
-    owed_amount: Optional[PositiveDecimal] = None
+    # Omit to leave the split already recorded alone; send `[]` to clear it and
+    # make the whole expense the household's own again; send a populated list
+    # to replace it wholesale. A list already has an unambiguous empty state,
+    # so unlike `mcc`/`card_category_id` below there is no need for a separate
+    # null-vs-omitted distinction.
+    splits: Optional[List[TransactionSplitInput]] = None
     # Omit to leave it alone; send null or "" to clear one that was recorded.
     mcc: MerchantCategoryCode = None
     # Same three-state rule: omit to preserve, send null to untag.
@@ -655,10 +671,9 @@ class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
-    # Populated from the ledger where the row was split. Absent means none of it
+    # Populated from the ledger where the row was split. Empty means none of it
     # was somebody else's — including for everything logged before the ledger.
-    owed_by: Optional[str] = None
-    owed_amount: Optional[Decimal] = None
+    splits: List[TransactionSplitRow] = []
     currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     transaction_type: TransactionType
@@ -820,10 +835,49 @@ class CounterpartyDirection(str, enum.Enum):
     you_owe = "you_owe"
 
 
+class CounterpartyCreate(BaseModel):
+    household_id: uuid.UUID
+    name: str = Field(..., max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name cannot be blank")
+        return stripped
+
+
+class CounterpartyUpdate(BaseModel):
+    name: str = Field(..., max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name cannot be blank")
+        return stripped
+
+
+class CounterpartyResponse(BaseModel):
+    id: uuid.UUID
+    household_id: uuid.UUID
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CounterpartyBalanceResponse(BaseModel):
+    counterparty_id: uuid.UUID
     counterparty_name: str
     direction: CounterpartyDirection
     amount: Decimal
+    # Which owner scope this specific debt belongs to (None = shared with the
+    # household) — not which account happens to settle it. A client must echo
+    # this back on `SettlementCreate` unchanged, or settling can silently miss
+    # the debt it was shown and open an unrelated one instead.
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 class SpendOnYourBehalfCreate(BaseModel):
@@ -837,7 +891,7 @@ class SpendOnYourBehalfCreate(BaseModel):
 
     household_id: uuid.UUID
     category_id: uuid.UUID
-    counterparty_name: str = Field(..., max_length=120)
+    counterparty_id: uuid.UUID
     amount: PositiveDecimal
     date: datetime
     description: Optional[str] = None
@@ -848,11 +902,14 @@ class SettlementCreate(BaseModel):
     """Money actually changing hands to clear a debt."""
 
     account_id: uuid.UUID
-    counterparty_name: str = Field(..., max_length=120)
+    counterparty_id: uuid.UUID
     direction: CounterpartyDirection
     amount: PositiveDecimal
     date: datetime
     description: Optional[str] = None
+    # The debt's own owner scope (from `CounterpartyBalanceResponse.owner_user_id`),
+    # not the settling account's — see `post_settlement`.
+    owner_user_id: Optional[uuid.UUID] = None
 
 
 # ----------------------------------------

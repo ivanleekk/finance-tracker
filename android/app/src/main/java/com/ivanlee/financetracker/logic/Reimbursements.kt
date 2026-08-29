@@ -24,20 +24,48 @@ sealed interface SplitAssessment {
     data class Valid(val yourShare: Double, val owed: Double) : SplitAssessment
 }
 
+/** One person's share of a bill being split — a counterparty id and an amount. */
+data class SplitEntry(val counterpartyId: String, val amount: Double?)
+
 object Reimbursements {
 
     /**
-     * What a proposed split works out to.
+     * What a proposed split works out to, across everyone in it.
      *
-     * Owing more than the bill is rejected rather than clamped: it is a typo, and silently
-     * correcting it would hide the mistake behind a plausible number.
+     * `owed` is the sum of every entry's amount. Owing more than the bill in total is rejected
+     * rather than clamped: it is a typo, and silently correcting it would hide the mistake
+     * behind a plausible number. The same rejection covers a single entry with no amount yet —
+     * a half-filled row is not a valid split.
      */
-    fun assessSplit(amount: Double?, owed: Double?): SplitAssessment {
-        if (amount == null || owed == null) return SplitAssessment.Incomplete
-        if (!amount.isFinite() || !owed.isFinite()) return SplitAssessment.Incomplete
-        if (owed <= 0 || amount <= 0) return SplitAssessment.Incomplete
-        if (owed > amount) return SplitAssessment.Invalid("They can't owe more than the bill.")
+    fun assessSplit(amount: Double?, entries: List<SplitEntry>): SplitAssessment {
+        if (amount == null || !amount.isFinite() || amount <= 0) return SplitAssessment.Incomplete
+        if (entries.isEmpty()) return SplitAssessment.Incomplete
+        if (entries.any { it.amount == null || !it.amount.isFinite() || it.amount <= 0 }) {
+            return SplitAssessment.Incomplete
+        }
+        val ids = entries.map { it.counterpartyId }
+        if (ids.toSet().size != ids.size) {
+            return SplitAssessment.Invalid("The same person can't appear twice in one split.")
+        }
+        val owed = entries.sumOf { it.amount ?: 0.0 }
+        if (owed > amount) {
+            return SplitAssessment.Invalid("They can't owe more than the bill, combined.")
+        }
         return SplitAssessment.Valid(yourShare = amount - owed, owed = owed)
+    }
+
+    /**
+     * Given a bill amount, the entries with an explicit amount already typed, and the entries
+     * left to fill in, divides what's left evenly across the rest. Mirrors cashshare's `/add`
+     * semantics: specify some people's shares by hand, and everyone else splits the remainder
+     * equally.
+     */
+    fun evenSplitRemainder(amount: Double, specified: List<Double>, remainingCount: Int): Double? {
+        if (remainingCount <= 0) return null
+        val specifiedTotal = specified.sum()
+        val remainder = amount - specifiedTotal
+        if (remainder <= 0) return null
+        return remainder / remainingCount
     }
 
     /** Parses a form field that may be blank or nonsense. */

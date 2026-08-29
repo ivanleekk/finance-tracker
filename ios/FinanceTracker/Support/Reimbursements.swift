@@ -1,6 +1,6 @@
 import Foundation
 
-/// Splitting a bill, and reading back who owes whom.
+/// Splitting a bill among one or more named people, and reading back who owes whom.
 ///
 /// The rule that matters: the amount on a transaction is the whole sum that left
 /// the account, because that is what happened. Splitting it does not shrink it —
@@ -9,6 +9,13 @@ import Foundation
 ///
 /// A port of `frontend/src/lib/reimbursements.ts` and
 /// `android/.../logic/Reimbursements.kt`; keep the three in step.
+
+/// One person's share of a bill being split — a counterparty id and an amount.
+struct SplitEntry: Equatable {
+    var counterpartyId: String
+    var amount: Double?
+}
+
 enum SplitAssessment: Equatable {
     /// Not enough entered yet to say anything.
     case incomplete
@@ -25,18 +32,42 @@ extension SplitAssessment {
 }
 
 enum Reimbursements {
-    /// What a proposed split works out to.
+    /// What a proposed split works out to, across everyone in it.
     ///
-    /// Owing more than the bill is rejected rather than clamped: it is a typo,
-    /// and silently correcting it would hide the mistake behind a plausible
-    /// number.
-    static func assessSplit(amount: Double?, owed: Double?) -> SplitAssessment {
-        guard let amount, let owed, amount.isFinite, owed.isFinite else { return .incomplete }
-        guard owed > 0, amount > 0 else { return .incomplete }
+    /// `owed` is the sum of every entry's amount. Owing more than the bill in
+    /// total is rejected rather than clamped: it is a typo, and silently
+    /// correcting it would hide the mistake behind a plausible number. The same
+    /// rejection covers a single entry with no amount yet — a half-filled row is
+    /// not a valid split.
+    static func assessSplit(amount: Double?, entries: [SplitEntry]) -> SplitAssessment {
+        guard let amount, amount.isFinite, amount > 0 else { return .incomplete }
+        guard !entries.isEmpty else { return .incomplete }
+        let hasIncompleteEntry = entries.contains { entry in
+            guard let value = entry.amount, value.isFinite, value > 0 else { return true }
+            return false
+        }
+        if hasIncompleteEntry { return .incomplete }
+        let ids = entries.map(\.counterpartyId)
+        if Set(ids).count != ids.count {
+            return .invalid(reason: "The same person can't appear twice in one split.")
+        }
+        let owed = entries.reduce(0.0) { $0 + ($1.amount ?? 0) }
         guard owed <= amount else {
-            return .invalid(reason: "They can't owe more than the bill.")
+            return .invalid(reason: "They can't owe more than the bill, combined.")
         }
         return .valid(yourShare: amount - owed, owed: owed)
+    }
+
+    /// Given a bill amount, the amounts already typed for some people, and how
+    /// many people are left to fill in, divide what's left evenly across the
+    /// rest. Mirrors cashshare's `/add` semantics: specify some people's shares
+    /// by hand, and everyone else splits the remainder equally.
+    static func evenSplitRemainder(amount: Double, specified: [Double], remainingCount: Int) -> Double? {
+        guard remainingCount > 0 else { return nil }
+        let specifiedTotal = specified.reduce(0, +)
+        let remainder = amount - specifiedTotal
+        guard remainder > 0 else { return nil }
+        return remainder / Double(remainingCount)
     }
 
     /// Parses a form field that may be blank or nonsense.

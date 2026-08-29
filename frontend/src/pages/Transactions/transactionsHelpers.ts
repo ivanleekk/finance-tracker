@@ -1,6 +1,6 @@
 import type { HistoryGranularity } from "../../lib/historyGroups"
 import type { MccResponse } from "../../types/types"
-import { assessSplit, parseMoney } from "../../lib/reimbursements"
+import { assessSplit, parseMoney, type SplitEntry } from "../../lib/reimbursements"
 
 /**
  * Constants, shapes and pure helpers behind the Transactions page.
@@ -87,26 +87,33 @@ export type UnifiedHistoryItem = {
     householdName: string;
     description: string | null;
     ownerUserId: string | null;
-    /** Set where part of this expense was somebody else's; null on trades. */
-    split: { owedBy: string; owedAmount: number } | null;
+    /** Set where part of this expense was one or more other people's; null on trades. */
+    splits: { counterpartyId: string; counterpartyName: string; amount: number }[];
 };
 
 
 
+/** One row of the split editor: a picked person and their (still-typed) share. */
+export type SplitFormRow = { counterpartyId: string; amountText: string };
+
 /**
  * The sentence under the split fields. It restates the split as the two numbers
- * the user actually cares about, because "they owe 80" on a 120 bill is only
- * meaningful once you can see that leaves you 40.
+ * the user actually cares about, because "they owe 180 combined" on a 300 bill
+ * is only meaningful once you can see that leaves you 120.
  */
-export function splitHint(amountRaw: string, owedRaw: string, currency: string): string {
-    const assessment = assessSplit(parseMoney(amountRaw), parseMoney(owedRaw));
+export function splitHint(amountRaw: string, rows: SplitFormRow[], currency: string): string {
+    const entries: SplitEntry[] = rows
+        .filter((r) => r.counterpartyId)
+        .map((r) => ({ counterpartyId: r.counterpartyId, amount: parseMoney(r.amountText) }));
+    const assessment = assessSplit(parseMoney(amountRaw), entries);
     if (assessment.kind === "incomplete") {
         return "The full amount still leaves your account — only your share counts towards budgets.";
     }
     if (assessment.kind === "invalid") return assessment.reason;
     const money = (value: number) =>
         new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
-    return `Your share: ${money(assessment.yourShare)}. They owe you ${money(assessment.owed)}.`;
+    const who = entries.length > 1 ? "They owe you (combined)" : "They owe you";
+    return `Your share: ${money(assessment.yourShare)}. ${who} ${money(assessment.owed)}.`;
 }
 
 /**
@@ -132,10 +139,9 @@ export function emptyTransactionForm(accountId: string, currency: string) {
         // The card's own category, when the account is a card. Blank means the
         // card's default, which is where untagged spend lands.
         cardCategoryId: "",
-        // Part of this bill is somebody else's. The amount stays the full sum
-        // that leaves the account — this only says whose it was.
-        owedBy: "",
-        owedAmount: "",
+        // Part of this bill is one or more other people's. The amount stays the
+        // full sum that leaves the account — this only says whose the rest was.
+        splits: [] as SplitFormRow[],
     };
 }
 

@@ -1,10 +1,14 @@
 package com.ivanlee.financetracker.ui.transactions
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -21,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.data.loadCardForAccount
@@ -30,12 +35,14 @@ import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
+import com.ivanlee.financetracker.data.model.Counterparty
+import com.ivanlee.financetracker.data.model.CounterpartyCreate
 import com.ivanlee.financetracker.data.model.ReferenceMcc
 import com.ivanlee.financetracker.logic.Cards
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
+import com.ivanlee.financetracker.data.model.TransactionSplitInput
 import com.ivanlee.financetracker.data.model.TransactionType
-import com.ivanlee.financetracker.data.model.SplitChange
 import com.ivanlee.financetracker.data.model.TransactionUpdate
 import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.data.net.Api
@@ -51,12 +58,17 @@ import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.SwitchRow
 import com.ivanlee.financetracker.logic.Reimbursements
 import com.ivanlee.financetracker.logic.SplitAssessment
+import com.ivanlee.financetracker.logic.SplitEntry
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.currencyWhole
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.util.Locale
+
+/** One row of the split editor: a picked person and their (still-typed) share. */
+private data class SplitFormRow(val counterpartyId: String, val amountText: String)
 
 /**
  * Create or edit one transaction.
@@ -94,11 +106,14 @@ fun TransactionFormScreen(
     var showCardCategoryPicker by remember { mutableStateOf(false) }
     var mccs by remember { mutableStateOf<List<ReferenceMcc>>(emptyList()) }
     var showMccPicker by remember { mutableStateOf(false) }
-    // Part of this bill is somebody else's. The amount above stays the full sum that leaves
-    // the account — this only records whose it was.
+    // Part of this bill is one or more other people's. The amount above stays the full sum
+    // that leaves the account — this only records whose the rest was.
+    var counterparties by remember { mutableStateOf<List<Counterparty>>(emptyList()) }
     var splitting by remember { mutableStateOf(false) }
-    var owedByText by remember { mutableStateOf("") }
-    var owedAmountText by remember { mutableStateOf("") }
+    var splitRows by remember { mutableStateOf<List<SplitFormRow>>(emptyList()) }
+    var showNewCounterparty by remember { mutableStateOf(false) }
+    var newCounterpartyName by remember { mutableStateOf("") }
+    var savingCounterparty by remember { mutableStateOf(false) }
 
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -110,6 +125,9 @@ fun TransactionFormScreen(
             coroutineScope {
                 val a = async { Api.get<List<AccountResponse>>("/accounts/household/${h.id}") }
                 val c = async { Api.get<List<CategoryResponse>>("/cashflow/categories/household/${h.id}") }
+                val p = async {
+                    Api.get<List<Counterparty>>("/cashflow/counterparties/household/${h.id}")
+                }
                 // Joined to the same block rather than fetched after it: the picker is
                 // reachable as soon as the form is, and a slow catalogue never delays
                 // the fields that matter. Only worth asking for at all when the user
@@ -123,6 +141,7 @@ fun TransactionFormScreen(
                 }
                 accounts = a.await()
                 categories = c.await()
+                counterparties = p.await()
                 mccs = m.await()
             }
             if (transactionId != null) {
@@ -136,9 +155,8 @@ fun TransactionFormScreen(
                 description = txn.description.orEmpty()
                 accountId = txn.accountId
                 categoryId = txn.categoryId
-                splitting = txn.owedBy != null && txn.owedAmount != null
-                owedByText = txn.owedBy.orEmpty()
-                owedAmountText = txn.owedAmount?.toString().orEmpty()
+                splitting = txn.splits.isNotEmpty()
+                splitRows = txn.splits.map { SplitFormRow(it.counterpartyId, it.amount.toString()) }
                 mcc = txn.mcc.orEmpty()
                 cardCategoryId = txn.cardCategoryId
             } else {
@@ -162,27 +180,36 @@ fun TransactionFormScreen(
     val selectedCurrency = accounts.firstOrNull { it.id == accountId }?.currency
         ?: sessionVm.activeHousehold?.baseCurrency
 
-    val owedAmount = Reimbursements.parseMoney(owedAmountText)
-    val splitAssessment = Reimbursements.assessSplit(amount, owedAmount)
-    val trimmedOwedBy = owedByText.trim()
+    // Only rows with a person picked count as an entry — a still-blank "+ Add person" row
+    // must not itself make the split invalid.
+    val splitEntries = splitRows
+        .filter { it.counterpartyId.isNotBlank() }
+        .map { SplitEntry(it.counterpartyId, Reimbursements.parseMoney(it.amountText)) }
+    val splitAssessment = Reimbursements.assessSplit(amount, splitEntries)
     // A split that is switched on but not yet complete blocks saving, rather than being silently
     // dropped — the user asked for it and would not notice it going missing.
-    val splitIsUsable = !splitting ||
-        (splitAssessment is SplitAssessment.Valid && trimmedOwedBy.isNotEmpty())
+    val splitIsUsable = !splitting || splitAssessment is SplitAssessment.Valid
 
     val canSave =
         (amount ?: 0.0) > 0 && accountId != null && categoryId != null && !saving && splitIsUsable
 
+    val validSplitInputs: List<TransactionSplitInput> =
+        if (splitAssessment is SplitAssessment.Valid) {
+            splitEntries.map { TransactionSplitInput(it.counterpartyId, it.amount!!) }
+        } else {
+            emptyList()
+        }
+
     /**
      * What this edit should do to the split already recorded. Switching the toggle off means
      * *remove* it, which is a different request from leaving it alone — so a form that opened
-     * with no split and still has none sends nothing rather than an explicit clear.
+     * with no split and still has none sends nothing (null, which the wire omits) rather than
+     * an explicit clear.
      */
-    val splitChange: SplitChange = when {
-        splitting && owedAmount != null && trimmedOwedBy.isNotEmpty() ->
-            SplitChange.Set(owedBy = trimmedOwedBy, owedAmount = owedAmount)
-        existing?.owedBy != null && existing?.owedAmount != null -> SplitChange.Clear
-        else -> SplitChange.Unchanged
+    val splitsForUpdate: List<TransactionSplitInput>? = when {
+        splitting && splitAssessment is SplitAssessment.Valid -> validSplitInputs
+        !splitting && existing?.splits?.isNotEmpty() == true -> emptyList()
+        else -> null
     }
 
     fun save() {
@@ -202,7 +229,7 @@ fun TransactionFormScreen(
                             description = description,
                             accountId = accountId!!,
                             categoryId = categoryId!!,
-                            split = splitChange,
+                            splits = splitsForUpdate,
                             // Always sent, like description: "" clears a recorded code.
                             mcc = mcc,
                             // Null clears the tag; the factory sends JsonNull for it.
@@ -218,8 +245,11 @@ fun TransactionFormScreen(
                             description = description.ifBlank { null },
                             accountId = accountId!!,
                             categoryId = categoryId!!,
-                            owedBy = if (splitting) trimmedOwedBy else null,
-                            owedAmount = if (splitting) owedAmount else null,
+                            splits = if (splitting && validSplitInputs.isNotEmpty()) {
+                                validSplitInputs
+                            } else {
+                                null
+                            },
                             // Blank goes as-is; the API reads "" as "not given".
                             mcc = mcc,
                             cardCategoryId = cardCategoryId,
@@ -300,21 +330,137 @@ fun TransactionFormScreen(
                         onCheckedChange = { splitting = it },
                     )
                     if (splitting) {
-                        FormField("Who (e.g. Alice)", owedByText, { owedByText = it })
-                        MoneyField(
-                            "They owe",
-                            owedAmountText,
-                            { owedAmountText = it },
-                            currencyCode = selectedCurrency,
-                        )
+                        splitRows.forEachIndexed { index, row ->
+                            val pickedElsewhere = splitRows
+                                .filterIndexed { j, _ -> j != index }
+                                .map { it.counterpartyId }
+                                .toSet()
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                Box(Modifier.weight(1f)) {
+                                    DropdownField(
+                                        label = "Who",
+                                        selected = counterparties.firstOrNull { it.id == row.counterpartyId },
+                                        options = counterparties.filter { it.id !in pickedElsewhere },
+                                        optionLabel = { it.name },
+                                        placeholder = "Select person",
+                                        onSelect = { picked ->
+                                            splitRows = splitRows.mapIndexed { j, r ->
+                                                if (j == index) r.copy(counterpartyId = picked.id) else r
+                                            }
+                                        },
+                                    )
+                                }
+                                Box(Modifier.width(120.dp)) {
+                                    MoneyField(
+                                        "Owes",
+                                        row.amountText,
+                                        { text ->
+                                            splitRows = splitRows.mapIndexed { j, r ->
+                                                if (j == index) r.copy(amountText = text) else r
+                                            }
+                                        },
+                                        currencyCode = selectedCurrency,
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    splitRows = splitRows.filterIndexed { j, _ -> j != index }
+                                }) { Text("Remove") }
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            TextButton(onClick = { splitRows = splitRows + SplitFormRow("", "") }) {
+                                Text("+ Add person")
+                            }
+                            TextButton(onClick = { showNewCounterparty = !showNewCounterparty }) {
+                                Text(if (showNewCounterparty) "Cancel" else "+ New person")
+                            }
+                            if (splitRows.size > 1) {
+                                TextButton(onClick = {
+                                    val blanks = splitRows.filter { it.amountText.isBlank() }
+                                    if (blanks.isNotEmpty()) {
+                                        val specified = splitRows
+                                            .filter { it.amountText.isNotBlank() }
+                                            .mapNotNull { Reimbursements.parseMoney(it.amountText) }
+                                        val share = Reimbursements.evenSplitRemainder(
+                                            amount ?: 0.0,
+                                            specified,
+                                            blanks.size,
+                                        )
+                                        if (share != null) {
+                                            splitRows = splitRows.map { r ->
+                                                if (r.amountText.isBlank()) {
+                                                    r.copy(
+                                                        amountText = String.format(
+                                                            Locale.US,
+                                                            "%.2f",
+                                                            share,
+                                                        ),
+                                                    )
+                                                } else {
+                                                    r
+                                                }
+                                            }
+                                        }
+                                    }
+                                }) { Text("Split remainder evenly") }
+                            }
+                        }
+
+                        if (showNewCounterparty) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                Box(Modifier.weight(1f)) {
+                                    FormField(
+                                        "e.g. Alice",
+                                        newCounterpartyName,
+                                        { newCounterpartyName = it },
+                                    )
+                                }
+                                Button(
+                                    enabled = newCounterpartyName.isNotBlank() && !savingCounterparty,
+                                    onClick = {
+                                        val h = sessionVm.activeHousehold ?: return@Button
+                                        savingCounterparty = true
+                                        scope.launch {
+                                            try {
+                                                val created = Api.post<CounterpartyCreate, Counterparty>(
+                                                    "/cashflow/counterparties",
+                                                    CounterpartyCreate(h.id, newCounterpartyName.trim()),
+                                                )
+                                                counterparties = counterparties + created
+                                                splitRows = splitRows + SplitFormRow(created.id, "")
+                                                newCounterpartyName = ""
+                                                showNewCounterparty = false
+                                            } catch (e: Exception) {
+                                                error = e.message ?: "Couldn't add that person."
+                                            } finally {
+                                                savingCounterparty = false
+                                            }
+                                        }
+                                    },
+                                ) { Text(if (savingCounterparty) "Adding…" else "Add") }
+                            }
+                        }
+
                         val hint = when (splitAssessment) {
                             is SplitAssessment.Incomplete ->
                                 "The full amount still leaves your account — only your share counts towards budgets."
                             is SplitAssessment.Invalid -> splitAssessment.reason
                             is SplitAssessment.Valid -> {
                                 val currency = sessionVm.activeHousehold?.baseCurrency ?: "USD"
+                                val who = if (splitEntries.size > 1) "They owe you (combined)" else "They owe you"
                                 "Your share: ${splitAssessment.yourShare.currency(currency)}. " +
-                                    "They owe you ${splitAssessment.owed.currency(currency)}."
+                                    "$who ${splitAssessment.owed.currency(currency)}."
                             }
                         }
                         Text(

@@ -149,7 +149,10 @@ class User(Base):
     secondary_color: Mapped[str] = mapped_column(String, default="fuchsia")
     base_color: Mapped[str] = mapped_column(String, default="mauve")
     hide_private_from_household: Mapped[bool] = mapped_column(Boolean, default=True)
-    require_face_id_for_vault: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Off by default: most new signups are solo households with no one to hide data
+    # from, and a mandatory Face ID/passcode prompt before the first Dashboard load
+    # is pure friction for them. Users who want it can turn it on in Privacy & Vault.
+    require_face_id_for_vault: Mapped[bool] = mapped_column(Boolean, default=False)
     default_new_items_private: Mapped[bool] = mapped_column(Boolean, default=True)
     # Reveals the optional MCC field on the transaction form. Off by default and
     # per-user rather than per-household: it is a preference about how *you* enter
@@ -791,6 +794,33 @@ class ScheduledDividend(Base):
 # stay valued by the snapshot engine. See `services/ledger_service.py`.
 
 
+class Counterparty(Base):
+    """
+    A person split expenses are tracked against — "Alice", "Mum", "Work" —
+    scoped to the household and shared like a Category, not per-user-private.
+    The name itself isn't sensitive; only the dollar amounts on a receivable
+    are, and those inherit privacy from the account the split was posted
+    against, same as before.
+
+    Referenced by id from `LedgerAccount.counterparty_id` rather than by name,
+    so renaming a person here updates every receivable/payable that already
+    points at them instead of silently minting a new ledger account and
+    orphaning the old one's history.
+    """
+
+    __tablename__ = "counterparties"
+    __table_args__ = (
+        UniqueConstraint("household_id", "name", name="uq_counterparties_household_name"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    household_id = Column(UUID(as_uuid=True), ForeignKey("households.id"), index=True, nullable=False)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    household = relationship("Household")
+
+
 class LedgerAccountType(enum.Enum):
     asset = "asset"
     liability = "liability"
@@ -813,7 +843,7 @@ class LedgerAccountRole(enum.Enum):
     `cash` and `category` accounts mirror rows the app already had — a
     FinancialAccount and a Category respectively — and are created for them
     automatically. `receivable` / `payable` are the new ones: a person who owes
-    the household money, or is owed it, identified by a plain name.
+    the household money, or is owed it, identified by a Counterparty.
     """
 
     cash = "cash"                    # mirrors a FinancialAccount (asset or liability)
@@ -840,11 +870,11 @@ class LedgerAccount(Base):
         # One chart account per underlying row — two would silently split a balance.
         UniqueConstraint("financial_account_id", name="uq_ledger_accounts_financial_account"),
         UniqueConstraint("category_id", name="uq_ledger_accounts_category"),
-        # Counterparty names are per household and per direction: "Alice" owing the
+        # Counterparties are per household and per direction: "Alice" owing the
         # household and the household owing "Alice" are two accounts, and netting
         # them by hand is the user's business, not the ledger's.
         UniqueConstraint(
-            "household_id", "role", "counterparty_name", "owner_user_id",
+            "household_id", "role", "counterparty_id", "owner_user_id",
             name="uq_ledger_accounts_counterparty",
         ),
         Index("ix_ledger_accounts_household_role", "household_id", "role"),
@@ -866,8 +896,8 @@ class LedgerAccount(Base):
     )
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=True)
 
-    #: Free-text person for receivable/payable accounts ("Alice", "Mum", "Work").
-    counterparty_name = Column(String, nullable=True)
+    #: The person, for receivable/payable accounts.
+    counterparty_id = Column(UUID(as_uuid=True), ForeignKey("counterparties.id"), nullable=True)
 
     #: NULL = shared with the household, a user id = private to that user. Same
     #: rule as FinancialAccount / SubPortfolio; see AGENTS.md 4a.
@@ -878,6 +908,7 @@ class LedgerAccount(Base):
     household = relationship("Household")
     financial_account = relationship("FinancialAccount")
     category = relationship("Category")
+    counterparty = relationship("Counterparty")
     lines = relationship("JournalLine", back_populates="ledger_account")
 
     @property

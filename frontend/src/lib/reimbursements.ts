@@ -12,6 +12,9 @@
 
 import type { CounterpartyBalanceResponse } from "../types/types";
 
+/** One person's share of a bill being split — a counterparty id and an amount. */
+export type SplitEntry = { counterpartyId: string; amount: number | null };
+
 export type SplitAssessment =
     /** Not enough entered yet to say anything. */
     | { kind: "incomplete" }
@@ -20,21 +23,48 @@ export type SplitAssessment =
     | { kind: "valid"; yourShare: number; owed: number };
 
 /**
- * What a proposed split works out to.
+ * What a proposed split works out to, across everyone in it.
  *
- * Owing more than the bill is rejected rather than clamped: it is a typo, and
- * silently correcting it would hide the mistake behind a plausible number.
+ * `owed` is the sum of every entry's amount. Owing more than the bill in total
+ * is rejected rather than clamped: it is a typo, and silently correcting it
+ * would hide the mistake behind a plausible number. The same rejection covers
+ * a single entry with no amount yet — a half-filled row is not a valid split.
  */
-export function assessSplit(amount: number | null, owed: number | null): SplitAssessment {
-    if (amount === null || owed === null || !Number.isFinite(amount) || !Number.isFinite(owed)) {
+export function assessSplit(amount: number | null, entries: SplitEntry[]): SplitAssessment {
+    if (amount === null || !Number.isFinite(amount) || amount <= 0) {
         return { kind: "incomplete" };
     }
-    if (owed <= 0) return { kind: "incomplete" };
-    if (amount <= 0) return { kind: "incomplete" };
+    if (entries.length === 0) return { kind: "incomplete" };
+    if (entries.some((e) => e.amount === null || !Number.isFinite(e.amount) || e.amount <= 0)) {
+        return { kind: "incomplete" };
+    }
+    const ids = entries.map((e) => e.counterpartyId);
+    if (new Set(ids).size !== ids.length) {
+        return { kind: "invalid", reason: "The same person can't appear twice in one split." };
+    }
+    const owed = entries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
     if (owed > amount) {
-        return { kind: "invalid", reason: "They can't owe more than the bill." };
+        return { kind: "invalid", reason: "They can't owe more than the bill, combined." };
     }
     return { kind: "valid", yourShare: amount - owed, owed };
+}
+
+/**
+ * Given a bill amount, the entries with an explicit amount already typed, and
+ * the entries left to fill in, divide what's left evenly across the rest.
+ * Mirrors cashshare's `/add` semantics: specify some people's shares by hand,
+ * and everyone else splits the remainder equally.
+ */
+export function evenSplitRemainder(
+    amount: number,
+    specified: number[],
+    remainingCount: number,
+): number | null {
+    if (remainingCount <= 0) return null;
+    const specifiedTotal = specified.reduce((sum, v) => sum + v, 0);
+    const remainder = amount - specifiedTotal;
+    if (remainder <= 0) return null;
+    return remainder / remainingCount;
 }
 
 /** Parses a form field that may be blank or nonsense. */

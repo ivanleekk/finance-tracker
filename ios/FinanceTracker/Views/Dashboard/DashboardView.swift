@@ -288,6 +288,14 @@ struct DashboardView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
                 ToolbarItem(placement: .topBarLeading) { ViewModeSwitcher() }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        quickAdd.open()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Quick Add")
+                }
             }
             .overlay {
                 if isLoading && balances.isEmpty { LoadingSkeleton(showsHeader: true) }
@@ -301,6 +309,7 @@ struct DashboardView: View {
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
+                Button("Retry") { Task { await load() } }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")

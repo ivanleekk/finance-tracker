@@ -32,11 +32,52 @@ def _with_split(
     responses = []
     for row in transactions:
         response = schemas.TransactionResponse.model_validate(row)
-        split = splits.get(row.id)
-        if split is not None:
-            response.owed_by, response.owed_amount = split
+        response.splits = [
+            schemas.TransactionSplitRow(
+                counterparty_id=line.counterparty_id,
+                counterparty_name=line.counterparty_name,
+                amount=line.amount,
+            )
+            for line in splits.get(row.id, [])
+        ]
         responses.append(response)
     return responses
+
+
+def _load_counterparty(
+    db: Session, household_id: uuid.UUID, counterparty_id: uuid.UUID
+) -> models.Counterparty:
+    counterparty = (
+        db.query(models.Counterparty)
+        .filter(
+            models.Counterparty.id == counterparty_id,
+            models.Counterparty.household_id == household_id,
+        )
+        .first()
+    )
+    if not counterparty:
+        raise HTTPException(status_code=404, detail="Counterparty not found")
+    return counterparty
+
+
+def _resolve_splits(
+    db: Session, household_id: uuid.UUID, splits: Optional[List["schemas.TransactionSplitInput"]]
+) -> list[tuple[models.Counterparty, Decimal]]:
+    """Load and validate the counterparties a split refers to, once per call."""
+    if not splits:
+        return []
+    ids = [s.counterparty_id for s in splits]
+    counterparties = {
+        c.id: c
+        for c in db.query(models.Counterparty).filter(models.Counterparty.id.in_(ids)).all()
+    }
+    resolved = []
+    for split in splits:
+        counterparty = counterparties.get(split.counterparty_id)
+        if counterparty is None or counterparty.household_id != household_id:
+            raise HTTPException(status_code=404, detail="Counterparty not found")
+        resolved.append((counterparty, split.amount))
+    return resolved
 
 
 def _validated_card_category(
@@ -100,8 +141,7 @@ def log_transaction(
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
         description=transaction.description,
-        owed_by=transaction.owed_by.strip() if transaction.owed_by else None,
-        owed_amount=transaction.owed_amount,
+        splits=_resolve_splits(db, db_account.household_id, transaction.splits),
         # A receivable arising from a private account stays private, the same way
         # the account it was paid from does.
         owner_user_id=db_account.owner_user_id,
@@ -295,7 +335,7 @@ def update_transaction(
     # The split is not a column on this row — it is applied to the ledger entry
     # further down. Setting it here would put a stray attribute on the model.
     column_updates = {
-        k: v for k, v in update_data.items() if k not in ("owed_by", "owed_amount")
+        k: v for k, v in update_data.items() if k != "splits"
     }
 
     # A card category belongs to one card. Moving the transaction to another
@@ -348,25 +388,30 @@ def update_transaction(
     # split is carried over unless the caller changed it — editing the
     # description of a shared dinner should not quietly make it all yours.
     db.flush()
-    split = ledger_service.counterparty_split_by_transaction(db, [db_transaction.id]).get(
-        db_transaction.id
-    )
-    owed_by, owed_amount = split if split is not None else (None, None)
-    if "owed_by" in update_data or "owed_amount" in update_data:
-        owed_by = (transaction_update.owed_by or "").strip() or None
-        owed_amount = transaction_update.owed_amount
-    if owed_amount is not None and owed_by is not None:
-        # A reduced amount can strand a split that no longer fits inside it.
-        ceiling = db_transaction.amount_home_currency or db_transaction.amount
-        owed_amount = min(Decimal(str(owed_amount)), Decimal(str(ceiling)))
     target_account = db.query(models.FinancialAccount).filter(
         models.FinancialAccount.id == db_transaction.account_id
     ).first()
+    if "splits" in update_data:
+        splits = _resolve_splits(db, db_account.household_id, transaction_update.splits)
+    else:
+        existing = ledger_service.counterparty_split_by_transaction(db, [db_transaction.id]).get(
+            db_transaction.id, []
+        )
+        counterparties = {
+            c.id: c
+            for c in db.query(models.Counterparty)
+            .filter(models.Counterparty.id.in_([line.counterparty_id for line in existing]))
+            .all()
+        }
+        splits = [(counterparties[line.counterparty_id], line.amount) for line in existing]
+    # A reduced amount can strand a split that no longer fits inside it —
+    # `post_transaction` already clamps each share against what's left as it
+    # posts, so a stale carried-forward split just shrinks rather than
+    # unbalancing the entry.
     ledger_service.post_transaction(
         db,
         db_transaction,
-        owed_by=owed_by,
-        owed_amount=owed_amount,
+        splits=splits,
         owner_user_id=target_account.owner_user_id if target_account else None,
     )
 
@@ -468,6 +513,7 @@ def get_counterparty_balances(
     balances = ledger_service.counterparty_balances(db, household_id, current_user)
     return [
         schemas.CounterpartyBalanceResponse(
+            counterparty_id=row.counterparty_id,
             counterparty_name=row.counterparty_name,
             direction=(
                 schemas.CounterpartyDirection.owed_to_you
@@ -475,6 +521,7 @@ def get_counterparty_balances(
                 else schemas.CounterpartyDirection.you_owe
             ),
             amount=row.amount,
+            owner_user_id=row.owner_user_id,
         )
         for row in balances
     ]
@@ -511,15 +558,13 @@ def record_spend_on_your_behalf(
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    name = payload.counterparty_name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Counterparty name cannot be blank")
+    counterparty = _load_counterparty(db, payload.household_id, payload.counterparty_id)
 
     ledger_service.post_spend_on_your_behalf(
         db,
         household_id=payload.household_id,
         category=category,
-        counterparty_name=name,
+        counterparty=counterparty,
         amount=payload.amount,
         date=payload.date,
         description=payload.description,
@@ -528,12 +573,14 @@ def record_spend_on_your_behalf(
     db.commit()
 
     account = ledger_service.payable_account(
-        db, payload.household_id, name, payload.owner_user_id
+        db, payload.household_id, counterparty, payload.owner_user_id
     )
     return schemas.CounterpartyBalanceResponse(
-        counterparty_name=name,
+        counterparty_id=counterparty.id,
+        counterparty_name=counterparty.name,
         direction=schemas.CounterpartyDirection.you_owe,
         amount=ledger_service.account_balance(db, account.id),
+        owner_user_id=payload.owner_user_id,
     )
 
 
@@ -563,10 +610,9 @@ def settle_with_counterparty(
         raise HTTPException(status_code=404, detail="Account not found")
     verify_household_access(account.household_id, current_user, db)
     verify_private_owner_visibility(account.owner_user_id, current_user)
+    verify_private_owner_visibility(payload.owner_user_id, current_user)
 
-    name = payload.counterparty_name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Counterparty name cannot be blank")
+    counterparty = _load_counterparty(db, account.household_id, payload.counterparty_id)
 
     receiving = payload.direction == schemas.CounterpartyDirection.owed_to_you
     role = (
@@ -592,7 +638,7 @@ def settle_with_counterparty(
         currency=account_currency,
         exchange_rate=1.0,
         description=payload.description
-        or (f"Repaid by {name}" if receiving else f"Repaid {name}"),
+        or (f"Repaid by {counterparty.name}" if receiving else f"Repaid {counterparty.name}"),
         # Direction of the cash, not of any spending: receiving a repayment adds
         # to the account, paying one back takes from it.
         transaction_type=(
@@ -611,13 +657,135 @@ def settle_with_counterparty(
     ledger_service.post_settlement(
         db,
         transaction=txn,
-        counterparty_name=name,
+        counterparty=counterparty,
         role=role,
-        owner_user_id=account.owner_user_id,
+        # The debt's own owner scope, not the settling account's — settling
+        # through a different account (or a housemate's) must still clear the
+        # same receivable/payable rather than opening a second one.
+        owner_user_id=payload.owner_user_id,
     )
     db.commit()
     db.refresh(txn)
     return schemas.TransactionResponse.model_validate(txn)
+
+
+# --- COUNTERPARTIES ---
+#
+# The reusable "who" behind a split, a settlement, or an on-your-behalf entry.
+# Household-scoped and shared, like a Category — the name isn't sensitive, only
+# the dollar amounts on a receivable are, and those keep inheriting privacy
+# from the account they were posted against.
+
+
+@router.post(
+    "/counterparties", response_model=schemas.CounterpartyResponse, status_code=status.HTTP_201_CREATED
+)
+def create_counterparty(
+    counterparty: schemas.CounterpartyCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(counterparty.household_id, current_user, db)
+
+    existing = (
+        db.query(models.Counterparty)
+        .filter(
+            models.Counterparty.household_id == counterparty.household_id,
+            models.Counterparty.name == counterparty.name,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="A person with this name already exists")
+
+    db_counterparty = models.Counterparty(
+        id=uuid.uuid7(),
+        household_id=counterparty.household_id,
+        name=counterparty.name,
+    )
+    db.add(db_counterparty)
+    db.commit()
+    db.refresh(db_counterparty)
+    return db_counterparty
+
+
+@router.get(
+    "/counterparties/household/{household_id}",
+    response_model=List[schemas.CounterpartyResponse],
+)
+def get_household_counterparties(
+    household_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    verify_household_access(household_id, current_user, db)
+    return (
+        db.query(models.Counterparty)
+        .filter(models.Counterparty.household_id == household_id)
+        .order_by(models.Counterparty.name)
+        .all()
+    )
+
+
+@router.put("/counterparties/{counterparty_id}", response_model=schemas.CounterpartyResponse)
+def update_counterparty(
+    counterparty_id: uuid.UUID,
+    counterparty_update: schemas.CounterpartyUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db_counterparty = db.query(models.Counterparty).filter(models.Counterparty.id == counterparty_id).first()
+    if not db_counterparty:
+        raise HTTPException(status_code=404, detail="Counterparty not found")
+
+    verify_household_access(db_counterparty.household_id, current_user, db)
+
+    duplicate = (
+        db.query(models.Counterparty)
+        .filter(
+            models.Counterparty.household_id == db_counterparty.household_id,
+            models.Counterparty.name == counterparty_update.name,
+            models.Counterparty.id != counterparty_id,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A person with this name already exists")
+
+    # The point: renaming here updates every receivable/payable that already
+    # points at this row's id, rather than minting a new ledger account.
+    db_counterparty.name = counterparty_update.name
+    db.commit()
+    db.refresh(db_counterparty)
+    return db_counterparty
+
+
+@router.delete("/counterparties/{counterparty_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_counterparty(
+    counterparty_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db_counterparty = db.query(models.Counterparty).filter(models.Counterparty.id == counterparty_id).first()
+    if not db_counterparty:
+        raise HTTPException(status_code=404, detail="Counterparty not found")
+
+    verify_household_access(db_counterparty.household_id, current_user, db)
+
+    ledger_account_count = (
+        db.query(models.LedgerAccount)
+        .filter(models.LedgerAccount.counterparty_id == counterparty_id)
+        .count()
+    )
+    if ledger_account_count:
+        raise HTTPException(
+            status_code=409,
+            detail="This person still has split, settlement, or reimbursement history. They can't be deleted.",
+        )
+
+    db.delete(db_counterparty)
+    db.commit()
+    return
 
 
 # --- CATEGORIES ---

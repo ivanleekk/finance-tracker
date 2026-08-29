@@ -57,14 +57,12 @@ struct CardSetUpView: View {
             .navigationTitle("Set up a card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(accountId == nil || isSaving)
                 }
             }
+            .discardGuard(fields: [accountId, cycleBasis, statementDay])
         }
     }
 
@@ -221,6 +219,10 @@ struct CardManageView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            // Limits and categories are already saved the moment "Add limit"/"Add category"
+            // is tapped — what this guards is the half-typed draft in either inline form,
+            // which swiping away used to lose silently.
+            .discardGuard(fields: [limitName, limitAmount, limitDirection, limitReset, categoryName, categoryLimitId])
         }
     }
 

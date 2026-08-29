@@ -40,7 +40,7 @@ export default function Transactions() {
     const { activeHousehold } = useHousehold()
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [] } = (useLoaderData() as HistoryLoaderData) || {};
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [], counterparties = [] } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
 
@@ -141,6 +141,11 @@ export default function Transactions() {
     const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
     const [isSavingCategory, setIsSavingCategory] = useState(false);
 
+    // Inline "new person" mini-form inside the split section
+    const [isCreatingCounterparty, setIsCreatingCounterparty] = useState(false);
+    const [newCounterpartyName, setNewCounterpartyName] = useState("");
+    const [isSavingCounterparty, setIsSavingCounterparty] = useState(false);
+
     // Preselect the user's default expense account when it's still visible in this household's list.
     const defaultAccountId = () => (user?.default_account_id && accounts.some(a => a.id === user.default_account_id))
         ? user.default_account_id
@@ -212,13 +217,41 @@ export default function Transactions() {
         }
     };
 
+    const handleCreateCounterparty = async () => {
+        if (!newCounterpartyName.trim()) return;
+        setIsSavingCounterparty(true);
+        try {
+            const res = await api.post("/cashflow/counterparties", {
+                household_id: activeHousehold.id,
+                name: newCounterpartyName.trim(),
+            });
+            // No existing row to fill in yet — a fresh split section starts
+            // empty, so the new person becomes its first row.
+            setFormData(f => ({ ...f, splits: [...f.splits, { counterpartyId: res.data.id, amountText: "" }] }));
+            setNewCounterpartyName("");
+            setIsCreatingCounterparty(false);
+            revalidator.revalidate();
+        } catch (error) {
+            console.error("Failed to add person", error);
+            alert("Failed to add person. Please try again.");
+        } finally {
+            setIsSavingCounterparty(false);
+        }
+    };
+
     const handleLogTransaction = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const owedBy = isSplitting ? formData.owedBy.trim() : "";
-            const owedAmount = isSplitting ? parseFloat(formData.owedAmount) : NaN;
-            const isSplit = owedBy.length > 0 && Number.isFinite(owedAmount) && owedAmount > 0;
+            // A row the user started but never picked a person for, or never
+            // gave an amount, isn't part of the split — silently dropped
+            // rather than rejected, since it can only happen by leaving a
+            // half-finished "+ Add person" row in place.
+            const splits = isSplitting
+                ? formData.splits
+                    .filter(r => r.counterpartyId && parseFloat(r.amountText) > 0)
+                    .map(r => ({ counterparty_id: r.counterpartyId, amount: parseFloat(r.amountText) }))
+                : [];
             await api.post("/cashflow/transactions", {
                 account_id: formData.accountId,
                 category_id: formData.categoryId,
@@ -232,8 +265,7 @@ export default function Transactions() {
                 // Omitted when blank: the API reads a missing key as "use the
                 // card's default", which is exactly what blank means here.
                 ...(formData.cardCategoryId ? { card_category_id: formData.cardCategoryId } : {}),
-                // Sent together or not at all — the API rejects half a split.
-                ...(isSplit ? { owed_by: owedBy, owed_amount: owedAmount } : {})
+                ...(splits.length > 0 ? { splits } : {})
             });
             setIsLogModalOpen(false);
             setIsSplitting(false);
@@ -594,6 +626,13 @@ export default function Transactions() {
                 isSplitting={isSplitting}
                 setIsSplitting={setIsSplitting}
                 baseCurrency={baseCurrency}
+                counterparties={counterparties}
+                isCreatingCounterparty={isCreatingCounterparty}
+                setIsCreatingCounterparty={setIsCreatingCounterparty}
+                newCounterpartyName={newCounterpartyName}
+                setNewCounterpartyName={setNewCounterpartyName}
+                isSavingCounterparty={isSavingCounterparty}
+                onCreateCounterparty={handleCreateCounterparty}
                 isCreatingCategory={isCreatingCategory}
                 setIsCreatingCategory={setIsCreatingCategory}
                 newCategoryName={newCategoryName}
@@ -728,9 +767,11 @@ export default function Transactions() {
                                                   left the account. This says how much of it wasn't yours,
                                                   which is otherwise invisible on a page of full amounts.
                                                 */}
-                                                {item.split && (
+                                                {item.splits.length > 0 && (
                                                     <p className="text-xs text-amber-600 dark:text-amber-400 leading-tight">
-                                                        {formatHomeAmount(item.split.owedAmount)} owed by {item.split.owedBy}
+                                                        {item.splits.length === 1
+                                                            ? `${formatHomeAmount(item.splits[0].amount)} owed by ${item.splits[0].counterpartyName}`
+                                                            : `${formatHomeAmount(item.splits.reduce((sum, s) => sum + s.amount, 0))} split with ${item.splits.map((s) => s.counterpartyName).join(", ")}`}
                                                     </p>
                                                 )}
                                                 <div className="flex flex-wrap items-center gap-2 text-sm text-base-500 dark:text-base-400">

@@ -164,6 +164,7 @@ struct RecurringView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
+            Button("Retry") { Task { await load() } }
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -436,7 +437,12 @@ struct RecurringFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate])
+            .discardGuard(
+                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate],
+                // `onAppear` below fills in the private-by-default toggle;
+                // that isn't an edit the user made.
+                settled: didSeedPrivacy
+            )
             .onAppear {
                 // SessionStore isn't reachable from init, same as AccountFormView.
                 if !didSeedPrivacy {

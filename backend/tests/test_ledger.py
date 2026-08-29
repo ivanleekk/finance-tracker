@@ -66,6 +66,22 @@ def dining(db_session, household):
     return row
 
 
+@pytest.fixture
+def alice(db_session, household):
+    row = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name="Alice")
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+@pytest.fixture
+def mum(db_session, household):
+    row = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name="Mum")
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
 def _at(db_session, household):
     from datetime import datetime, timezone
 
@@ -126,7 +142,7 @@ def test_a_trial_balance_always_balances(db_session, household, bank, dining):
 
 
 def test_paying_on_behalf_of_someone_only_budgets_your_own_share(
-    db_session, household, bank, dining
+    db_session, household, bank, dining, alice
 ):
     """
     The motivating case. A $200 dinner where $150 is owed back is one entry with
@@ -135,7 +151,7 @@ def test_paying_on_behalf_of_someone_only_budgets_your_own_share(
     """
     bank_acct = ledger.ledger_account_for_financial_account(db_session, bank)
     dining_acct = ledger.ledger_account_for_category(db_session, dining)
-    alice = ledger.receivable_account(db_session, household.id, "Alice")
+    alice = ledger.receivable_account(db_session, household.id, alice)
 
     ledger.post_entry(
         db=db_session,
@@ -157,7 +173,7 @@ def test_paying_on_behalf_of_someone_only_budgets_your_own_share(
     assert ledger.account_balance(db_session, bank_acct.id) == Decimal("-200")
 
 
-def test_being_repaid_touches_no_category_at_all(db_session, household, bank, dining):
+def test_being_repaid_touches_no_category_at_all(db_session, household, bank, dining, alice):
     """
     The half that single entry got wrong in the other direction: a repayment
     logged as income inflated income and the savings rate. Here it clears the
@@ -167,7 +183,7 @@ def test_being_repaid_touches_no_category_at_all(db_session, household, bank, di
 
     bank_acct = ledger.ledger_account_for_financial_account(db_session, bank)
     dining_acct = ledger.ledger_account_for_category(db_session, dining)
-    alice = ledger.receivable_account(db_session, household.id, "Alice")
+    alice = ledger.receivable_account(db_session, household.id, alice)
 
     ledger.post_entry(
         db=db_session,
@@ -224,11 +240,11 @@ def test_a_refund_reduces_the_category_instead_of_arriving_as_income(
     assert movement[dining.id] == Decimal("60")
 
 
-def test_a_payable_is_a_liability_and_reads_positive_when_owed(db_session, household, bank, dining):
+def test_a_payable_is_a_liability_and_reads_positive_when_owed(db_session, household, bank, dining, mum):
     """The mirror image: someone else paid, so the household owes them."""
     bank_acct = ledger.ledger_account_for_financial_account(db_session, bank)
     dining_acct = ledger.ledger_account_for_category(db_session, dining)
-    mum = ledger.payable_account(db_session, household.id, "Mum")
+    mum = ledger.payable_account(db_session, household.id, mum)
 
     ledger.post_entry(
         db=db_session,
@@ -269,21 +285,21 @@ def test_a_liability_account_is_credit_normal(db_session, household):
     assert acct.is_debit_normal is False
 
 
-def test_the_chart_account_for_a_row_is_created_once(db_session, household, bank, dining):
+def test_the_chart_account_for_a_row_is_created_once(db_session, household, bank, dining, alice):
     """Two chart accounts for one bank account would silently split its balance."""
     first = ledger.ledger_account_for_financial_account(db_session, bank)
     second = ledger.ledger_account_for_financial_account(db_session, bank)
     assert first.id == second.id
 
-    a = ledger.receivable_account(db_session, household.id, "Alice")
-    b = ledger.receivable_account(db_session, household.id, "Alice")
+    a = ledger.receivable_account(db_session, household.id, alice)
+    b = ledger.receivable_account(db_session, household.id, alice)
     assert a.id == b.id
 
 
-def test_owing_alice_and_being_owed_by_alice_are_separate_accounts(db_session, household):
+def test_owing_alice_and_being_owed_by_alice_are_separate_accounts(db_session, household, alice):
     """Netting the two is the user's business, not the ledger's."""
-    owed_to_us = ledger.receivable_account(db_session, household.id, "Alice")
-    we_owe = ledger.payable_account(db_session, household.id, "Alice")
+    owed_to_us = ledger.receivable_account(db_session, household.id, alice)
+    we_owe = ledger.payable_account(db_session, household.id, alice)
     assert owed_to_us.id != we_owe.id
     assert owed_to_us.type == models.LedgerAccountType.asset
     assert we_owe.type == models.LedgerAccountType.liability

@@ -1,6 +1,6 @@
 import { getSSRContext } from "../../lib/ssr-helpers";
 import type { LoaderFunctionArgs } from "react-router";
-import type { TradeResponse, TransactionResponse, AssetResponse, CategoryResponse, AccountResponse, SubPortfolioResponse, CurrencyResponse } from "../../types/types";
+import type { TradeResponse, TransactionResponse, AssetResponse, CategoryResponse, AccountResponse, SubPortfolioResponse, CurrencyResponse, CounterpartyResponse } from "../../types/types";
 
 export type HistoryLoaderData = {
     trades: TradeResponse[];
@@ -10,34 +10,37 @@ export type HistoryLoaderData = {
     accounts: AccountResponse[];
     subportfolios: SubPortfolioResponse[];
     currencies: CurrencyResponse[];
+    counterparties: CounterpartyResponse[];
 };
 
 export async function transactionsLoader({ request }: LoaderFunctionArgs): Promise<HistoryLoaderData> {
     const { householdId, ssrFetch } = await getSSRContext(request);
 
     try {
-        const [trRes, txRes, asRes, catRes, accRes, spRes, curRes] = await Promise.all([
+        const [trRes, txRes, asRes, catRes, accRes, spRes, curRes, cpRes] = await Promise.all([
             ssrFetch(`/portfolio/trades/household/${householdId}`),
             ssrFetch(`/cashflow/transactions/household/${householdId}`),
             ssrFetch(`/portfolio/assets`),
             ssrFetch(`/cashflow/categories/household/${householdId}`),
             ssrFetch(`/accounts/household/${householdId}`),
             ssrFetch(`/portfolio/subportfolios/household/${householdId}`),
-            ssrFetch(`/reference/currencies`)
+            ssrFetch(`/reference/currencies`),
+            ssrFetch(`/cashflow/counterparties/household/${householdId}`)
         ]);
 
-        if (!trRes.ok || !txRes.ok || !asRes.ok || !catRes.ok || !accRes.ok || !spRes.ok || !curRes.ok) {
+        if (!trRes.ok || !txRes.ok || !asRes.ok || !catRes.ok || !accRes.ok || !spRes.ok || !curRes.ok || !cpRes.ok) {
             throw new Error("One or more requests failed");
         }
 
-        const [trades, transactions, assets, categories, accounts, subportfolios, currencies] = await Promise.all([
+        const [trades, transactions, assets, categories, accounts, subportfolios, currencies, counterparties] = await Promise.all([
             trRes.json(),
             txRes.json(),
             asRes.json(),
             catRes.json(),
             accRes.json(),
             spRes.json(),
-            curRes.json()
+            curRes.json(),
+            cpRes.json()
         ]);
 
         return {
@@ -47,11 +50,12 @@ export async function transactionsLoader({ request }: LoaderFunctionArgs): Promi
             categories,
             accounts,
             subportfolios,
-            currencies
+            currencies,
+            counterparties
         };
     } catch (error) {
         if (error instanceof Response) throw error; // Handle redirect
         console.error("Failed to load history data", error);
-        return { trades: [], transactions: [], assets: [], categories: [], accounts: [], subportfolios: [], currencies: [] };
+        return { trades: [], transactions: [], assets: [], categories: [], accounts: [], subportfolios: [], currencies: [], counterparties: [] };
     }
 }

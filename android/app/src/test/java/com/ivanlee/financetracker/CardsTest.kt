@@ -6,7 +6,6 @@ import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.CycleBasis
 import com.ivanlee.financetracker.data.model.LimitDirection
-import com.ivanlee.financetracker.data.model.SplitChange
 import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.logic.Cards
 import kotlinx.serialization.json.Json
@@ -200,7 +199,6 @@ class CardsTest {
                 accountId = "a",
                 categoryId = "c",
                 mcc = "",
-                split = SplitChange.Unchanged,
                 cardCategoryId = cardCategoryId,
             )
         ) as JsonObject

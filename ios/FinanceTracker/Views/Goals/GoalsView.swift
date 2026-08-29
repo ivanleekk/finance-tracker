@@ -167,7 +167,12 @@ struct GoalFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [name, riskProfile, targetAmountText, hasTargetDate, targetDate, isPrivate])
+            .discardGuard(
+                fields: [name, riskProfile, targetAmountText, hasTargetDate, targetDate, isPrivate],
+                // `onAppear` below fills in the private-by-default toggle for a new goal;
+                // that isn't an edit the user made.
+                settled: didSeedPrivacy
+            )
             .onAppear {
                 guard !didSeedPrivacy else { return }
                 isPrivate = session.user?.defaultsNewItemsPrivate ?? false

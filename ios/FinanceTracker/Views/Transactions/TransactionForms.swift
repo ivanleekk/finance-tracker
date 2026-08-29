@@ -5,6 +5,16 @@ import SwiftUI
 // list, and the file that owns the list is easier to read without ~400 lines of
 // form in the middle of it.
 
+/// One row of the split editor: a picked person and their (still-typed) share.
+/// A stable `id`, minted once when the row is created, is what lets `ForEach`
+/// track a row across edits without depending on the (possibly still-blank)
+/// counterparty pick.
+private struct SplitRow: Identifiable, Hashable {
+    let id = UUID()
+    var counterpartyId: String?
+    var amountText: String = ""
+}
+
 /// Add or edit a transaction. `existing == nil` creates; otherwise edits in place.
 struct TransactionFormView: View {
     @Environment(\.dismiss) private var dismiss
@@ -25,11 +35,17 @@ struct TransactionFormView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingNewCategory = false
-    /// Part of this bill is somebody else's. The amount above stays the full sum
-    /// that leaves the account — this only records whose it was.
+    /// Part of this bill is one or more other people's. The amount above stays
+    /// the full sum that leaves the account — this only records whose it was.
     @State private var isSplitting: Bool
-    @State private var owedByText: String
-    @State private var owedAmountText: String
+    @State private var splitRows: [SplitRow]
+    @State private var counterparties: [Counterparty]
+    /// Inline "+ New Person" affordance, same shape as "+ New Category" below:
+    /// adding a person appends them as a new split row rather than filling one
+    /// in, since there's no single row to target until at least one exists.
+    @State private var isCreatingCounterparty = false
+    @State private var newCounterpartyName = ""
+    @State private var isSavingCounterparty = false
     /// Empty means "not recorded", which is the normal case — most purchases have
     /// no code the user happens to know.
     @State private var mcc: String
@@ -44,6 +60,7 @@ struct TransactionFormView: View {
     init(
         accounts: [AccountResponse],
         categories: [CategoryResponse],
+        counterparties: [Counterparty],
         householdId: String,
         existing: TransactionResponse? = nil,
         onSaved: @escaping () async -> Void
@@ -53,16 +70,18 @@ struct TransactionFormView: View {
         self.existing = existing
         self.onSaved = onSaved
         _categories = State(initialValue: categories)
+        _counterparties = State(initialValue: counterparties)
         _type = State(initialValue: existing?.transactionType ?? .expense)
         _amountText = State(initialValue: existing.map { Self.amountString($0.amount) } ?? "")
         _date = State(initialValue: existing?.date ?? Date())
         _description = State(initialValue: existing?.description ?? "")
         _accountId = State(initialValue: existing?.accountId)
         _categoryId = State(initialValue: existing?.categoryId)
-        let existingOwed = existing?.owedAmount
-        _isSplitting = State(initialValue: existing?.owedBy != nil && existingOwed != nil)
-        _owedByText = State(initialValue: existing?.owedBy ?? "")
-        _owedAmountText = State(initialValue: existingOwed.map(Self.amountString) ?? "")
+        let existingSplits = existing?.splits ?? []
+        _isSplitting = State(initialValue: !existingSplits.isEmpty)
+        _splitRows = State(initialValue: existingSplits.map {
+            SplitRow(counterpartyId: $0.counterpartyId, amountText: Self.amountString($0.amount))
+        })
         _mcc = State(initialValue: existing?.mcc ?? "")
         _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
     }
@@ -80,17 +99,23 @@ struct TransactionFormView: View {
         Double(amountText.replacingOccurrences(of: ",", with: ""))
     }
 
-    private var owedAmount: Double? {
-        Reimbursements.parseMoney(owedAmountText)
+    /// Rows with a person picked, read as split entries. A row with no person
+    /// selected yet is left out rather than counted as incomplete — matching
+    /// the web's `splitHint`, which filters to `r => r.counterpartyId` first.
+    private var splitEntries: [SplitEntry] {
+        splitRows.compactMap { row in
+            guard let counterpartyId = row.counterpartyId else { return nil }
+            return SplitEntry(counterpartyId: counterpartyId, amount: Reimbursements.parseMoney(row.amountText))
+        }
     }
 
     private var splitAssessment: SplitAssessment {
-        Reimbursements.assessSplit(amount: amount, owed: owedAmount)
+        Reimbursements.assessSplit(amount: amount, entries: splitEntries)
     }
 
     /// The sentence under the split fields. It restates the split as the two
-    /// numbers the user actually cares about, because "they owe 80" on a 120
-    /// bill means nothing until you can see what it leaves you.
+    /// numbers the user actually cares about, because "they owe 180 combined"
+    /// on a 300 bill is only meaningful once you can see that leaves you 120.
     private var splitHint: String {
         switch splitAssessment {
         case .incomplete:
@@ -99,12 +124,9 @@ struct TransactionFormView: View {
             return reason
         case let .valid(yourShare, owed):
             let currency = session.activeHousehold?.baseCurrency ?? "USD"
-            return "Your share: \(yourShare.currency(currency)). They owe you \(owed.currency(currency))."
+            let who = splitEntries.count > 1 ? "They owe you (combined)" : "They owe you"
+            return "Your share: \(yourShare.currency(currency)). \(who) \(owed.currency(currency))."
         }
-    }
-
-    private var trimmedOwedBy: String {
-        owedByText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A split that is switched on but not yet complete blocks saving, rather
@@ -113,11 +135,18 @@ struct TransactionFormView: View {
     private var splitIsUsable: Bool {
         guard isSplitting else { return true }
         guard case .valid = splitAssessment else { return false }
-        return !trimmedOwedBy.isEmpty
+        return true
     }
 
     private var canSave: Bool {
         amount ?? 0 > 0 && accountId != nil && categoryId != nil && !isSaving && splitIsUsable
+    }
+
+    /// Counterparties still pickable for a given row — everyone already chosen
+    /// in another row is excluded, so the same person can't be picked twice.
+    private func pickableCounterparties(for rowId: UUID) -> [Counterparty] {
+        let pickedElsewhere = Set(splitRows.filter { $0.id != rowId }.compactMap(\.counterpartyId))
+        return counterparties.filter { !pickedElsewhere.contains($0.id) }
     }
 
     var body: some View {
@@ -174,13 +203,68 @@ struct TransactionFormView: View {
                     Section {
                         Toggle("Someone owes me for part of this", isOn: $isSplitting.animation())
                         if isSplitting {
-                            TextField("Who (e.g. Alice)", text: $owedByText)
-                                .textInputAutocapitalization(.words)
-                            HStack {
-                                Text("They owe")
-                                TextField("0.00", text: $owedAmountText)
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
+                            ForEach($splitRows) { $row in
+                                HStack(spacing: 8) {
+                                    Picker("Who", selection: $row.counterpartyId) {
+                                        Text("Select person").tag(String?.none)
+                                        ForEach(pickableCounterparties(for: row.id)) { cp in
+                                            Text(cp.name).tag(String?.some(cp.id))
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    TextField("0.00", text: $row.amountText)
+                                        .keyboardType(.decimalPad)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(width: 70)
+                                    Button {
+                                        splitRows.removeAll { $0.id == row.id }
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+
+                            Button {
+                                splitRows.append(SplitRow())
+                            } label: {
+                                Label("Add Person", systemImage: "person.badge.plus")
+                            }
+
+                            Button {
+                                isCreatingCounterparty.toggle()
+                            } label: {
+                                Label(
+                                    isCreatingCounterparty ? "Cancel New Person" : "New Person",
+                                    systemImage: "plus.circle"
+                                )
+                            }
+
+                            if isCreatingCounterparty {
+                                HStack {
+                                    TextField("e.g. Alice", text: $newCounterpartyName)
+                                        .textInputAutocapitalization(.words)
+                                    Button {
+                                        Task { await createCounterparty() }
+                                    } label: {
+                                        if isSavingCounterparty {
+                                            ProgressView()
+                                        } else {
+                                            Text("Add")
+                                        }
+                                    }
+                                    .disabled(
+                                        newCounterpartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                            || isSavingCounterparty
+                                    )
+                                }
+                            }
+
+                            if splitRows.count > 1 {
+                                Button("Split Remainder Evenly") {
+                                    splitRemainderEvenly()
+                                }
                             }
                         }
                     } footer: {
@@ -244,7 +328,10 @@ struct TransactionFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [type, amountText, date, description, accountId, categoryId, mcc, cardCategoryId])
+            .discardGuard(fields: [
+                type, amountText, date, description, accountId, categoryId, mcc, cardCategoryId,
+                isSplitting, splitRows,
+            ])
             .onAppear {
                 if accountId == nil {
                     let defaultAccount = accounts.first { $0.id == session.user?.defaultAccountId }
@@ -268,17 +355,75 @@ struct TransactionFormView: View {
         }
     }
 
+    /// The completed split rows, ready for the wire — only valid once
+    /// `splitAssessment` says so, which guarantees every entry has both a
+    /// counterparty and a positive amount.
+    private func splitInputs() -> [TransactionSplitInput] {
+        splitRows.compactMap { row in
+            guard let counterpartyId = row.counterpartyId,
+                  let amount = Reimbursements.parseMoney(row.amountText)
+            else { return nil }
+            return TransactionSplitInput(counterpartyId: counterpartyId, amount: amount)
+        }
+    }
+
+    /// What a new transaction should send: nil when there's no split at all.
+    private var splitsForCreate: [TransactionSplitInput]? {
+        guard isSplitting, case .valid = splitAssessment else { return nil }
+        return splitInputs()
+    }
+
     /// What this edit should do to the split already recorded.
     ///
     /// Switching the toggle off means *remove* it, which is a different request
     /// from leaving it alone — so a form that opened with no split and still has
-    /// none sends nothing rather than an explicit clear.
-    private var splitChange: SplitChange {
-        if isSplitting, let owedAmount, !trimmedOwedBy.isEmpty {
-            return .set(owedBy: trimmedOwedBy, owedAmount: owedAmount)
+    /// none sends nothing (an omitted key, `nil`) rather than an explicit `[]`.
+    private var splitsForUpdate: [TransactionSplitInput]? {
+        if isSplitting, case .valid = splitAssessment {
+            return splitInputs()
         }
-        let hadSplit = existing?.owedBy != nil && existing?.owedAmount != nil
-        return hadSplit ? .clear : .unchanged
+        let hadSplit = !(existing?.splits.isEmpty ?? true)
+        return hadSplit ? [] : nil
+    }
+
+    /// Adds a new reusable person and appends them as a new, blank split row —
+    /// there's no single row to fill in until at least one exists.
+    private func createCounterparty() async {
+        let name = newCounterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let household = session.activeHousehold else { return }
+        isSavingCounterparty = true
+        defer { isSavingCounterparty = false }
+        do {
+            let created: Counterparty = try await APIClient.shared.post(
+                "/cashflow/counterparties",
+                body: CounterpartyCreate(householdId: household.id, name: name)
+            )
+            counterparties.append(created)
+            counterparties.sort { $0.name < $1.name }
+            splitRows.append(SplitRow(counterpartyId: created.id))
+            newCounterpartyName = ""
+            isCreatingCounterparty = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Fills every blank-amount row by dividing what's left of the bill evenly
+    /// across them, after subtracting whatever the other rows already specify.
+    private func splitRemainderEvenly() {
+        let blankIndices = splitRows.indices.filter {
+            splitRows[$0].amountText.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        guard !blankIndices.isEmpty else { return }
+        let specified = splitRows
+            .filter { !$0.amountText.trimmingCharacters(in: .whitespaces).isEmpty }
+            .compactMap { Reimbursements.parseMoney($0.amountText) }
+        guard let share = Reimbursements.evenSplitRemainder(
+            amount: amount ?? 0, specified: specified, remainingCount: blankIndices.count
+        ) else { return }
+        for index in blankIndices {
+            splitRows[index].amountText = String(format: "%.2f", share)
+        }
     }
 
     /// The card behind an account, with this cycle's headroom — or nothing, which
@@ -321,7 +466,7 @@ struct TransactionFormView: View {
                         description: description,
                         accountId: accountId,
                         categoryId: categoryId,
-                        split: splitChange,
+                        splits: splitsForUpdate,
                         mcc: mcc,
                         // Empty means "the card's default", which the API reads
                         // from an explicit null rather than an empty string.
@@ -337,8 +482,7 @@ struct TransactionFormView: View {
                         description: description.isEmpty ? nil : description,
                         accountId: accountId,
                         categoryId: categoryId,
-                        owedBy: isSplitting ? trimmedOwedBy : nil,
-                        owedAmount: isSplitting ? owedAmount : nil,
+                        splits: splitsForCreate,
                         mcc: mcc
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(

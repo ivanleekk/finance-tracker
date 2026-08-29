@@ -50,7 +50,7 @@ struct BudgetsView: View {
                     LabeledContent("Spent") {
                         Text((status?.totalSpent ?? 0).currencyWhole(currency)).monospacedDigit()
                     }
-                    LabeledContent("Off pace") {
+                    LabeledContent("Budgets off pace") {
                         Text("\(rows.filter { BudgetPresentation.tone(for: $0) != .ok }.count) of \(rows.count)")
                             .monospacedDigit()
                     }
@@ -120,6 +120,7 @@ struct BudgetsView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
+            Button("Retry") { Task { await load() } }
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -207,8 +208,13 @@ struct EmergencyFundSection: View {
                         .font(.title2.bold())
                         .foregroundStyle(tint)
                     Spacer()
-                    Text(fund.liquidTotal.currencyWhole(currency))
-                        .font(.body.monospacedDigit())
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(fund.liquidTotal.currencyWhole(currency))
+                            .font(.body.monospacedDigit())
+                        Text("liquid cash")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if fund.monthsCovered != nil {

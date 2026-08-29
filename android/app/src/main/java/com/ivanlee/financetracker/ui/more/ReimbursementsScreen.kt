@@ -2,6 +2,7 @@ package com.ivanlee.financetracker.ui.more
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,7 +34,9 @@ import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
+import com.ivanlee.financetracker.data.model.Counterparty
 import com.ivanlee.financetracker.data.model.CounterpartyBalanceResponse
+import com.ivanlee.financetracker.data.model.CounterpartyCreate
 import com.ivanlee.financetracker.data.model.CounterpartyDirection
 import com.ivanlee.financetracker.data.model.SettlementCreate
 import com.ivanlee.financetracker.data.model.SpendOnYourBehalfCreate
@@ -73,6 +76,7 @@ fun ReimbursementsScreen(
     var balances by remember { mutableStateOf<List<CounterpartyBalanceResponse>>(emptyList()) }
     var accounts by remember { mutableStateOf<List<AccountResponse>>(emptyList()) }
     var categories by remember { mutableStateOf<List<CategoryResponse>>(emptyList()) }
+    var counterparties by remember { mutableStateOf<List<Counterparty>>(emptyList()) }
     var settling by remember { mutableStateOf<CounterpartyBalanceResponse?>(null) }
     var addingOnBehalf by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -95,9 +99,13 @@ fun ReimbursementsScreen(
                 val c = async {
                     Api.get<List<CategoryResponse>>("/cashflow/categories/household/${h.id}")
                 }
+                val p = async {
+                    Api.get<List<Counterparty>>("/cashflow/counterparties/household/${h.id}")
+                }
                 balances = b.await()
                 accounts = a.await()
                 categories = c.await()
+                counterparties = p.await()
             }
         } catch (e: Exception) {
             error = e.message ?: "Couldn't load shared spending."
@@ -191,10 +199,11 @@ fun ReimbursementsScreen(
                             "/cashflow/reimbursements/settle",
                             SettlementCreate(
                                 accountId = accountId,
-                                counterpartyName = row.counterpartyName,
+                                counterpartyId = row.counterpartyId,
                                 direction = row.direction,
                                 amount = amount,
                                 date = date,
+                                ownerUserId = row.ownerUserId,
                             ),
                         )
                         settling = null
@@ -210,9 +219,18 @@ fun ReimbursementsScreen(
     if (addingOnBehalf && household != null) {
         SpendOnYourBehalfDialog(
             categories = expenseCategories,
+            counterparties = counterparties,
             baseCurrency = baseCurrency,
+            onCreateCounterparty = { name ->
+                val created = Api.post<CounterpartyCreate, Counterparty>(
+                    "/cashflow/counterparties",
+                    CounterpartyCreate(household.id, name),
+                )
+                counterparties = counterparties + created
+                created
+            },
             onDismiss = { addingOnBehalf = false },
-            onConfirm = { name, categoryId, amount, date, description ->
+            onConfirm = { counterpartyId, categoryId, amount, date, description ->
                 scope.launch {
                     try {
                         Api.post<SpendOnYourBehalfCreate, CounterpartyBalanceResponse>(
@@ -220,7 +238,7 @@ fun ReimbursementsScreen(
                             SpendOnYourBehalfCreate(
                                 householdId = household.id,
                                 categoryId = categoryId,
-                                counterpartyName = name,
+                                counterpartyId = counterpartyId,
                                 amount = amount,
                                 date = date,
                                 description = description,
@@ -352,31 +370,85 @@ private fun SettlementDialog(
 @Composable
 private fun SpendOnYourBehalfDialog(
     categories: List<CategoryResponse>,
+    counterparties: List<Counterparty>,
     baseCurrency: String,
+    onCreateCounterparty: suspend (name: String) -> Counterparty,
     onDismiss: () -> Unit,
     onConfirm: (
-        name: String,
+        counterpartyId: String,
         categoryId: String,
         amount: Double,
         date: Instant,
         description: String?,
     ) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
+    var counterpartyId by remember { mutableStateOf<String?>(null) }
     var categoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
     var amountText by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Instant.now()) }
     var description by remember { mutableStateOf("") }
+    var showNewCounterparty by remember { mutableStateOf(false) }
+    var newCounterpartyName by remember { mutableStateOf("") }
+    var savingCounterparty by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     val amount = Reimbursements.parseMoney(amountText)
-    val canSave = (amount ?: 0.0) > 0 && categoryId != null && name.isNotBlank()
+    val canSave = (amount ?: 0.0) > 0 && categoryId != null && counterpartyId != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Someone paid for me") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FormField("Who paid (e.g. Bob)", name, { name = it })
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Who paid", style = MaterialTheme.typography.labelLarge)
+                    TextButton(onClick = { showNewCounterparty = !showNewCounterparty }) {
+                        Text(if (showNewCounterparty) "Cancel" else "+ New person")
+                    }
+                }
+                if (showNewCounterparty) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        Box(Modifier.weight(1f)) {
+                            FormField("e.g. Bob", newCounterpartyName, { newCounterpartyName = it })
+                        }
+                        TextButton(
+                            enabled = newCounterpartyName.isNotBlank() && !savingCounterparty,
+                            onClick = {
+                                savingCounterparty = true
+                                scope.launch {
+                                    try {
+                                        val created = onCreateCounterparty(newCounterpartyName.trim())
+                                        counterpartyId = created.id
+                                        newCounterpartyName = ""
+                                        showNewCounterparty = false
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Couldn't add that person."
+                                    } finally {
+                                        savingCounterparty = false
+                                    }
+                                }
+                            },
+                        ) { Text(if (savingCounterparty) "Adding…" else "Add") }
+                    }
+                } else {
+                    DropdownField(
+                        label = "Person",
+                        selected = counterparties.firstOrNull { it.id == counterpartyId },
+                        options = counterparties,
+                        optionLabel = { it.name },
+                        placeholder = "Select person",
+                        onSelect = { counterpartyId = it.id },
+                    )
+                }
                 DropdownField(
                     label = "Category",
                     selected = categories.firstOrNull { it.id == categoryId },
@@ -393,13 +465,14 @@ private fun SpendOnYourBehalfDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     onConfirm(
-                        name.trim(),
+                        counterpartyId!!,
                         categoryId!!,
                         amount!!,
                         date,

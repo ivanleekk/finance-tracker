@@ -92,10 +92,19 @@ struct TransactionRow: View {
                 // The amount on the right stays the full sum, because that is
                 // what left the account. This says how much of it wasn't yours,
                 // which is otherwise invisible on a list of full amounts.
-                if let owedBy = transaction.owedBy, let owedAmount = transaction.owedAmount {
-                    Text("\(owedAmount.currency(transaction.currency ?? baseCurrency)) owed by \(owedBy)")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                if !transaction.splits.isEmpty {
+                    let currency = transaction.currency ?? baseCurrency
+                    let owed = transaction.splits.reduce(0.0) { $0 + $1.amount }
+                    if transaction.splits.count == 1, let only = transaction.splits.first {
+                        Text("\(owed.currency(currency)) owed by \(only.counterpartyName)")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else {
+                        let names = transaction.splits.map(\.counterpartyName).joined(separator: ", ")
+                        Text("\(owed.currency(currency)) split with \(names)")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
             Spacer()

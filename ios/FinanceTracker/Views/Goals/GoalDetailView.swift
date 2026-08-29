@@ -161,6 +161,7 @@ struct GoalDetailView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
+            Button("Retry") { Task { await reload() } }
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")

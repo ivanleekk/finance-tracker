@@ -56,7 +56,6 @@ describe('emptyTransactionForm', () => {
         expect(form.categoryId).toBe('');
         expect(form.amount).toBe('');
         expect(form.description).toBe('');
-        expect(form.owedBy).toBe('');
-        expect(form.owedAmount).toBe('');
+        expect(form.splits).toEqual([]);
     });
 });

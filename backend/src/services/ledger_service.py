@@ -11,7 +11,7 @@ The chart of accounts is built lazily around the rows the app already has:
 create the mirror of an existing account or category, so nothing has to be
 migrated up front and a household that has never posted an entry costs nothing.
 Receivables and payables are the accounts that have no single-entry equivalent,
-and `receivable_account` / `payable_account` create them per counterparty name.
+and `receivable_account` / `payable_account` create them per Counterparty.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def _get_or_create(
     role: models.LedgerAccountRole,
     financial_account_id: Optional[uuid.UUID] = None,
     category_id: Optional[uuid.UUID] = None,
-    counterparty_name: Optional[str] = None,
+    counterparty_id: Optional[uuid.UUID] = None,
     owner_user_id: Optional[uuid.UUID] = None,
 ) -> models.LedgerAccount:
     query = db.query(models.LedgerAccount).filter(
@@ -94,7 +94,7 @@ def _get_or_create(
         query = query.filter(models.LedgerAccount.category_id == category_id)
     else:
         query = query.filter(
-            models.LedgerAccount.counterparty_name == counterparty_name,
+            models.LedgerAccount.counterparty_id == counterparty_id,
             models.LedgerAccount.owner_user_id == owner_user_id,
         )
 
@@ -109,7 +109,7 @@ def _get_or_create(
         role=role,
         financial_account_id=financial_account_id,
         category_id=category_id,
-        counterparty_name=counterparty_name,
+        counterparty_id=counterparty_id,
         owner_user_id=owner_user_id,
     )
     db.add(account)
@@ -155,17 +155,17 @@ def ledger_account_for_category(db: Session, category: models.Category) -> model
 def receivable_account(
     db: Session,
     household_id: uuid.UUID,
-    counterparty_name: str,
+    counterparty: models.Counterparty,
     owner_user_id: Optional[uuid.UUID] = None,
 ) -> models.LedgerAccount:
-    """Money `counterparty_name` owes the household: an asset."""
+    """Money `counterparty` owes the household: an asset."""
     return _get_or_create(
         db,
         household_id=household_id,
-        name=f"Owed by {counterparty_name}",
+        name=f"Owed by {counterparty.name}",
         type=models.LedgerAccountType.asset,
         role=models.LedgerAccountRole.receivable,
-        counterparty_name=counterparty_name,
+        counterparty_id=counterparty.id,
         owner_user_id=owner_user_id,
     )
 
@@ -173,17 +173,17 @@ def receivable_account(
 def payable_account(
     db: Session,
     household_id: uuid.UUID,
-    counterparty_name: str,
+    counterparty: models.Counterparty,
     owner_user_id: Optional[uuid.UUID] = None,
 ) -> models.LedgerAccount:
-    """Money the household owes `counterparty_name`: a liability."""
+    """Money the household owes `counterparty`: a liability."""
     return _get_or_create(
         db,
         household_id=household_id,
-        name=f"Owed to {counterparty_name}",
+        name=f"Owed to {counterparty.name}",
         type=models.LedgerAccountType.liability,
         role=models.LedgerAccountRole.payable,
-        counterparty_name=counterparty_name,
+        counterparty_id=counterparty.id,
         owner_user_id=owner_user_id,
     )
 
@@ -439,20 +439,21 @@ def post_transaction(
     db: Session,
     transaction: models.Transaction,
     *,
-    owed_by: Optional[str] = None,
-    owed_amount: Optional[Decimal] = None,
+    splits: Sequence[tuple[models.Counterparty, Decimal]] = (),
     owner_user_id: Optional[uuid.UUID] = None,
 ) -> Optional[models.JournalEntry]:
     """
-    Mirror one transaction into the ledger, optionally splitting part of it onto a
-    counterparty who owes the household for it.
+    Mirror one transaction into the ledger, optionally splitting part of it onto
+    one or more counterparties who owe the household for it.
 
     The split is the point. Paying the whole restaurant bill moves the whole bill
     out of your account — that is what the balance chain records, and it is true.
     But only your share is *your spending*: the rest is a debt someone owes you,
     so it debits their receivable instead of the category. Budgets then charge you
     for what you ate rather than for what you fronted, without anyone having to
-    log a fictional smaller expense and lose the real one.
+    log a fictional smaller expense and lose the real one. A dinner split three
+    ways debits three receivables and your own share, all against one credit to
+    the account — `post_entry` was never limited to two-line entries.
 
     Transfer legs are skipped: a transfer is one event across two rows, and
     `post_transfer` posts it once from the pair.
@@ -486,15 +487,15 @@ def post_transaction(
         ]
     else:
         share = total
-        if owed_by and owed_amount is not None and _dec(owed_amount) > 0:
-            owed = min(_dec(owed_amount), total)
-            share = total - owed
-            receivable = receivable_account(db, account.household_id, owed_by, owner_user_id)
-            if share > 0:
-                lines.append(debit(category_line.id, share, memo="Your share"))
-            lines.append(debit(receivable.id, owed, memo=f"Owed by {owed_by}"))
-        else:
-            lines.append(debit(category_line.id, share))
+        for counterparty, owed_amount in splits:
+            owed = min(_dec(owed_amount), share)
+            if owed <= 0:
+                continue
+            share -= owed
+            receivable = receivable_account(db, account.household_id, counterparty, owner_user_id)
+            lines.append(debit(receivable.id, owed, memo=f"Owed by {counterparty.name}"))
+        if share > 0:
+            lines.append(debit(category_line.id, share, memo="Your share" if lines else None))
         lines.append(credit(account_line.id, total))
 
     entry = post_entry(
@@ -567,7 +568,7 @@ def post_spend_on_your_behalf(
     *,
     household_id: uuid.UUID,
     category: models.Category,
-    counterparty_name: str,
+    counterparty: models.Counterparty,
     amount: Decimal,
     date: datetime,
     description: Optional[str] = None,
@@ -587,7 +588,7 @@ def post_spend_on_your_behalf(
         raise ValueError("Amount must be positive.")
 
     category_line = ledger_account_for_category(db, category)
-    payable = payable_account(db, household_id, counterparty_name, owner_user_id)
+    payable = payable_account(db, household_id, counterparty, owner_user_id)
 
     return post_entry(
         db,
@@ -595,9 +596,9 @@ def post_spend_on_your_behalf(
         date=date,
         lines=[
             debit(category_line.id, amount),
-            credit(payable.id, amount, memo=f"Owed to {counterparty_name}"),
+            credit(payable.id, amount, memo=f"Owed to {counterparty.name}"),
         ],
-        description=description or f"Paid by {counterparty_name}",
+        description=description or f"Paid by {counterparty.name}",
         source=models.JournalSource.manual,
     )
 
@@ -611,10 +612,12 @@ def post_spend_on_your_behalf(
 class CounterpartyBalance:
     """What one person is owed, or owes, right now."""
 
+    counterparty_id: uuid.UUID
     counterparty_name: str
     role: models.LedgerAccountRole
     ledger_account_id: uuid.UUID
     amount: Decimal
+    owner_user_id: Optional[uuid.UUID]
 
 
 def counterparty_balances(
@@ -647,12 +650,15 @@ def counterparty_balances(
         balance = account_balance(db, account.id)
         if not include_settled and abs(balance) <= BALANCE_TOLERANCE:
             continue
+        counterparty_name = account.counterparty.name if account.counterparty else account.name
         results.append(
             CounterpartyBalance(
-                counterparty_name=account.counterparty_name or account.name,
+                counterparty_id=account.counterparty_id,
+                counterparty_name=counterparty_name,
                 role=account.role,
                 ledger_account_id=account.id,
                 amount=balance,
+                owner_user_id=account.owner_user_id,
             )
         )
     results.sort(key=lambda row: (row.role.value, row.counterparty_name.lower()))
@@ -663,7 +669,7 @@ def post_settlement(
     db: Session,
     *,
     transaction: models.Transaction,
-    counterparty_name: str,
+    counterparty: models.Counterparty,
     role: models.LedgerAccountRole,
     owner_user_id: Optional[uuid.UUID] = None,
 ) -> models.JournalEntry:
@@ -675,16 +681,23 @@ def post_settlement(
     category: the spending was recorded when the bill was paid. That is why the
     transaction is filed under the `Reimbursement` system category and why this
     entry credits the receivable (or debits the payable) instead.
+
+    `owner_user_id` must identify the debt being cleared, not the account the
+    repayment happens to move through — those are unrelated. `receivable_account`/
+    `payable_account` find-or-create by `(household_id, role, counterparty_id,
+    owner_user_id)`, so passing the settling account's own owner here opens a
+    second, disconnected ledger account whenever the two owners differ, leaving
+    the original debt outstanding instead of clearing it.
     """
     account = transaction.account
     total = _home_amount(transaction)
     account_line = ledger_account_for_financial_account(db, account)
 
     if role == models.LedgerAccountRole.receivable:
-        other = receivable_account(db, account.household_id, counterparty_name, owner_user_id)
+        other = receivable_account(db, account.household_id, counterparty, owner_user_id)
         lines = [debit(account_line.id, total), credit(other.id, total)]
     else:
-        other = payable_account(db, account.household_id, counterparty_name, owner_user_id)
+        other = payable_account(db, account.household_id, counterparty, owner_user_id)
         lines = [debit(other.id, total), credit(account_line.id, total)]
 
     return post_entry(
@@ -703,16 +716,28 @@ def post_settlement(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class SplitLine:
+    """One counterparty's share of a split transaction."""
+
+    counterparty_id: uuid.UUID
+    counterparty_name: str
+    amount: Decimal
+
+
 def counterparty_split_by_transaction(
     db: Session, transaction_ids: Sequence[uuid.UUID]
-) -> dict[uuid.UUID, tuple[str, Decimal]]:
+) -> dict[uuid.UUID, list[SplitLine]]:
     """
     Per transaction, who else's money it was and how much, keyed by transaction id.
 
     Only transactions that were actually split appear. A transaction with no
     ledger entry — everything logged before the ledger existed — is absent, which
     reads correctly as "none of it was somebody else's" without needing a
-    backfill to say so.
+    backfill to say so. A transaction split among several people gets one
+    `SplitLine` per person: the query already groups by `(source_id,
+    counterparty)`, so multiple receivable lines on one entry were always
+    readable this way — nothing before this needed more than one.
     """
     ids = list(transaction_ids)
     if not ids:
@@ -721,24 +746,33 @@ def counterparty_split_by_transaction(
     rows = (
         db.query(
             models.JournalEntry.source_id,
-            models.LedgerAccount.counterparty_name,
+            models.LedgerAccount.counterparty_id,
+            models.Counterparty.name,
             func.coalesce(func.sum(models.JournalLine.debit), 0),
         )
         .join(models.JournalLine, models.JournalLine.entry_id == models.JournalEntry.id)
         .join(models.LedgerAccount, models.JournalLine.ledger_account_id == models.LedgerAccount.id)
+        .join(models.Counterparty, models.LedgerAccount.counterparty_id == models.Counterparty.id)
         .filter(
             models.JournalEntry.source == models.JournalSource.transaction,
             models.JournalEntry.source_id.in_(ids),
             models.LedgerAccount.role == models.LedgerAccountRole.receivable,
         )
-        .group_by(models.JournalEntry.source_id, models.LedgerAccount.counterparty_name)
+        .group_by(
+            models.JournalEntry.source_id,
+            models.LedgerAccount.counterparty_id,
+            models.Counterparty.name,
+        )
         .all()
     )
-    return {
-        source_id: (name or "", _dec(total))
-        for source_id, name, total in rows
-        if _dec(total) > 0
-    }
+    result: dict[uuid.UUID, list[SplitLine]] = {}
+    for source_id, counterparty_id, name, total in rows:
+        amount = _dec(total)
+        if amount > 0:
+            result.setdefault(source_id, []).append(
+                SplitLine(counterparty_id=counterparty_id, counterparty_name=name, amount=amount)
+            )
+    return result
 
 
 def ledger_only_category_movement(

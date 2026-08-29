@@ -12,6 +12,7 @@ struct ReimbursementsView: View {
     @State private var balances: [CounterpartyBalanceResponse] = []
     @State private var accounts: [AccountResponse] = []
     @State private var categories: [CategoryResponse] = []
+    @State private var counterparties: [Counterparty] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var settling: CounterpartyBalanceResponse?
@@ -95,7 +96,10 @@ struct ReimbursementsView: View {
             }
         }
         .sheet(isPresented: $showingOnBehalf) {
-            SpendOnYourBehalfFormView(categories: categories.filter { $0.type == .expense }) {
+            SpendOnYourBehalfFormView(
+                categories: categories.filter { $0.type == .expense },
+                counterparties: counterparties
+            ) {
                 await load()
             }
         }
@@ -108,6 +112,7 @@ struct ReimbursementsView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
+            Button("Retry") { Task { await load() } }
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -125,7 +130,10 @@ struct ReimbursementsView: View {
                 APIClient.shared.get("/accounts/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] =
                 APIClient.shared.get("/cashflow/categories/household/\(household.id)")
-            (balances, accounts, categories) = try await (balancesReq, accountsReq, categoriesReq)
+            async let counterpartiesReq: [Counterparty] =
+                APIClient.shared.get("/cashflow/counterparties/household/\(household.id)")
+            (balances, accounts, categories, counterparties) =
+                try await (balancesReq, accountsReq, categoriesReq, counterpartiesReq)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -253,11 +261,12 @@ struct SettlementFormView: View {
             do {
                 let body = SettlementCreate(
                     accountId: accountId,
-                    counterpartyName: balance.counterpartyName,
+                    counterpartyId: balance.counterpartyId,
                     direction: balance.direction,
                     amount: amount,
                     date: date,
-                    description: nil
+                    description: nil,
+                    ownerUserId: balance.ownerUserId
                 )
                 let _: TransactionResponse = try await APIClient.shared.post(
                     "/cashflow/reimbursements/settle", body: body
@@ -283,30 +292,68 @@ struct SpendOnYourBehalfFormView: View {
     let categories: [CategoryResponse]
     let onSaved: () async -> Void
 
-    @State private var counterpartyName = ""
+    @State private var counterparties: [Counterparty]
+    @State private var counterpartyId: String?
     @State private var categoryId: String?
     @State private var amountText = ""
     @State private var date = Date()
     @State private var description = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// Inline "+ New Person" affordance, same pattern as the transaction form's
+    /// split section: adding a person selects them immediately rather than
+    /// sending the user off to Settings mid-entry.
+    @State private var isCreatingCounterparty = false
+    @State private var newCounterpartyName = ""
+    @State private var isSavingCounterparty = false
+
+    init(categories: [CategoryResponse], counterparties: [Counterparty], onSaved: @escaping () async -> Void) {
+        self.categories = categories
+        self.onSaved = onSaved
+        _counterparties = State(initialValue: counterparties)
+    }
 
     private var amount: Double? { Reimbursements.parseMoney(amountText) }
 
-    private var trimmedName: String {
-        counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var canSave: Bool {
-        (amount ?? 0) > 0 && categoryId != nil && !trimmedName.isEmpty && !isSaving
+        (amount ?? 0) > 0 && categoryId != nil && counterpartyId != nil && !isSaving
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Who paid (e.g. Bob)", text: $counterpartyName)
-                        .textInputAutocapitalization(.words)
+                    if isCreatingCounterparty {
+                        HStack {
+                            TextField("e.g. Bob", text: $newCounterpartyName)
+                                .textInputAutocapitalization(.words)
+                            Button {
+                                Task { await createCounterparty() }
+                            } label: {
+                                if isSavingCounterparty {
+                                    ProgressView()
+                                } else {
+                                    Text("Add")
+                                }
+                            }
+                            .disabled(
+                                newCounterpartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || isSavingCounterparty
+                            )
+                        }
+                    } else {
+                        Picker("Who paid", selection: $counterpartyId) {
+                            Text("Select person").tag(String?.none)
+                            ForEach(counterparties) { cp in
+                                Text(cp.name).tag(String?.some(cp.id))
+                            }
+                        }
+                    }
+                    Button {
+                        isCreatingCounterparty.toggle()
+                    } label: {
+                        Label(isCreatingCounterparty ? "Cancel New Person" : "New Person", systemImage: "plus.circle")
+                    }
                     Picker("Category", selection: $categoryId) {
                         Text("Select").tag(String?.none)
                         ForEach(categories) { category in
@@ -348,8 +395,28 @@ struct SpendOnYourBehalfFormView: View {
         }
     }
 
+    private func createCounterparty() async {
+        let name = newCounterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let household = session.activeHousehold else { return }
+        isSavingCounterparty = true
+        defer { isSavingCounterparty = false }
+        do {
+            let created: Counterparty = try await APIClient.shared.post(
+                "/cashflow/counterparties",
+                body: CounterpartyCreate(householdId: household.id, name: name)
+            )
+            counterparties.append(created)
+            counterparties.sort { $0.name < $1.name }
+            counterpartyId = created.id
+            newCounterpartyName = ""
+            isCreatingCounterparty = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func save() {
-        guard let amount, let categoryId, let household = session.activeHousehold else { return }
+        guard let amount, let categoryId, let counterpartyId, let household = session.activeHousehold else { return }
         isSaving = true
         errorMessage = nil
         Task {
@@ -358,7 +425,7 @@ struct SpendOnYourBehalfFormView: View {
                 let body = SpendOnYourBehalfCreate(
                     householdId: household.id,
                     categoryId: categoryId,
-                    counterpartyName: trimmedName,
+                    counterpartyId: counterpartyId,
                     amount: amount,
                     date: date,
                     description: description.isEmpty ? nil : description

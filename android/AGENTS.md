@@ -287,10 +287,11 @@ where tests pay off without a backend or an emulator:
 
 - `ReimbursementsTest` / `ReimbursementCodingTest` — `logic/Reimbursements.kt` (the split
   maths, shared with web and iOS) plus the `TransactionUpdate` encoder. The coding suite pins
-  that a transaction with **no** split keys still decodes (every row logged before the ledger
-  comes back that way), and that `SplitChange.Unchanged` *omits* the keys while `Clear` sends
-  explicit nulls — which is why those fields are `JsonElement` rather than plain types, since
-  the client's `explicitNulls = false` would otherwise drop a deliberate null.
+  that a transaction with **no** `splits` key still decodes to an empty list (every row logged
+  before the ledger comes back that way), and that `TransactionUpdate.splits` — a plain
+  nullable list, unlike `cardCategoryId` — omits the key when `null` (leave the split alone)
+  and sends `[]` when cleared, since a list already has an unambiguous empty state and needs no
+  `JsonElement` dance.
 
 New tests should stay backend-free: exercise the pure functions and the Codable models, don't
 spin up `Api` network calls.
@@ -320,15 +321,24 @@ account picker**, because no account of yours moved — that is the whole point 
 
 Rules worth not re-deriving:
 
-- The amount field is never reduced by the split. `TransactionRow` puts the owed portion
-  underneath in `warningColor()`; web and iOS do the same.
+- The amount field is never reduced by the split. `TransactionRow` puts the owed portion(s)
+  underneath in `warningColor()` — one name for a single split, "split with Alice, Bob" for
+  more than one; web and iOS do the same.
+- A split names a reusable `Counterparty` (id + name, scoped to the household) rather than a
+  free-text string, and one transaction can carry several of them (`TransactionResponse.splits:
+  List<TransactionSplitRow>`). The transaction form, the settle dialog and "someone paid for
+  me" all pick from `GET /cashflow/counterparties/household/{id}` with the same inline
+  "+ New person" affordance the category picker already uses.
 - `Reimbursements.countsAsSpending` filters `expenseTransactions` in `TransactionsScreen`,
   keeping both repayments and **transfers** out of Top Categories. Without it the card reads
   "Reimbursement · 100%"; the transfer half is the older bug — this was the one rollup that
   never applied the transfers-aren't-spending rule the backend and `HistoryGroups` both use.
   Pass the real `transferId != null`, never a literal.
-- Build a `TransactionUpdate` through the `transactionUpdate(...)` factory, never by hand — it
-  is what maps `SplitChange` onto the omit/`JsonNull`/value encoding the backend expects.
+- Build a `TransactionUpdate` through the `transactionUpdate(...)` factory, never by hand.
+  `splits` is a plain nullable `List<TransactionSplitInput>` — omitted/null leaves the split
+  already recorded alone, `emptyList()` clears it, a populated list replaces it wholesale. A
+  list already has an unambiguous empty state, so unlike `cardCategoryId` there is no
+  `JsonElement` omit-vs-null dance to get right.
 - The split section only renders for `TransactionType.EXPENSE`; income has no counterparty.
 
 ## Cards & spend limits

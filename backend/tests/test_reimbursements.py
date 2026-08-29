@@ -9,7 +9,8 @@ payer's budget, and being treated left no trace at all.
 The suite is organised around the four things that must hold: your budget sees
 your share, a debt is created and readable, settling it clears the debt without
 charging anything a second time, and none of it can knock the books out of
-balance.
+balance. Splits are now a list of counterparties rather than a single one, so a
+handful of tests also cover the N-way case directly.
 """
 
 import uuid
@@ -92,6 +93,24 @@ def dining(db_session, household):
     return cat
 
 
+def _counterparty(db_session, household, name):
+    row = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name=name)
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
+@pytest.fixture
+def alice(db_session, household):
+    return _counterparty(db_session, household, "Alice")
+
+
+@pytest.fixture
+def bob(db_session, household):
+    return _counterparty(db_session, household, "Bob")
+
+
 def _budget(db_session, household, category, amount):
     budget = models.Budget(
         id=uuid.uuid7(),
@@ -121,7 +140,8 @@ def _spent(db_session, household, owner) -> Decimal:
     return statuses[0].spent
 
 
-def _post_split(client, headers, account, category, *, amount, owed_by, owed_amount, day=10):
+def _post_split(client, headers, account, category, *, amount, splits, day=10):
+    """`splits` is a list of `(counterparty, amount)` pairs."""
     response = client.post(
         "/cashflow/transactions",
         json={
@@ -129,8 +149,10 @@ def _post_split(client, headers, account, category, *, amount, owed_by, owed_amo
             "category_id": str(category.id),
             "date": _at(day).isoformat(),
             "amount": str(amount),
-            "owed_by": owed_by,
-            "owed_amount": str(owed_amount),
+            "splits": [
+                {"counterparty_id": str(counterparty.id), "amount": str(owed)}
+                for counterparty, owed in splits
+            ],
             "description": "Group dinner",
         },
         headers=headers,
@@ -145,23 +167,36 @@ def _post_split(client, headers, account, category, *, amount, owed_by, owed_amo
 
 
 def test_fronting_a_bill_only_budgets_your_share(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     _budget(db_session, household, dining, 200)
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("40.00")
 
 
+def test_a_three_way_split_budgets_only_your_own_third(
+    client, db_session, headers, household, account, dining, owner, alice, bob
+):
+    """The motivating case: a $300 dinner split three ways is $100 of spending."""
+    _budget(db_session, household, dining, 500)
+    _post_split(
+        client, headers, account, dining, amount=300, splits=[(alice, 100), (bob, 100)]
+    )
+
+    db_session.expire_all()
+    assert _spent(db_session, household, owner) == Decimal("100.00")
+
+
 def test_the_whole_bill_still_leaves_the_account(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
     """
     The split changes whose spending it was, not what happened to the money.
     Recording 40 instead of 120 would balance the budget by lying about the bank.
     """
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
 
     db_session.expire_all()
     balance = (
@@ -196,10 +231,10 @@ def test_an_unsplit_expense_is_entirely_yours(
 
 
 def test_fronting_the_whole_bill_budgets_nothing(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     _budget(db_session, household, dining, 200)
-    _post_split(client, headers, account, dining, amount=90, owed_by="Alice", owed_amount=90)
+    _post_split(client, headers, account, dining, amount=90, splits=[(alice, 90)])
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("0.00")
@@ -211,38 +246,52 @@ def test_fronting_the_whole_bill_budgets_nothing(
 
 
 def test_the_counterparty_owes_you_what_you_fronted(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
 
     response = client.get(f"/cashflow/reimbursements/household/{household.id}", headers=headers)
     assert response.status_code == 200, response.text
     assert response.json() == [
-        {"counterparty_name": "Alice", "direction": "owed_to_you", "amount": "80.00"}
+        {
+            "counterparty_id": str(alice.id),
+            "counterparty_name": "Alice",
+            "direction": "owed_to_you",
+            "amount": "80.00",
+        }
     ]
 
 
 def test_the_transaction_reports_its_own_split(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
-    assert created["owed_by"] == "Alice"
-    assert Decimal(created["owed_amount"]) == Decimal("80")
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    assert created["splits"] == [
+        {"counterparty_id": str(alice.id), "counterparty_name": "Alice", "amount": "80"}
+    ]
 
     listed = client.get(
         f"/cashflow/transactions/household/{household.id}", headers=headers
     ).json()
     row = next(r for r in listed if r["id"] == created["id"])
-    assert row["owed_by"] == "Alice"
+    assert row["splits"][0]["counterparty_name"] == "Alice"
+
+
+def test_a_split_reports_every_counterparty(
+    client, db_session, headers, household, account, dining, alice, bob
+):
+    created = _post_split(
+        client, headers, account, dining, amount=300, splits=[(alice, 100), (bob, 100)]
+    )
+    by_name = {s["counterparty_name"]: Decimal(s["amount"]) for s in created["splits"]}
+    assert by_name == {"Alice": Decimal("100"), "Bob": Decimal("100")}
 
 
 def test_two_dinners_with_the_same_person_accumulate(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80, day=10)
-    _post_split(client, headers, account, dining, amount=60, owed_by="Alice", owed_amount=30, day=12)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)], day=10)
+    _post_split(client, headers, account, dining, amount=60, splits=[(alice, 30)], day=12)
 
     balances = client.get(
         f"/cashflow/reimbursements/household/{household.id}", headers=headers
@@ -251,7 +300,7 @@ def test_two_dinners_with_the_same_person_accumulate(
     assert Decimal(balances[0]["amount"]) == Decimal("110")
 
 
-def test_a_split_requires_both_halves(client, headers, account, dining):
+def test_a_split_entry_requires_both_fields(client, headers, account, dining, alice):
     response = client.post(
         "/cashflow/transactions",
         json={
@@ -259,14 +308,14 @@ def test_a_split_requires_both_halves(client, headers, account, dining):
             "category_id": str(dining.id),
             "date": _at(10).isoformat(),
             "amount": "120",
-            "owed_by": "Alice",
+            "splits": [{"counterparty_id": str(alice.id)}],
         },
         headers=headers,
     )
     assert response.status_code == 422
 
 
-def test_a_split_cannot_exceed_the_bill(client, headers, account, dining):
+def test_a_split_cannot_exceed_the_bill(client, headers, account, dining, alice):
     """Owing more than was paid is not a split; it is a typo."""
     response = client.post(
         "/cashflow/transactions",
@@ -275,8 +324,47 @@ def test_a_split_cannot_exceed_the_bill(client, headers, account, dining):
             "category_id": str(dining.id),
             "date": _at(10).isoformat(),
             "amount": "120",
-            "owed_by": "Alice",
-            "owed_amount": "200",
+            "splits": [{"counterparty_id": str(alice.id), "amount": "200"}],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+def test_a_multi_way_split_cannot_exceed_the_bill_combined(
+    client, headers, account, dining, alice, bob
+):
+    response = client.post(
+        "/cashflow/transactions",
+        json={
+            "account_id": str(account.id),
+            "category_id": str(dining.id),
+            "date": _at(10).isoformat(),
+            "amount": "120",
+            "splits": [
+                {"counterparty_id": str(alice.id), "amount": "80"},
+                {"counterparty_id": str(bob.id), "amount": "80"},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+def test_the_same_counterparty_cannot_appear_twice_in_one_split(
+    client, headers, account, dining, alice
+):
+    response = client.post(
+        "/cashflow/transactions",
+        json={
+            "account_id": str(account.id),
+            "category_id": str(dining.id),
+            "date": _at(10).isoformat(),
+            "amount": "120",
+            "splits": [
+                {"counterparty_id": str(alice.id), "amount": "40"},
+                {"counterparty_id": str(alice.id), "amount": "40"},
+            ],
         },
         headers=headers,
     )
@@ -289,7 +377,7 @@ def test_a_split_cannot_exceed_the_bill(client, headers, account, dining):
 
 
 def test_spending_someone_else_paid_for_still_counts_against_your_budget(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, bob
 ):
     _budget(db_session, household, dining, 200)
     response = client.post(
@@ -297,7 +385,7 @@ def test_spending_someone_else_paid_for_still_counts_against_your_budget(
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(10).isoformat(),
         },
@@ -311,7 +399,7 @@ def test_spending_someone_else_paid_for_still_counts_against_your_budget(
 
 
 def test_being_paid_for_moves_no_account(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, bob
 ):
     """No account moved, so none may be touched — that is why it has no transaction."""
     client.post(
@@ -319,7 +407,7 @@ def test_being_paid_for_moves_no_account(
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(10).isoformat(),
         },
@@ -335,25 +423,26 @@ def test_being_paid_for_moves_no_account(
 # ---------------------------------------------------------------------------
 
 
-def _settle(client, headers, account, name, direction, amount, day=20):
+def _settle(client, headers, account, counterparty, direction, amount, day=20, owner_user_id=None):
     return client.post(
         "/cashflow/reimbursements/settle",
         json={
             "account_id": str(account.id),
-            "counterparty_name": name,
+            "counterparty_id": str(counterparty.id),
             "direction": direction,
             "amount": str(amount),
             "date": _at(day).isoformat(),
+            "owner_user_id": str(owner_user_id) if owner_user_id else None,
         },
         headers=headers,
     )
 
 
 def test_settling_clears_the_debt(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
-    assert _settle(client, headers, account, "Alice", "owed_to_you", 80).status_code == 201
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    assert _settle(client, headers, account, alice, "owed_to_you", 80).status_code == 201
 
     balances = client.get(
         f"/cashflow/reimbursements/household/{household.id}", headers=headers
@@ -362,10 +451,10 @@ def test_settling_clears_the_debt(
 
 
 def test_a_partial_repayment_leaves_the_rest_outstanding(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
-    assert _settle(client, headers, account, "Alice", "owed_to_you", 30).status_code == 201
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    assert _settle(client, headers, account, alice, "owed_to_you", 30).status_code == 201
 
     balances = client.get(
         f"/cashflow/reimbursements/household/{household.id}", headers=headers
@@ -374,7 +463,7 @@ def test_a_partial_repayment_leaves_the_rest_outstanding(
 
 
 def test_settling_does_not_charge_a_budget_again(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     """
     The dinner was charged when it was paid for. A repayment is cash moving, not
@@ -382,15 +471,15 @@ def test_settling_does_not_charge_a_budget_again(
     worse whichever way the money went.
     """
     _budget(db_session, household, dining, 200)
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
-    _settle(client, headers, account, "Alice", "owed_to_you", 80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    _settle(client, headers, account, alice, "owed_to_you", 80)
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("40.00")
 
 
 def test_paying_someone_back_is_not_spending_either(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, bob
 ):
     _budget(db_session, household, dining, 200)
     client.post(
@@ -398,13 +487,13 @@ def test_paying_someone_back_is_not_spending_either(
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(10).isoformat(),
         },
         headers=headers,
     )
-    assert _settle(client, headers, account, "Bob", "you_owe", 45).status_code == 201
+    assert _settle(client, headers, account, bob, "you_owe", 45).status_code == 201
 
     db_session.expire_all()
     # Charged once, when Bob paid — not again when he was paid back.
@@ -415,10 +504,10 @@ def test_paying_someone_back_is_not_spending_either(
 
 
 def test_a_repayment_reaches_the_account(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
-    _settle(client, headers, account, "Alice", "owed_to_you", 80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    _settle(client, headers, account, alice, "owed_to_you", 80)
 
     db_session.expire_all()
     latest = (
@@ -430,8 +519,50 @@ def test_a_repayment_reaches_the_account(
     assert Decimal(str(latest.balance)) == Decimal("-40")
 
 
+def test_settling_from_a_different_account_still_clears_the_same_debt(
+    client, db_session, headers, household, account, private_account, dining, alice
+):
+    """
+    The dinner was fronted from the shared `account`, so Alice's debt belongs
+    to the household. Repaying it into `private_account` (owner-scoped to a
+    single member) must still clear that same debt rather than mistaking the
+    settling account's own ownership for the debt's scope and opening a
+    second, unrelated one.
+    """
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    assert _settle(client, headers, private_account, alice, "owed_to_you", 80).status_code == 201
+
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=headers
+    ).json()
+    assert balances == []
+
+
+def test_settling_a_private_debt_through_a_shared_account_still_clears_it(
+    client, db_session, headers, household, account, private_account, dining, owner, alice
+):
+    """
+    The mirror of the case above: the dinner was fronted privately, so the
+    settle request must carry that owner scope explicitly (as
+    `CounterpartyBalanceResponse.owner_user_id` would hand back) even though
+    the repayment itself lands in the shared `account`.
+    """
+    _post_split(client, headers, private_account, dining, amount=120, splits=[(alice, 80)])
+    assert (
+        _settle(
+            client, headers, account, alice, "owed_to_you", 80, owner_user_id=owner.id
+        ).status_code
+        == 201
+    )
+
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=headers
+    ).json()
+    assert balances == []
+
+
 def test_settling_is_excluded_from_the_burn_rate(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, bob
 ):
     """
     Repaying a debt is cash you will not have to spend again next month. It sits
@@ -443,13 +574,13 @@ def test_settling_is_excluded_from_the_burn_rate(
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(10).isoformat(),
         },
         headers=headers,
     )
-    _settle(client, headers, account, "Bob", "you_owe", 45)
+    _settle(client, headers, account, bob, "you_owe", 45)
 
     db_session.expire_all()
     spend, _ = budget_service._spend_by_category(
@@ -474,35 +605,31 @@ def test_settling_is_excluded_from_the_burn_rate(
 
 
 def test_editing_the_description_keeps_the_split(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     """A split that quietly evaporated on an unrelated edit would be worse than none."""
     _budget(db_session, household, dining, 200)
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     response = client.put(
         f"/cashflow/transactions/{created['id']}",
         json={"description": "Dinner with Alice"},
         headers=headers,
     )
     assert response.status_code == 200, response.text
-    assert response.json()["owed_by"] == "Alice"
+    assert response.json()["splits"][0]["counterparty_name"] == "Alice"
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("40.00")
 
 
 def test_changing_the_split_moves_the_debt(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     _budget(db_session, household, dining, 200)
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     response = client.put(
         f"/cashflow/transactions/{created['id']}",
-        json={"owed_by": "Alice", "owed_amount": "30"},
+        json={"splits": [{"counterparty_id": str(alice.id), "amount": "30"}]},
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -515,20 +642,46 @@ def test_changing_the_split_moves_the_debt(
     assert Decimal(balances[0]["amount"]) == Decimal("30")
 
 
-def test_clearing_the_split_makes_it_all_yours(
-    client, db_session, headers, household, account, dining, owner
+def test_adding_a_second_person_to_an_existing_split(
+    client, db_session, headers, household, account, dining, owner, alice, bob
 ):
-    _budget(db_session, household, dining, 200)
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
+    _budget(db_session, household, dining, 500)
+    created = _post_split(client, headers, account, dining, amount=300, splits=[(alice, 100)])
     response = client.put(
         f"/cashflow/transactions/{created['id']}",
-        json={"owed_by": None, "owed_amount": None},
+        json={
+            "splits": [
+                {"counterparty_id": str(alice.id), "amount": "100"},
+                {"counterparty_id": str(bob.id), "amount": "100"},
+            ]
+        },
         headers=headers,
     )
     assert response.status_code == 200, response.text
-    assert response.json()["owed_by"] is None
+
+    db_session.expire_all()
+    assert _spent(db_session, household, owner) == Decimal("100.00")
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=headers
+    ).json()
+    assert {b["counterparty_name"]: Decimal(b["amount"]) for b in balances} == {
+        "Alice": Decimal("100"),
+        "Bob": Decimal("100"),
+    }
+
+
+def test_clearing_the_split_makes_it_all_yours(
+    client, db_session, headers, household, account, dining, owner, alice
+):
+    _budget(db_session, household, dining, 200)
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    response = client.put(
+        f"/cashflow/transactions/{created['id']}",
+        json={"splits": []},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["splits"] == []
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("120.00")
@@ -537,35 +690,49 @@ def test_clearing_the_split_makes_it_all_yours(
     ).json() == []
 
 
+def test_omitting_the_split_key_leaves_it_alone(
+    client, db_session, headers, household, account, dining, owner, alice
+):
+    """Leaving `splits` out of the payload must not be read as clearing it."""
+    _budget(db_session, household, dining, 200)
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+    response = client.put(
+        f"/cashflow/transactions/{created['id']}",
+        json={"amount": "120"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["splits"][0]["counterparty_name"] == "Alice"
+
+    db_session.expire_all()
+    assert _spent(db_session, household, owner) == Decimal("40.00")
+
+
 def test_shrinking_the_bill_below_the_split_clamps_it(
-    client, db_session, headers, household, account, dining, owner
+    client, db_session, headers, household, account, dining, owner, alice
 ):
     """
     Correcting 120 down to 50 must not leave 80 owed against it: the entry would
     not balance, and the ledger would refuse it. The split follows the bill down.
     """
     _budget(db_session, household, dining, 200)
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     response = client.put(
         f"/cashflow/transactions/{created['id']}",
         json={"amount": "50"},
         headers=headers,
     )
     assert response.status_code == 200, response.text
-    assert Decimal(response.json()["owed_amount"]) == Decimal("50")
+    assert Decimal(response.json()["splits"][0]["amount"]) == Decimal("50")
 
     db_session.expire_all()
     assert _spent(db_session, household, owner) == Decimal("0.00")
 
 
 def test_deleting_the_transaction_cancels_the_debt(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
-    created = _post_split(
-        client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80
-    )
+    created = _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     assert (
         client.delete(f"/cashflow/transactions/{created['id']}", headers=headers).status_code
         == 204
@@ -581,22 +748,35 @@ def test_deleting_the_transaction_cancels_the_debt(
 
 
 def test_the_books_balance_after_every_flow(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice, bob
 ):
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     client.post(
         "/cashflow/reimbursements/on-behalf",
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(11).isoformat(),
         },
         headers=headers,
     )
-    _settle(client, headers, account, "Alice", "owed_to_you", 80)
-    _settle(client, headers, account, "Bob", "you_owe", 45)
+    _settle(client, headers, account, alice, "owed_to_you", 80)
+    _settle(client, headers, account, bob, "you_owe", 45)
+
+    db_session.expire_all()
+    debits, credits = ledger_service.trial_balance(db_session, household.id)
+    assert debits == credits
+    assert debits > 0
+
+
+def test_a_three_way_split_still_balances(
+    client, db_session, headers, household, account, dining, alice, bob
+):
+    _post_split(
+        client, headers, account, dining, amount=300, splits=[(alice, 100), (bob, 100)]
+    )
 
     db_session.expire_all()
     debits, credits = ledger_service.trial_balance(db_session, household.id)
@@ -605,20 +785,20 @@ def test_the_books_balance_after_every_flow(
 
 
 def test_alice_owing_you_and_you_owing_alice_are_separate(
-    client, db_session, headers, household, account, dining
+    client, db_session, headers, household, account, dining, alice
 ):
     """
     Netting two directions is the user's decision, not the ledger's. Someone can
     owe you for last night and be owed for last week, and collapsing that loses
     the fact that there are two things to settle.
     """
-    _post_split(client, headers, account, dining, amount=120, owed_by="Alice", owed_amount=80)
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
     client.post(
         "/cashflow/reimbursements/on-behalf",
         json={
             "household_id": str(household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Alice",
+            "counterparty_id": str(alice.id),
             "amount": "45",
             "date": _at(11).isoformat(),
         },
@@ -752,10 +932,10 @@ def private_account(db_session, shared_household, owner):
 
 
 def test_a_receivable_from_a_private_account_stays_private(
-    client, db_session, headers, housemate_headers, shared_household, private_account, dining
+    client, db_session, headers, housemate_headers, shared_household, private_account, dining, alice
 ):
     _post_split(
-        client, headers, private_account, dining, amount=120, owed_by="Alice", owed_amount=80
+        client, headers, private_account, dining, amount=120, splits=[(alice, 80)]
     )
 
     mine = client.get(
@@ -770,7 +950,7 @@ def test_a_receivable_from_a_private_account_stays_private(
 
 
 def test_another_members_private_debt_does_not_reach_your_budget(
-    client, db_session, headers, housemate_headers, shared_household, dining, housemate, owner
+    client, db_session, headers, housemate_headers, shared_household, dining, housemate, owner, bob
 ):
     """
     Ledger-only spend has no account to filter on, so the counterparty account
@@ -783,7 +963,7 @@ def test_another_members_private_debt_does_not_reach_your_budget(
         json={
             "household_id": str(shared_household.id),
             "category_id": str(dining.id),
-            "counterparty_name": "Bob",
+            "counterparty_id": str(bob.id),
             "amount": "45",
             "date": _at(10).isoformat(),
             "owner_user_id": str(owner.id),
@@ -795,3 +975,59 @@ def test_another_members_private_debt_does_not_reach_your_budget(
     db_session.expire_all()
     assert _spent(db_session, shared_household, owner) == Decimal("45.00")
     assert _spent(db_session, shared_household, housemate) == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# Counterparty CRUD
+# ---------------------------------------------------------------------------
+
+
+def test_a_person_can_be_renamed_without_orphaning_their_history(
+    client, db_session, headers, household, account, dining, alice
+):
+    """The point of a stable id: renaming updates the same receivable, not a new one."""
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+
+    response = client.put(
+        f"/cashflow/counterparties/{alice.id}",
+        json={"name": "Alicia"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=headers
+    ).json()
+    assert len(balances) == 1
+    assert balances[0]["counterparty_id"] == str(alice.id)
+    assert balances[0]["counterparty_name"] == "Alicia"
+    assert Decimal(balances[0]["amount"]) == Decimal("80")
+
+
+def test_deleting_a_person_with_history_is_refused(
+    client, db_session, headers, account, dining, alice
+):
+    _post_split(client, headers, account, dining, amount=120, splits=[(alice, 80)])
+
+    response = client.delete(f"/cashflow/counterparties/{alice.id}", headers=headers)
+    assert response.status_code == 409
+
+
+def test_deleting_an_unused_person_succeeds(client, headers, household):
+    created = client.post(
+        "/cashflow/counterparties",
+        json={"household_id": str(household.id), "name": "Nobody Yet"},
+        headers=headers,
+    ).json()
+
+    response = client.delete(f"/cashflow/counterparties/{created['id']}", headers=headers)
+    assert response.status_code == 204
+
+
+def test_two_people_cannot_share_a_name_in_one_household(client, headers, household, alice):
+    response = client.post(
+        "/cashflow/counterparties",
+        json={"household_id": str(household.id), "name": "Alice"},
+        headers=headers,
+    )
+    assert response.status_code == 409

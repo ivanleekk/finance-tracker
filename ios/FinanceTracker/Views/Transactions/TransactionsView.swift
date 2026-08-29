@@ -9,6 +9,7 @@ struct TransactionsView: View {
     @State private var transactions: [TransactionResponse] = []
     @State private var accounts: [AccountResponse] = []
     @State private var categories: [CategoryResponse] = []
+    @State private var counterparties: [Counterparty] = []
     @State private var searchText = ""
     @State private var isLoading = true
     @State private var showingAddSheet = false
@@ -252,6 +253,7 @@ struct TransactionsView: View {
                     TransactionFormView(
                         accounts: accounts,
                         categories: categories,
+                        counterparties: counterparties,
                         householdId: household.id
                     ) {
                         await load()
@@ -268,6 +270,7 @@ struct TransactionsView: View {
                     TransactionFormView(
                         accounts: accounts,
                         categories: categories,
+                        counterparties: counterparties,
                         householdId: household.id,
                         existing: txn
                     ) {
@@ -324,6 +327,7 @@ struct TransactionsView: View {
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
+                Button("Retry") { Task { await load() } }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
@@ -409,7 +413,8 @@ struct TransactionsView: View {
             async let txnsReq: [TransactionResponse] = APIClient.shared.get("/cashflow/transactions/household/\(household.id)")
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
-            (transactions, accounts, categories) = try await (txnsReq, accountsReq, categoriesReq)
+            async let counterpartiesReq: [Counterparty] = APIClient.shared.get("/cashflow/counterparties/household/\(household.id)")
+            (transactions, accounts, categories, counterparties) = try await (txnsReq, accountsReq, categoriesReq, counterpartiesReq)
             lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription

@@ -139,8 +139,8 @@ struct QuickAddView: View {
             }
             .discardGuard(
                 fields: [mode, amountText, date, description, accountId, categoryId,
-                         fromAccountId, toAccountId, subPortfolioId, assetId, tradeType,
-                         quantityText, priceText, settleFromCash],
+                         cardCategoryId, fromAccountId, toAccountId, subPortfolioId, assetId,
+                         tradeType, quantityText, priceText, settleFromCash],
                 // `applyDefaults()` picks the default account / category / sub-portfolio only
                 // once the fetch lands, so the baseline can't be taken before then.
                 settled: loaded

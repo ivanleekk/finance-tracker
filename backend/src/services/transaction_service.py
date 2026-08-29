@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Sequence
 import uuid
 
 from sqlalchemy.orm import Session
@@ -34,8 +34,7 @@ def create_transaction(
     exchange_rate: Optional[float] = None,
     description: Optional[str] = None,
     recurring_transaction_id: Optional[uuid.UUID] = None,
-    owed_by: Optional[str] = None,
-    owed_amount: Optional[Decimal] = None,
+    splits: Sequence[tuple[models.Counterparty, Decimal]] = (),
     owner_user_id: Optional[uuid.UUID] = None,
     mcc: Optional[str] = None,
     card_category_id: Optional[uuid.UUID] = None,
@@ -47,11 +46,11 @@ def create_transaction(
     from the category, matching ``TransactionBase``. The caller is responsible
     for access checks and for committing.
 
-    ``owed_by`` / ``owed_amount`` record that part of this expense was somebody
-    else's: the full amount still leaves the account, because it did, but only
-    the remainder counts as the household's own spending. The split lives in the
+    ``splits`` records that part of this expense was one or more other people's:
+    the full amount still leaves the account, because it did, but only the
+    remainder counts as the household's own spending. The split lives in the
     ledger entry rather than in a column, so the two sides can never disagree —
-    it is the same entry that puts the balance on the counterparty's receivable.
+    it is the same entry that puts each share on its counterparty's receivable.
     """
     acc_currency = account.currency or "USD"
     txn_currency = currency or acc_currency
@@ -92,8 +91,7 @@ def create_transaction(
     ledger_service.post_transaction(
         db,
         db_transaction,
-        owed_by=owed_by,
-        owed_amount=owed_amount,
+        splits=splits,
         owner_user_id=owner_user_id,
     )
 

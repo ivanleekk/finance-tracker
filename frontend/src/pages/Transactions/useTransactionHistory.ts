@@ -134,7 +134,7 @@ export function useTransactionHistory({
                 description: t.description || null,
                 ownerUserId: account?.owner_user_id || null,
                 // A trade is never split — you don't buy shares on someone's behalf here.
-                split: null
+                splits: []
             };
         });
 
@@ -176,9 +176,11 @@ export function useTransactionHistory({
                     householdName: activeHousehold.name,
                     description: tx.description || null,
                     ownerUserId: account?.owner_user_id || null,
-                    split: tx.owed_by && tx.owed_amount
-                        ? { owedBy: tx.owed_by, owedAmount: Number(tx.owed_amount) }
-                        : null
+                    splits: tx.splits.map((s) => ({
+                        counterpartyId: s.counterparty_id,
+                        counterpartyName: s.counterparty_name,
+                        amount: Number(s.amount),
+                    }))
                 };
             });
 

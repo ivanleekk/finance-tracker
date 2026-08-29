@@ -412,6 +412,21 @@ struct CategoryResponse: Codable, Identifiable, Hashable {
     let type: TransactionType
 }
 
+/// One counterparty's share of a transaction being created or edited.
+struct TransactionSplitInput: Encodable, Hashable {
+    let counterpartyId: String
+    let amount: Double
+}
+
+/// One counterparty's share of a transaction, read back from the ledger.
+struct TransactionSplitRow: Codable, Identifiable, Hashable {
+    let counterpartyId: String
+    let counterpartyName: String
+    @MoneyAmount var amount: Double
+
+    var id: String { counterpartyId }
+}
+
 struct TransactionResponse: Codable, Identifiable {
     let id: String
     let accountId: String
@@ -423,17 +438,42 @@ struct TransactionResponse: Codable, Identifiable {
     let description: String?
     let transactionType: TransactionType
     let transferId: String?
-    /// Part of this expense was somebody else's. `amount` is still the full sum
-    /// that left the account — the split says whose it was, not what happened to
-    /// the money. Absent means none of it was, which is also how every row
-    /// logged before the ledger existed decodes.
-    let owedBy: String?
-    @OptionalMoneyAmount var owedAmount: Double?
+    /// Part of this expense was one or more other people's. `amount` is still
+    /// the full sum that left the account — the splits say whose the rest was,
+    /// not what happened to the money. Empty means none of it was, which is
+    /// also how every row logged before the ledger existed decodes.
+    let splits: [TransactionSplitRow]
     /// The merchant category code, when the user happened to know it. Four digits
     /// or absent — nothing in the app derives anything from it.
     let mcc: String?
     /// Which of the card's own categories this counts towards, if any.
     let cardCategoryId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, accountId, categoryId, date, amount, amountHomeCurrency, currency
+        case description, transactionType, transferId, splits, mcc, cardCategoryId
+    }
+
+    /// Hand-written only so `splits` can default to empty when the key is
+    /// missing entirely, rather than failing to decode — a defensive fallback
+    /// for any fixture or cached payload that predates this field.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        accountId = try container.decode(String.self, forKey: .accountId)
+        categoryId = try container.decode(String.self, forKey: .categoryId)
+        date = try container.decode(Date.self, forKey: .date)
+        _amount = try container.decode(MoneyAmount.self, forKey: .amount)
+        _amountHomeCurrency = try container.decodeIfPresent(OptionalMoneyAmount.self, forKey: .amountHomeCurrency)
+            ?? OptionalMoneyAmount(wrappedValue: nil)
+        currency = try container.decodeIfPresent(String.self, forKey: .currency)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        transactionType = try container.decode(TransactionType.self, forKey: .transactionType)
+        transferId = try container.decodeIfPresent(String.self, forKey: .transferId)
+        splits = try container.decodeIfPresent([TransactionSplitRow].self, forKey: .splits) ?? []
+        mcc = try container.decodeIfPresent(String.self, forKey: .mcc)
+        cardCategoryId = try container.decodeIfPresent(String.self, forKey: .cardCategoryId)
+    }
 }
 
 struct TransactionCreate: Encodable {
@@ -442,26 +482,14 @@ struct TransactionCreate: Encodable {
     let description: String?
     let accountId: String
     let categoryId: String
-    /// Sent together or not at all — the API rejects half a split.
-    var owedBy: String?
-    var owedAmount: Double?
+    /// Part of this expense was one or more other people's. Nil means no split
+    /// at all — the key is simply omitted.
+    var splits: [TransactionSplitInput]?
     /// Blank is sent as-is: the API reads "" as "not given" rather than rejecting
     /// it, so an empty picker needs no special-casing here.
     var mcc: String? = nil
     /// Nil falls to the card's default category, so untagged spend is still metered.
     var cardCategoryId: String? = nil
-}
-
-/// How an edit should treat the split already recorded against a transaction.
-///
-/// Three states, not two, because "leave it alone" and "remove it" are different
-/// requests and the API distinguishes them by omission versus explicit null. An
-/// unrelated description edit must not quietly make a shared dinner all yours,
-/// so `.unchanged` is the default.
-enum SplitChange {
-    case unchanged
-    case clear
-    case set(owedBy: String, owedAmount: Double)
 }
 
 /// PUT /cashflow/transactions/{id} (schemas.TransactionUpdate).
@@ -472,7 +500,12 @@ struct TransactionUpdate: Encodable {
     let description: String
     let accountId: String
     let categoryId: String
-    var split: SplitChange = .unchanged
+    /// Omit to leave the split already recorded alone; send `[]` to clear it and
+    /// make the whole expense the household's own again; send a populated array
+    /// to replace it wholesale. A plain optional array already has an
+    /// unambiguous empty state, so — unlike `cardCategoryId` below — there is no
+    /// need for a hand-rolled tri-state wrapper here.
+    var splits: [TransactionSplitInput]?
 
     /// Always sent, like `description`. No default: `""` *clears* a recorded code,
     /// so the destructive value must never be the one you get by forgetting.
@@ -484,12 +517,13 @@ struct TransactionUpdate: Encodable {
     let cardCategoryId: String?
 
     private enum CodingKeys: String, CodingKey {
-        case date, amount, description, accountId, categoryId, owedBy, owedAmount, mcc, cardCategoryId
+        case date, amount, description, accountId, categoryId, splits, mcc, cardCategoryId
     }
 
-    /// Hand-written because the synthesized encoder cannot express the
-    /// difference between "omit this key" and "send null", and that difference
-    /// is exactly what tells the backend to preserve a split rather than drop it.
+    /// Hand-written only because `cardCategoryId` needs an explicit JSON null on
+    /// nil rather than an omitted key (see above) — the synthesized encoder
+    /// can't express that. `splits` uses ordinary `encodeIfPresent` semantics:
+    /// nil omits the key, `[]` sends an empty array, a populated array sends it.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(date, forKey: .date)
@@ -501,16 +535,7 @@ struct TransactionUpdate: Encodable {
         // `encode` rather than `encodeIfPresent`: nil has to reach the wire as
         // null, because that is what clears the tag.
         try container.encode(cardCategoryId, forKey: .cardCategoryId)
-        switch split {
-        case .unchanged:
-            break
-        case .clear:
-            try container.encodeNil(forKey: .owedBy)
-            try container.encodeNil(forKey: .owedAmount)
-        case let .set(owedBy, owedAmount):
-            try container.encode(owedBy, forKey: .owedBy)
-            try container.encode(owedAmount, forKey: .owedAmount)
-        }
+        try container.encodeIfPresent(splits, forKey: .splits)
     }
 }
 
@@ -522,14 +547,38 @@ enum CounterpartyDirection: String, Codable {
     case youOwe = "you_owe"
 }
 
+/// A reusable person split expenses are tracked against, scoped to a household —
+/// picked from a list instead of retyped as a free-text name every time.
+struct Counterparty: Codable, Identifiable, Hashable {
+    let id: String
+    let householdId: String
+    let name: String
+}
+
+/// POST /cashflow/counterparties (schemas.CounterpartyCreate).
+struct CounterpartyCreate: Encodable {
+    let householdId: String
+    let name: String
+}
+
+/// PUT /cashflow/counterparties/{id} (schemas.CounterpartyUpdate).
+struct CounterpartyUpdate: Encodable {
+    let name: String
+}
+
 /// GET /cashflow/reimbursements/household/{id}.
 struct CounterpartyBalanceResponse: Codable, Identifiable, Hashable {
+    let counterpartyId: String
     let counterpartyName: String
     let direction: CounterpartyDirection
     @MoneyAmount var amount: Double
+    /// Which owner scope this debt belongs to (nil = shared with the household),
+    /// not which account happens to settle it. Must be echoed back unchanged on
+    /// `SettlementCreate.ownerUserId` — see the note there.
+    let ownerUserId: String?
 
-    /// One person can appear in both directions, so the name alone is not an id.
-    var id: String { "\(direction.rawValue):\(counterpartyName)" }
+    /// One person can appear in both directions, so the id alone is not unique either.
+    var id: String { "\(direction.rawValue):\(counterpartyId)" }
 }
 
 /// POST /cashflow/reimbursements/on-behalf. Somebody else paid for something of
@@ -537,7 +586,7 @@ struct CounterpartyBalanceResponse: Codable, Identifiable, Hashable {
 struct SpendOnYourBehalfCreate: Encodable {
     let householdId: String
     let categoryId: String
-    let counterpartyName: String
+    let counterpartyId: String
     let amount: Double
     let date: Date
     let description: String?
@@ -547,11 +596,16 @@ struct SpendOnYourBehalfCreate: Encodable {
 /// a debt — it moves an account balance but charges no category.
 struct SettlementCreate: Encodable {
     let accountId: String
-    let counterpartyName: String
+    let counterpartyId: String
     let direction: CounterpartyDirection
     let amount: Double
     let date: Date
     let description: String?
+    /// The debt's own owner scope (`CounterpartyBalanceResponse.ownerUserId`),
+    /// not the settling account's. Passing the settling account's owner instead
+    /// opens a second, disconnected ledger account whenever the two differ,
+    /// leaving the original debt outstanding instead of clearing it.
+    let ownerUserId: String?
 }
 
 /// POST /cashflow/transfers (schemas.TransferCreate). Creates a linked

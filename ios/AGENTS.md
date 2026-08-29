@@ -190,7 +190,7 @@ FinanceTracker/
       the baseline is taken when it turns true. Any new form that seeds itself must do the same.
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
-- **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `true`**, so once enforced, every user's private vault is biometric-gated by default (the preview test user was flipped to `false` locally so browser/simulator verification isn't blocked by the prompt).
+- **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `false`** (flipped from `true` — a mandatory Face ID/passcode prompt before the first Dashboard load was pure friction for the common case of a solo household with no one to hide data from) — a user opts in from Privacy & Vault. The preview test user matches this default, so browser/simulator verification isn't blocked by the prompt unless it's turned on locally.
 - **Query strings must go through `APIClient.url(base:path:)`.** `URL.appending(path:)` percent-encodes its argument, so a path like `"/x/projection?months=360"` turns the `?` into `%3F`, the query becomes part of the path, and the request 404s _silently_ if the call site uses `try?` (which is how the dashboard's net-worth outlook first went missing). `send` routes every request through the splitter; don't reintroduce `baseURL.appending(path:)` at a call site. `APIURLTests` pins the behaviour.
 - **`Support/BudgetPresentation.swift`** is the Swift port of the web's `frontend/src/lib/budgets.ts` — budget tone (over / at-risk / ok), the runway label and tone, and the recurring commitment/agenda helpers. Keep the two in sync; both clients must say the same thing about the same numbers. Two rules it encodes deliberately: a budget is "at risk" the moment its _projected_ spend exceeds the limit (warning on the 10th is the point; warning on the 30th is useless), and a nil `monthsCovered` renders as "Not enough data", never "∞" — an undefined runway is not an infinite one.
 - **Performance metrics** come from `GET /portfolio/household/{id}/metrics` (`PortfolioMetricsResponse.overallMetrics`, a `PerformanceMetrics` mirroring the backend schema — includes `sortino_ratio`, `treynor_ratio`, `alpha`, `beta`). The Portfolio tab renders the full grid (Unrealized P&L, Div Yield, TWR, IRR/MWR, Sharpe, Sortino, Treynor+Beta, Jensen's α vs SPY); the Dashboard shows a compact Returns row (Overall Return, TWR, IRR/MWR, Sharpe). `StatTile` (in PortfolioView.swift) is the shared card, with `ratioString` / `percentString` / `returnTint` statics reused by both screens. `PerformanceTileGrid` wraps the full grid so `SubPortfolioDetailView` can render the same tiles off `subPortfolioMetrics[…].metrics` instead of the overall ones.
@@ -339,11 +339,14 @@ where tests pay off without a running backend:
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
 - `ReimbursementsTests` / `ReimbursementCodingTests` — `Support/Reimbursements.swift` (the
-  split maths, shared with web and Android) plus the `TransactionUpdate` encoder. The coding
-  suite is the important half: it pins that a transaction with **no** split keys still decodes
-  (every row logged before the ledger comes back that way), and that `SplitChange.unchanged`
-  *omits* the keys while `.clear` sends explicit nulls — a distinction the synthesized
-  `Encodable` cannot express, and the reason `encode(to:)` is hand-written.
+  N-way split maths, shared with web and Android) plus the `TransactionUpdate` encoder. The
+  coding suite is the important half: it pins that a transaction with **no** `splits` key still
+  decodes as an empty split (every row logged before the ledger comes back that way), and that
+  `TransactionUpdate.splits` follows plain `encodeIfPresent` semantics — nil omits the key
+  (leave the recorded split alone), `[]` sends an empty array (clear it), a populated array
+  sends it (replace it wholesale). A plain optional array already has an unambiguous empty
+  state, so unlike `cardCategoryId` (still hand-written for its own explicit-null requirement)
+  there is no tri-state wrapper for this field.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).
@@ -364,17 +367,41 @@ and Android: the split toggle on the transaction form, the who-owes-whom list wi
 settle sheet, and "someone paid for me" (which has **no account picker**, because no account of
 yours moved — that is the whole point of it).
 
+A `Counterparty` (`Models.swift`) is a first-class, reusable, renameable row scoped to the
+household — `id` + `name` — not a free-text string. Every place that used to type a name now
+picks from a `GET /cashflow/counterparties/household/{id}` list, with an inline "+ New Person"
+affordance (mirrors the existing "+ New Category" pattern) that `POST`s a new one and selects it
+immediately. `TransactionFormView`, `SpendOnYourBehalfFormView` and the transaction form's split
+section all fetch/receive the list the same way `categories` already was — passed in from the
+parent screen (`TransactionsView`/`ReimbursementsView`), not fetched per-sheet.
+
+A transaction can be split among **multiple** named people, not just one: `TransactionResponse`
+carries `splits: [TransactionSplitRow]` (`counterpartyId`/`counterpartyName`/`amount`) instead of
+a single `owedBy`/`owedAmount` pair, and `TransactionCreate`/`TransactionUpdate` send
+`splits: [TransactionSplitInput]?` (`counterpartyId`/`amount`). `Support/Reimbursements.swift`'s
+`assessSplit(amount:entries:)` takes a list of `SplitEntry` and rejects the whole split if any
+entry is incomplete, if the same counterparty appears twice, or if the combined total exceeds
+the bill; `evenSplitRemainder` divides what's left of the bill evenly across the rows that
+weren't given an explicit amount (cashshare-telegram's `/add` semantics — some people get an
+explicit share, everyone else splits the rest equally). `TransactionFormView`'s split section is
+a list of person-picker + amount rows with "+ Add Person", inline "+ New Person", and
+"Split Remainder Evenly".
+
 Rules worth not re-deriving:
 
 - The amount field is never reduced by the split. The whole sum left the account, and showing
-  the user's share instead would contradict their bank. `TransactionRow` puts the owed portion
-  underneath in orange; web and Android do the same.
+  the user's share instead would contradict their bank. `TransactionRow` puts the combined owed
+  amount underneath in orange — the single person's name for one split, "split with A, B, …" for
+  more than one; web and Android do the same.
 - `Reimbursements.countsAsSpending` filters `expenseTransactions`, keeping both repayments and
   **transfers** out of Top Categories. Without it the card reads "Reimbursement · 100%"; the
   transfer half is the older bug — this was the one rollup that never applied the
   transfers-aren't-spending rule the backend and `HistoryGroups` both use. Pass the real
   `transferId != nil`, never a literal.
-- `SplitChange` has three cases because the API distinguishes an omitted key from an explicit
-  null, and defaults to `.unchanged` so an unrelated description edit cannot silently drop a
-  split.
+- `TransactionUpdate.splits` is a plain `[TransactionSplitInput]?`, not a tri-state wrapper:
+  omit to leave the recorded split alone, send `[]` to clear it, send a populated array to
+  replace it wholesale. A plain optional array already has an unambiguous empty state, so an
+  unrelated description edit still can't silently drop a split — there is just no longer a
+  hand-rolled enum needed to get that right.
 - The split section only renders for `.expense`; income has no counterparty.
+- `QuickAddView` deliberately has **no** split support — a separate, later pass.

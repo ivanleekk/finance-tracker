@@ -139,6 +139,7 @@ struct ReportsView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
+            Button("Retry") { Task { await load() } }
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")

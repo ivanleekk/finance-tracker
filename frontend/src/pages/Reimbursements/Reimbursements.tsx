@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { useMemo, useState, useEffect } from "react";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -8,6 +8,7 @@ import { StatCard } from "../../components/ui/StatCard";
 import { TopBar } from "../../components/TopBar";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { counterpartyTotals } from "../../lib/reimbursements";
+import type { CounterpartyResponse } from "../../types/types";
 import type { ReimbursementsLoaderData } from "./reimbursements.loader";
 
 export { loader, action } from "./reimbursements.loader";
@@ -16,22 +17,39 @@ const today = () => new Date().toISOString().split("T")[0];
 
 export default function Reimbursements() {
     const { activeHousehold } = useHousehold();
-    const { balances = [], accounts = [], categories = [] } =
+    const { balances = [], accounts = [], categories = [], counterparties = [] } =
         (useLoaderData() as ReimbursementsLoaderData) || {};
+    const revalidator = useRevalidator();
 
     const settleFetcher = useFetcher();
     const onBehalfFetcher = useFetcher();
+    const newPersonFetcher = useFetcher();
 
     const [settlingKey, setSettlingKey] = useState<string | null>(null);
     const [settleAmount, setSettleAmount] = useState("");
     const [settleAccountId, setSettleAccountId] = useState("");
     const [isAddOpen, setIsAddOpen] = useState(false);
     const [newExpense, setNewExpense] = useState({
-        counterparty_name: "",
+        counterparty_id: "",
         category_id: "",
         amount: "",
         description: "",
     });
+    const [isCreatingPerson, setIsCreatingPerson] = useState(false);
+    const [newPersonName, setNewPersonName] = useState("");
+
+    // Once the new-person fetcher lands a created row, select it and
+    // revalidate so the picker's options include it too.
+    useEffect(() => {
+        const data = newPersonFetcher.data as { success?: boolean; created?: CounterpartyResponse } | undefined;
+        if (data?.success && data.created) {
+            setNewExpense((f) => ({ ...f, counterparty_id: data.created!.id }));
+            setNewPersonName("");
+            setIsCreatingPerson(false);
+            revalidator.revalidate();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [newPersonFetcher.data]);
 
     const baseCurrency = activeHousehold?.base_currency || "USD";
     const money = useMemo(
@@ -54,10 +72,10 @@ export default function Reimbursements() {
         );
     }
 
-    const keyFor = (name: string, direction: string) => `${direction}:${name}`;
+    const keyFor = (counterpartyId: string, direction: string) => `${direction}:${counterpartyId}`;
 
-    const openSettle = (name: string, direction: string, amount: number) => {
-        setSettlingKey(keyFor(name, direction));
+    const openSettle = (counterpartyId: string, direction: string, amount: number) => {
+        setSettlingKey(keyFor(counterpartyId, direction));
         // Prefilled with the whole balance, since settling in full is the common
         // case, but editable — partial repayments are normal.
         setSettleAmount(String(amount));
@@ -65,7 +83,7 @@ export default function Reimbursements() {
     };
 
     const renderRow = (row: (typeof balances)[number]) => {
-        const key = keyFor(row.counterparty_name, row.direction);
+        const key = keyFor(row.counterparty_id, row.direction);
         const isOpen = settlingKey === key;
         const isOwedToYou = row.direction === "owed_to_you";
         return (
@@ -95,7 +113,7 @@ export default function Reimbursements() {
                             onClick={() =>
                                 isOpen
                                     ? setSettlingKey(null)
-                                    : openSettle(row.counterparty_name, row.direction, Number(row.amount))
+                                    : openSettle(row.counterparty_id, row.direction, Number(row.amount))
                             }
                         >
                             {isOpen ? "Cancel" : "Settle"}
@@ -110,9 +128,12 @@ export default function Reimbursements() {
                         onSubmit={() => setSettlingKey(null)}
                     >
                         <input type="hidden" name="_intent" value="settle" />
-                        <input type="hidden" name="counterparty_name" value={row.counterparty_name} />
+                        <input type="hidden" name="counterparty_id" value={row.counterparty_id} />
                         <input type="hidden" name="direction" value={row.direction} />
                         <input type="hidden" name="date" value={`${today()}T12:00:00Z`} />
+                        {/* The debt's own owner scope, not the settling account's — settling
+                            through a different account must still clear this same balance. */}
+                        <input type="hidden" name="owner_user_id" value={row.owner_user_id ?? ""} />
                         <div className="space-y-1.5">
                             <label className="text-xs font-medium text-base-600 dark:text-base-400">
                                 {isOwedToYou ? "Into account" : "From account"}
@@ -187,22 +208,53 @@ export default function Reimbursements() {
                                 className="grid gap-4 sm:grid-cols-2"
                                 onSubmit={() => {
                                     setIsAddOpen(false);
-                                    setNewExpense({ counterparty_name: "", category_id: "", amount: "", description: "" });
+                                    setNewExpense({ counterparty_id: "", category_id: "", amount: "", description: "" });
                                 }}
                             >
                                 <input type="hidden" name="_intent" value="onBehalf" />
                                 <input type="hidden" name="date" value={`${today()}T12:00:00Z`} />
+                                <input type="hidden" name="counterparty_id" value={newExpense.counterparty_id} />
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-base-700 dark:text-base-300">Who paid</label>
-                                    <Input
-                                        required
-                                        name="counterparty_name"
-                                        placeholder="e.g. Bob"
-                                        value={newExpense.counterparty_name}
-                                        onChange={(e) =>
-                                            setNewExpense({ ...newExpense, counterparty_name: e.target.value })
-                                        }
-                                    />
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-base-700 dark:text-base-300">Who paid</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCreatingPerson(!isCreatingPerson)}
+                                            className="text-xs text-primary-600 hover:underline"
+                                        >
+                                            {isCreatingPerson ? "Cancel" : "+ New Person"}
+                                        </button>
+                                    </div>
+                                    {isCreatingPerson ? (
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                placeholder="e.g. Bob"
+                                                value={newPersonName}
+                                                onChange={(e) => setNewPersonName(e.target.value)}
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                disabled={!newPersonName.trim() || newPersonFetcher.state !== "idle"}
+                                                onClick={() =>
+                                                    newPersonFetcher.submit(
+                                                        { _intent: "newPerson", name: newPersonName.trim() },
+                                                        { method: "post" },
+                                                    )
+                                                }
+                                            >
+                                                {newPersonFetcher.state !== "idle" ? "Adding…" : "Add"}
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <Select
+                                            required
+                                            placeholder="Select person"
+                                            value={newExpense.counterparty_id}
+                                            onChange={(counterparty_id) => setNewExpense({ ...newExpense, counterparty_id })}
+                                            options={counterparties.map((c) => ({ value: c.id, label: c.name }))}
+                                        />
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-base-700 dark:text-base-300">Category</label>

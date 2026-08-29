@@ -4,8 +4,9 @@ import { Button } from "../../components/ui/Button"
 import { Input } from "../../components/ui/Input"
 import { Select } from "../../components/ui/Select"
 import { selectableAccounts } from "../../lib/networth"
-import type { AccountResponse, CategoryResponse, CurrencyResponse, UserResponse } from "../../types/types"
-import { splitHint } from "./transactionsHelpers"
+import type { AccountResponse, CategoryResponse, CounterpartyResponse, CurrencyResponse, UserResponse } from "../../types/types"
+import { evenSplitRemainder, parseMoney } from "../../lib/reimbursements"
+import { splitHint, type SplitFormRow } from "./transactionsHelpers"
 
 /** The shape the Income/Expense tab edits. */
 export type TransactionFormData = {
@@ -18,10 +19,9 @@ export type TransactionFormData = {
     mcc: string
     /** The card's own category, when the account is a card. "" = the card's default. */
     cardCategoryId: string
-    // Part of this bill is somebody else's. The amount stays the full sum that
-    // leaves the account — this only says whose it was.
-    owedBy: string
-    owedAmount: string
+    // Part of this bill is one or more other people's. The amount stays the
+    // full sum that leaves the account — this only says whose the rest was.
+    splits: SplitFormRow[]
 }
 
 /** The shape the Transfer tab edits. */
@@ -66,6 +66,18 @@ type Props = {
     isSplitting: boolean
     setIsSplitting: (v: boolean) => void
     baseCurrency: string
+    counterparties: CounterpartyResponse[]
+
+    // Inline "+ New Person" affordance for the split section, same shape as
+    // the category one below — adding a person appends them as a new split
+    // row rather than filling one in, since there's no single row to target
+    // until the user has added at least one.
+    isCreatingCounterparty: boolean
+    setIsCreatingCounterparty: (v: boolean) => void
+    newCounterpartyName: string
+    setNewCounterpartyName: (v: string) => void
+    isSavingCounterparty: boolean
+    onCreateCounterparty: () => void
 
     // Inline "+ New Category" affordance, which lives inside the Category field
     // rather than sending the user off to Settings mid-entry.
@@ -109,6 +121,13 @@ export function LogTransactionDialog({
     isSplitting,
     setIsSplitting,
     baseCurrency,
+    counterparties,
+    isCreatingCounterparty,
+    setIsCreatingCounterparty,
+    newCounterpartyName,
+    setNewCounterpartyName,
+    isSavingCounterparty,
+    onCreateCounterparty,
     isCreatingCategory,
     setIsCreatingCategory,
     newCategoryName,
@@ -284,29 +303,120 @@ export function LogTransactionDialog({
                         </label>
                         {isSplitting && (
                             <>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-base-700 dark:text-base-300">Who</label>
+                                {formData.splits.map((row, i) => {
+                                    const pickedElsewhere = new Set(
+                                        formData.splits.filter((_, j) => j !== i).map((r) => r.counterpartyId),
+                                    );
+                                    return (
+                                        <div key={i} className="flex items-end gap-2">
+                                            <div className="flex-1 space-y-2">
+                                                {i === 0 && <label className="text-sm font-medium text-base-700 dark:text-base-300">Who</label>}
+                                                <Select
+                                                    placeholder="Select person"
+                                                    value={row.counterpartyId}
+                                                    onChange={(counterpartyId) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            splits: formData.splits.map((r, j) => (j === i ? { ...r, counterpartyId } : r)),
+                                                        })
+                                                    }
+                                                    options={counterparties
+                                                        .filter((c) => !pickedElsewhere.has(c.id))
+                                                        .map((c) => ({ value: c.id, label: c.name }))}
+                                                />
+                                            </div>
+                                            <div className="w-32 space-y-2">
+                                                {i === 0 && <label className="text-sm font-medium text-base-700 dark:text-base-300">Owes</label>}
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    placeholder="0.00"
+                                                    value={row.amountText}
+                                                    onChange={(e) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            splits: formData.splits.map((r, j) => (j === i ? { ...r, amountText: e.target.value } : r)),
+                                                        })
+                                                    }
+                                                />
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setFormData({ ...formData, splits: formData.splits.filter((_, j) => j !== i) })}
+                                            >
+                                                Remove
+                                            </Button>
+                                        </div>
+                                    );
+                                })}
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <button
+                                        type="button"
+                                        className="text-xs text-primary-600 hover:underline"
+                                        onClick={() => setFormData({ ...formData, splits: [...formData.splits, { counterpartyId: "", amountText: "" }] })}
+                                    >
+                                        + Add person
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-xs text-primary-600 hover:underline"
+                                        onClick={() => setIsCreatingCounterparty(!isCreatingCounterparty)}
+                                    >
+                                        {isCreatingCounterparty ? "Cancel" : "+ New Person"}
+                                    </button>
+                                    {formData.splits.length > 1 && (
+                                        <button
+                                            type="button"
+                                            className="text-xs text-primary-600 hover:underline"
+                                            onClick={() => {
+                                                const blanks = formData.splits.filter((r) => !r.amountText.trim());
+                                                if (blanks.length === 0) return;
+                                                const specified = formData.splits
+                                                    .filter((r) => r.amountText.trim())
+                                                    .map((r) => parseMoney(r.amountText) ?? 0);
+                                                const share = evenSplitRemainder(
+                                                    parseMoney(formData.amount) ?? 0,
+                                                    specified,
+                                                    blanks.length,
+                                                );
+                                                if (share === null) return;
+                                                setFormData({
+                                                    ...formData,
+                                                    splits: formData.splits.map((r) =>
+                                                        r.amountText.trim() ? r : { ...r, amountText: share.toFixed(2) },
+                                                    ),
+                                                });
+                                            }}
+                                        >
+                                            Split remainder evenly
+                                        </button>
+                                    )}
+                                </div>
+
+                                {isCreatingCounterparty && (
+                                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-base-300 dark:border-base-700 p-2">
                                         <Input
                                             placeholder="e.g. Alice"
-                                            value={formData.owedBy}
-                                            onChange={(e) => setFormData({ ...formData, owedBy: e.target.value })}
+                                            value={newCounterpartyName}
+                                            onChange={(e) => setNewCounterpartyName(e.target.value)}
                                         />
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            disabled={!newCounterpartyName.trim() || isSavingCounterparty}
+                                            onClick={onCreateCounterparty}
+                                        >
+                                            {isSavingCounterparty ? "Adding…" : "Add"}
+                                        </Button>
                                     </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-base-700 dark:text-base-300">They owe</label>
-                                        <Input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            placeholder="0.00"
-                                            value={formData.owedAmount}
-                                            onChange={(e) => setFormData({ ...formData, owedAmount: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
+                                )}
+
                                 <p className="text-xs text-base-500 dark:text-base-400">
-                                    {splitHint(formData.amount, formData.owedAmount, baseCurrency)}
+                                    {splitHint(formData.amount, formData.splits, baseCurrency)}
                                 </p>
                             </>
                         )}

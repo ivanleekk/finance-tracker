@@ -125,8 +125,8 @@ def _spend_by_category(
             amount = row.amount
         own_share = dec(amount)
         split = splits.get(row.id)
-        if split is not None:
-            own_share -= split[1]
+        if split:
+            own_share -= sum((line.amount for line in split), Decimal("0"))
         if own_share <= 0:
             # Fronted in full for someone else. None of it is yours, so it is not
             # a spend month either — a month whose only expense was somebody

@@ -691,11 +691,18 @@ fun TransactionRow(
                 // The amount on the right stays the full sum, because that is what left the
                 // account. This says how much of it wasn't yours, which is otherwise invisible
                 // on a list of full amounts.
-                val owedBy = transaction.owedBy
-                val owedAmount = transaction.owedAmount
-                if (owedBy != null && owedAmount != null) {
+                val splits = transaction.splits
+                if (splits.isNotEmpty()) {
+                    val currency = transaction.currency ?: baseCurrency
+                    val text = if (splits.size == 1) {
+                        "${splits[0].amount.currency(currency)} owed by ${splits[0].counterpartyName}"
+                    } else {
+                        val total = splits.sumOf { it.amount }
+                        "${total.currency(currency)} split with " +
+                            splits.joinToString(", ") { it.counterpartyName }
+                    }
                     Text(
-                        "${owedAmount.currency(transaction.currency ?: baseCurrency)} owed by $owedBy",
+                        text,
                         style = MaterialTheme.typography.bodySmall,
                         color = warningColor(),
                         maxLines = 1,

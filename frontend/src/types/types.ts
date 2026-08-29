@@ -262,6 +262,13 @@ export type MccResponse = {
   is_brand: boolean;
 };
 
+/** One counterparty's share of a split transaction, read back from the ledger. */
+export type TransactionSplitRow = {
+  counterparty_id: string;
+  counterparty_name: string;
+  amount: number;
+};
+
 export type TransactionResponse = {
   id: string;
   account_id: string;
@@ -274,23 +281,31 @@ export type TransactionResponse = {
   description: string | null;
   transaction_type: TransactionType;
   transfer_id?: string | null;
-  // Part of this expense was somebody else's. `amount` is still the full sum
-  // that left the account — the split says whose it was, not what happened to
-  // the money. Absent means none of it was.
-  owed_by?: string | null;
-  owed_amount?: number | null;
+  // Part of this expense was one or more other people's. `amount` is still the
+  // full sum that left the account — the splits say whose the rest was, not
+  // what happened to the money. Empty means none of it was.
+  splits: TransactionSplitRow[];
 };
 
 // --- 3d. REIMBURSEMENTS ---
 
 export type CounterpartyDirection = "owed_to_you" | "you_owe";
 
+/** A reusable person split expenses are tracked against, scoped to a household. */
+export type CounterpartyResponse = {
+  id: string;
+  household_id: string;
+  name: string;
+};
+
 export type CounterpartyBalanceResponse = {
+  counterparty_id: string;
   counterparty_name: string;
   direction: CounterpartyDirection;
   amount: number;
-  /** Four digits, or absent. Recorded when the user knows it; never evaluated. */
-  mcc?: string | null;
+  // Which owner scope this debt belongs to (null = shared with the household).
+  // Must be echoed back unchanged on a settle request — see SettlementCreate.
+  owner_user_id: string | null;
 };
 
 // --- 4. PORTFOLIO & ASSETS ---

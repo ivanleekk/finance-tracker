@@ -2,12 +2,13 @@ package com.ivanlee.financetracker
 
 import com.ivanlee.financetracker.data.model.CounterpartyBalanceResponse
 import com.ivanlee.financetracker.data.model.CounterpartyDirection
-import com.ivanlee.financetracker.data.model.SplitChange
 import com.ivanlee.financetracker.data.model.TransactionResponse
+import com.ivanlee.financetracker.data.model.TransactionSplitInput
 import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.Reimbursements
 import com.ivanlee.financetracker.logic.SplitAssessment
+import com.ivanlee.financetracker.logic.SplitEntry
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
@@ -28,8 +29,17 @@ class ReimbursementsTest {
     fun `leaves you the remainder of the bill`() {
         assertEquals(
             SplitAssessment.Valid(yourShare = 40.0, owed = 80.0),
-            Reimbursements.assessSplit(120.0, 80.0),
+            Reimbursements.assessSplit(120.0, listOf(SplitEntry("alice", 80.0))),
         )
+    }
+
+    @Test
+    fun `sums several people's shares`() {
+        val result = Reimbursements.assessSplit(
+            300.0,
+            listOf(SplitEntry("alice", 100.0), SplitEntry("bob", 100.0)),
+        )
+        assertEquals(SplitAssessment.Valid(yourShare = 100.0, owed = 200.0), result)
     }
 
     @Test
@@ -38,30 +48,71 @@ class ReimbursementsTest {
         // nothing rather than being rejected as a mistake.
         assertEquals(
             SplitAssessment.Valid(yourShare = 0.0, owed = 90.0),
-            Reimbursements.assessSplit(90.0, 90.0),
+            Reimbursements.assessSplit(90.0, listOf(SplitEntry("alice", 90.0))),
         )
     }
 
     @Test
-    fun `refuses a share larger than the bill instead of clamping`() {
+    fun `refuses a combined share larger than the bill instead of clamping`() {
         // Clamping would hide a typo behind a plausible number.
-        assertTrue(Reimbursements.assessSplit(120.0, 200.0) is SplitAssessment.Invalid)
+        val result = Reimbursements.assessSplit(
+            120.0,
+            listOf(SplitEntry("alice", 100.0), SplitEntry("bob", 100.0)),
+        )
+        assertTrue(result is SplitAssessment.Invalid)
     }
 
     @Test
-    fun `says nothing until both numbers are there`() {
-        assertEquals(SplitAssessment.Incomplete, Reimbursements.assessSplit(120.0, null))
-        assertEquals(SplitAssessment.Incomplete, Reimbursements.assessSplit(null, 80.0))
-        assertEquals(SplitAssessment.Incomplete, Reimbursements.assessSplit(120.0, 0.0))
+    fun `refuses the same person appearing twice`() {
+        val result = Reimbursements.assessSplit(
+            120.0,
+            listOf(SplitEntry("alice", 40.0), SplitEntry("alice", 40.0)),
+        )
+        assertTrue(result is SplitAssessment.Invalid)
+    }
+
+    @Test
+    fun `says nothing until the bill and every entry has an amount`() {
+        assertEquals(SplitAssessment.Incomplete, Reimbursements.assessSplit(120.0, emptyList()))
+        assertEquals(
+            SplitAssessment.Incomplete,
+            Reimbursements.assessSplit(null, listOf(SplitEntry("alice", 80.0))),
+        )
+        assertEquals(
+            SplitAssessment.Incomplete,
+            Reimbursements.assessSplit(120.0, listOf(SplitEntry("alice", null))),
+        )
+        assertEquals(
+            SplitAssessment.Incomplete,
+            Reimbursements.assessSplit(120.0, listOf(SplitEntry("alice", 0.0))),
+        )
     }
 
     @Test
     fun `treats nonsense as nothing entered`() {
-        assertEquals(SplitAssessment.Incomplete, Reimbursements.assessSplit(Double.NaN, 80.0))
         assertEquals(
             SplitAssessment.Incomplete,
-            Reimbursements.assessSplit(120.0, Double.POSITIVE_INFINITY),
+            Reimbursements.assessSplit(Double.NaN, listOf(SplitEntry("alice", 80.0))),
         )
+        assertEquals(
+            SplitAssessment.Incomplete,
+            Reimbursements.assessSplit(120.0, listOf(SplitEntry("alice", Double.POSITIVE_INFINITY))),
+        )
+    }
+
+    @Test
+    fun `divides what's left after specified shares across the rest`() {
+        assertEquals(100.0, Reimbursements.evenSplitRemainder(300.0, listOf(100.0), 2)!!, 0.0001)
+    }
+
+    @Test
+    fun `even split is null when there's nobody left to split the remainder among`() {
+        assertNull(Reimbursements.evenSplitRemainder(300.0, listOf(100.0), 0))
+    }
+
+    @Test
+    fun `even split is null when the specified shares already cover the bill`() {
+        assertNull(Reimbursements.evenSplitRemainder(100.0, listOf(100.0), 1))
     }
 
     @Test
@@ -81,9 +132,9 @@ class ReimbursementsTest {
         // Netting to 55 would lose the fact that there are two things to settle, with two
         // different people, in two different directions.
         val rows = listOf(
-            CounterpartyBalanceResponse("Alice", CounterpartyDirection.OWED_TO_YOU, 80.0),
-            CounterpartyBalanceResponse("Bob", CounterpartyDirection.OWED_TO_YOU, 20.0),
-            CounterpartyBalanceResponse("Alice", CounterpartyDirection.YOU_OWE, 45.0),
+            CounterpartyBalanceResponse("alice", "Alice", CounterpartyDirection.OWED_TO_YOU, 80.0),
+            CounterpartyBalanceResponse("bob", "Bob", CounterpartyDirection.OWED_TO_YOU, 20.0),
+            CounterpartyBalanceResponse("alice", "Alice", CounterpartyDirection.YOU_OWE, 45.0),
         )
         val totals = Reimbursements.totals(rows)
         assertEquals(100.0, totals.owedToYou, 0.0001)
@@ -94,8 +145,8 @@ class ReimbursementsTest {
     fun `one name in both directions is two rows`() {
         // The list is keyed by identity, so a person who both owes and is owed must not collapse
         // into a single row.
-        val owed = CounterpartyBalanceResponse("Alice", CounterpartyDirection.OWED_TO_YOU, 80.0)
-        val owes = CounterpartyBalanceResponse("Alice", CounterpartyDirection.YOU_OWE, 45.0)
+        val owed = CounterpartyBalanceResponse("alice", "Alice", CounterpartyDirection.OWED_TO_YOU, 80.0)
+        val owes = CounterpartyBalanceResponse("alice", "Alice", CounterpartyDirection.YOU_OWE, 45.0)
         assertFalse(owed.key == owes.key)
     }
 
@@ -131,13 +182,13 @@ class ReimbursementsTest {
 }
 
 /**
- * Decoding and encoding the split. The absent-keys case is the one that matters: every
- * transaction logged before the ledger existed comes back without them.
+ * Decoding and encoding the split. The absent-key case is the one that matters: every
+ * transaction logged before the ledger existed comes back without it.
  */
 class ReimbursementCodingTest {
 
     @Test
-    fun `a transaction without split keys still decodes`() {
+    fun `a transaction without a splits key still decodes`() {
         val json = """
             {
               "id": "txn-1",
@@ -153,12 +204,11 @@ class ReimbursementCodingTest {
             }
         """.trimIndent()
         val txn = Api.json.decodeFromString<TransactionResponse>(json)
-        assertNull(txn.owedBy)
-        assertNull(txn.owedAmount)
+        assertTrue(txn.splits.isEmpty())
     }
 
     @Test
-    fun `a split transaction decodes its share`() {
+    fun `a split transaction decodes every share`() {
         // The backend serializes Decimal as a JSON string, hence the money serializer.
         val json = """
             {
@@ -170,32 +220,52 @@ class ReimbursementCodingTest {
               "currency": "SGD",
               "description": "Group dinner",
               "transaction_type": "expense",
-              "owed_by": "Alice",
-              "owed_amount": "80"
+              "splits": [
+                {"counterparty_id": "alice", "counterparty_name": "Alice", "amount": "50"},
+                {"counterparty_id": "bob", "counterparty_name": "Bob", "amount": "30"}
+              ]
             }
         """.trimIndent()
         val txn = Api.json.decodeFromString<TransactionResponse>(json)
-        assertEquals("Alice", txn.owedBy)
-        assertEquals(80.0, txn.owedAmount!!, 0.0001)
+        assertEquals(2, txn.splits.size)
+        assertEquals("Alice", txn.splits[0].counterpartyName)
+        assertEquals(50.0, txn.splits[0].amount, 0.0001)
+        assertEquals(30.0, txn.splits[1].amount, 0.0001)
     }
 
     @Test
     fun `balances decode from the list endpoint`() {
         val json = """
-            [{"counterparty_name": "Alice", "direction": "owed_to_you", "amount": "80.00"},
-             {"counterparty_name": "Bob", "direction": "you_owe", "amount": "45.00"}]
+            [{"counterparty_id": "alice", "counterparty_name": "Alice", "direction": "owed_to_you", "amount": "80.00", "owner_user_id": null},
+             {"counterparty_id": "bob", "counterparty_name": "Bob", "direction": "you_owe", "amount": "45.00", "owner_user_id": "user-1"}]
         """.trimIndent()
         val rows = Api.json.decodeFromString<List<CounterpartyBalanceResponse>>(json)
         assertEquals(2, rows.size)
         assertEquals(CounterpartyDirection.OWED_TO_YOU, rows[0].direction)
         assertEquals(CounterpartyDirection.YOU_OWE, rows[1].direction)
         assertEquals(45.0, rows[1].amount, 0.0001)
+        // The debt's own owner scope, not the account that will eventually settle
+        // it — a settle request must echo this back verbatim (see SettlementCreate).
+        assertEquals(null, rows[0].ownerUserId)
+        assertEquals("user-1", rows[1].ownerUserId)
     }
 
-    // The three SplitChange cases exist because "leave it alone" and "remove it" are different
-    // requests, and the API tells them apart by whether the key is present.
+    @Test
+    fun `a balance with no owner key still decodes as shared`() {
+        // Older responses, or a row with no owner scope at all, must decode as
+        // "shared" rather than failing — an absent key is not the same as a bug.
+        val json = """
+            [{"counterparty_id": "alice", "counterparty_name": "Alice", "direction": "owed_to_you", "amount": "80.00"}]
+        """.trimIndent()
+        val rows = Api.json.decodeFromString<List<CounterpartyBalanceResponse>>(json)
+        assertEquals(null, rows[0].ownerUserId)
+    }
 
-    private fun encoded(split: SplitChange) = Api.json.encodeToString(
+    // A plain nullable list already has an unambiguous empty state, so there is no JsonElement
+    // dance here the way there is for `cardCategoryId`: null omits the key (leave the split
+    // alone), and emptyList() sends `[]` (clear it).
+
+    private fun encoded(splits: List<TransactionSplitInput>?) = Api.json.encodeToString(
         transactionUpdate(
             date = Instant.EPOCH,
             amount = 120.0,
@@ -203,34 +273,39 @@ class ReimbursementCodingTest {
             accountId = "acc-1",
             categoryId = "cat-1",
             // The form always sends a code (blank when there is none); this helper
-            // is about the split keys, so it sends what an untouched field would.
+            // is about the splits key, so it sends what an untouched field would.
             mcc = "",
-            split = split,
+            splits = splits,
         )
     ).let { Api.json.parseToJsonElement(it).jsonObject }
 
     @Test
-    fun `an unchanged split omits the keys entirely`() {
+    fun `an unchanged split omits the key entirely`() {
         // This is what stops an unrelated description edit from quietly making a shared dinner
         // all yours.
-        val obj = encoded(SplitChange.Unchanged)
-        assertFalse(obj.containsKey("owed_by"))
-        assertFalse(obj.containsKey("owed_amount"))
+        val obj = encoded(null)
+        assertFalse(obj.containsKey("splits"))
     }
 
     @Test
-    fun `clearing a split sends explicit nulls`() {
-        val obj = encoded(SplitChange.Clear)
-        assertTrue(obj.containsKey("owed_by"))
-        assertTrue(obj.containsKey("owed_amount"))
-        assertEquals("null", obj["owed_by"].toString())
-        assertEquals("null", obj["owed_amount"].toString())
+    fun `clearing a split sends an empty array`() {
+        val obj = encoded(emptyList())
+        assertTrue(obj.containsKey("splits"))
+        assertEquals("[]", obj["splits"].toString())
     }
 
     @Test
-    fun `setting a split sends both halves`() {
-        val obj = encoded(SplitChange.Set(owedBy = "Alice", owedAmount = 80.0))
-        assertEquals("\"Alice\"", obj["owed_by"].toString())
-        assertEquals("80.0", obj["owed_amount"].toString())
+    fun `setting a split sends every share`() {
+        val obj = encoded(
+            listOf(
+                TransactionSplitInput(counterpartyId = "alice", amount = 50.0),
+                TransactionSplitInput(counterpartyId = "bob", amount = 30.0),
+            )
+        )
+        val splits = obj["splits"].toString()
+        assertTrue(splits.contains("\"alice\""))
+        assertTrue(splits.contains("\"bob\""))
+        assertTrue(splits.contains("50.0"))
+        assertTrue(splits.contains("30.0"))
     }
 }

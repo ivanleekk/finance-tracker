@@ -326,6 +326,15 @@ struct PortfolioView: View {
             }
             .quickAddPull(quickAdd, onReload: load)
             .task { await loadIfNeeded() }
+            .alert("Error", isPresented: .init(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("Retry") { Task { await load() } }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 

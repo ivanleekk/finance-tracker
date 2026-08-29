@@ -297,6 +297,22 @@ data class CategoryResponse(
     val type: TransactionType,
 )
 
+/** One counterparty's share of a transaction, read back from the ledger. */
+@Serializable
+data class TransactionSplitRow(
+    val counterpartyId: String,
+    val counterpartyName: String,
+    @Serializable(with = MoneySerializer::class)
+    val amount: Double,
+)
+
+/** One counterparty's share of a transaction being created or edited. */
+@Serializable
+data class TransactionSplitInput(
+    val counterpartyId: String,
+    val amount: Double,
+)
+
 @Serializable
 data class TransactionResponse(
     val id: String,
@@ -313,13 +329,12 @@ data class TransactionResponse(
     val transactionType: TransactionType,
     val transferId: String? = null,
     /**
-     * Part of this expense was somebody else's. [amount] is still the full sum that left the
-     * account — the split says whose it was, not what happened to the money. Absent means none
-     * of it was, which is also how every row logged before the ledger existed decodes.
+     * Part of this expense was one or more other people's. [amount] is still the full sum that
+     * left the account — the splits say whose the rest was, not what happened to the money.
+     * Empty means none of it was, which is also how every row logged before the ledger existed
+     * decodes.
      */
-    val owedBy: String? = null,
-    @Serializable(with = OptionalMoneySerializer::class)
-    val owedAmount: Double? = null,
+    val splits: List<TransactionSplitRow> = emptyList(),
     /**
      * The merchant category code, when the user happened to know it. Four digits or
      * absent — nothing in the app derives anything from it.
@@ -337,9 +352,8 @@ data class TransactionCreate(
     val description: String? = null,
     val accountId: String,
     val categoryId: String,
-    /** Sent together or not at all — the API rejects half a split. */
-    val owedBy: String? = null,
-    val owedAmount: Double? = null,
+    /** Null (omitted) means no split at all — the same as an absent key on the wire. */
+    val splits: List<TransactionSplitInput>? = null,
     /**
      * Blank is sent as-is: the API reads "" as "not given" rather than rejecting it,
      * so an empty picker needs no special-casing here.
@@ -350,26 +364,14 @@ data class TransactionCreate(
 )
 
 /**
- * How an edit should treat the split already recorded against a transaction.
- *
- * Three states, not two, because "leave it alone" and "remove it" are different requests and the
- * API distinguishes them by omission versus explicit null. An unrelated description edit must not
- * quietly make a shared dinner all yours, so [Unchanged] is the default.
- */
-sealed interface SplitChange {
-    data object Unchanged : SplitChange
-    data object Clear : SplitChange
-    data class Set(val owedBy: String, val owedAmount: Double) : SplitChange
-}
-
-/**
  * PUT /cashflow/transactions/{id} (schemas.TransactionUpdate). `description` is always sent
  * (empty string clears it); the sign follows the category.
  *
- * The split fields are [JsonElement] rather than plain types so all three states can be
- * expressed: the client's `explicitNulls = false` omits a Kotlin null, while [JsonNull] is
- * written as an explicit `null` — which is exactly how the backend tells "preserve the split"
- * from "drop it". Build one with [transactionUpdate] rather than setting them by hand.
+ * [splits] is a plain nullable list, not a [JsonElement]: a list already has an unambiguous
+ * empty state, so omitted/null (`explicitNulls = false` drops it) leaves the split already
+ * recorded alone, and `emptyList()` sends `[]`, which clears it. That is unlike [cardCategoryId]
+ * below, a single nullable field that genuinely needs the null-vs-omitted distinction. Build one
+ * with [transactionUpdate] rather than setting the fields by hand.
  */
 @Serializable
 data class TransactionUpdate(
@@ -379,18 +381,16 @@ data class TransactionUpdate(
     val description: String,
     val accountId: String,
     val categoryId: String,
-    val owedBy: JsonElement? = null,
-    val owedAmount: JsonElement? = null,
+    val splits: List<TransactionSplitInput>? = null,
     /**
      * Always sent, like [description]. No default: `""` *clears* a recorded code,
      * so the destructive value must never be the one you get by forgetting.
      */
     val mcc: String,
     /**
-     * The card's own category. A [JsonElement] for the same reason the split is:
-     * `explicitNulls = false` drops a Kotlin null, and dropping it means
-     * "preserve" — which would leave no way to untag a transaction at all.
-     * [JsonNull] is the explicit clear.
+     * The card's own category. A [JsonElement] because `explicitNulls = false` drops a Kotlin
+     * null, and dropping it means "preserve" — which would leave no way to untag a transaction
+     * at all. [JsonNull] is the explicit clear.
      */
     val cardCategoryId: JsonElement? = null,
 )
@@ -402,7 +402,8 @@ fun transactionUpdate(
     accountId: String,
     categoryId: String,
     mcc: String,
-    split: SplitChange = SplitChange.Unchanged,
+    /** Null leaves the split alone; a list (possibly empty, to clear it) replaces it. */
+    splits: List<TransactionSplitInput>? = null,
     /** Null clears the tag; a value sets it. Always sent either way. */
     cardCategoryId: String? = null,
 ): TransactionUpdate = TransactionUpdate(
@@ -412,21 +413,33 @@ fun transactionUpdate(
     accountId = accountId,
     categoryId = categoryId,
     mcc = mcc,
-    owedBy = when (split) {
-        SplitChange.Unchanged -> null
-        SplitChange.Clear -> JsonNull
-        is SplitChange.Set -> JsonPrimitive(split.owedBy)
-    },
-    owedAmount = when (split) {
-        SplitChange.Unchanged -> null
-        SplitChange.Clear -> JsonNull
-        is SplitChange.Set -> JsonPrimitive(split.owedAmount)
-    },
+    splits = splits,
     // Always sent: JsonNull when there is no pick, which is what clears it.
     cardCategoryId = cardCategoryId?.let { JsonPrimitive(it) } ?: JsonNull,
 )
 
 // MARK: Reimbursements
+
+/** A reusable person split expenses are tracked against, scoped to a household. */
+@Serializable
+data class Counterparty(
+    val id: String,
+    val householdId: String,
+    val name: String,
+)
+
+/** POST /cashflow/counterparties (schemas.CounterpartyCreate). */
+@Serializable
+data class CounterpartyCreate(
+    val householdId: String,
+    val name: String,
+)
+
+/** PUT /cashflow/counterparties/{id} (schemas.CounterpartyUpdate). */
+@Serializable
+data class CounterpartyUpdate(
+    val name: String,
+)
 
 /** Which way a debt runs, named from the household's point of view. */
 @Serializable
@@ -438,13 +451,18 @@ enum class CounterpartyDirection {
 /** GET /cashflow/reimbursements/household/{id}. */
 @Serializable
 data class CounterpartyBalanceResponse(
+    val counterpartyId: String,
     val counterpartyName: String,
     val direction: CounterpartyDirection,
     @Serializable(with = MoneySerializer::class)
     val amount: Double,
+    // Which owner scope this debt belongs to (null = shared with the household),
+    // not which account happens to settle it. Must be echoed back unchanged on
+    // SettlementCreate.ownerUserId — see the note there.
+    val ownerUserId: String? = null,
 ) {
-    /** One person can appear in both directions, so the name alone is not an id. */
-    val key: String get() = "$direction:$counterpartyName"
+    /** One person can appear in both directions, so the id alone is not a row key. */
+    val key: String get() = "$direction:$counterpartyId"
 }
 
 /**
@@ -455,7 +473,7 @@ data class CounterpartyBalanceResponse(
 data class SpendOnYourBehalfCreate(
     val householdId: String,
     val categoryId: String,
-    val counterpartyName: String,
+    val counterpartyId: String,
     val amount: Double,
     @Serializable(with = InstantSerializer::class)
     val date: Instant,
@@ -469,12 +487,17 @@ data class SpendOnYourBehalfCreate(
 @Serializable
 data class SettlementCreate(
     val accountId: String,
-    val counterpartyName: String,
+    val counterpartyId: String,
     val direction: CounterpartyDirection,
     val amount: Double,
     @Serializable(with = InstantSerializer::class)
     val date: Instant,
     val description: String? = null,
+    // The debt's own owner scope (CounterpartyBalanceResponse.ownerUserId), not
+    // the settling account's. Passing the settling account's owner instead opens
+    // a second, disconnected ledger account whenever the two differ, leaving the
+    // original debt outstanding instead of clearing it.
+    val ownerUserId: String? = null,
 )
 
 /**
