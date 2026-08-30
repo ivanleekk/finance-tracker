@@ -88,6 +88,7 @@ struct TradeFormView: View {
                         ForEach(TradeType.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: TradeType.allCases, selection: $type)
                     .listRowBackground(Color.clear)
                 }
 
@@ -273,6 +274,7 @@ struct CashMoveFormView: View {
                         ForEach(Direction.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: Direction.allCases, selection: $direction)
                     .listRowBackground(Color.clear)
                 }
 
@@ -410,6 +412,7 @@ struct AssetCreateView: View {
                         Text("Manual").tag("manual")
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: ["market", "manual"], selection: $pricingMode)
                 } footer: {
                     Text("“Market” prices from Yahoo Finance by ticker. “Manual” means you record prices yourself (e.g. unlisted bonds).")
                 }

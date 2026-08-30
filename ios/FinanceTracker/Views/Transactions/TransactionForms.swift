@@ -158,6 +158,7 @@ struct TransactionFormView: View {
                         Text("Income").tag(TransactionType.income)
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: [TransactionType.expense, .income], selection: $type)
                     .listRowBackground(Color.clear)
                     .onChange(of: type) {
                         categoryId = filteredCategories.first?.id

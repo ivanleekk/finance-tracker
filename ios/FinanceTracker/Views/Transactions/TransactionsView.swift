@@ -209,6 +209,7 @@ struct TransactionsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: HistoryGranularity.allCases, selection: $granularity)
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     .listRowBackground(Color.clear)
                 }

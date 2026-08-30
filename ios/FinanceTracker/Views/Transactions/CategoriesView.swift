@@ -212,6 +212,7 @@ struct CategoryEditView: View {
                             Text("Income").tag(TransactionType.income)
                         }
                         .pickerStyle(.segmented)
+                        .draggableSegments(options: [TransactionType.expense, .income], selection: $type)
                     }
                 }
 

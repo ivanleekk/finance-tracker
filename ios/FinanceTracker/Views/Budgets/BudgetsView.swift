@@ -412,6 +412,7 @@ struct BudgetFormView: View {
                         ForEach(BudgetPeriod.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: BudgetPeriod.allCases, selection: $period)
                 } footer: {
                     Text("Only expense categories can be budgeted, and one or more can share a limit.")
                 }

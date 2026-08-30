@@ -259,6 +259,7 @@ struct QuickAddView: View {
                     ForEach(TradeType.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .draggableSegments(options: TradeType.allCases, selection: $tradeType)
                 .listRowBackground(Color.clear)
             }
             Section {

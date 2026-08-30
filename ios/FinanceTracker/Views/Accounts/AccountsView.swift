@@ -469,6 +469,7 @@ struct AccountFormView: View {
                         ForEach(AccountKind.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: AccountKind.allCases, selection: $kind)
                     Picker("Liquidity", selection: $liquidity) {
                         ForEach(LiquidityStatus.allCases) { Text($0.label).tag($0) }
                     }

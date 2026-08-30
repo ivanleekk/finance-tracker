@@ -48,6 +48,7 @@ struct LoginView: View {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .draggableSegments(options: Mode.allCases, selection: $mode)
 
                     fields
 

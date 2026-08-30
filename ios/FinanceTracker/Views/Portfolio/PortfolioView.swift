@@ -527,6 +527,7 @@ struct GrowthRangePicker: View {
             }
         }
         .pickerStyle(.segmented)
+        .draggableSegments(options: GrowthRange.allCases, selection: $range)
         .listRowBackground(Color.clear)
     }
 }

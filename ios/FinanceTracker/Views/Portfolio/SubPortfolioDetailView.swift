@@ -115,6 +115,7 @@ struct SubPortfolioDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .draggableSegments(options: DetailSection.allCases, selection: $section)
 
                 switch section {
                 case .growth: growthSection
