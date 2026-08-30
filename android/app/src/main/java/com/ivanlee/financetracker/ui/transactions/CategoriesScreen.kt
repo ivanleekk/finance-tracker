@@ -14,6 +14,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -97,12 +98,29 @@ fun CategoriesScreen(
                     SectionCard(title = if (type == TransactionType.INCOME) "Income" else "Expenses") {
                         group.forEachIndexed { index, category ->
                             if (index > 0) HorizontalDivider()
-                            SwipeActionRow(onEndAction = { pendingDelete = category }) {
+                            if (category.isSystem) {
+                                // The app manages these itself (Transfer, Balance
+                                // Adjustment, ...) — matched by exact name everywhere
+                                // the backend files spend under them, so renaming or
+                                // deleting one here would just split its history from
+                                // a freshly created category under the canonical name.
                                 ListItem(
                                     colors = cardListItemColors(),
-                                    headlineContent = { Text(category.name) },
-                                    modifier = Modifier.clickable { editing = category },
+                                    headlineContent = {
+                                        Text(category.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    },
+                                    trailingContent = {
+                                        Text("System", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                    },
                                 )
+                            } else {
+                                SwipeActionRow(onEndAction = { pendingDelete = category }) {
+                                    ListItem(
+                                        colors = cardListItemColors(),
+                                        headlineContent = { Text(category.name) },
+                                        modifier = Modifier.clickable { editing = category },
+                                    )
+                                }
                             }
                         }
                     }

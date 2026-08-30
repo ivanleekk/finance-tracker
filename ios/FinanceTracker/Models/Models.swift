@@ -410,6 +410,13 @@ struct CategoryResponse: Codable, Identifiable, Hashable {
     let householdId: String
     let name: String
     let type: TransactionType
+    /// True for a bookkeeping category the app creates for itself (Transfer,
+    /// Balance Adjustment, ...) rather than one a user chose — see the
+    /// backend's SYSTEM_CATEGORY_NAMES. Filing a real transaction under one
+    /// would misclassify it and fight the balance-reconciliation logic that
+    /// owns it, so pickers (recurring rules) exclude these and the Categories
+    /// screen marks them read-only.
+    let isSystem: Bool
 }
 
 /// One counterparty's share of a transaction being created or edited.

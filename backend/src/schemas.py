@@ -77,6 +77,7 @@ from src.models import (
     RecurrenceFrequency,
     BudgetPeriod,
     PRICING_MODE_MARKET,
+    SYSTEM_CATEGORY_NAMES,
 )
 
 # ----------------------------------------
@@ -425,7 +426,21 @@ class CategoryUpdate(BaseModel):
 class CategoryResponse(CategoryBase):
     id: uuid.UUID
     household_id: uuid.UUID
+    # A category the app creates for its own bookkeeping (Transfer, Balance
+    # Adjustment, Investment, Reimbursement — see models.SYSTEM_CATEGORY_NAMES),
+    # not one a user chose. There is no stored flag: identity is the name, the
+    # same way every find-or-create site and the budget/burn-rate exclusions
+    # already recognize these. Clients use this to keep such categories out of
+    # pickers (a recurring rule, say) where filing under one would misclassify
+    # real spending and fight the balance-reconciliation logic that owns it.
+    is_system: bool = False
+
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _mark_system_category(self) -> "CategoryResponse":
+        self.is_system = self.name in SYSTEM_CATEGORY_NAMES
+        return self
 
 
 class MccResponse(BaseModel):

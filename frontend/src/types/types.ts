@@ -251,6 +251,11 @@ export type CategoryResponse = {
   household_id: string;
   name: string;
   type: TransactionType;
+  /** True for a bookkeeping category the app creates for itself (Transfer,
+   * Balance Adjustment, ...) rather than one a user chose — see the backend's
+   * SYSTEM_CATEGORY_NAMES. Keep these out of pickers where filing under one
+   * would misclassify real spending, e.g. the recurring-rule form. */
+  is_system: boolean;
 };
 
 /** A row from GET /reference/mccs — static reference data, like currencies. */

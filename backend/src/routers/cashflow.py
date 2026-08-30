@@ -837,6 +837,18 @@ def update_category(
 
     verify_household_access(db_category.household_id, current_user, db)
 
+    # System categories (Transfer, Balance Adjustment, ...) are found by exact
+    # name everywhere they're used (ledger_account_for_category,
+    # _reimbursement_category, the budget/burn-rate exclusions, ...). Renaming
+    # or retyping one wouldn't move that plumbing — it would just make the
+    # find-or-create sites create a fresh category under the canonical name
+    # while this one keeps its history, silently splitting a category in two.
+    if db_category.name in models.SYSTEM_CATEGORY_NAMES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"'{db_category.name}' is a system category and can't be renamed or retyped.",
+        )
+
     update_data = category_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_category, key, value)
@@ -856,6 +868,12 @@ def delete_category(
         raise HTTPException(status_code=404, detail="Category not found")
 
     verify_household_access(db_category.household_id, current_user, db)
+
+    if db_category.name in models.SYSTEM_CATEGORY_NAMES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"'{db_category.name}' is a system category the app manages itself and can't be deleted.",
+        )
 
     # A recurring rule or budget pointing at this category would leave a
     # dangling reference; without this the FK raises a bare 500. Tell the user
@@ -908,6 +926,16 @@ def _load_rule_targets(
     category = db.query(models.Category).filter(models.Category.id == category_id).first()
     if not category or category.household_id != household_id:
         raise HTTPException(status_code=404, detail="Category not found")
+    if category.name in models.SYSTEM_CATEGORY_NAMES:
+        # These are bookkeeping categories the app creates for itself (Transfer,
+        # Balance Adjustment, ...) and are deliberately excluded from the
+        # budget/burn-rate rollups. A recurring rule filed under one would
+        # misclassify real spending and fight the balance-reconciliation logic
+        # that owns it.
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{category.name}' is a system category and can't be used for a recurring transaction.",
+        )
 
     return account, category
 

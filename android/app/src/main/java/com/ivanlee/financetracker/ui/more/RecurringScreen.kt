@@ -120,6 +120,11 @@ fun RecurringScreen(
     }
 
     val categoryTypes = categories.associate { it.id to it.type }
+    // System categories (Transfer, Balance Adjustment, ...) are bookkeeping the
+    // app files for itself, not something a rule should post under — filing
+    // rent under "Balance Adjustment" would misclassify it and fight the
+    // reconciliation logic that owns that category.
+    val selectableCategories = categories.filterNot { it.isSystem }
     val commitment = BudgetPresentation.monthlyCommitment(rules, categoryTypes)
     val agenda = BudgetPresentation.groupedByMonth(upcoming)
 
@@ -287,7 +292,7 @@ fun RecurringScreen(
             existing = editing,
             householdId = household?.id.orEmpty(),
             accounts = accounts,
-            categories = categories,
+            categories = selectableCategories,
             currencyCode = baseCurrency,
             userId = sessionVm.user?.id,
             defaultPrivate = sessionVm.user?.defaultsNewItemsPrivate ?: false,

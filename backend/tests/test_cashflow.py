@@ -103,6 +103,32 @@ def test_create_category(client, auth_headers, test_household):
     data = response.json()
     assert data["name"] == "Groceries"
     assert data["type"] == "expense"
+    assert data["is_system"] is False
+
+def test_household_categories_flag_system_categories(client, auth_headers, test_household, db_session):
+    """
+    A category the app creates for itself (models.SYSTEM_CATEGORY_NAMES) is
+    identified purely by name, not a stored column — clients rely on
+    `is_system` in the response to keep these out of pickers like the
+    recurring-rule form and to mark them in a categories management screen.
+    """
+    system_category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name=models.SYSTEM_CATEGORY_TRANSFER,
+        type="expense",
+    )
+    db_session.add(system_category)
+    db_session.commit()
+
+    response = client.get(
+        f"/cashflow/categories/household/{test_household.id}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    transfer = next(cat for cat in data if cat["id"] == str(system_category.id))
+    assert transfer["is_system"] is True
 
 def test_create_category_unauthorized(client, other_auth_headers, test_household):
     response = client.post(
@@ -169,6 +195,29 @@ def test_update_category_not_found(client, auth_headers):
     )
     assert response.status_code == 404
 
+def test_update_category_rejects_system_category(client, auth_headers, test_household, db_session):
+    """
+    Renaming a system category wouldn't move the find-or-create lookups keyed
+    on its exact name (ledger_account_for_category, _reimbursement_category,
+    ...) — it would just split the category's history from a freshly created
+    one under the canonical name.
+    """
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name=models.SYSTEM_CATEGORY_BALANCE_ADJUSTMENT,
+        type="expense",
+    )
+    db_session.add(category)
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/categories/{category.id}",
+        headers=auth_headers,
+        json={"name": "Renamed"}
+    )
+    assert response.status_code == 409
+
 def test_update_category_unauthorized(client, other_auth_headers, test_household, db_session):
     category = models.Category(
         id=uuid.uuid7(),
@@ -202,6 +251,23 @@ def test_delete_category(client, auth_headers, test_household, db_session):
     )
     assert response.status_code == 204
     assert db_session.query(models.Category).filter_by(id=category.id).first() is None
+
+def test_delete_category_rejects_system_category(client, auth_headers, test_household, db_session):
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name=models.SYSTEM_CATEGORY_TRANSFER,
+        type="expense",
+    )
+    db_session.add(category)
+    db_session.commit()
+
+    response = client.delete(
+        f"/cashflow/categories/{category.id}",
+        headers=auth_headers
+    )
+    assert response.status_code == 409
+    assert db_session.query(models.Category).filter_by(id=category.id).first() is not None
 
 def test_delete_category_not_found(client, auth_headers):
     response = client.delete(

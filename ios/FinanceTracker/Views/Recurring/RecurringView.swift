@@ -43,6 +43,14 @@ struct RecurringView: View {
         Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.type) })
     }
 
+    /// System categories (Transfer, Balance Adjustment, ...) are bookkeeping the
+    /// app files for itself, not something a rule should post under — filing
+    /// rent under "Balance Adjustment" would misclassify it and fight the
+    /// reconciliation logic that owns that category.
+    private var selectableCategories: [CategoryResponse] {
+        categories.filter { !$0.isSystem }
+    }
+
     private var commitment: (income: Double, expense: Double, net: Double) {
         BudgetPresentation.monthlyCommitment(rules: visibleRules, categoryTypes: categoryTypes)
     }
@@ -149,11 +157,11 @@ struct RecurringView: View {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("New Recurring Transaction")
-                .disabled(accounts.isEmpty || categories.isEmpty)
+                .disabled(accounts.isEmpty || selectableCategories.isEmpty)
             }
         }
         .sheet(isPresented: $showingAddRule) {
-            RecurringFormView(accounts: accounts, categories: categories) { await load() }
+            RecurringFormView(accounts: accounts, categories: selectableCategories) { await load() }
         }
         .overlay {
             if isLoading && rules.isEmpty { LoadingSkeleton() }

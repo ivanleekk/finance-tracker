@@ -438,6 +438,36 @@ def test_create_rejects_end_before_start(
     assert response.status_code == 400
 
 
+def test_create_rejects_system_category(client, owner_headers, household, account, db_session):
+    """
+    A rule filed under a bookkeeping category (Transfer, Balance Adjustment, ...)
+    would misclassify real spending and is excluded from the budget/burn-rate
+    rollups anyway — see models.SYSTEM_CATEGORY_NAMES.
+    """
+    system_category = models.Category(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name=models.SYSTEM_CATEGORY_TRANSFER,
+        type="expense",
+    )
+    db_session.add(system_category)
+    db_session.commit()
+
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),
+            "category_id": str(system_category.id),
+            "amount": "100",
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+        },
+    )
+    assert response.status_code == 400
+
+
 def test_create_rejects_non_positive_amount(
     client, owner_headers, household, account, rent_category
 ):

@@ -26,43 +26,60 @@ struct CategoriesView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(items) { category in
-                        Button {
-                            editing = category
-                        } label: {
+                        if category.isSystem {
+                            // The app manages these itself (Transfer, Balance
+                            // Adjustment, ...) — they're matched by exact name
+                            // everywhere the backend files spend under them, so
+                            // renaming or deleting one here would just split its
+                            // history from a freshly created category with the
+                            // canonical name. Shown, but not tappable.
                             HStack {
                                 Text(category.name)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(.secondary)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
+                                Text("System")
+                                    .font(.caption)
                                     .foregroundStyle(.tertiary)
                             }
-                        }
-                        // Reveal-then-tap rather than `.onDelete`'s full swipe. A
-                        // category still used by a transaction is refused server-side,
-                        // so the cost of a slip is low — but low enough to be worth one
-                        // deliberate tap, not low enough to commit on a flick.
-                        .swipeActions(allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                if let index = items.firstIndex(where: { $0.id == category.id }) {
-                                    delete(items, at: IndexSet(integer: index))
-                                }
+                        } else {
+                            Button {
+                                editing = category
                             } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        // Same actions on a long press: a swipe is invisible until you
-                        // try it, and unreachable from Voice Control / Switch Control.
-                        .contextMenu {
-                            Button { editing = category } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                if let index = items.firstIndex(where: { $0.id == category.id }) {
-                                    delete(items, at: IndexSet(integer: index))
+                                HStack {
+                                    Text(category.name)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            }
+                            // Reveal-then-tap rather than `.onDelete`'s full swipe. A
+                            // category still used by a transaction is refused server-side,
+                            // so the cost of a slip is low — but low enough to be worth one
+                            // deliberate tap, not low enough to commit on a flick.
+                            .swipeActions(allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    if let index = items.firstIndex(where: { $0.id == category.id }) {
+                                        delete(items, at: IndexSet(integer: index))
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            // Same actions on a long press: a swipe is invisible until you
+                            // try it, and unreachable from Voice Control / Switch Control.
+                            .contextMenu {
+                                Button { editing = category } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    if let index = items.firstIndex(where: { $0.id == category.id }) {
+                                        delete(items, at: IndexSet(integer: index))
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }

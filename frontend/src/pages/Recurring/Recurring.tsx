@@ -77,6 +77,15 @@ export default function Recurring() {
         [accounts, viewMode, user?.id]
     );
 
+    // System categories (Transfer, Balance Adjustment, ...) are bookkeeping the
+    // app files for itself, not something a user's rule should post under —
+    // filing rent under "Balance Adjustment" would misclassify it and fight
+    // the reconciliation logic that owns that category.
+    const selectableCategories = useMemo(
+        () => categories.filter(c => !c.is_system),
+        [categories]
+    );
+
     const monthlyCommitted = useMemo(() => {
         // Normalize every active rule to a monthly figure so "what am I
         // committed to each month" is one comparable number.
@@ -126,7 +135,7 @@ export default function Recurring() {
                 title="Recurring"
                 commandPlaceholder="Log or find…"
                 cta={
-                    <Button variant="cta" onClick={() => setIsAddOpen(true)} disabled={accounts.length === 0 || categories.length === 0}>
+                    <Button variant="cta" onClick={() => setIsAddOpen(true)} disabled={accounts.length === 0 || selectableCategories.length === 0}>
                         + Add recurring
                     </Button>
                 }
@@ -282,7 +291,7 @@ export default function Recurring() {
                                             onChange={(category_id) => setNewRule({ ...newRule, category_id })}
                                             options={[
                                                 { value: "", label: "Choose a category…" },
-                                                ...categories.map(c => ({
+                                                ...selectableCategories.map(c => ({
                                                     value: c.id,
                                                     label: `${c.name} (${c.type})`,
                                                 })),
