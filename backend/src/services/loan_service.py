@@ -333,6 +333,7 @@ def project_household_net_worth(
     points: List[ProjectionPoint] = []
     net_worth_positive_date: Optional[date] = None
     debt_free_date: Optional[date] = None
+    had_debt = False
 
     for offset in range(months + 1):
         at = add_months(start, offset)
@@ -352,7 +353,13 @@ def project_household_net_worth(
 
         if net_worth_positive_date is None and net >= 0:
             net_worth_positive_date = at
-        if debt_free_date is None and liabilities <= 0:
+        if liabilities > 0:
+            had_debt = True
+        # Only a household that actually carried debt at some point in the
+        # projection can become "debt free" — a household with none to begin
+        # with satisfies liabilities <= 0 on day one (offset 0), which is not
+        # the same fact and must not report today's date as a payoff.
+        if debt_free_date is None and had_debt and liabilities <= 0:
             debt_free_date = at
 
         points.append(

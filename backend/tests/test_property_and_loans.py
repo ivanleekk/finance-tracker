@@ -543,7 +543,9 @@ def test_projection_holds_ordinary_cash_flat(client, owner_headers, household, d
     ).json()
     assert Decimal(data["points"][0]["assets"]) == Decimal("25000.00")
     assert Decimal(data["points"][-1]["assets"]) == Decimal("25000.00")
-    assert data["debt_free_date"] == data["start"]
+    # No liability account exists at all, so there's nothing to be "free" of —
+    # this must not read like a mortgage that happened to be paid off today.
+    assert data["debt_free_date"] is None
 
 
 def test_projection_applies_monthly_contribution(client, owner_headers, household, db_session):
