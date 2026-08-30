@@ -225,30 +225,37 @@ fun PortfolioScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                 )
-                change?.let { delta ->
-                    // scopedReturn (computed above) is the flow-adjusted figure for this same
-                    // window when it's available; delta.fraction (the naive curve ratio) is the
-                    // fallback while that fetch is in flight or has failed.
-                    val fraction = scopedReturn ?: delta.fraction
-                    Text(
-                        buildString {
-                            append(delta.delta.compactCurrency(baseCurrency))
-                            // A percentage is withheld when the window opened on a near-zero
-                            // base: going from $42 to $13,104 is funding, not a +31,100% return.
-                            fraction?.let { append("  (${it.signedPercent()})") }
-                            append("  ${range.label}")
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = amountColor(delta.delta),
+                // Matches iOS's `!timeseries.isEmpty` gate: a brand-new portfolio has no
+                // snapshot history at all, and a 200dp "Not enough history yet" placeholder
+                // chart just pads the card out — on a fully empty portfolio that extra
+                // height is what pushed the Sub-portfolios empty state below the fold,
+                // right under the floating Add button.
+                if (visibleTimeseries.isNotEmpty()) {
+                    change?.let { delta ->
+                        // scopedReturn (computed above) is the flow-adjusted figure for this same
+                        // window when it's available; delta.fraction (the naive curve ratio) is the
+                        // fallback while that fetch is in flight or has failed.
+                        val fraction = scopedReturn ?: delta.fraction
+                        Text(
+                            buildString {
+                                append(delta.delta.compactCurrency(baseCurrency))
+                                // A percentage is withheld when the window opened on a near-zero
+                                // base: going from $42 to $13,104 is funding, not a +31,100% return.
+                                fraction?.let { append("  (${it.signedPercent()})") }
+                                append("  ${range.label}")
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = amountColor(delta.delta),
+                        )
+                    }
+                    LineChart(points = curve, lineColor = chartAccent())
+                    SegmentedChoice(
+                        options = GrowthRange.entries,
+                        selected = range,
+                        optionLabel = { it.label },
+                        onSelect = { range = it },
                     )
                 }
-                LineChart(points = curve, lineColor = chartAccent())
-                SegmentedChoice(
-                    options = GrowthRange.entries,
-                    selected = range,
-                    optionLabel = { it.label },
-                    onSelect = { range = it },
-                )
             }
         }
 
