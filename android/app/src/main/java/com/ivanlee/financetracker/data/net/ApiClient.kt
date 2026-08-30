@@ -199,17 +199,20 @@ object Api {
             .header("Authorization", "Bearer $refresh")
             .post(ByteArray(0).toRequestBody(jsonMedia))
             .build()
-        try {
-            http.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                checkStatus(response.code, body)
-                val token = json.decodeFromString<TokenResponse>(body)
-                TokenStore.accessToken = token.accessToken
-                token.refreshToken?.let { TokenStore.refreshToken = it }
+        // A dropped connection, timeout, or server error here says nothing about whether the
+        // refresh token itself is still valid — only a 401 from the server does. Wiping the
+        // session on every transport failure turned a flaky network into a surprise full
+        // sign-out; only an actual rejection should do that.
+        http.newCall(request).execute().use { response ->
+            if (response.code == 401) {
+                expireSession()
+                throw SessionExpiredException()
             }
-        } catch (e: Exception) {
-            expireSession()
-            throw SessionExpiredException()
+            val body = response.body?.string().orEmpty()
+            checkStatus(response.code, body)
+            val token = json.decodeFromString<TokenResponse>(body)
+            TokenStore.accessToken = token.accessToken
+            token.refreshToken?.let { TokenStore.refreshToken = it }
         }
     }
 

@@ -180,17 +180,29 @@ actor APIClient {
         var request = URLRequest(url: baseURL.appending(path: "/auth/refresh"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(refreshToken)", forHTTPHeaderField: "Authorization")
+
+        // A dropped connection, timeout, or server error here says nothing about whether
+        // the refresh token itself is still valid — only a 401 from the server does. Wiping
+        // the session on every transport failure turned a flaky network into a surprise
+        // full sign-out; only an actual rejection should do that.
+        let data: Data
+        let response: URLResponse
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            try Self.checkStatus(response, data: data)
-            let token = try Self.decoder.decode(TokenResponse.self, from: data)
-            Keychain.set(token.accessToken, for: Keychain.accessTokenKey)
-            if let newRefresh = token.refreshToken {
-                Keychain.set(newRefresh, for: Keychain.refreshTokenKey)
-            }
+            (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            throw error
+        }
+
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 {
             expireSession()
             throw APIError.sessionExpired
+        }
+
+        try Self.checkStatus(response, data: data)
+        let token = try Self.decoder.decode(TokenResponse.self, from: data)
+        Keychain.set(token.accessToken, for: Keychain.accessTokenKey)
+        if let newRefresh = token.refreshToken {
+            Keychain.set(newRefresh, for: Keychain.refreshTokenKey)
         }
     }
 
