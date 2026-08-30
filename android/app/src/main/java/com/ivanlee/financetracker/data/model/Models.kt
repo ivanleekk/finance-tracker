@@ -1116,6 +1116,8 @@ data class RecurringTransactionCreate(
 /** PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone. */
 @Serializable
 data class RecurringTransactionUpdate(
+    val accountId: String? = null,
+    val categoryId: String? = null,
     val amount: Double? = null,
     val description: String? = null,
     val frequency: RecurrenceFrequency? = null,

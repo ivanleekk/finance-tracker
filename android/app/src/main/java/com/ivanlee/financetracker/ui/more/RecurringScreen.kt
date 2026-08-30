@@ -364,22 +364,20 @@ private fun RecurringFormDialog(
                     onSelect = { frequency = it },
                 )
                 DateField("Starts", startDate) { startDate = it }
-                if (existing == null) {
-                    DropdownField(
-                        label = "Account",
-                        selected = accounts.firstOrNull { it.id == accountId },
-                        options = selectableAccounts(accounts),
-                        optionLabel = { it.name },
-                        onSelect = { accountId = it.id },
-                    )
-                    DropdownField(
-                        label = "Category",
-                        selected = categories.firstOrNull { it.id == categoryId },
-                        options = categories,
-                        optionLabel = { "${it.name} (${if (it.type == TransactionType.INCOME) "income" else "expense"})" },
-                        onSelect = { categoryId = it.id },
-                    )
-                }
+                DropdownField(
+                    label = "Account",
+                    selected = accounts.firstOrNull { it.id == accountId },
+                    options = selectableAccounts(accounts),
+                    optionLabel = { it.name },
+                    onSelect = { accountId = it.id },
+                )
+                DropdownField(
+                    label = "Category",
+                    selected = categories.firstOrNull { it.id == categoryId },
+                    options = categories,
+                    optionLabel = { "${it.name} (${if (it.type == TransactionType.INCOME) "income" else "expense"})" },
+                    onSelect = { categoryId = it.id },
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -409,6 +407,8 @@ private fun RecurringFormDialog(
                                 Api.put<RecurringTransactionUpdate, RecurringTransactionResponse>(
                                     "/cashflow/recurring/${existing.id}",
                                     RecurringTransactionUpdate(
+                                        accountId = accountId,
+                                        categoryId = categoryId,
                                         amount = amount,
                                         description = description,
                                         frequency = frequency,

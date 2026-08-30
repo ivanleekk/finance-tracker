@@ -68,6 +68,29 @@ export async function action({ request }: ActionFunctionArgs) {
         return { success: true };
     }
 
+    if (intent === "updateRule") {
+        const endDate = (formData.get("end_date") as string | null)?.trim();
+
+        const res = await ssrFetch(`/cashflow/recurring/${formData.get("ruleId")}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                account_id: formData.get("account_id"),
+                category_id: formData.get("category_id"),
+                amount: Number(formData.get("amount")),
+                description: (formData.get("description") as string) || null,
+                frequency: formData.get("frequency"),
+                start_date: formData.get("start_date"),
+                end_date: endDate || null,
+            }),
+        });
+        if (!res.ok) {
+            const detail = await res.json().catch(() => null);
+            return { error: detail?.detail || "Failed to update the recurring transaction" };
+        }
+        return { success: true };
+    }
+
     if (intent === "toggleRule") {
         const res = await ssrFetch(`/cashflow/recurring/${formData.get("ruleId")}`, {
             method: "PUT",

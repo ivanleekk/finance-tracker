@@ -11,7 +11,7 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { RecurrenceFrequency, TransactionType } from "../../types/types";
-import type { CategoryResponse, RecurringTransactionResponse } from "../../types/types";
+import type { AccountResponse, CategoryResponse, RecurringTransactionResponse } from "../../types/types";
 import { frequencyLabel, groupOccurrencesByMonth, netUpcoming } from "../../lib/budgets";
 import type { RecurringLoaderData } from "./recurring.loader";
 
@@ -203,6 +203,8 @@ export default function Recurring() {
                                 accountLabel={accountName(rule.account_id)}
                                 formatCurrency={formatCurrency}
                                 showOwnershipTag={hasHousehold && viewMode === "blended"}
+                                selectableAccounts={selectableAccounts}
+                                selectableCategories={selectableCategories}
                             />
                         ))}
 
@@ -410,19 +412,54 @@ function RuleRow({
     accountLabel,
     formatCurrency,
     showOwnershipTag,
+    selectableAccounts,
+    selectableCategories,
 }: {
     rule: RecurringTransactionResponse;
     category: CategoryResponse | undefined;
     accountLabel: string;
     formatCurrency: (value: number, curr?: string) => string;
     showOwnershipTag: boolean;
+    selectableAccounts: AccountResponse[];
+    selectableCategories: CategoryResponse[];
 }) {
     // Each row gets its own fetchers — sharing one across every row in the list
     // meant two rows' submissions could stomp on each other's pending/error state.
     const toggleFetcher = useFetcher();
     const deleteFetcher = useFetcher();
+    const editFetcher = useFetcher();
     const isIncome = category?.type === TransactionType.Income;
     const isDeleting = deleteFetcher.state !== "idle";
+
+    const [isEditOpen, setIsEditOpen] = useState(false);
+    const [editFields, setEditFields] = useState({
+        description: rule.description || "",
+        category_id: rule.category_id,
+        account_id: rule.account_id,
+        amount: String(rule.amount),
+        frequency: rule.frequency as string,
+        start_date: rule.start_date,
+        end_date: rule.end_date || "",
+    });
+
+    useEffect(() => {
+        if (editFetcher.state === "idle" && editFetcher.data?.success) {
+            setIsEditOpen(false);
+        }
+    }, [editFetcher.state, editFetcher.data]);
+
+    const openEdit = () => {
+        setEditFields({
+            description: rule.description || "",
+            category_id: rule.category_id,
+            account_id: rule.account_id,
+            amount: String(rule.amount),
+            frequency: rule.frequency as string,
+            start_date: rule.start_date,
+            end_date: rule.end_date || "",
+        });
+        setIsEditOpen(true);
+    };
 
     return (
         <div
@@ -466,6 +503,9 @@ function RuleRow({
                 </div>
             </div>
             <div className="flex items-center gap-1 shrink-0 ml-auto">
+                <Button variant="ghost" size="sm" type="button" onClick={openEdit}>
+                    Edit
+                </Button>
                 <toggleFetcher.Form method="post" className="inline">
                     <input type="hidden" name="_intent" value="toggleRule" />
                     <input type="hidden" name="ruleId" value={rule.id} />
@@ -490,6 +530,124 @@ function RuleRow({
                     </Button>
                 </deleteFetcher.Form>
             </div>
+
+            {isEditOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <Card className="w-full max-w-md bg-white dark:bg-base-900 shadow-xl border-base-200 dark:border-base-800 flex flex-col max-h-[85vh]">
+                        <CardHeader>
+                            <CardTitle>Edit recurring transaction</CardTitle>
+                            <CardDescription>
+                                Changes apply from here on — transactions already posted are untouched.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="overflow-y-auto">
+                            <editFetcher.Form method="post" className="space-y-4">
+                                <input type="hidden" name="_intent" value="updateRule" />
+                                <input type="hidden" name="ruleId" value={rule.id} />
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Description</label>
+                                    <Input
+                                        name="description"
+                                        placeholder="e.g. Monthly rent"
+                                        value={editFields.description}
+                                        onChange={(e) => setEditFields({ ...editFields, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Category</label>
+                                    <Select
+                                        name="category_id"
+                                        value={editFields.category_id}
+                                        onChange={(category_id) => setEditFields({ ...editFields, category_id })}
+                                        options={selectableCategories.map(c => ({
+                                            value: c.id,
+                                            label: `${c.name} (${c.type})`,
+                                        }))}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-base-900 dark:text-base-50">Account</label>
+                                    <Select
+                                        name="account_id"
+                                        value={editFields.account_id}
+                                        onChange={(account_id) => setEditFields({ ...editFields, account_id })}
+                                        options={selectableAccounts.map(a => ({ value: a.id, label: a.name }))}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Amount</label>
+                                        <Input
+                                            name="amount"
+                                            type="number"
+                                            step="0.01"
+                                            min="0.01"
+                                            value={editFields.amount}
+                                            onChange={(e) => setEditFields({ ...editFields, amount: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">Frequency</label>
+                                        <Select
+                                            name="frequency"
+                                            value={editFields.frequency}
+                                            onChange={(frequency) => setEditFields({ ...editFields, frequency })}
+                                            options={Object.values(RecurrenceFrequency).map(f => ({
+                                                value: f,
+                                                label: frequencyLabel(f),
+                                            }))}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">First occurrence</label>
+                                        <Input
+                                            name="start_date"
+                                            type="date"
+                                            value={editFields.start_date}
+                                            onChange={(e) => setEditFields({ ...editFields, start_date: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                                            Ends <span className="font-normal text-base-500">(optional)</span>
+                                        </label>
+                                        <Input
+                                            name="end_date"
+                                            type="date"
+                                            value={editFields.end_date}
+                                            onChange={(e) => setEditFields({ ...editFields, end_date: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                {editFetcher.data?.error && (
+                                    <p className="text-sm text-red-600 dark:text-red-400">{editFetcher.data.error}</p>
+                                )}
+
+                                <div className="flex gap-3 justify-end pt-4">
+                                    <Button variant="ghost" type="button" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                                    <Button
+                                        variant="primary"
+                                        type="submit"
+                                        disabled={editFetcher.state !== "idle" || !editFields.account_id || !editFields.category_id}
+                                    >
+                                        {editFetcher.state !== "idle" ? "Saving…" : "Save changes"}
+                                    </Button>
+                                </div>
+                            </editFetcher.Form>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 }

@@ -18,6 +18,7 @@ struct RecurringView: View {
     @State private var isPosting = false
     @State private var postedMessage: String?
     @State private var showingAddRule = false
+    @State private var editingRule: RecurringTransactionResponse?
     @State private var errorMessage: String?
 
     // Delete confirmation + per-row state lives here, not on the row itself —
@@ -120,7 +121,8 @@ struct RecurringView: View {
                         isDeleting: deletingRuleId == rule.id,
                         rowError: rowErrors[rule.id],
                         onToggle: { await setActive(rule, isActive: !rule.isActive) },
-                        onRequestDelete: { pendingDelete = rule }
+                        onRequestDelete: { pendingDelete = rule },
+                        onEdit: { editingRule = rule }
                     )
                 }
                 if visibleRules.isEmpty && !isLoading {
@@ -162,6 +164,9 @@ struct RecurringView: View {
         }
         .sheet(isPresented: $showingAddRule) {
             RecurringFormView(accounts: accounts, categories: selectableCategories) { await load() }
+        }
+        .sheet(item: $editingRule) { rule in
+            RecurringFormView(accounts: accounts, categories: selectableCategories, existing: rule) { await load() }
         }
         .overlay {
             if isLoading && rules.isEmpty { LoadingSkeleton() }
@@ -282,10 +287,54 @@ struct RecurringRuleRow: View {
     let rowError: String?
     let onToggle: () async -> Void
     let onRequestDelete: () -> Void
+    let onEdit: () -> Void
 
     private var isIncome: Bool { category?.type == .income }
 
     var body: some View {
+        Button(action: onEdit) { rowContent }
+            .buttonStyle(.plain)
+            .opacity(rule.isActive ? 1 : 0.55)
+            .swipeActions(edge: .leading) {
+                Button {
+                    Task { await onToggle() }
+                } label: {
+                    Label(rule.isActive ? "Pause" : "Resume",
+                          systemImage: rule.isActive ? "pause" : "play")
+                }
+                .tint(.orange)
+            }
+            // `allowsFullSwipe: false` so a fast full swipe reveals the button
+            // rather than deleting outright — the confirmation dialog (shown
+            // from the parent once `onRequestDelete` fires) is the only path to
+            // an actual delete.
+            .swipeActions(allowsFullSwipe: false) {
+                Button(role: .destructive, action: onRequestDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+                .disabled(isDeleting)
+            }
+            // Both swipes again on a long press: a swipe is invisible until you try it and
+            // unreachable from Voice Control / Switch Control. The leading Pause/Resume is
+            // especially easy to miss — nothing on the row says a left edge exists.
+            .contextMenu {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button {
+                    Task { await onToggle() }
+                } label: {
+                    Label(rule.isActive ? "Pause" : "Resume",
+                          systemImage: rule.isActive ? "pause" : "play")
+                }
+                Button(role: .destructive, action: onRequestDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+                .disabled(isDeleting)
+            }
+    }
+
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: isIncome ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
@@ -324,65 +373,57 @@ struct RecurringRuleRow: View {
                     .foregroundStyle(.red)
             }
         }
-        .opacity(rule.isActive ? 1 : 0.55)
-        .swipeActions(edge: .leading) {
-            Button {
-                Task { await onToggle() }
-            } label: {
-                Label(rule.isActive ? "Pause" : "Resume",
-                      systemImage: rule.isActive ? "pause" : "play")
-            }
-            .tint(.orange)
-        }
-        // `allowsFullSwipe: false` so a fast full swipe reveals the button
-        // rather than deleting outright — the confirmation dialog (shown
-        // from the parent once `onRequestDelete` fires) is the only path to
-        // an actual delete.
-        .swipeActions(allowsFullSwipe: false) {
-            Button(role: .destructive, action: onRequestDelete) {
-                Label("Delete", systemImage: "trash")
-            }
-            .disabled(isDeleting)
-        }
-        // Both swipes again on a long press: a swipe is invisible until you try it, and
-        // unreachable from Voice Control / Switch Control. The leading Pause/Resume is
-        // especially easy to miss — nothing on the row says a left edge exists.
-        .contextMenu {
-            Button {
-                Task { await onToggle() }
-            } label: {
-                Label(rule.isActive ? "Pause" : "Resume",
-                      systemImage: rule.isActive ? "pause" : "play")
-            }
-            Button(role: .destructive, action: onRequestDelete) {
-                Label("Delete", systemImage: "trash")
-            }
-            .disabled(isDeleting)
-        }
     }
 }
 
-/// Create a recurring rule.
+/// Create a recurring rule, or edit an existing one's schedule/targets.
 struct RecurringFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SessionStore.self) private var session
 
     let accounts: [AccountResponse]
     let categories: [CategoryResponse]
+    /// Non-nil in edit mode. Ownership can't be changed here — the backend's
+    /// `RecurringTransactionUpdate` has no `owner_user_id` field — so the
+    /// Private toggle only appears when creating.
+    let existing: RecurringTransactionResponse?
     let onSaved: () async -> Void
 
-    @State private var description = ""
-    @State private var categoryId = ""
-    @State private var accountId = ""
-    @State private var amountText = ""
-    @State private var frequency: RecurrenceFrequency = .monthly
-    @State private var startDate = Date()
-    @State private var hasEndDate = false
-    @State private var endDate = Date()
+    @State private var description: String
+    @State private var categoryId: String
+    @State private var accountId: String
+    @State private var amountText: String
+    @State private var frequency: RecurrenceFrequency
+    @State private var startDate: Date
+    @State private var hasEndDate: Bool
+    @State private var endDate: Date
     @State private var isPrivate = false
-    @State private var didSeedPrivacy = false
+    @State private var didSeedPrivacy: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
+
+    init(
+        accounts: [AccountResponse],
+        categories: [CategoryResponse],
+        existing: RecurringTransactionResponse? = nil,
+        onSaved: @escaping () async -> Void
+    ) {
+        self.accounts = accounts
+        self.categories = categories
+        self.existing = existing
+        self.onSaved = onSaved
+        _description = State(initialValue: existing?.description ?? "")
+        _categoryId = State(initialValue: existing?.categoryId ?? "")
+        _accountId = State(initialValue: existing?.accountId ?? "")
+        _amountText = State(initialValue: existing.map { String($0.amount) } ?? "")
+        _frequency = State(initialValue: existing?.frequency ?? .monthly)
+        _startDate = State(initialValue: existing?.startDate ?? Date())
+        _hasEndDate = State(initialValue: existing?.endDate != nil)
+        _endDate = State(initialValue: existing?.endDate ?? Date())
+        // Edit mode has nothing left to seed after init, so it's settled
+        // immediately; create mode waits for the `onAppear` privacy seed below.
+        _didSeedPrivacy = State(initialValue: existing != nil)
+    }
 
     private var amount: Double? {
         let cleaned = amountText.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
@@ -426,8 +467,10 @@ struct RecurringFormView: View {
                     Text("Back-date the first occurrence and we'll catch up everything you've already paid.")
                 }
 
-                Section {
-                    Toggle("Private to me", isOn: $isPrivate)
+                if existing == nil {
+                    Section {
+                        Toggle("Private to me", isOn: $isPrivate)
+                    }
                 }
 
                 if let errorMessage {
@@ -437,7 +480,7 @@ struct RecurringFormView: View {
                     }
                 }
             }
-            .navigationTitle("New Recurring")
+            .navigationTitle(existing == nil ? "New Recurring" : "Edit Recurring")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -462,27 +505,43 @@ struct RecurringFormView: View {
     }
 
     private func save() {
-        guard let amount, let household = session.activeHousehold else { return }
+        guard let amount else { return }
         isSaving = true
         errorMessage = nil
         let trimmedDescription = description.trimmingCharacters(in: .whitespaces)
         Task {
             defer { isSaving = false }
             do {
-                let _: RecurringTransactionResponse = try await APIClient.shared.post(
-                    "/cashflow/recurring",
-                    body: RecurringTransactionCreate(
-                        householdId: household.id,
-                        accountId: accountId,
-                        categoryId: categoryId,
-                        amount: amount,
-                        description: trimmedDescription.isEmpty ? nil : trimmedDescription,
-                        frequency: frequency,
-                        startDate: startDate.apiDateOnly,
-                        endDate: hasEndDate ? endDate.apiDateOnly : nil,
-                        ownerUserId: isPrivate ? session.user?.id : nil
+                if let existing {
+                    let _: RecurringTransactionResponse = try await APIClient.shared.put(
+                        "/cashflow/recurring/\(existing.id)",
+                        body: RecurringTransactionEdit(
+                            accountId: accountId,
+                            categoryId: categoryId,
+                            amount: amount,
+                            description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+                            frequency: frequency,
+                            startDate: startDate.apiDateOnly,
+                            endDate: hasEndDate ? endDate.apiDateOnly : nil
+                        )
                     )
-                )
+                } else {
+                    guard let household = session.activeHousehold else { return }
+                    let _: RecurringTransactionResponse = try await APIClient.shared.post(
+                        "/cashflow/recurring",
+                        body: RecurringTransactionCreate(
+                            householdId: household.id,
+                            accountId: accountId,
+                            categoryId: categoryId,
+                            amount: amount,
+                            description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+                            frequency: frequency,
+                            startDate: startDate.apiDateOnly,
+                            endDate: hasEndDate ? endDate.apiDateOnly : nil,
+                            ownerUserId: isPrivate ? session.user?.id : nil
+                        )
+                    )
+                }
                 await onSaved()
                 dismiss()
             } catch {

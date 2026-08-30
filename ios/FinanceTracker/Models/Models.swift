@@ -1156,6 +1156,7 @@ struct RecurringTransactionCreate: Encodable {
 }
 
 /// PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone.
+/// Used only for the pause/resume toggle, which sends `isActive` alone.
 struct RecurringTransactionUpdate: Encodable {
     var amount: Double? = nil
     var description: String? = nil
@@ -1163,6 +1164,39 @@ struct RecurringTransactionUpdate: Encodable {
     var startDate: String? = nil
     var endDate: String? = nil
     var isActive: Bool? = nil
+}
+
+/// PUT /cashflow/recurring/{id} from the edit form, which resends every field
+/// like the web edit action does — so `description`/`endDate` must reach the
+/// wire as an explicit JSON `null` when cleared rather than an omitted key
+/// (which the backend's `exclude_unset` would read as "leave alone"). Mirrors
+/// `TransactionUpdate`'s hand-written encoder for the same reason.
+struct RecurringTransactionEdit: Encodable {
+    let accountId: String
+    let categoryId: String
+    let amount: Double
+    let description: String?
+    let frequency: RecurrenceFrequency
+    /// Date-only strings — see Formatters.apiDateOnly.
+    let startDate: String
+    let endDate: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case accountId, categoryId, amount, description, frequency, startDate, endDate
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(accountId, forKey: .accountId)
+        try container.encode(categoryId, forKey: .categoryId)
+        try container.encode(amount, forKey: .amount)
+        // `encode` rather than `encodeIfPresent`: nil must reach the wire as
+        // null, because that is what clears a description/end date.
+        try container.encode(description, forKey: .description)
+        try container.encode(frequency, forKey: .frequency)
+        try container.encode(startDate, forKey: .startDate)
+        try container.encode(endDate, forKey: .endDate)
+    }
 }
 
 /// GET /cashflow/recurring/household/{id}/upcoming
