@@ -201,19 +201,22 @@ FinanceTracker/
     - `periodChange`'s fraction is a raw curve-endpoint ratio with **no cash-flow adjustment**, so a recurring contribution still counts as "growth" the same as a market gain — the 1%-base guard above only catches the extreme case, not a household funding a goal $500/month. `SubPortfolioDetailView` is the only screen that shows this badge (the main Portfolio tab's growth chart has no percentage overlay); for every range it swaps in a `/metrics` call scoped to that same window (`metrics.simpleReturn` for `.all`, reusing the fetch the Performance grid already made; a fresh `start_date`-scoped fetch via `GrowthRange.cutoffDate(now:)` for 1M/6M/1Y, cached as `rangeMetrics`/`rangeMetricsRange`) instead of the naive fraction — `simpleReturn` is already flow-adjusted the same way TWR/IRR are (see `performance.py`, issue #256). The dollar delta stays curve-based regardless, since "value went up by $X" is true no matter where the money came from; `rangeMetricsRange == range` guards against showing a slow response after the user has already flipped ranges again, falling back to the naive fraction while a fetch is in flight or has failed.
 - **Net Worth Split** (`Support/NetWorth.swift`, rendered on the Dashboard by `NetWorthSplitChart`) is a donut of gross-asset composition — Cash / Investments / Retirement & Locked / Property / Other Assets — with liabilities and the net total as plain rows underneath rather than wedges (a `SectorMark` donut can't render a negative slice). `netWorthBreakdown`'s `sliceTotal` is the sum of the *visible* slices only, which is deliberately not the same as gross assets when a bucket (e.g. cash, for an overdrawn household) goes negative and gets dropped — that's also why `NetWorthSplitChart` takes the screen's independently-computed `netWorth` as its own parameter instead of deriving `sliceTotal - liabilities`, which would silently drop the excluded negative bucket from the total.
 - **Charts all go through `Views/Components/ChartStyle.swift`.** Three rules it exists to keep:
-  **composition colours are fixed, not themed** (`ChartStyle.categorical` = the web's
+  **multi-slice breakdowns are fixed, not themed** (`ChartStyle.categorical` = the web's
   `--chart-cat-1..5`, with its own validated dark steps; assigned by *key* via
   `netWorthColor(key:)`, never by the slice's index — the donut drops empty buckets, so an
   index would repaint the survivors), **fills are gradient washes with a 2pt edge line**
   rather than saturated blocks, and **chrome recedes** (hairline *solid* gridlines, few
   ticks, secondary-ink labels, no plot border) via `.financeChartAxes(currency:dateSpan:)`.
   Pass `dateSpan` — it picks year / month-year / day-month labels, and the last label is
-  right-anchored so it isn't truncated by the trailing y-axis gutter. Single-series charts
-  (a goal curve, one account's balance) keep `session.theme` accent; there is no second
-  category to confuse them with. The Dashboard's net-worth chart draws its two bands
-  explicitly (`NetWorthAreaChart`) instead of letting Swift Charts stack them, because cash
-  goes negative for an overdrawn household and an automatic stack renders that flipped
-  through the axis instead of hanging below zero. Its series is **binned by span** through
+  right-anchored so it isn't truncated by the trailing y-axis gutter. Charts with only one or
+  two named series (a goal curve, one account's balance, the Dashboard's Cash/Investments
+  area chart) keep `session.theme` accent instead of the fixed categorical palette — matching
+  web and Android — since there's no third slice for the accent to be confused with. The
+  Dashboard's net-worth chart draws its two bands explicitly (`NetWorthAreaChart`, taking
+  `cashColor`/`investmentsColor` from `session.theme.secondary`/`primary.accent`) instead of
+  letting Swift Charts stack them, because cash goes negative for an overdrawn household and
+  an automatic stack renders that flipped through the axis instead of hanging below zero. Its
+  series is **binned by span** through
   the same `growthBin(forSpanDays:)` the growth charts use — a household tracking daily for
   five years is ~1,800 dates, which is more marks than a phone-width plot can resolve and
   which Swift Charts re-lays-out on every redraw. `NetWorthBandPoint.id` is the **date**,

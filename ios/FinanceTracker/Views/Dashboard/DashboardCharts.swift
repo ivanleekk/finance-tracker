@@ -35,6 +35,12 @@ struct NetWorthBandPoint: Identifiable {
 struct NetWorthAreaChart: View {
     let bands: [NetWorthBandPoint]
     let currency: String
+    /// Theme-reactive, matching web and Android: this chart has only one thing to tell
+    /// apart (cash vs. investments), so — unlike the fixed categorical palette used by
+    /// multi-slice breakdowns like the Net Worth Split donut below it — it's free to
+    /// carry the household's own accent.
+    let cashColor: Color
+    let investmentsColor: Color
     /// Owned by the Dashboard, not this view: scrubbing re-reads the headline Net Worth
     /// figure and the Cash / Investments cells above and below the plot, which is a
     /// better place for the number than a tooltip drawn over the curve it came from.
@@ -64,7 +70,7 @@ struct NetWorthAreaChart: View {
                     yEnd: .value("To", point.cashTop),
                     series: .value("Band", "cash")
                 )
-                .foregroundStyle(ChartStyle.fill(ChartStyle.cash))
+                .foregroundStyle(ChartStyle.fill(cashColor))
                 .interpolationMethod(.monotone)
 
                 AreaMark(
@@ -73,7 +79,7 @@ struct NetWorthAreaChart: View {
                     yEnd: .value("To", point.investmentsTop),
                     series: .value("Band", "investments")
                 )
-                .foregroundStyle(ChartStyle.fill(ChartStyle.investments))
+                .foregroundStyle(ChartStyle.fill(investmentsColor))
                 .interpolationMethod(.monotone)
             }
 
@@ -98,7 +104,7 @@ struct NetWorthAreaChart: View {
                     y: .value("Cash", point.cashTop),
                     series: .value("Series", "cash")
                 )
-                .foregroundStyle(ChartStyle.cash)
+                .foregroundStyle(cashColor)
                 .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.monotone)
             }
@@ -109,7 +115,7 @@ struct NetWorthAreaChart: View {
                     y: .value("Investments", point.investmentsTop),
                     series: .value("Series", "investments")
                 )
-                .foregroundStyle(ChartStyle.investments)
+                .foregroundStyle(investmentsColor)
                 .lineStyle(StrokeStyle(lineWidth: ChartStyle.lineWidth, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.monotone)
             }
@@ -119,7 +125,7 @@ struct NetWorthAreaChart: View {
             if let last = bands.last {
                 let onInvestments = last.investments > 0.005
                 let markerY = onInvestments ? last.investmentsTop : last.cashTop
-                let markerColor = onInvestments ? ChartStyle.investments : ChartStyle.cash
+                let markerColor = onInvestments ? investmentsColor : cashColor
                 PointMark(x: .value("Date", last.date), y: .value("Latest", markerY))
                     .symbolSize(60)
                     .foregroundStyle(markerColor)

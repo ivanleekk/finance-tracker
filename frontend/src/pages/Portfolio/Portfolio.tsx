@@ -551,8 +551,8 @@ export default function Portfolio() {
                             <AreaChart data={currentData.history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                        <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-base-200)" className="dark:opacity-10" />
@@ -560,7 +560,7 @@ export default function Portfolio() {
                                     dataKey="date"
                                     axisLine={false}
                                     tickLine={false}
-                                    tick={{ fill: '#64748b', fontSize: 12 }}
+                                    tick={{ fill: 'var(--color-base-400)', fontSize: 12 }}
                                     tickFormatter={(val) => {
                                         const d = new Date(val);
                                         if (timeframe === "Yearly") return d.getUTCFullYear().toString();

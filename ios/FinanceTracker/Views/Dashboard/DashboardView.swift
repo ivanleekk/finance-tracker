@@ -98,14 +98,18 @@ struct DashboardView: View {
         // from this: headline figure, date label and both breakdown cells, so scrubbing
         // rewrites the numbers the reader already knows rather than adding new ones.
         let scrubbed = netWorthScrub.flatMap { ChartStyle.nearest(to: $0, in: bands, by: \.date) }
+        // Cash/Investments are theme-reactive here (matching web and Android), unlike the
+        // fixed categorical palette a multi-slice breakdown like the donut below uses.
+        let cashColor = session.theme.secondary.accent
+        let investmentsColor = session.theme.primary.accent
         let scrubReadout: ChartScrubReadout? = scrubbed.map { point in
             ChartScrubReadout(
                 date: point.date,
                 entries: [
                     ChartScrubEntry(label: "Cash", value: point.cash,
-                                    color: ChartStyle.cash, markerY: point.cashTop),
+                                    color: cashColor, markerY: point.cashTop),
                     ChartScrubEntry(label: "Investments", value: point.investments,
-                                    color: ChartStyle.investments, markerY: point.investmentsTop),
+                                    color: investmentsColor, markerY: point.investmentsTop),
                 ]
             )
         }
@@ -140,6 +144,8 @@ struct DashboardView: View {
                         NetWorthAreaChart(
                             bands: bands,
                             currency: baseCurrency,
+                            cashColor: cashColor,
+                            investmentsColor: investmentsColor,
                             scrubDate: $netWorthScrub,
                             readout: scrubReadout
                         )
@@ -153,13 +159,13 @@ struct DashboardView: View {
                             BreakdownCell(
                                 title: "Cash",
                                 value: scrubbed?.cash ?? derived.currentCash,
-                                color: ChartStyle.cash,
+                                color: cashColor,
                                 currency: baseCurrency
                             )
                             BreakdownCell(
                                 title: "Investments",
                                 value: scrubbed?.investments ?? derived.currentPortfolioValue,
-                                color: ChartStyle.investments,
+                                color: investmentsColor,
                                 currency: baseCurrency
                             )
                         }

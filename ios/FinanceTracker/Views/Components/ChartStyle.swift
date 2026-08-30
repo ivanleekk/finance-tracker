@@ -5,11 +5,13 @@ import SwiftUI
 ///
 /// Three rules, applied everywhere so the charts read as one system:
 ///
-/// 1. **Composition colours are fixed, not themed.** A category's hue must not move
-///    when the household picks a different accent, and Cash must be the same colour
-///    in the Dashboard's area chart as in the Net Worth Split donut directly below it.
-///    Single-series charts (one goal's curve, one account's balance) keep the theme
-///    accent — with nothing to tell apart, the accent is free to carry the brand.
+/// 1. **Multi-slice breakdowns are fixed, not themed.** A donut with several categories
+///    (Net Worth Split, Allocation, Top Categories) must not have a slice's hue move
+///    when the household picks a different accent, or "Property" on one screen could
+///    match "Cash" on another. Charts with only one or two named series — a goal's
+///    curve, an account's balance, the Dashboard's Cash/Investments area chart — keep
+///    the theme accent instead, matching web and Android: with nothing to confuse a
+///    slice with, the accent is free to carry the brand.
 /// 2. **Fills are washes, not blocks.** A saturated area fill at full strength reads
 ///    loud and flattens everything else on the screen; each band is a vertical
 ///    gradient with a crisp 2pt edge line doing the definition instead.
@@ -43,9 +45,6 @@ enum ChartStyle {
     static func netWorthColor(key: String) -> Color {
         categorical[netWorthSlots[key] ?? (abs(key.hashValue) % categorical.count)]
     }
-
-    static var cash: Color { netWorthColor(key: "cash") }
-    static var investments: Color { netWorthColor(key: "investments") }
 
     /// Gridlines and axis rules: one step off the surface, never competing with the data.
     static let grid: Color = .chartDynamic(light: 0xE4E3E1, dark: 0x3A3A3C)
