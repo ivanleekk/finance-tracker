@@ -39,6 +39,7 @@ import com.ivanlee.financetracker.data.model.Counterparty
 import com.ivanlee.financetracker.data.model.CounterpartyCreate
 import com.ivanlee.financetracker.data.model.ReferenceMcc
 import com.ivanlee.financetracker.logic.Cards
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionSplitInput
@@ -176,7 +177,7 @@ fun TransactionFormScreen(
         }
     }
 
-    val amount = amountText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
     val selectedCurrency = accounts.firstOrNull { it.id == accountId }?.currency
         ?: sessionVm.activeHousehold?.baseCurrency
 

@@ -50,6 +50,7 @@ import com.ivanlee.financetracker.data.model.LiquidityStatus
 import com.ivanlee.financetracker.data.model.ReferenceCurrency
 import com.ivanlee.financetracker.data.model.UserUpdate
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
@@ -124,13 +125,13 @@ fun OnboardingScreen(sessionVm: SessionViewModel) {
                 if (!skipPresets && addCash) {
                     sessionVm.createPresetAccount(
                         householdId, "Cash account", LiquidityStatus.LIQUID,
-                        baseCurrency, owner, cashBalance.toDoubleOrNull() ?: 0.0,
+                        baseCurrency, owner, CalculatorInput.evaluateArithmeticExpression(cashBalance) ?: 0.0,
                     )
                 }
                 if (!skipPresets && addInvestment) {
                     sessionVm.createPresetAccount(
                         householdId, "Investment account", LiquidityStatus.MARKET_LIQUID,
-                        baseCurrency, owner, investmentBalance.toDoubleOrNull() ?: 0.0,
+                        baseCurrency, owner, CalculatorInput.evaluateArithmeticExpression(investmentBalance) ?: 0.0,
                     )
                 }
                 step = 2

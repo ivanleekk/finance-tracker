@@ -32,6 +32,7 @@ import com.ivanlee.financetracker.data.model.TradeResponse
 import com.ivanlee.financetracker.data.model.TradeType
 import com.ivanlee.financetracker.data.model.TradeUpdate
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.DateField
@@ -122,8 +123,8 @@ fun TradeFormScreen(
 
     val tradableAssets = assets.filter { !it.isCash }.sortedBy { it.ticker }
     val selectedAsset = assets.firstOrNull { it.id == assetId }
-    val quantity = quantityText.replace(",", "").toDoubleOrNull()
-    val price = priceText.replace(",", "").toDoubleOrNull()
+    val quantity = CalculatorInput.evaluateArithmeticExpression(quantityText)
+    val price = CalculatorInput.evaluateArithmeticExpression(priceText)
     val canSave = (quantity ?: 0.0) > 0 && (price ?: 0.0) > 0 &&
         subPortfolioId != null && assetId != null && accountId != null && !saving
 

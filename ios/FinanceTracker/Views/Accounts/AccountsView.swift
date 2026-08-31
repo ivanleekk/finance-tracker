@@ -480,14 +480,10 @@ struct AccountFormView: View {
 
                 if kind == .liability {
                     Section {
-                        TextField("Amount borrowed", text: $principalText)
-                            .keyboardType(.decimalPad)
-                        TextField("Interest rate % / yr", text: $rateText)
-                            .keyboardType(.decimalPad)
-                        TextField("Term (months)", text: $termMonthsText)
-                            .keyboardType(.numberPad)
-                        TextField("Monthly payment (optional)", text: $paymentText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "Amount borrowed", text: $principalText)
+                        CalculatorField(placeholder: "Interest rate % / yr", text: $rateText)
+                        CalculatorField(placeholder: "Term (months)", text: $termMonthsText, keyboardType: .numberPad, allowsDecimal: false)
+                        CalculatorField(placeholder: "Monthly payment (optional)", text: $paymentText)
                         Toggle("Set first payment date", isOn: $hasLoanStart.animation())
                         if hasLoanStart {
                             DatePicker(
@@ -509,8 +505,7 @@ struct AccountFormView: View {
 
                 if kind == .asset && liquidity == .illiquid {
                     Section {
-                        TextField("Expected appreciation % / yr", text: $appreciationText)
-                            .keyboardType(.numbersAndPunctuation)
+                        CalculatorField(placeholder: "Expected appreciation % / yr", text: $appreciationText)
                     } header: {
                         Text("Property")
                     } footer: {
@@ -563,24 +558,20 @@ struct AccountFormView: View {
     /// treats a partial set of terms as "no terms" and keeps the flat balance.
     private func loanNumber(_ text: String) -> Double? {
         guard kind == .liability else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else { return nil }
+        guard let value = CalculatorInput.evaluateArithmeticExpression(text), value > 0 else { return nil }
         return value
     }
 
     private func loanInt(_ text: String) -> Int? {
         guard kind == .liability else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let value = Int(trimmed), value > 0 else { return nil }
-        return value
+        guard let value = CalculatorInput.evaluateArithmeticExpression(text), value > 0 else { return nil }
+        return Int(value.rounded())
     }
 
     /// Property can fall in value, so a negative rate is legitimate here.
     private func propertyNumber(_ text: String) -> Double? {
         guard kind == .asset, liquidity == .illiquid else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let value = Double(trimmed) else { return nil }
-        return value
+        return CalculatorInput.evaluateArithmeticExpression(text)
     }
 
     private var loanStartValue: String? {
@@ -652,7 +643,7 @@ struct AddBalanceView: View {
 
     /// Balances may be negative (liabilities, overdrawn accounts).
     private var amount: Double? {
-        Double(amountText.replacingOccurrences(of: ",", with: ""))
+        CalculatorInput.evaluateArithmeticExpression(amountText)
     }
 
     private var canSave: Bool { amount != nil && !isSaving }
@@ -663,8 +654,7 @@ struct AddBalanceView: View {
                 Section {
                     HStack {
                         Text("Balance")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.numbersAndPunctuation)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)

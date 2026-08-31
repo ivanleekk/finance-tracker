@@ -25,6 +25,7 @@ import com.ivanlee.financetracker.data.model.BalanceCreate
 import com.ivanlee.financetracker.data.model.BalanceResponse
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.DateField
 import com.ivanlee.financetracker.ui.components.DetailScaffold
@@ -58,7 +59,7 @@ fun AddBalanceScreen(
 
     // Balances may be negative — liabilities and overdrawn accounts are the normal case here,
     // which is why this isn't validated as "positive money".
-    val amount = amountText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
     val canSave = amount != null && !saving
 
     fun save() {

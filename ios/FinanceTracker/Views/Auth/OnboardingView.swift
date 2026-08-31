@@ -268,14 +268,14 @@ struct OnboardingView: View {
                 try await session.createPresetAccount(
                     householdId: householdId, name: "Cash account",
                     liquidity: .liquid, currency: baseCurrency,
-                    ownerUserId: owner, startingBalance: Double(cashBalance) ?? 0
+                    ownerUserId: owner, startingBalance: CalculatorInput.evaluateArithmeticExpression(cashBalance) ?? 0
                 )
             }
             if !skipPresets && addInvestment {
                 try await session.createPresetAccount(
                     householdId: householdId, name: "Investment account",
                     liquidity: .marketLiquid, currency: baseCurrency,
-                    ownerUserId: owner, startingBalance: Double(investmentBalance) ?? 0
+                    ownerUserId: owner, startingBalance: CalculatorInput.evaluateArithmeticExpression(investmentBalance) ?? 0
                 )
             }
             withAnimation { step = 2 }
@@ -372,8 +372,7 @@ private struct PresetAccountCard: View {
             if isOn {
                 HStack(spacing: 6) {
                     Text(currency).font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                    TextField("0.00", text: $balance)
-                        .keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "0.00", text: $balance)
                         .font(.subheadline)
                 }
                 .padding(.vertical, 6)

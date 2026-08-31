@@ -44,6 +44,7 @@ import com.ivanlee.financetracker.data.model.UpcomingOccurrence
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.BudgetPresentation
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.mediumDate
@@ -347,7 +348,7 @@ private fun RecurringFormDialog(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    val amount = amountText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
 
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -39,8 +40,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.mediumDate
 import java.time.Instant
 
@@ -73,10 +78,99 @@ fun FormField(
 }
 
 /**
- * Money entry.
+ * A numeric field with a +/-/x/div row that appears under it while focused, so the user can
+ * type a quick expression ("42.50/3") instead of doing the math elsewhere. On losing focus the
+ * text normalizes to the evaluated result (`CalculatorInput`) — which is also why every
+ * existing `text.replace(",", "").toDoubleOrNull()` parse at a call site's save path should go
+ * through `CalculatorInput.evaluateArithmeticExpression` instead: it's a strict superset of the
+ * old parse and catches the rare case where the field is submitted while still focused.
  *
  * [KeyboardType.Decimal] rather than Number: a numeric keypad without a decimal separator
  * makes it impossible to type $12.50, which is most of the amounts anyone enters.
+ */
+@Composable
+fun CalculatorField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = "0.00",
+    keyboardType: KeyboardType = KeyboardType.Decimal,
+    allowsDecimal: Boolean = true,
+    isError: Boolean = false,
+    supportingText: String? = null,
+    trailingIcon: @Composable (() -> Unit)? = null,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    // A plain-String OutlinedTextField keeps the cursor at its old numeric offset when `value`
+    // changes programmatically (an operator-button tap, or the on-blur normalization below)
+    // rather than moving it to the end — so "12.50" + tap "+" + type "3" produced "12.503+"
+    // instead of "12.50+3". Managing our own TextFieldValue lets us pin the cursor to the end
+    // on every synthetic change while still tracking the IME's own cursor placement during
+    // normal typing. Resyncing only when `value` disagrees with our own last-known text (rather
+    // than on every recomposition) is what avoids fighting the user mid-string: our own edits
+    // always update `fieldValue` before calling `onValueChange`, so by the next recomposition
+    // `value` already matches — a mismatch here means the caller changed it for some other
+    // reason (e.g. seeding an edit form from loaded data) and deserves a fresh cursor position.
+    var fieldValue by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (value != fieldValue.text) {
+        fieldValue = TextFieldValue(value, TextRange(value.length))
+    }
+
+    fun setText(newText: String) {
+        fieldValue = TextFieldValue(newText, TextRange(newText.length))
+        onValueChange(newText)
+    }
+
+    Column(modifier) {
+        OutlinedTextField(
+            value = fieldValue,
+            onValueChange = { new ->
+                fieldValue = new
+                onValueChange(new.text)
+            },
+            label = { Text(label) },
+            placeholder = placeholder?.let { { Text(it) } },
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            singleLine = true,
+            isError = isError,
+            supportingText = supportingText?.let { { Text(it) } },
+            trailingIcon = trailingIcon,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { state ->
+                    if (isFocused && !state.isFocused) {
+                        setText(CalculatorInput.normalizedDisplayText(fieldValue.text, allowsDecimal))
+                    }
+                    isFocused = state.isFocused
+                },
+        )
+        if (isFocused) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(
+                    CalculatorInput.Operator.ADD to "+",
+                    CalculatorInput.Operator.SUBTRACT to "−",
+                    CalculatorInput.Operator.MULTIPLY to "×",
+                    CalculatorInput.Operator.DIVIDE to "÷",
+                ).forEach { (op, symbol) ->
+                    OutlinedButton(onClick = { setText(CalculatorInput.inserting(op, fieldValue.text)) }) {
+                        Text(symbol)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Money entry — a [CalculatorField] with a currency-code trailing label and digit/operator
+ * filtering on typed input.
  */
 @Composable
 fun MoneyField(
@@ -88,13 +182,13 @@ fun MoneyField(
     isError: Boolean = false,
     supportingText: String? = null,
 ) {
-    FormField(
+    CalculatorField(
         label = label,
         value = value,
-        onValueChange = { text -> onValueChange(text.filter { it.isDigit() || it == '.' || it == '-' }) },
+        onValueChange = { text ->
+            onValueChange(text.filter { it.isDigit() || it in ".,-+×÷*/" })
+        },
         modifier = modifier,
-        placeholder = "0.00",
-        keyboardType = KeyboardType.Decimal,
         isError = isError,
         supportingText = supportingText,
         trailingIcon = currencyCode?.let {

@@ -134,7 +134,7 @@ struct CardManageView: View {
 
                 Section {
                     TextField("e.g. Dining cap", text: $limitName)
-                    TextField("Amount", text: $limitAmount).keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "Amount", text: $limitAmount)
                     Picker("Direction", selection: $limitDirection) {
                         Text("Cap — stay under").tag(LimitDirection.ceiling)
                         Text("Minimum — reach it").tag(LimitDirection.floor)
@@ -146,7 +146,7 @@ struct CardManageView: View {
                         Text("Each year").tag(LimitResetBasis.year)
                     }
                     Button("Add limit") { Task { await addLimit() } }
-                        .disabled(limitName.isEmpty || Double(limitAmount) == nil)
+                        .disabled(limitName.isEmpty || CalculatorInput.evaluateArithmeticExpression(limitAmount) == nil)
                 } header: {
                     Text("Add a limit")
                 } footer: {
@@ -234,7 +234,7 @@ struct CardManageView: View {
     }
 
     private func addLimit() async {
-        guard let amount = Double(limitAmount) else { return }
+        guard let amount = CalculatorInput.evaluateArithmeticExpression(limitAmount) else { return }
         do {
             let created: CardLimitResponse = try await APIClient.shared.post(
                 "/cards/\(card.id)/limits",

@@ -114,7 +114,7 @@ struct GoalFormView: View {
     }
 
     private var targetAmount: Double? {
-        Double(targetAmountText.replacingOccurrences(of: ",", with: ""))
+        CalculatorInput.evaluateArithmeticExpression(targetAmountText)
     }
 
     private var canSave: Bool {
@@ -134,8 +134,7 @@ struct GoalFormView: View {
                 Section {
                     HStack {
                         Text("Target Amount")
-                        TextField("Optional", text: $targetAmountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "Optional", text: $targetAmountText)
                             .multilineTextAlignment(.trailing)
                     }
                     Toggle("Target Date", isOn: $hasTargetDate.animation())

@@ -275,7 +275,7 @@ struct EmergencyFundSection: View {
                 .keyboardType(.numberPad)
             Button("Cancel", role: .cancel) {}
             Button("Save") {
-                guard let months = Double(targetText.trimmingCharacters(in: .whitespaces)) else { return }
+                guard let months = CalculatorInput.evaluateArithmeticExpression(targetText) else { return }
                 isSaving = true
                 Task {
                     await onTargetChanged(months)
@@ -376,8 +376,7 @@ struct BudgetFormView: View {
     }
 
     private var amount: Double? {
-        let cleaned = amountText.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
-        guard let value = Double(cleaned), value > 0 else { return nil }
+        guard let value = CalculatorInput.evaluateArithmeticExpression(amountText), value > 0 else { return nil }
         return value
     }
 
@@ -406,8 +405,7 @@ struct BudgetFormView: View {
                     } else {
                         LabeledContent("Categories", value: existing?.categoryNames.joined(separator: ", ") ?? "")
                     }
-                    TextField("Limit", text: $amountText)
-                        .keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "Limit", text: $amountText)
                     Picker("Period", selection: $period) {
                         ForEach(BudgetPeriod.allCases) { Text($0.label).tag($0) }
                     }

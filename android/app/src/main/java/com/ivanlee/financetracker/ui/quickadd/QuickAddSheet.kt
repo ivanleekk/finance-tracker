@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.data.loadCardForAccount
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.Cards
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.CardResponse
@@ -146,9 +147,9 @@ fun QuickAddSheet(
     val selectedAsset = assets.firstOrNull { it.id == assetId }
     val fundingCurrency = accounts.firstOrNull { it.id == accountId }?.currency ?: baseCurrency
 
-    val amount = amountText.replace(",", "").toDoubleOrNull()
-    val quantity = quantityText.replace(",", "").toDoubleOrNull()
-    val price = priceText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
+    val quantity = CalculatorInput.evaluateArithmeticExpression(quantityText)
+    val price = CalculatorInput.evaluateArithmeticExpression(priceText)
 
     val canSave = !saving && household != null && when (mode) {
         QuickAddMode.EXPENSE, QuickAddMode.INCOME ->

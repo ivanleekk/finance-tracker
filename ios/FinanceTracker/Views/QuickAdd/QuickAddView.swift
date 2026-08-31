@@ -84,9 +84,9 @@ struct QuickAddView: View {
     private var selectedAsset: AssetResponse? { assets.first { $0.id == assetId } }
     private var fundingCurrency: String { accounts.first { $0.id == accountId }?.currency ?? baseCurrency }
 
-    private var amount: Double? { Double(amountText.replacingOccurrences(of: ",", with: "")) }
-    private var quantity: Double? { Double(quantityText.replacingOccurrences(of: ",", with: "")) }
-    private var price: Double? { Double(priceText.replacingOccurrences(of: ",", with: "")) }
+    private var amount: Double? { CalculatorInput.evaluateArithmeticExpression(amountText) }
+    private var quantity: Double? { CalculatorInput.evaluateArithmeticExpression(quantityText) }
+    private var price: Double? { CalculatorInput.evaluateArithmeticExpression(priceText) }
 
     private var canSave: Bool {
         guard !isSaving, household != nil else { return false }
@@ -279,14 +279,12 @@ struct QuickAddView: View {
             Section {
                 HStack {
                     Text("Quantity")
-                    TextField("0", text: $quantityText)
-                        .keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "0", text: $quantityText)
                         .multilineTextAlignment(.trailing)
                 }
                 HStack {
                     Text("Price\(selectedAsset.map { " (\($0.currency))" } ?? "")")
-                    TextField("0.00", text: $priceText)
-                        .keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "0.00", text: $priceText)
                         .multilineTextAlignment(.trailing)
                 }
                 DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -334,8 +332,7 @@ struct QuickAddView: View {
             accountPicker(title: "Account", selection: $accountId)
             HStack {
                 Text("Balance (\(fundingCurrency))")
-                TextField("0.00", text: $amountText)
-                    .keyboardType(.numbersAndPunctuation)
+                CalculatorField(placeholder: "0.00", text: $amountText)
                     .multilineTextAlignment(.trailing)
             }
             DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -349,8 +346,7 @@ struct QuickAddView: View {
     private func amountRow(currency: String) -> some View {
         HStack {
             Text("Amount (\(currency))")
-            TextField("0.00", text: $amountText)
-                .keyboardType(.decimalPad)
+            CalculatorField(placeholder: "0.00", text: $amountText)
                 .multilineTextAlignment(.trailing)
         }
     }

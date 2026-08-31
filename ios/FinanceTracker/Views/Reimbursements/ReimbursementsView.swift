@@ -220,8 +220,7 @@ struct SettlementFormView: View {
                     }
                     HStack {
                         Text("Amount")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -362,8 +361,7 @@ struct SpendOnYourBehalfFormView: View {
                     }
                     HStack {
                         Text("Amount")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)

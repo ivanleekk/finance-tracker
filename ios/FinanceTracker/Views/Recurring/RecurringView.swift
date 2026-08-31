@@ -426,8 +426,7 @@ struct RecurringFormView: View {
     }
 
     private var amount: Double? {
-        let cleaned = amountText.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
-        guard let value = Double(cleaned), value > 0 else { return nil }
+        guard let value = CalculatorInput.evaluateArithmeticExpression(amountText), value > 0 else { return nil }
         return value
     }
 
@@ -453,8 +452,7 @@ struct RecurringFormView: View {
                 }
 
                 Section {
-                    TextField("Amount", text: $amountText)
-                        .keyboardType(.decimalPad)
+                    CalculatorField(placeholder: "Amount", text: $amountText)
                     Picker("Frequency", selection: $frequency) {
                         ForEach(RecurrenceFrequency.allCases) { Text($0.label).tag($0) }
                     }

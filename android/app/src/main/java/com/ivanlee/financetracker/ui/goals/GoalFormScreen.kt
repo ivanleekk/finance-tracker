@@ -26,6 +26,7 @@ import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.model.SubPortfolioUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.DateField
 import com.ivanlee.financetracker.ui.components.DetailScaffold
@@ -95,7 +96,7 @@ fun GoalFormScreen(
         }
     }
 
-    val targetAmount = targetAmountText.replace(",", "").toDoubleOrNull()
+    val targetAmount = CalculatorInput.evaluateArithmeticExpression(targetAmountText)
     val canSave = name.isNotBlank() && !saving
 
     fun save() {

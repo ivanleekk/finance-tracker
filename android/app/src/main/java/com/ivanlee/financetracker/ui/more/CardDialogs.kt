@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CardCategoryCreate
@@ -209,7 +210,7 @@ fun CardManageDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TextButton(
-                    enabled = limitName.isNotBlank() && limitAmount.toDoubleOrNull() != null,
+                    enabled = limitName.isNotBlank() && CalculatorInput.evaluateArithmeticExpression(limitAmount) != null,
                     onClick = {
                         scope.launch {
                             try {
@@ -217,7 +218,7 @@ fun CardManageDialog(
                                     "/cards/${card.id}/limits",
                                     CardLimitCreate(
                                         name = limitName,
-                                        amount = limitAmount.toDouble(),
+                                        amount = CalculatorInput.evaluateArithmeticExpression(limitAmount) ?: return@launch,
                                         direction = if (isFloor) "floor" else "ceiling",
                                         resetBasis = "cycle",
                                     ),

@@ -96,7 +96,7 @@ struct TransactionFormView: View {
     }
 
     private var amount: Double? {
-        Double(amountText.replacingOccurrences(of: ",", with: ""))
+        CalculatorInput.evaluateArithmeticExpression(amountText)
     }
 
     /// Rows with a person picked, read as split entries. A row with no person
@@ -168,8 +168,7 @@ struct TransactionFormView: View {
                 Section {
                     HStack {
                         Text("Amount")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -213,8 +212,7 @@ struct TransactionFormView: View {
                                         }
                                     }
                                     .labelsHidden()
-                                    TextField("0.00", text: $row.amountText)
-                                        .keyboardType(.decimalPad)
+                                    CalculatorField(placeholder: "0.00", text: $row.amountText)
                                         .multilineTextAlignment(.trailing)
                                         .frame(width: 70)
                                     Button {
@@ -516,7 +514,7 @@ struct TransferFormView: View {
     @State private var errorMessage: String?
 
     private var amount: Double? {
-        Double(amountText.replacingOccurrences(of: ",", with: ""))
+        CalculatorInput.evaluateArithmeticExpression(amountText)
     }
 
     private var canSave: Bool {
@@ -553,8 +551,7 @@ struct TransferFormView: View {
                 Section {
                     HStack {
                         Text("Amount")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)

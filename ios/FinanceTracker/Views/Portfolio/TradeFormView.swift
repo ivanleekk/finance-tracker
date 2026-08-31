@@ -66,8 +66,8 @@ struct TradeFormView: View {
         assets.first { $0.id == assetId }
     }
 
-    private var quantity: Double? { Double(quantityText.replacingOccurrences(of: ",", with: "")) }
-    private var price: Double? { Double(priceText.replacingOccurrences(of: ",", with: "")) }
+    private var quantity: Double? { CalculatorInput.evaluateArithmeticExpression(quantityText) }
+    private var price: Double? { CalculatorInput.evaluateArithmeticExpression(priceText) }
 
     private var estimatedTotal: Double? {
         guard let quantity, let price else { return nil }
@@ -115,14 +115,12 @@ struct TradeFormView: View {
                 Section {
                     HStack {
                         Text("Quantity")
-                        TextField("0", text: $quantityText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0", text: $quantityText)
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
                         Text("Price\(selectedAsset.map { " (\($0.currency))" } ?? "")")
-                        TextField("0.00", text: $priceText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $priceText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -256,7 +254,7 @@ struct CashMoveFormView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private var amount: Double? { Double(amountText.replacingOccurrences(of: ",", with: "")) }
+    private var amount: Double? { CalculatorInput.evaluateArithmeticExpression(amountText) }
 
     private var fundingCurrency: String {
         accounts.first { $0.id == accountId }?.currency ?? "USD"
@@ -300,8 +298,7 @@ struct CashMoveFormView: View {
                 Section {
                     HStack {
                         Text("Amount (\(fundingCurrency))")
-                        TextField("0.00", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $amountText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)

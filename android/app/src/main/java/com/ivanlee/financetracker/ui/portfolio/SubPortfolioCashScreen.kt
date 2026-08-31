@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.selectableAccounts
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.SubPortfolioCashCreate
@@ -88,7 +89,7 @@ fun SubPortfolioCashScreen(
     }
 
     val selectedAccount = accounts.firstOrNull { it.id == accountId }
-    val amount = amountText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
     val canSave = (amount ?: 0.0) > 0 && accountId != null && !saving
 
     fun save() {

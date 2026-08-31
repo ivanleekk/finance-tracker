@@ -118,7 +118,7 @@ struct RecordPriceView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private var price: Double? { Double(priceText.replacingOccurrences(of: ",", with: "")) }
+    private var price: Double? { CalculatorInput.evaluateArithmeticExpression(priceText) }
     private var canSave: Bool { price ?? 0 > 0 && !isSaving }
 
     var body: some View {
@@ -128,8 +128,7 @@ struct RecordPriceView: View {
                     LabeledContent("Asset", value: asset.ticker)
                     HStack {
                         Text("Price (\(asset.currency))")
-                        TextField("0.00", text: $priceText)
-                            .keyboardType(.decimalPad)
+                        CalculatorField(placeholder: "0.00", text: $priceText)
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)

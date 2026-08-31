@@ -50,6 +50,7 @@ import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.BudgetPresentation
 import com.ivanlee.financetracker.logic.BudgetTone
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.logic.RunwayTone
 import com.ivanlee.financetracker.logic.currency
 import com.ivanlee.financetracker.logic.currencyWhole
@@ -389,7 +390,7 @@ private fun BudgetFormDialog(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    val amount = amountText.replace(",", "").toDoubleOrNull()
+    val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
 
     AlertDialog(
         onDismissRequest = onDismiss,

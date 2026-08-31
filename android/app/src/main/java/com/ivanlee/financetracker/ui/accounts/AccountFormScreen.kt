@@ -30,7 +30,9 @@ import com.ivanlee.financetracker.data.model.LiquidityStatus
 import com.ivanlee.financetracker.data.model.TaxTreatment
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
+import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.state.SessionViewModel
+import com.ivanlee.financetracker.ui.components.CalculatorField
 import com.ivanlee.financetracker.ui.components.DateField
 import com.ivanlee.financetracker.ui.components.DetailScaffold
 import com.ivanlee.financetracker.ui.components.DropdownField
@@ -120,18 +122,18 @@ fun AccountFormScreen(
 
     fun loanNumber(text: String): Double? {
         if (kind != AccountKind.LIABILITY) return null
-        return text.trim().toDoubleOrNull()?.takeIf { it > 0 }
+        return CalculatorInput.evaluateArithmeticExpression(text)?.takeIf { it > 0 }
     }
 
     fun loanInt(text: String): Int? {
         if (kind != AccountKind.LIABILITY) return null
-        return text.trim().toIntOrNull()?.takeIf { it > 0 }
+        return CalculatorInput.evaluateArithmeticExpression(text)?.takeIf { it > 0 }?.let { Math.round(it).toInt() }
     }
 
     /** Property can fall in value, so a negative rate is legitimate here. */
     fun propertyNumber(text: String): Double? {
         if (kind != AccountKind.ASSET || liquidity != LiquidityStatus.ILLIQUID) return null
-        return text.trim().toDoubleOrNull()
+        return CalculatorInput.evaluateArithmeticExpression(text)
     }
 
     val canSave = name.isNotBlank() && currency.trim().length >= 3 && !saving
@@ -252,13 +254,12 @@ fun AccountFormScreen(
             AnimatedVisibility(visible = kind == AccountKind.LIABILITY) {
                 SectionCard(title = "Loan terms") {
                     MoneyField("Amount borrowed", principalText, { principalText = it }, currencyCode = currency)
-                    FormField(
+                    CalculatorField(
                         "Interest rate % / yr", rateText, { rateText = it },
-                        keyboardType = KeyboardType.Decimal,
                     )
-                    FormField(
+                    CalculatorField(
                         "Term (months)", termMonthsText, { termMonthsText = it },
-                        keyboardType = KeyboardType.Number,
+                        keyboardType = KeyboardType.Number, allowsDecimal = false,
                     )
                     MoneyField(
                         "Monthly payment (optional)", paymentText, { paymentText = it },
@@ -296,11 +297,10 @@ fun AccountFormScreen(
                 visible = kind == AccountKind.ASSET && liquidity == LiquidityStatus.ILLIQUID,
             ) {
                 SectionCard(title = "Property") {
-                    FormField(
+                    CalculatorField(
                         "Expected appreciation % / yr",
                         appreciationText,
                         { appreciationText = it },
-                        keyboardType = KeyboardType.Decimal,
                     )
                     Text(
                         "Used only for the net worth projection — your recorded valuations are never " +
