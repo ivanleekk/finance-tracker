@@ -956,3 +956,233 @@ def test_a_card_rule_tags_the_transactions_it_posts(
     ]
     assert posted
     assert all(t["card_category_id"] == str(card_category.id) for t in posted)
+
+
+# ---------------------------------------------------------------------------
+# A standing split
+# ---------------------------------------------------------------------------
+
+
+def _counterparty(db_session, household, name="Alice"):
+    person = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name=name)
+    db_session.add(person)
+    db_session.commit()
+    db_session.refresh(person)
+    return person
+
+
+def _rule_payload(household, account, category, **overrides):
+    payload = {
+        "household_id": str(household.id),
+        "account_id": str(account.id),
+        "category_id": str(category.id),
+        "amount": 1000,
+        "frequency": "monthly",
+        "start_date": "2026-01-01",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_a_rule_can_carry_a_standing_split(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """The flatmate's half of the rent, without re-entering it every month."""
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["splits"]) == 1
+    assert body["splits"][0]["counterparty_name"] == "Alice"
+    assert Decimal(body["splits"][0]["amount"]) == Decimal("400")
+
+
+def test_every_occurrence_claims_the_share_back(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The split has to reach each posting's ledger entry — that is what puts the
+    share on Alice's receivable month after month, rather than once.
+    """
+    alice = _counterparty(db_session, household)
+    client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    posted = client.post(
+        f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers
+    ).json()["posted"]
+    assert posted >= 2
+
+    rows = [
+        t
+        for t in client.get(
+            f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+        ).json()
+        if t["recurring_transaction_id"]
+    ]
+    assert len(rows) == posted
+    for row in rows:
+        # The full amount still left the account, because it did.
+        assert Decimal(row["amount"]) == Decimal("1000")
+        assert len(row["splits"]) == 1
+        assert Decimal(row["splits"][0]["amount"]) == Decimal("400")
+
+    # And it accumulates as a real debt, one occurrence at a time.
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=owner_headers
+    ).json()
+    owed = next(b for b in balances if b["counterparty_id"] == str(alice.id))
+    assert Decimal(owed["amount"]) == Decimal("400") * posted
+
+
+def test_shares_larger_than_the_bill_are_refused_not_clamped(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    A transaction clamps because its amount can be edited down afterwards and
+    the entry still has to balance. A rule has posted nothing, so an over-large
+    share is a typo — and clamping would repeat the mistake monthly.
+    """
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            amount=100,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    assert response.status_code == 400
+
+
+def test_the_same_person_cannot_take_two_shares_of_one_rule(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[
+                {"counterparty_id": str(alice.id), "amount": 100},
+                {"counterparty_id": str(alice.id), "amount": 200},
+            ],
+        ),
+    )
+    assert response.status_code == 400
+
+
+def test_editing_a_rule_leaves_a_split_it_was_not_asked_about(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    # An unrelated edit preserves it...
+    preserved = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"description": "Rent"},
+    )
+    assert len(preserved.json()["splits"]) == 1
+
+    # ...an explicit empty array clears it.
+    cleared = client.put(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers, json={"splits": []}
+    )
+    assert cleared.json()["splits"] == []
+
+
+def test_shrinking_the_amount_below_a_recorded_split_is_refused(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Otherwise the rule would try to post an impossible entry every month, and
+    the failure would surface at 2am inside the nightly job rather than here.
+    """
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    refused = client.put(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers, json={"amount": 100}
+    )
+    assert refused.status_code == 400
+
+    # Sending both together is judged as a whole and allowed.
+    together = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"amount": 100, "splits": [{"counterparty_id": str(alice.id), "amount": 40}]},
+    )
+    assert together.status_code == 200
+    assert Decimal(together.json()["splits"][0]["amount"]) == Decimal("40")
+
+
+def test_deleting_a_rule_takes_its_unposted_split_with_it(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Unlike the transactions a rule already posted — real history that outlives
+    it — a split describes only future occurrences that will now never happen.
+    """
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    assert client.delete(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers
+    ).status_code == 204
+    assert (
+        db_session.query(models.RecurringTransactionSplit)
+        .filter(models.RecurringTransactionSplit.recurring_transaction_id == created["id"])
+        .count()
+        == 0
+    )

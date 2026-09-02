@@ -43,7 +43,8 @@ struct CashFlowSummaryTests {
             postedCount: nil,
             postedTotalHomeCurrency: nil,
             mcc: nil,
-            cardCategoryId: nil
+            cardCategoryId: nil,
+            splits: nil
         )
     }
 

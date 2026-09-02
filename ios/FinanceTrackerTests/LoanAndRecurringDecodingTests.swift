@@ -387,7 +387,7 @@ struct RecurringPaymentDetailCodingTests {
             accountId: "acc", categoryId: "cat", amount: 10,
             description: "Streaming", frequency: .monthly,
             startDate: "2026-01-01", endDate: nil,
-            mcc: mcc, cardCategoryId: cardCategoryId
+            mcc: mcc, cardCategoryId: cardCategoryId, splits: nil
         )
     }
 
@@ -401,6 +401,60 @@ struct RecurringPaymentDetailCodingTests {
         #expect(object.keys.contains("card_category_id"))
         #expect(object["mcc"] is NSNull)
         #expect(object["card_category_id"] is NSNull)
+    }
+
+    @Test("A rule decodes the standing split, and its absence as no split")
+    func decodesStandingSplit() throws {
+        let base = """
+        {
+          "id": "r", "household_id": "hh", "account_id": "acc", "category_id": "cat",
+          "amount": "1000", "currency": null, "description": "Rent",
+          "frequency": "monthly", "start_date": "2026-01-01", "end_date": null,
+          "next_due_date": "2026-10-01", "last_posted_date": null,
+          "is_active": true, "owner_user_id": null
+        """
+        let withSplit = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self,
+            from: Data((base + """
+            ,
+              "splits": [
+                {"counterparty_id": "cp-1", "counterparty_name": "Alice", "amount": "400"}
+              ]
+            }
+            """).utf8)
+        )
+        #expect(withSplit.standingSplits.count == 1)
+        #expect(withSplit.standingSplits[0].counterpartyName == "Alice")
+        #expect(withSplit.standingSplits[0].amount == 400)
+
+        // Every rule created before the feature existed comes back this way.
+        let without = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data((base + "\n}").utf8)
+        )
+        #expect(without.standingSplits.isEmpty)
+    }
+
+    @Test("Leaving a split alone omits the key; clearing it sends an empty array")
+    func splitIsThreeState() throws {
+        // nil must *omit*, not null: the backend's `exclude_unset` is what makes
+        // an unrelated edit preserve the recorded split.
+        let untouched = try encodedKeys(
+            RecurringTransactionEdit(
+                accountId: "acc", categoryId: "cat", amount: 10, description: nil,
+                frequency: .monthly, startDate: "2026-01-01", endDate: nil,
+                mcc: nil, cardCategoryId: nil, splits: nil
+            )
+        )
+        #expect(!untouched.keys.contains("splits"))
+
+        let cleared = try encodedKeys(
+            RecurringTransactionEdit(
+                accountId: "acc", categoryId: "cat", amount: 10, description: nil,
+                frequency: .monthly, startDate: "2026-01-01", endDate: nil,
+                mcc: nil, cardCategoryId: nil, splits: []
+            )
+        )
+        #expect((cleared["splits"] as? [Any])?.isEmpty == true)
     }
 
     @Test("A recorded code and category are sent as their values")

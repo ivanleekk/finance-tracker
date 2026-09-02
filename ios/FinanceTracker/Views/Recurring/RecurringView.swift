@@ -428,6 +428,17 @@ struct RecurringRuleRow: View {
             }
     }
 
+    /// "$400 owed by Alice" / "$600 split with Alice, Bob", per occurrence.
+    private func splitLine(for rule: RecurringTransactionResponse, currency: String) -> String {
+        let owed = rule.standingSplits.reduce(0.0) { $0 + $1.amount }
+        let money = owed.currency(rule.currency ?? currency)
+        if rule.standingSplits.count == 1, let only = rule.standingSplits.first {
+            return "\(money) owed by \(only.counterpartyName) each time"
+        }
+        let names = rule.standingSplits.map(\.counterpartyName).joined(separator: ", ")
+        return "\(money) split with \(names) each time"
+    }
+
     private var rowContent: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -459,6 +470,15 @@ struct RecurringRuleRow: View {
                         Text(posted)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                    }
+                    // The amount on the right stays the full sum, because that
+                    // is what will leave the account each time. This says how
+                    // much of it won't be yours — the same wording the posted
+                    // transactions carry, so the rule and its rows agree.
+                    if !rule.standingSplits.isEmpty {
+                        Text(splitLine(for: rule, currency: currency))
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                     }
                 }
                 Spacer()
@@ -511,6 +531,11 @@ struct RecurringFormView: View {
     @State private var mcc: String
     @State private var cardCategoryId: String
     @State private var card: CardResponse?
+    /// A standing share of every occurrence — the flatmate's half of the rent,
+    /// recorded once instead of on each posting.
+    @State private var isSplitting: Bool
+    @State private var splitRows: [SplitRow]
+    @State private var counterparties: [Counterparty] = []
 
     init(
         accounts: [AccountResponse],
@@ -532,6 +557,11 @@ struct RecurringFormView: View {
         _endDate = State(initialValue: existing?.endDate ?? Date())
         _mcc = State(initialValue: existing?.mcc ?? "")
         _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
+        let recorded = existing?.standingSplits ?? []
+        _isSplitting = State(initialValue: !recorded.isEmpty)
+        _splitRows = State(initialValue: recorded.map {
+            SplitRow(counterpartyId: $0.counterpartyId, amountText: String($0.amount))
+        })
         // Edit mode has nothing left to seed after init, so it's settled
         // immediately; create mode waits for the `onAppear` privacy seed below.
         _didSeedPrivacy = State(initialValue: existing != nil)
@@ -542,8 +572,18 @@ struct RecurringFormView: View {
         return value
     }
 
+    /// Whether this rule spends money. Splitting income makes no sense — there
+    /// is no counterparty to owe anything — and the category is what decides
+    /// the direction, exactly as on a transaction.
+    private var isExpenseRule: Bool {
+        categories.first { $0.id == categoryId }?.type != .income
+    }
+
     private var canSave: Bool {
         amount != nil && !categoryId.isEmpty && !accountId.isEmpty && !isSaving
+            && TransactionSplits.isUsable(
+                isSplitting: isSplitting && isExpenseRule, amount: amount, rows: splitRows
+            )
     }
 
     var body: some View {
@@ -577,6 +617,18 @@ struct RecurringFormView: View {
                     Text("Back-date the first occurrence and we'll catch up everything you've already paid.")
                 }
 
+                // Expense rules only: an income rule has no counterparty to owe
+                // anything, exactly as on the transaction form.
+                if isExpenseRule, let household = session.activeHousehold {
+                    TransactionSplitSection(
+                        amount: amount,
+                        householdId: household.id,
+                        isSplitting: $isSplitting,
+                        splitRows: $splitRows,
+                        counterparties: $counterparties
+                    )
+                }
+
                 // The same two fields the transaction form records, because a
                 // rule describes a payment too — without them every occurrence
                 // would have to be opened and tagged by hand, which is the work
@@ -606,7 +658,10 @@ struct RecurringFormView: View {
                     }
                 }
             }
-            .onAppear { Task { await loadCard(for: accountId) } }
+            .onAppear {
+                Task { await loadCard(for: accountId) }
+                Task { await loadCounterparties() }
+            }
             .onChange(of: accountId) { _, newValue in
                 // A pick from the old card means nothing on a new one; cleared
                 // here as well as server-side.
@@ -622,7 +677,7 @@ struct RecurringFormView: View {
                 }
             }
             .discardGuard(
-                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId],
+                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId, isSplitting, splitRows],
                 // `onAppear` below fills in the private-by-default toggle;
                 // that isn't an edit the user made.
                 settled: didSeedPrivacy
@@ -637,6 +692,15 @@ struct RecurringFormView: View {
         }
     }
 
+    /// The household's people, for the split picker. Optional: nobody to split
+    /// with is the ordinary case and must not stop the form opening.
+    private func loadCounterparties() async {
+        guard let householdId = session.activeHousehold?.id else { return }
+        counterparties = (try? await APIClient.shared.get(
+            "/cashflow/counterparties/household/\(householdId)"
+        )) ?? []
+    }
+
     /// The card behind the selected account, or nothing — which is the ordinary
     /// answer for an account that isn't a card, not an error.
     private func loadCard(for accountId: String) async {
@@ -645,6 +709,22 @@ struct RecurringFormView: View {
             return
         }
         card = await Cards.load(householdId: householdId, accountId: accountId)?.card
+    }
+
+    /// What this save should do to the rule's standing split.
+    ///
+    /// Switching the toggle off means *remove* it, which is a different request
+    /// from leaving it alone — so a form that opened with no split and still has
+    /// none sends nothing rather than an explicit empty array.
+    private var splitsToSend: [TransactionSplitInput]? {
+        if isExpenseRule,
+           let inputs = TransactionSplits.forCreate(
+               isSplitting: isSplitting, amount: amount, rows: splitRows
+           ) {
+            return inputs
+        }
+        let hadSplit = !(existing?.standingSplits.isEmpty ?? true)
+        return hadSplit ? [] : nil
     }
 
     private func save() {
@@ -667,7 +747,8 @@ struct RecurringFormView: View {
                             startDate: startDate.apiDateOnly,
                             endDate: hasEndDate ? endDate.apiDateOnly : nil,
                             mcc: mcc.isEmpty ? nil : mcc,
-                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
+                            splits: splitsToSend
                         )
                     )
                 } else {
@@ -685,7 +766,8 @@ struct RecurringFormView: View {
                             endDate: hasEndDate ? endDate.apiDateOnly : nil,
                             ownerUserId: isPrivate ? session.user?.id : nil,
                             mcc: mcc.isEmpty ? nil : mcc,
-                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
+                            splits: splitsToSend
                         )
                     )
                 }

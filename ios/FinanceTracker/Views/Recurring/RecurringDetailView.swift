@@ -66,6 +66,28 @@ struct RecurringDetailView: View {
                 }
             }
 
+            if !rule.standingSplits.isEmpty {
+                Section {
+                    ForEach(rule.standingSplits) { split in
+                        LabeledContent(split.counterpartyName) {
+                            Text(split.amount.currencyWhole(currency)).monospacedDigit()
+                        }
+                    }
+                    LabeledContent("Your share") {
+                        Text(
+                            (rule.amount - rule.standingSplits.reduce(0.0) { $0 + $1.amount })
+                                .currencyWhole(currency)
+                        )
+                        .monospacedDigit()
+                        .fontWeight(.semibold)
+                    }
+                } header: {
+                    Text("Shared")
+                } footer: {
+                    Text("Claimed back on every occurrence. The full amount still leaves the account — only your share counts towards budgets.")
+                }
+            }
+
             Section("Track record") {
                 LabeledContent(health == .ended ? "Ended" : "Next") {
                     Text(health == .ended

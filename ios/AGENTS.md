@@ -452,6 +452,15 @@ Rules worth not re-deriving:
   unrelated description edit still can't silently drop a split — there is just no longer a
   hand-rolled enum needed to get that right.
 - The split section only renders for `.expense`; income has no counterparty.
+- **A recurring rule can carry a standing split**, edited with the same
+  `TransactionSplitSection` the other two forms use and shown on the rule row
+  ("$400 owed by Alice each time") and in the detail screen's Shared section
+  alongside your own share. Expense rules only — income has no counterparty to
+  owe anything. `RecurringTransactionResponse.splits` is **optional with a
+  `standingSplits` accessor**, the same shape `postedCount`/`timesPosted` uses
+  and for the same reason: Swift's synthesized decoder calls plain `decode` even
+  for a property with a default, so `= []` throws `keyNotFound` on any payload
+  without the key.
 - `QuickAddView` records everything the full transaction form does — split, merchant code and
   card category — via the shared sections above. It was a deliberately reduced surface for a
   while, which had the effect that the fastest way to log a payment was the only one that

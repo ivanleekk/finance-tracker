@@ -1163,6 +1163,17 @@ struct RecurringTransactionResponse: Codable, Identifiable, Hashable {
     /// above — a payload without the keys must not fail the whole list.
     let mcc: String?
     let cardCategoryId: String?
+    /// A standing share of every occurrence.
+    ///
+    /// Optional for the same reason `postedCount` above is: Swift's synthesized
+    /// decoder calls plain `decode` even for a property with a default, so
+    /// `= []` throws `keyNotFound` on any payload without the key. Read it
+    /// through `standingSplits`.
+    let splits: [TransactionSplitRow]?
+
+    /// The recorded shares, absent reading as none — which is also true of every
+    /// rule created before rules could carry one.
+    var standingSplits: [TransactionSplitRow] { splits ?? [] }
 }
 
 struct RecurringTransactionCreate: Encodable {
@@ -1180,6 +1191,8 @@ struct RecurringTransactionCreate: Encodable {
     /// yet for an absent key to preserve.
     var mcc: String? = nil
     var cardCategoryId: String? = nil
+    /// Omitted when nil — nothing recorded yet for an absent key to preserve.
+    var splits: [TransactionSplitInput]? = nil
 }
 
 /// PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone.
@@ -1212,10 +1225,15 @@ struct RecurringTransactionEdit: Encodable {
     /// omitted key — see `encode(to:)`.
     let mcc: String?
     let cardCategoryId: String?
+    /// Plain optional, the same three states `TransactionUpdate.splits` uses:
+    /// nil omits the key (leave the recorded split alone), `[]` clears it, a
+    /// populated array replaces it. An empty array is already unambiguous, so
+    /// unlike `mcc` this needs no forced null.
+    let splits: [TransactionSplitInput]?
 
     private enum CodingKeys: String, CodingKey {
         case accountId, categoryId, amount, description, frequency, startDate, endDate
-        case mcc, cardCategoryId
+        case mcc, cardCategoryId, splits
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1236,6 +1254,9 @@ struct RecurringTransactionEdit: Encodable {
         // silently do nothing.
         try container.encode(mcc, forKey: .mcc)
         try container.encode(cardCategoryId, forKey: .cardCategoryId)
+        // `encodeIfPresent`, unlike the two above: an empty array already means
+        // "clear it", so nil can keep its ordinary "don't touch it" meaning.
+        try container.encodeIfPresent(splits, forKey: .splits)
     }
 }
 

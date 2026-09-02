@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -78,6 +78,38 @@ def _resolve_splits(
         if counterparty is None or counterparty.household_id != household_id:
             raise HTTPException(status_code=404, detail="Counterparty not found")
         resolved.append((counterparty, split.amount))
+    return resolved
+
+
+def _rule_splits(
+    db: Session,
+    household_id: uuid.UUID,
+    splits: Optional[List["schemas.TransactionSplitInput"]],
+    amount: Decimal,
+) -> list[tuple[models.Counterparty, Decimal]]:
+    """
+    A rule's standing split, validated against the amount every occurrence will
+    charge.
+
+    Refused rather than clamped when the shares exceed the bill. A transaction
+    clamps because its amount can be edited down after the fact and the entry
+    still has to balance; a rule has no posting yet, so an over-large share is
+    simply a typo, and every client already refuses one for that reason.
+    Silently correcting it would hide the mistake and then repeat it monthly.
+    """
+    resolved = _resolve_splits(db, household_id, splits)
+    if not resolved:
+        return []
+    if len({counterparty.id for counterparty, _ in resolved}) != len(resolved):
+        raise HTTPException(
+            status_code=400, detail="The same person can't appear twice in one split."
+        )
+    total = sum(share for _, share in resolved)
+    if total > amount:
+        raise HTTPException(
+            status_code=400,
+            detail="The shares add up to more than the amount.",
+        )
     return resolved
 
 
@@ -993,10 +1025,18 @@ def create_recurring_transaction(
         mcc=payload.mcc,
         card_category_id=_validated_card_category(db, payload.card_category_id, account),
     )
+    for counterparty, share in _rule_splits(
+        db, payload.household_id, payload.splits, payload.amount
+    ):
+        db_rule.splits.append(
+            models.RecurringTransactionSplit(
+                id=uuid.uuid7(), counterparty_id=counterparty.id, amount=share
+            )
+        )
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
-    return db_rule
+    return _with_posting_stats(db, [db_rule])[0]
 
 
 def _with_posting_stats(
@@ -1059,6 +1099,12 @@ def get_household_recurring(
     verify_household_access(household_id, current_user, db)
     rules = (
         db.query(models.RecurringTransaction)
+        # Eager, or rendering a page of rules fans out into a query per share.
+        .options(
+            selectinload(models.RecurringTransaction.splits).selectinload(
+                models.RecurringTransactionSplit.counterparty
+            )
+        )
         .filter(
             models.RecurringTransaction.household_id == household_id,
             (models.RecurringTransaction.owner_user_id.is_(None))
@@ -1184,8 +1230,45 @@ def update_recurring_transaction(
     elif update_data.get("account_id") and update_data["account_id"] != db_rule.account_id:
         update_data["card_category_id"] = None
 
+    # Three states, as on a transaction: an omitted key leaves the recorded
+    # split alone, `[]` clears it, a populated list replaces it wholesale.
+    incoming_splits = update_data.pop("splits", "unchanged")
+
     for key, value in update_data.items():
         setattr(db_rule, key, value)
+
+    if incoming_splits != "unchanged":
+        resolved = _rule_splits(
+            db,
+            db_rule.household_id,
+            payload.splits,
+            # Validated against the amount the rule will *end up* charging, not
+            # the one it had: shrinking the amount and the shares in one request
+            # has to be judged as a whole.
+            db_rule.amount,
+        )
+        db_rule.splits.clear()
+        # Flushed before the new rows go in: the unique constraint on
+        # (rule, counterparty) is checked per statement, and SQLAlchemy would
+        # otherwise INSERT the replacement share before DELETEing the one it
+        # replaces — so re-saving a split with the same person in it failed.
+        db.flush()
+        for counterparty, share in resolved:
+            db_rule.splits.append(
+                models.RecurringTransactionSplit(
+                    id=uuid.uuid7(), counterparty_id=counterparty.id, amount=share
+                )
+            )
+    elif "amount" in update_data:
+        # The amount moved but the split didn't. A split that now exceeds the
+        # bill would post an impossible entry every month, so it is refused here
+        # rather than at 2am inside the nightly job.
+        recorded = sum(split.amount for split in db_rule.splits)
+        if recorded > db_rule.amount:
+            raise HTTPException(
+                status_code=400,
+                detail="The recorded shares add up to more than the new amount. Update the split too.",
+            )
 
     if db_rule.end_date and db_rule.end_date < db_rule.start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")

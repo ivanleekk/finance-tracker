@@ -638,6 +638,10 @@ class TransactionSplitRow(BaseModel):
     counterparty_id: uuid.UUID
     counterparty_name: str
     amount: Decimal
+    # A recurring rule's standing split is an ORM row rather than a ledger line,
+    # and it exposes `counterparty_name` as a property so it maps straight onto
+    # this without the caller assembling it by hand.
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionCreate(TransactionBase):
@@ -726,6 +730,10 @@ class RecurringTransactionBase(BaseModel):
 
 class RecurringTransactionCreate(RecurringTransactionBase):
     household_id: uuid.UUID
+    # A standing share of every occurrence — the flatmate's half of the rent,
+    # without re-entering it each month. Absolute amounts, not fractions, for the
+    # same reason a transaction's split is: a share is what somebody owes.
+    splits: Optional[List[TransactionSplitInput]] = None
 
 
 class RecurringTransactionUpdate(BaseModel):
@@ -745,6 +753,11 @@ class RecurringTransactionUpdate(BaseModel):
     # looked up once.
     mcc: MerchantCategoryCode = None
     card_category_id: Optional[uuid.UUID] = None
+    # Plain optional list, the same three states `TransactionUpdate.splits` uses:
+    # omit to leave the recorded split alone, `[]` to clear it, a populated list
+    # to replace it wholesale. An empty array is already unambiguous, so this
+    # needs no tri-state wrapper.
+    splits: Optional[List[TransactionSplitInput]] = None
 
 
 class RecurringTransactionResponse(RecurringTransactionBase):
@@ -762,6 +775,10 @@ class RecurringTransactionResponse(RecurringTransactionBase):
     # recomputing: a rule that has just been created has posted nothing.
     posted_count: int = 0
     posted_total_home_currency: Decimal = Decimal("0")
+    # What each occurrence will claim back. Named rows rather than ids so a
+    # client can render the rule without a second lookup, matching
+    # `TransactionResponse.splits`.
+    splits: List[TransactionSplitRow] = []
     model_config = ConfigDict(from_attributes=True)
 
 
