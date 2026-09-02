@@ -58,8 +58,48 @@ struct RecurringView: View {
 
     /// Rules whose next occurrence is already due — the nightly job hasn't run yet.
     private var dueCount: Int {
-        let today = Date()
-        return visibleRules.filter { $0.isActive && $0.nextDueDate <= today }.count
+        CashFlowSummary.dueNow(rules: visibleRules).count
+    }
+
+    private var categoryNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+    }
+
+    /// Where the monthly commitment actually goes. The totals above say how
+    /// much; this says on what, which is the half that changes behaviour.
+    private var commitmentSlices: [BudgetPresentation.CommitmentSlice] {
+        BudgetPresentation.commitmentByCategory(
+            rules: visibleRules,
+            categoryTypes: categoryTypes,
+            categoryNames: categoryNames
+        )
+    }
+
+    /// Rules bucketed by what they are actually doing.
+    ///
+    /// A flat list gave a rule that will never post again the same weight as
+    /// one due tomorrow. Empty buckets are dropped, so a household whose rules
+    /// are all fine sees one plain "Rules" section and no scaffolding.
+    private var ruleGroups: [(id: String, label: String, rules: [RecurringTransactionResponse])] {
+        var attention: [RecurringTransactionResponse] = []
+        var active: [RecurringTransactionResponse] = []
+        var paused: [RecurringTransactionResponse] = []
+        for rule in visibleRules {
+            switch BudgetPresentation.health(of: rule) {
+            case .overdue, .ended: attention.append(rule)
+            case .healthy: active.append(rule)
+            case .paused: paused.append(rule)
+            }
+        }
+        // "Rules" rather than "Active" when nothing else is on screen: a lone
+        // bucket doesn't need a name distinguishing it from buckets that
+        // aren't there.
+        let activeLabel = attention.isEmpty && paused.isEmpty ? "Rules" : "Active"
+        return [
+            (id: "attention", label: "Needs attention", rules: attention),
+            (id: "active", label: activeLabel, rules: active),
+            (id: "paused", label: "Paused", rules: paused),
+        ].filter { !$0.rules.isEmpty }
     }
 
     var body: some View {
@@ -82,6 +122,24 @@ struct RecurringView: View {
                 Text(commitment.net >= 0
                     ? "Your recurring income covers your recurring commitments."
                     : "Your recurring commitments exceed your recurring income.")
+            }
+
+            if !commitmentSlices.isEmpty {
+                Section {
+                    ForEach(commitmentSlices) { slice in
+                        CommitmentSliceRow(
+                            slice: slice,
+                            share: commitment.expense > 0 ? slice.monthly / commitment.expense : 0,
+                            currency: currency
+                        )
+                    }
+                } header: {
+                    Text("Where it goes")
+                } footer: {
+                    // Without this the biggest number on the screen looks wrong
+                    // to anyone whose commitments aren't all monthly.
+                    Text("Every cadence normalised to a month, so a yearly premium and a weekly cleaner compare directly.")
+                }
             }
 
             if dueCount > 0 {
@@ -111,21 +169,29 @@ struct RecurringView: View {
                 }
             }
 
-            Section("Rules") {
-                ForEach(visibleRules) { rule in
-                    RecurringRuleRow(
-                        rule: rule,
-                        category: categories.first { $0.id == rule.categoryId },
-                        accountName: accounts.first { $0.id == rule.accountId }?.name,
-                        currency: currency,
-                        isDeleting: deletingRuleId == rule.id,
-                        rowError: rowErrors[rule.id],
-                        onToggle: { await setActive(rule, isActive: !rule.isActive) },
-                        onRequestDelete: { pendingDelete = rule },
-                        onEdit: { editingRule = rule }
-                    )
+            ForEach(ruleGroups, id: \.id) { group in
+                Section(group.label) {
+                    ForEach(group.rules) { rule in
+                        RecurringRuleRow(
+                            rule: rule,
+                            category: categories.first { $0.id == rule.categoryId },
+                            accountName: accounts.first { $0.id == rule.accountId }?.name,
+                            currency: currency,
+                            isDeleting: deletingRuleId == rule.id,
+                            rowError: rowErrors[rule.id],
+                            accounts: accounts,
+                            categories: categories,
+                            onToggle: { await setActive(rule, isActive: !rule.isActive) },
+                            onRequestDelete: { pendingDelete = rule },
+                            onEdit: { editingRule = rule },
+                            onChanged: load
+                        )
+                    }
                 }
-                if visibleRules.isEmpty && !isLoading {
+            }
+
+            if visibleRules.isEmpty && !isLoading {
+                Section("Rules") {
                     Text("Nothing recurring yet. Add your salary and rent first — they make the rest of the picture accurate.")
                         .foregroundStyle(.secondary)
                 }
@@ -285,15 +351,37 @@ struct RecurringRuleRow: View {
     /// state at the screen level (mirrors the Android port) sidesteps that.
     let isDeleting: Bool
     let rowError: String?
+    let accounts: [AccountResponse]
+    let categories: [CategoryResponse]
     let onToggle: () async -> Void
     let onRequestDelete: () -> Void
     let onEdit: () -> Void
+    let onChanged: () async -> Void
 
     private var isIncome: Bool { category?.type == .income }
 
+    private var health: BudgetPresentation.RuleHealth {
+        BudgetPresentation.health(of: rule)
+    }
+
     var body: some View {
-        Button(action: onEdit) { rowContent }
-            .buttonStyle(.plain)
+        // The row pushes the rule's own screen rather than opening the edit
+        // form. "How do I change this" was the only question the form answered;
+        // "is this still doing what I set it up to do" is the one a rule raises,
+        // and that needs the history. Edit is still one tap from there, and on
+        // the swipe and the context menu here.
+        NavigationLink {
+            RecurringDetailView(
+                rule: rule,
+                category: category,
+                accountName: accountName,
+                accounts: accounts,
+                categories: categories,
+                onChanged: onChanged
+            )
+        } label: {
+            rowContent
+        }
             .opacity(rule.isActive ? 1 : 0.55)
             .swipeActions(edge: .leading) {
                 Button {
@@ -347,24 +435,34 @@ struct RecurringRuleRow: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        if !rule.isActive {
-                            Text("PAUSED")
-                                .font(.caption2.bold())
-                                .foregroundStyle(.secondary)
+                        if health == .paused {
+                            RuleStateChip(text: "PAUSED", tint: .secondary)
+                        } else if health == .ended {
+                            RuleStateChip(text: "ENDED", tint: .secondary)
+                        } else if health == .overdue {
+                            RuleStateChip(text: "DUE", tint: .orange)
                         }
                     }
                     Text("\(rule.frequency.label) · \(category?.name ?? "—") · \(accountName ?? "—")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // What it has actually done. Absent for a rule that has
+                    // never posted — "0 times" reads like a broken counter,
+                    // and a brand-new rule isn't broken.
+                    if let posted = BudgetPresentation.postingLabel(for: rule) {
+                        Text(posted)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text((isIncome ? "+" : "−") + rule.amount.currencyWhole(rule.currency ?? currency))
                         .font(.body.monospacedDigit())
                         .foregroundStyle(isIncome ? .green : .primary)
-                    Text(rule.isActive ? "next \(rule.nextDueDate.shortDay)" : "paused")
+                    Text(BudgetPresentation.scheduleLabel(for: rule))
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(health == .overdue ? .orange : .secondary)
                 }
             }
             if let rowError {
@@ -546,5 +644,60 @@ struct RecurringFormView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// A small state chip on a rule row: PAUSED / ENDED / DUE.
+///
+/// Three states the row used to compress into one — a rule past its end date
+/// printed a "next" date it will never post on, and one the nightly job had
+/// missed looked exactly like one due tomorrow.
+struct RuleStateChip: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.bold())
+            .foregroundStyle(tint)
+    }
+}
+
+/// One category's share of the monthly commitment, with a bar for its weight.
+///
+/// Deliberately not a donut: this is a ranked list where the top two or three
+/// are the answer, and a bar per row reads at a glance without a legend.
+struct CommitmentSliceRow: View {
+    let slice: BudgetPresentation.CommitmentSlice
+    /// 0...1 of the total monthly expense commitment.
+    let share: Double
+    let currency: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(slice.name)
+                    .lineLimit(1)
+                if slice.ruleCount > 1 {
+                    Text("\(slice.ruleCount)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.quaternary))
+                }
+                Spacer()
+                Text(slice.monthly.currencyWhole(currency) + "/mo")
+                    .font(.subheadline.monospacedDigit())
+            }
+            ProgressView(value: min(max(share, 0), 1))
+                .tint(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(slice.name), \(slice.monthly.currencyWhole(currency)) per month"
+            + (slice.ruleCount > 1 ? ", \(slice.ruleCount) rules" : "")
+        )
     }
 }

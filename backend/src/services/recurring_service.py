@@ -104,25 +104,47 @@ def next_occurrence(rule: models.RecurringTransaction, after: date) -> date:
 
 
 def upcoming_occurrences(
-    rule: models.RecurringTransaction, *, until: date, limit: int = MAX_UPCOMING
+    rule: models.RecurringTransaction,
+    *,
+    until: date,
+    since: Optional[date] = None,
+    limit: int = MAX_UPCOMING,
 ) -> List[date]:
     """
-    Dates this rule will fire between its next due date and `until`.
+    Dates this rule will fire between `since` (default today) and `until`.
 
     Paused rules return nothing — a preview of what a paused rule *would* do is
     misleading in a list headed "upcoming".
+
+    The same argument gives this function its floor. A rule the engine hasn't
+    caught up with yet still has `next_due_date` in the past, so walking from
+    there put dates that have already been and gone into a list headed
+    "upcoming" — a client rendering it by month showed "January 2026" as a
+    coming month in September. Overdue occurrences are still owed, and the due
+    count and the "post due now" action are where that is said; this list is
+    about what happens next. The walk still *starts* at `next_due_date` so the
+    occurrence index stays anchored to `start_date` — only the emitting is
+    floored.
     """
     if not rule.is_active:
         return []
+
+    since = since or datetime.now(timezone.utc).date()
 
     dates: List[date] = []
     current = rule.next_due_date
     index = _index_of(rule.start_date, rule.frequency, current)
 
-    while current <= until and len(dates) < min(limit, MAX_UPCOMING):
+    # Bounded independently of `limit`: skipped dates don't count towards it, so
+    # a long-overdue weekly rule could otherwise spin for a while before
+    # emitting anything.
+    for _ in range(MAX_UPCOMING * 4):
+        if current > until or len(dates) >= min(limit, MAX_UPCOMING):
+            break
         if rule.end_date and current > rule.end_date:
             break
-        dates.append(current)
+        if current >= since:
+            dates.append(current)
         index += 1
         current = occurrence(rule.start_date, rule.frequency, index)
 

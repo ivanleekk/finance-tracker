@@ -740,6 +740,16 @@ class RecurringTransactionResponse(RecurringTransactionBase):
     household_id: uuid.UUID
     next_due_date: date
     last_posted_date: Optional[date] = None
+    # What the rule has actually done, as opposed to what it is scheduled to do.
+    # `next_due_date` alone says a rule is healthy; these say whether it has ever
+    # fired. A rule that has posted nothing in six months is either new or broken,
+    # and the two look identical without a count.
+    #
+    # Defaulted rather than required so the create/update endpoints — which return
+    # this schema straight off a freshly written row — stay correct without
+    # recomputing: a rule that has just been created has posted nothing.
+    posted_count: int = 0
+    posted_total_home_currency: Decimal = Decimal("0")
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -293,3 +293,56 @@ struct APIURLTests {
         #expect(url.path() == "/x")
     }
 }
+
+/// The posting stats added to `RecurringTransactionResponse`.
+///
+/// They carry defaults so a client pointed at an older backend — and the
+/// create/update responses, which return a freshly written row — decode rather
+/// than failing the whole list. Swift's synthesized decoder does not obviously
+/// honour a default for a missing key, so this pins it rather than assuming it.
+struct RecurringPostingStatsDecodingTests {
+
+    private static let base = """
+    {
+      "id": "01a04358-0000-0000-0000-000000000001",
+      "household_id": "01a04358-0000-0000-0000-000000000002",
+      "account_id": "01a04358-0000-0000-0000-000000000003",
+      "category_id": "01a04358-0000-0000-0000-000000000004",
+      "amount": "42.50",
+      "currency": "SGD",
+      "description": "Rent",
+      "frequency": "monthly",
+      "start_date": "2026-01-01",
+      "end_date": null,
+      "next_due_date": "2026-10-01",
+      "last_posted_date": "2026-09-01",
+      "is_active": true,
+      "owner_user_id": null
+    """
+
+    @Test("Posting stats decode from the backend payload")
+    func statsDecode() throws {
+        let json = Self.base + """
+        ,
+          "posted_count": 3,
+          "posted_total_home_currency": "127.50"
+        }
+        """
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.timesPosted == 3)
+        #expect(rule.totalPosted == 127.50)
+    }
+
+    @Test("A payload with no stats at all still decodes, reporting nothing posted")
+    func missingStatsDecodeAsZero() throws {
+        let json = Self.base + "\n}"
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.postedCount == nil)
+        #expect(rule.timesPosted == 0)
+        #expect(rule.totalPosted == 0)
+    }
+}

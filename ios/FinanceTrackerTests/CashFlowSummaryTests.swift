@@ -39,7 +39,9 @@ struct CashFlowSummaryTests {
             nextDueDate: due,
             lastPostedDate: nil,
             isActive: isActive,
-            ownerUserId: owner
+            ownerUserId: owner,
+            postedCount: nil,
+            postedTotalHomeCurrency: nil
         )
     }
 

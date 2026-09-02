@@ -1140,6 +1140,23 @@ struct RecurringTransactionResponse: Codable, Identifiable, Hashable {
     let lastPostedDate: Date?
     let isActive: Bool
     let ownerUserId: String?
+    /// What the rule has actually posted, as opposed to what it is scheduled to
+    /// post.
+    ///
+    /// **Optional, not defaulted.** Swift's synthesized decoder calls plain
+    /// `decode` for a non-optional property even when it has a default value, so
+    /// `var postedCount: Int = 0` throws `keyNotFound` on any payload without the
+    /// key — which is every response from an older backend, and was every fixture
+    /// in this suite until it was pinned. Optional gets `decodeIfPresent`, and the
+    /// accessors below give callers the number they actually want.
+    let postedCount: Int?
+    @OptionalMoneyAmount var postedTotalHomeCurrency: Double?
+
+    /// How many times this rule has fired. Absent stats read as zero, which is
+    /// also true of a rule that has genuinely never posted — the distinction
+    /// matters to nothing on screen.
+    var timesPosted: Int { postedCount ?? 0 }
+    var totalPosted: Double { postedTotalHomeCurrency ?? 0 }
 }
 
 struct RecurringTransactionCreate: Encodable {

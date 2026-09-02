@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -270,6 +271,11 @@ def get_household_transactions(
     # multi-year household pays for a cold start. Omitted = full history, unordered, as
     # before, which is what the Transactions screens still need.
     limit: Optional[int] = Query(None, ge=1),
+    # Everything one recurring rule has actually posted. The rule detail screens
+    # want a rule's own history and nothing else; without this they would have to
+    # download the household's entire history and filter it client-side, which is
+    # the cost `limit` above exists to avoid.
+    recurring_transaction_id: Optional[uuid.UUID] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -286,6 +292,10 @@ def get_household_transactions(
         return []
 
     query = db.query(models.Transaction).filter(models.Transaction.account_id.in_(account_ids))
+    if recurring_transaction_id is not None:
+        query = query.filter(
+            models.Transaction.recurring_transaction_id == recurring_transaction_id
+        )
     if limit is not None:
         # Ordered only when limited: "the newest N" is meaningless without it, and the
         # unlimited path stays byte-for-byte what it was.
@@ -980,6 +990,54 @@ def create_recurring_transaction(
     return db_rule
 
 
+def _with_posting_stats(
+    db: Session, rules: List[models.RecurringTransaction]
+) -> List[schemas.RecurringTransactionResponse]:
+    """Attach what each rule has actually posted.
+
+    One grouped query for the whole page rather than a count per rule — the same
+    shape `_with_split` uses for transaction splits, and for the same reason: a
+    household with forty rules would otherwise make forty round trips to render
+    one screen.
+
+    `amount_home_currency` falls back to `amount`, which is the household's own
+    currency for every rule that isn't on a foreign-currency account; summing the
+    raw amount across currencies would be a different number wearing the same
+    label, and a null here means the conversion was never recorded rather than
+    that the transaction was worth nothing.
+    """
+    if not rules:
+        return []
+    rule_ids = [rule.id for rule in rules]
+    rows = (
+        db.query(
+            models.Transaction.recurring_transaction_id,
+            func.count(models.Transaction.id),
+            func.sum(
+                func.coalesce(
+                    models.Transaction.amount_home_currency, models.Transaction.amount
+                )
+            ),
+        )
+        .filter(models.Transaction.recurring_transaction_id.in_(rule_ids))
+        .group_by(models.Transaction.recurring_transaction_id)
+        .all()
+    )
+    stats = {row[0]: (row[1], row[2] or Decimal("0")) for row in rows}
+    out = []
+    for rule in rules:
+        count, total = stats.get(rule.id, (0, Decimal("0")))
+        out.append(
+            schemas.RecurringTransactionResponse.model_validate(rule).model_copy(
+                update={
+                    "posted_count": count,
+                    "posted_total_home_currency": total,
+                }
+            )
+        )
+    return out
+
+
 @router.get(
     "/recurring/household/{household_id}",
     response_model=List[schemas.RecurringTransactionResponse],
@@ -990,7 +1048,7 @@ def get_household_recurring(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(household_id, current_user, db)
-    return (
+    rules = (
         db.query(models.RecurringTransaction)
         .filter(
             models.RecurringTransaction.household_id == household_id,
@@ -1000,6 +1058,7 @@ def get_household_recurring(
         .order_by(models.RecurringTransaction.next_due_date)
         .all()
     )
+    return _with_posting_stats(db, rules)
 
 
 @router.get(
@@ -1117,7 +1176,9 @@ def update_recurring_transaction(
 
     db.commit()
     db.refresh(db_rule)
-    return db_rule
+    # Pausing a rule must not make it look like it has never posted: this schema
+    # carries the posting stats and they default to zero off a bare ORM row.
+    return _with_posting_stats(db, [db_rule])[0]
 
 
 @router.delete("/recurring/{recurring_id}", status_code=status.HTTP_204_NO_CONTENT)

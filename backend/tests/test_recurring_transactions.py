@@ -8,7 +8,7 @@ several missed periods after the app has been idle.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -373,7 +373,12 @@ def test_upcoming_occurrences_previews_without_posting(
 ):
     rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
 
-    upcoming = recurring_service.upcoming_occurrences(rule, until=date(2026, 4, 15))
+    # `since` is pinned, not left to default to the real today: this test is
+    # about which dates the schedule produces, and the floor that keeps past
+    # dates out of an "upcoming" list is exercised separately below.
+    upcoming = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 4, 15), since=date(2026, 1, 1)
+    )
 
     assert upcoming == [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1), date(2026, 4, 1)]
     assert _transactions_for(db_session, rule) == []
@@ -383,14 +388,18 @@ def test_upcoming_respects_end_date_and_pause(db_session, household, account, re
     ending = _rule(
         db_session, household, account, rent_category, end_date=date(2026, 2, 28)
     )
-    assert recurring_service.upcoming_occurrences(ending, until=date(2026, 6, 1)) == [
+    assert recurring_service.upcoming_occurrences(
+        ending, until=date(2026, 6, 1), since=date(2026, 1, 1)
+    ) == [
         date(2026, 1, 1),
         date(2026, 2, 1),
     ]
 
     ending.is_active = False
     db_session.commit()
-    assert recurring_service.upcoming_occurrences(ending, until=date(2026, 6, 1)) == []
+    assert recurring_service.upcoming_occurrences(
+        ending, until=date(2026, 6, 1), since=date(2026, 1, 1)
+    ) == []
 
 
 # ---------------------------------------------------------------------------
@@ -605,3 +614,150 @@ def test_another_members_private_rule_is_hidden(
     descriptions = [r["description"] for r in rows]
     assert "Shared rent" in descriptions
     assert "Their private rule" not in descriptions
+
+
+# ---------------------------------------------------------------------------
+# What a rule has actually posted
+# ---------------------------------------------------------------------------
+
+
+def test_list_reports_what_each_rule_has_posted(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    `next_due_date` says a rule is scheduled; only a count says it has ever
+    fired. A rule that has posted nothing in six months is either brand new or
+    broken, and the two are indistinguishable without this.
+    """
+    _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    posted = client.post(
+        f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers
+    ).json()["posted"]
+    assert posted >= 1
+
+    rows = client.get(
+        f"/cashflow/recurring/household/{household.id}", headers=owner_headers
+    ).json()
+    assert len(rows) == 1
+    assert rows[0]["posted_count"] == posted
+    # Every posting is the same amount, so the total is exactly the multiple.
+    assert Decimal(rows[0]["posted_total_home_currency"]) == Decimal("2000") * posted
+
+
+def test_a_rule_that_has_never_posted_reports_zero_not_null(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """Zero and "unknown" must not look the same to a client rendering a count."""
+    _rule(
+        db_session,
+        household,
+        account,
+        rent_category,
+        start_date=date.today() + timedelta(days=30),
+    )
+    rows = client.get(
+        f"/cashflow/recurring/household/{household.id}", headers=owner_headers
+    ).json()
+    assert rows[0]["posted_count"] == 0
+    assert Decimal(rows[0]["posted_total_home_currency"]) == Decimal("0")
+
+
+def test_pausing_a_rule_does_not_reset_its_posting_history(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The update endpoint returns this schema off a freshly written row, where the
+    stats default to zero. Recomputing them is what stops a pause reading as
+    "this rule has never run".
+    """
+    rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    response = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"is_active": False}
+    )
+    assert response.status_code == 200
+    assert response.json()["posted_count"] >= 1
+
+
+def test_transactions_can_be_filtered_to_one_rule(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Without this a rule's own history costs the household's entire transaction
+    list — the exact download `limit` exists to avoid.
+    """
+    rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    # An unrelated transaction that must not appear.
+    client.post(
+        "/cashflow/transactions",
+        headers=owner_headers,
+        json={
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 12.5,
+            "transaction_type": "expense",
+            "date": "2026-02-14T00:00:00",
+            "description": "Not from a rule",
+        },
+    )
+
+    rows = client.get(
+        f"/cashflow/transactions/household/{household.id}"
+        f"?recurring_transaction_id={rule.id}&limit=50",
+        headers=owner_headers,
+    ).json()
+    assert rows
+    assert all(r["recurring_transaction_id"] == str(rule.id) for r in rows)
+    assert all(r["description"] != "Not from a rule" for r in rows)
+    # Limited means newest-first, which is the order a history reads in.
+    assert [r["date"] for r in rows] == sorted((r["date"] for r in rows), reverse=True)
+
+
+def test_upcoming_never_lists_a_date_that_has_already_passed():
+    """
+    A rule the engine hasn't caught up with still has `next_due_date` behind it,
+    so walking from there put January into a list a client renders as the coming
+    months — in September. Overdue work is reported by the due count and the
+    "post due now" action; this list is about what happens next.
+    """
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(),
+        household_id=uuid.uuid7(),
+        account_id=uuid.uuid7(),
+        category_id=uuid.uuid7(),
+        amount=Decimal("30"),
+        frequency=F.monthly,
+        start_date=date(2026, 1, 5),
+        next_due_date=date(2026, 1, 5),
+        is_active=True,
+    )
+    dates = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 12, 1), since=date(2026, 9, 2)
+    )
+    assert dates
+    assert min(dates) >= date(2026, 9, 2)
+    # Still anchored to the 5th — the walk starts at next_due_date, only the
+    # emitting is floored, so the schedule isn't re-based onto `since`.
+    assert all(d.day == 5 for d in dates)
+
+
+def test_upcoming_includes_today():
+    """Today's occurrence hasn't posted yet, so it is still ahead of you."""
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(),
+        household_id=uuid.uuid7(),
+        account_id=uuid.uuid7(),
+        category_id=uuid.uuid7(),
+        amount=Decimal("30"),
+        frequency=F.monthly,
+        start_date=date(2026, 9, 2),
+        next_due_date=date(2026, 9, 2),
+        is_active=True,
+    )
+    dates = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 12, 1), since=date(2026, 9, 2)
+    )
+    assert dates[0] == date(2026, 9, 2)
