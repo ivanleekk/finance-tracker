@@ -138,6 +138,17 @@ struct RecurringDetailView: View {
                 // list's accent tint, so the row reads half-destructive.
                 .tint(.red)
                 .disabled(isDeleting)
+                // On the button, so the confirmation appears beside it rather
+                // than anchored to the top of the list.
+                .confirmationDialog(
+                    "Delete this recurring transaction?",
+                    isPresented: $pendingDelete,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) { Task { await delete() } }
+                } message: {
+                    Text("Transactions it already posted stay in your history — only future occurrences stop.")
+                }
             }
 
             if let errorMessage {
@@ -167,15 +178,6 @@ struct RecurringDetailView: View {
                 // match what was just saved.
                 dismiss()
             }
-        }
-        .confirmationDialog(
-            "Delete this recurring transaction?",
-            isPresented: $pendingDelete,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) { Task { await delete() } }
-        } message: {
-            Text("Transactions it already posted stay in your history — only future occurrences stop.")
         }
         .quickAddPull(quickAdd, onReload: load)
         .task { await load() }

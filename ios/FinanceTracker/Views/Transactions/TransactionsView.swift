@@ -321,6 +321,12 @@ struct TransactionsView: View {
                 }
             }
             .quickAddPull(quickAdd, onReload: load)
+            // Screen level, and it has to stay there. Anchoring this to the row
+            // (which is where the bubble *should* point) was tried and silently
+            // fails: tapping the swipe's Delete collapses the row, the dialog
+            // attached to it is torn down before it presents, and the user gets
+            // no confirmation and no deletion — nothing happens at all. The
+            // mis-anchored bubble is the lesser of the two problems.
             .confirmationDialog(
                 "Delete this transaction?",
                 isPresented: .init(
