@@ -178,24 +178,16 @@ struct MoreView: View {
                     Button("Log Out", role: .destructive) {
                         showingLogoutConfirm = true
                     }
-                    // Attached to the button, not the List. A confirmation
-                    // renders as a bubble anchored to whatever view carries the
-                    // modifier, so hanging it off the screen pointed it at a row
-                    // near the top — the tail aimed at "Budgets" while the user
-                    // was looking at Log Out at the bottom of the page.
-                    .confirmationDialog(
-                        "Log out of Waypoint?",
-                        isPresented: $showingLogoutConfirm,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Log Out", role: .destructive) {
-                            session.logout()
-                        }
-                    }
                 }
             }
             .navigationTitle("More")
             .quickAddPull(quickAdd, onReload: {})
+            .alert("Log out of Waypoint?", isPresented: $showingLogoutConfirm) {
+                Button("Log Out", role: .destructive) {
+                    session.logout()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .sheet(isPresented: $showingCreateHousehold) {
                 CreateHouseholdView()
             }

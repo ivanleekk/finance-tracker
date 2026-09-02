@@ -57,19 +57,13 @@ private struct DiscardGuard: ViewModifier {
                     Button("Cancel") {
                         if isDirty { isConfirming = true } else { dismiss() }
                     }
-                    // On the button, not on `content`: the confirmation renders
-                    // as a bubble anchored to the view carrying the modifier, so
-                    // hanging it off the whole sheet pointed it at the middle of
-                    // the form rather than at the Cancel the user just pressed.
-                    .confirmationDialog(
-                        "Discard changes?", isPresented: $isConfirming, titleVisibility: .visible
-                    ) {
-                        Button("Discard Changes", role: .destructive) { dismiss() }
-                        Button("Keep Editing", role: .cancel) {}
-                    } message: {
-                        Text("What you've entered on this form will be lost.")
-                    }
                 }
+            }
+            .alert("Discard changes?", isPresented: $isConfirming) {
+                Button("Discard Changes", role: .destructive) { dismiss() }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("What you've entered on this form will be lost.")
             }
     }
 }

@@ -22,7 +22,7 @@ struct RecurringView: View {
     @State private var errorMessage: String?
 
     // Delete confirmation + per-row state lives here, not on the row itself —
-    // a `.confirmationDialog` presented from a view inside a swipe-actions
+    // a confirmation presented from a view inside a swipe-actions
     // row can get torn down along with the row's own dismiss animation
     // before the user ever sees it, silently skipping the confirmation.
     @State private var pendingDelete: RecurringTransactionResponse?
@@ -248,15 +248,12 @@ struct RecurringView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        // An `.alert`, not a `.confirmationDialog`. A confirmation renders as a
-        // bubble anchored to the view carrying the modifier, and this one has to
-        // live on the screen rather than the row — attaching it to the row means
-        // the swipe's Delete collapses the row, takes the dialog with it, and
-        // nothing happens at all. Anchored to the screen it pointed at the top of
-        // the list while the finger was somewhere else entirely. A centred alert
-        // makes no claim about where it came from, so it can't be wrong about it.
-        // The Cancel is explicit: unlike a confirmation dialog, an alert adds
-        // none of its own and can't be dismissed by tapping outside.
+        // Alerts, not confirmation dialogs, for every confirmation in the app —
+        // a confirmation renders as a bubble anchored to whatever view carries
+        // the modifier, and the one place this must be attached (the screen, not
+        // the row) is the one place that points somewhere misleading. See the
+        // Gestures note in ios/AGENTS.md. The Cancel is written out because
+        // `.alert` adds none of its own and can't be dismissed by tapping away.
         .alert(
             "Delete this recurring transaction?",
             isPresented: .init(
@@ -353,7 +350,7 @@ struct RecurringRuleRow: View {
     let category: CategoryResponse?
     let accountName: String?
     let currency: String
-    /// Driven from `RecurringView`, not local `@State` — a `.confirmationDialog`
+    /// Driven from `RecurringView`, not local `@State` — a confirmation
     /// presented from a view living inside a swipe-actions row can get torn
     /// down along with the row's own collapse animation before it's ever
     /// seen, which silently skips the confirmation. Keeping the pending/error

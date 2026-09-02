@@ -128,15 +128,13 @@ struct GoalDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-                // Anchored to the toolbar menu the Delete lives in, so the
-                // confirmation appears where the finger was rather than over
-                // the middle of the page.
-                .confirmationDialog("Delete this goal?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                    Button("Delete Goal", role: .destructive) { delete() }
-                } message: {
-                    Text("Goals with trades or funding activity can't be deleted.")
-                }
             }
+        }
+        .alert("Delete this goal?", isPresented: $confirmingDelete) {
+            Button("Delete Goal", role: .destructive) { delete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Goals with trades or funding activity can't be deleted.")
         }
         .sheet(isPresented: $isEditing) {
             GoalFormView(existing: goalState) { await reload() }
