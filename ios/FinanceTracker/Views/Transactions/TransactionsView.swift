@@ -321,25 +321,29 @@ struct TransactionsView: View {
                 }
             }
             .quickAddPull(quickAdd, onReload: load)
-            // Screen level, and it has to stay there. Anchoring this to the row
-            // (which is where the bubble *should* point) was tried and silently
-            // fails: tapping the swipe's Delete collapses the row, the dialog
-            // attached to it is torn down before it presents, and the user gets
-            // no confirmation and no deletion — nothing happens at all. The
-            // mis-anchored bubble is the lesser of the two problems.
-            .confirmationDialog(
+            // An `.alert`, not a `.confirmationDialog`. A confirmation renders as
+            // a bubble anchored to the view carrying the modifier, and this one
+            // has to live on the screen rather than the row — attaching it to the
+            // row means the swipe's Delete collapses the row, takes the dialog
+            // with it, and nothing happens at all. Anchored to the screen it
+            // pointed at the top of the list while the finger was somewhere else
+            // entirely. A centred alert makes no claim about where it came from,
+            // so it can't be wrong about it. The Cancel is explicit: unlike a
+            // confirmation dialog, an alert adds none of its own and can't be
+            // dismissed by tapping outside.
+            .alert(
                 "Delete this transaction?",
                 isPresented: .init(
                     get: { pendingDelete != nil },
                     set: { if !$0 { pendingDelete = nil } }
-                ),
-                titleVisibility: .visible
+                )
             ) {
                 Button("Delete", role: .destructive) {
                     if let txn = pendingDelete {
                         delete([txn], at: IndexSet(integer: 0))
                     }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The account balance it moved is recalculated. This can't be undone.")
             }

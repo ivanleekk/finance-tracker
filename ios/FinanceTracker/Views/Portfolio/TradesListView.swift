@@ -115,19 +115,28 @@ struct TradesListView: View {
             }
         }
         .quickAddPull(quickAdd, onReload: load)
-        .confirmationDialog(
+        // An `.alert`, not a `.confirmationDialog`. A confirmation renders as a
+        // bubble anchored to the view carrying the modifier, and this one has to
+        // live on the screen rather than the row — attaching it to the row means
+        // the swipe's Delete collapses the row, takes the dialog with it, and
+        // nothing happens at all. Anchored to the screen it pointed at the top of
+        // the list while the finger was somewhere else entirely. A centred alert
+        // makes no claim about where it came from, so it can't be wrong about it.
+        // The Cancel is explicit: unlike a confirmation dialog, an alert adds
+        // none of its own and can't be dismissed by tapping outside.
+        .alert(
             "Delete this trade?",
             isPresented: .init(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("Delete", role: .destructive) {
                 if let trade = pendingDelete {
                     delete([trade], at: IndexSet(integer: 0))
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Holdings and portfolio history are recalculated from this trade's date. This can't be undone.")
         }

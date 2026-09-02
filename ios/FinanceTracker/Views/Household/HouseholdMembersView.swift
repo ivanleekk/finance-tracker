@@ -110,13 +110,21 @@ struct HouseholdMembersView: View {
             if isLoading && members.isEmpty { LoadingSkeleton() }
         }
         .quickAddPull(quickAdd, onReload: load)
-        .confirmationDialog(
+        // An `.alert`, not a `.confirmationDialog`. A confirmation renders as a
+        // bubble anchored to the view carrying the modifier, and this one has to
+        // live on the screen rather than the row — attaching it to the row means
+        // the swipe's Delete collapses the row, takes the dialog with it, and
+        // nothing happens at all. Anchored to the screen it pointed at the top of
+        // the list while the finger was somewhere else entirely. A centred alert
+        // makes no claim about where it came from, so it can't be wrong about it.
+        // The Cancel is explicit: unlike a confirmation dialog, an alert adds
+        // none of its own and can't be dismissed by tapping outside.
+        .alert(
             pendingRemoval.map { "Remove \($0.name) from this household?" } ?? "Remove this member?",
             isPresented: .init(
                 get: { pendingRemoval != nil },
                 set: { if !$0 { pendingRemoval = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("Remove", role: .destructive) {
                 if let member = pendingRemoval,
@@ -124,6 +132,7 @@ struct HouseholdMembersView: View {
                     removeMembers(at: IndexSet(integer: index))
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("They lose access to shared accounts and goals. Re-invite them to undo it.")
         }

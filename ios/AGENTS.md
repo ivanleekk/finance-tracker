@@ -172,8 +172,13 @@ FinanceTracker/
       and must stay at screen level: attaching it to the row was tried and *silently* fails —
       tapping the swipe's Delete collapses the row, the dialog goes with it, and the user gets
       neither a confirmation nor a deletion. Scoping the binding to the row's id doesn't help;
-      it is the row's teardown, not the shared state, that kills it. A mis-anchored bubble is
-      the lesser of the two problems.
+      it is the row's teardown, not the shared state, that kills it. So those five — deleting a
+      transaction, a budget, a trade or a recurring rule, and removing a household member — use
+      a plain **`.alert`** instead: a centred alert makes no claim about where it was summoned
+      from, so unlike a bubble it cannot be wrong about it. **Their Cancel button has to be
+      written out by hand.** `.confirmationDialog` supplies one and can be dismissed by tapping
+      outside; `.alert` does neither, so an alert with only a destructive button is a trap with
+      no way out.
 - **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) and the finger then lifts without flicking back *up* faster than `retractVelocity` (900 pt/s). It is the release **direction** that decides, not its speed: still moving down, or roughly still, completes the gesture the "Release for Quick Add" badge just promised, and a confident fast pull is the most deliberate version of that, not the least — only a sharp flick upward reads as taking it back. Momentum-only overscroll can't arm it at all, because `dragging` (set by the `DragGesture`, cleared on end *and* when the sheet opens) gates every update.
   The live gesture state lives in an `@Observable`
   `PullState` read only by the `PullIndicator` subview, **not** as `@State` on the modifier:
