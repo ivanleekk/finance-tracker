@@ -3,7 +3,7 @@ import SwiftUI
 struct MainTabView: View {
     /// Named `AppTab` rather than `Tab` so it doesn't shadow SwiftUI's `Tab` builder below.
     enum AppTab: Hashable {
-        case dashboard, accounts, portfolio, transactions, more
+        case dashboard, accounts, portfolio, cashFlow, more
     }
 
     @Environment(QuickAddStore.self) private var quickAdd
@@ -29,7 +29,11 @@ struct MainTabView: View {
             Tab("Portfolio", systemImage: "chart.pie", value: AppTab.portfolio) {
                 PortfolioView()
             }
-            Tab("Transactions", systemImage: "list.bullet.rectangle", value: AppTab.transactions) {
+            // "Cash Flow" rather than "Transactions": the tab now holds the plan
+            // (budgets, card caps, what's scheduled) above the record, and income
+            // rows and upcoming salary make "Spending" a lie. It is also the word
+            // the backend already uses for this router.
+            Tab("Cash Flow", systemImage: "list.bullet.rectangle", value: AppTab.cashFlow) {
                 TransactionsView()
             }
             Tab("More", systemImage: "ellipsis.circle", value: AppTab.more) {

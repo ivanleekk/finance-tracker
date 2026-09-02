@@ -27,6 +27,11 @@ struct TransactionsView: View {
     @State private var categoryPeriod: CategoryPeriod = .all
     @State private var categoryPeriodStart: Date?
     @State private var categoryPeriodEnd: Date?
+    /// The "plan" block above the list: budgets, card caps, what's scheduled.
+    /// Loaded separately from the list and allowed to stay empty — it is
+    /// supplementary to the history, which must render without it.
+    @State private var summary = CashFlowSummaryData()
+    @State private var isPostingDue = false
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -116,6 +121,22 @@ struct TransactionsView: View {
         transactions.contains { $0.transactionType == .expense && visibleAccountIds.contains($0.accountId) }
     }
 
+    private var attentionItems: [AttentionItem] {
+        CashFlowSummary.attention(
+            budgets: summary.budgets,
+            cards: summary.cardLimits,
+            dueNowCount: summary.dueNowCount,
+            formatAmount: { amount, currency in amount.currencyWhole(currency) },
+            baseCurrency: baseCurrency
+        )
+    }
+
+    /// The near horizon rather than the 90 days the Recurring screen lists —
+    /// the part you can still do something about.
+    private var upcomingSoon: [UpcomingOccurrence] {
+        CashFlowSummary.upcomingWithin(summary.upcoming, days: 14)
+    }
+
     private func toggleHiddenCategory(_ id: String) {
         if hiddenCategoryIds.contains(id) { hiddenCategoryIds.remove(id) } else { hiddenCategoryIds.insert(id) }
     }
@@ -180,6 +201,13 @@ struct TransactionsView: View {
         NavigationStack {
             List {
                 QuickAddPullSensor()
+
+                NeedsAttentionSection(
+                    items: attentionItems,
+                    onPostDue: { await postDueRecurring() },
+                    isPosting: isPostingDue
+                )
+
                 if hasAnyExpenses {
                     Section {
                         CategoryBreakdownCard(
@@ -202,6 +230,8 @@ struct TransactionsView: View {
                         Text("Top Categories")
                     }
                 }
+                planLinksSection
+
                 Section {
                     Picker("Group by", selection: $granularity) {
                         ForEach(HistoryGranularity.allCases) { option in
@@ -227,7 +257,7 @@ struct TransactionsView: View {
                     }
                 }
             }
-            .navigationTitle("Transactions")
+            .navigationTitle("Cash Flow")
             .searchable(text: $searchText, prompt: "Search description, category, account")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { VaultLockButton() }
@@ -336,6 +366,98 @@ struct TransactionsView: View {
         }
     }
 
+    /// Budgets, cards, what's scheduled and what's owed — one row each, each
+    /// pushing the screen it summarises.
+    ///
+    /// A row appears only when the household has that thing at all: a summary of
+    /// nothing is a permanent "0" teaching the reader to skip the block. Extracted
+    /// from `body` to keep the list inside the type-checker's budget.
+    @ViewBuilder
+    private var planLinksSection: some View {
+        let subtitle = CashFlowSummary.budgetsSubtitle(summary.budgets)
+        let owed = summary.owedToYou - summary.youOwe
+        if subtitle != nil || !summary.cardLimits.isEmpty || !upcomingSoon.isEmpty || owed != 0 {
+            Section("Plan") {
+                if let subtitle {
+                    NavigationLink {
+                        BudgetsView()
+                    } label: {
+                        SummaryLinkRow(
+                            title: "Budgets",
+                            value: subtitle,
+                            detail: "\(summary.budgets.count) this period",
+                            tint: subtitle == "On track" ? .green : .orange,
+                            systemImage: "chart.pie"
+                        )
+                    }
+                }
+
+                if let card = headlineCardLimit {
+                    NavigationLink {
+                        CardsView()
+                    } label: {
+                        SummaryLinkRow(
+                            title: "Cards",
+                            value: Cards.headroomLabel(for: card.row) { $0.currencyWhole(card.currency) },
+                            detail: "\(card.cardName) · \(card.row.name)",
+                            tint: Cards.tone(for: card.row) == .ok ? .primary : .orange,
+                            systemImage: "creditcard"
+                        )
+                    }
+                }
+
+                if !upcomingSoon.isEmpty {
+                    NavigationLink {
+                        RecurringView()
+                    } label: {
+                        SummaryLinkRow(
+                            title: "Coming up",
+                            value: signedUpcoming,
+                            detail: "Next 14 days · \(upcomingSoon.count) scheduled",
+                            tint: BudgetPresentation.netUpcoming(upcomingSoon) < 0 ? .primary : .green,
+                            systemImage: "calendar"
+                        )
+                    }
+                }
+
+                if owed != 0 {
+                    NavigationLink {
+                        ReimbursementsView()
+                    } label: {
+                        SummaryLinkRow(
+                            title: "Shared",
+                            value: abs(owed).currencyWhole(baseCurrency),
+                            detail: owed > 0 ? "Owed to you" : "You owe",
+                            tint: owed > 0 ? .green : .orange,
+                            systemImage: "person.2"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// The net of what's scheduled, signed the way the Recurring screen and the
+    /// activity rows sign money: an explicit typographic minus rather than
+    /// Foundation's hyphen, so the same figure doesn't wear two different signs
+    /// on one screen.
+    private var signedUpcoming: String {
+        let net = BudgetPresentation.netUpcoming(upcomingSoon)
+        return (net < 0 ? "−" : "+") + abs(net).currencyWhole(baseCurrency)
+    }
+
+    /// The one card limit worth a summary row: the worst-off, else the tightest.
+    ///
+    /// A household can meter several caps across several cards, and a row per
+    /// limit here would be the full Cards screen with none of its context. The
+    /// row is a pointer, so it shows the limit most likely to change a decision
+    /// and lets the screen behind it hold the rest.
+    private var headlineCardLimit: CardLimitSummary? {
+        let metered = summary.cardLimits.filter { !Cards.measuresNothing($0.row) }
+        if let worst = metered.first(where: { Cards.tone(for: $0.row) != .ok }) { return worst }
+        return metered.min { $0.row.remaining < $1.row.remaining }
+    }
+
     /// One activity row. Extracted from `body` so the list stays inside the
     /// type-checker's budget, not for reuse.
     @ViewBuilder
@@ -417,6 +539,34 @@ struct TransactionsView: View {
             async let counterpartiesReq: [Counterparty] = APIClient.shared.get("/cashflow/counterparties/household/\(household.id)")
             (transactions, accounts, categories, counterparties) = try await (txnsReq, accountsReq, categoriesReq, counterpartiesReq)
             lastLoadedAt = Date()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        // After the list, never with it. The plan block is supplementary — it
+        // must not hold up the history, and a card endpoint having a bad day
+        // must not turn this screen into an error.
+        await loadSummary()
+    }
+
+    private func loadSummary() async {
+        guard let household = session.activeHousehold else { return }
+        summary = await CashFlowSummary.load(householdId: household.id) { ownerId in
+            viewModeStore.isVisible(ownerUserId: ownerId, currentUserId: session.user?.id)
+        }
+    }
+
+    /// Posts what the nightly job hasn't got to yet, from the attention row
+    /// itself rather than one screen down.
+    private func postDueRecurring() async {
+        guard let household = session.activeHousehold else { return }
+        isPostingDue = true
+        defer { isPostingDue = false }
+        do {
+            let _: RecurringRunResponse = try await APIClient.shared.post(
+                "/cashflow/recurring/household/\(household.id)/run",
+                body: EmptyBody()
+            )
+            await load()
         } catch {
             errorMessage = error.localizedDescription
         }

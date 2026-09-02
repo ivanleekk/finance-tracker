@@ -23,12 +23,16 @@ FinanceTracker/
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
+  Support/CashFlowSummary.swift # The "plan" half of the Cash Flow tab: what needs attention
+                             #   (over/at-risk budgets, burst/at-pace card limits, rules due now),
+                             #   the near-horizon upcoming window, and the shared `load` both the
+                             #   Cash Flow tab and the Dashboard's exception row call
   Support/CategoryPeriod.swift # Date window + saved filter for the Transactions "Top Categories"
                              #   card (port of the web's CategoryPeriodPreset); UserDefaults-backed
                              #   TopCategoryFilterStore keyed per household
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
-  Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
+  Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Cash Flow, More (+ Auth)
                              #   Accounts/  = the Accounts tab (AccountsListView, wrapped in a NavigationStack by
                              #     MainTabView; also pushed from Dashboard rows) + account create/edit
                              #     (AccountFormView), manual balance entry (AddBalanceView, POST /accounts/balances),
@@ -97,6 +101,13 @@ FinanceTracker/
                              #   Create a household from More → Create Household (SessionStore.createHousehold →
                              #     POST /users/households, then switches active); More shows a household picker once
                              #     there's more than one.
+                             #   CashFlow/  = the summary block that turned the Transactions tab into
+                             #     "Cash Flow": NeedsAttentionSection (exception-only — renders nothing
+                             #     when the household is fine) and SummaryLinkRow, the one-line
+                             #     Budgets / Cards / Coming up / Shared rows that push the full screens.
+                             #     Both are hosted by TransactionsView; NeedsAttentionSection is also
+                             #     mounted on the Dashboard, which is the point — the Dashboard asks
+                             #     "is anything wrong?" unprompted, the tab is where you look on purpose.
                              #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
                              #     transfers are not editable here) + CategoriesView (category CRUD,
                              #     also reached from More → Categories and inline from the New Transaction sheet).
@@ -339,6 +350,10 @@ where tests pay off without a running backend:
   supplied `calendar: utc` while `TransactionsView` calls `groupHistory` with the default,
   so the suite pinned a path the app never took. A test for a function with a
   timezone-dependent default has to exercise that default.
+- `CashFlowSummaryTests` — `Support/CashFlowSummary.swift`: what counts as due, the
+  upcoming window's bounds, view-mode scoping of occurrences, and the attention wording
+  (over vs at-risk, a burst cap vs a missed minimum, unmetered limits skipped). Every `now`
+  is injected and dates are built in UTC.
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
 - `ReimbursementsTests` / `ReimbursementCodingTests` — `Support/Reimbursements.swift` (the
