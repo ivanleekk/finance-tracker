@@ -1157,6 +1157,12 @@ struct RecurringTransactionResponse: Codable, Identifiable, Hashable {
     /// matters to nothing on screen.
     var timesPosted: Int { postedCount ?? 0 }
     var totalPosted: Double { postedTotalHomeCurrency ?? 0 }
+
+    /// What the rule records about the payment itself, carried onto every
+    /// transaction it posts. Optional for the same decoding reason as the stats
+    /// above — a payload without the keys must not fail the whole list.
+    let mcc: String?
+    let cardCategoryId: String?
 }
 
 struct RecurringTransactionCreate: Encodable {
@@ -1170,6 +1176,10 @@ struct RecurringTransactionCreate: Encodable {
     let startDate: String
     let endDate: String?
     let ownerUserId: String?
+    /// Omitted when nil, which is right on a create: there is nothing recorded
+    /// yet for an absent key to preserve.
+    var mcc: String? = nil
+    var cardCategoryId: String? = nil
 }
 
 /// PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone.
@@ -1198,8 +1208,14 @@ struct RecurringTransactionEdit: Encodable {
     let startDate: String
     let endDate: String?
 
+    /// Blank clears it; nil clears it too. Both reach the wire, never an
+    /// omitted key — see `encode(to:)`.
+    let mcc: String?
+    let cardCategoryId: String?
+
     private enum CodingKeys: String, CodingKey {
         case accountId, categoryId, amount, description, frequency, startDate, endDate
+        case mcc, cardCategoryId
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1213,6 +1229,13 @@ struct RecurringTransactionEdit: Encodable {
         try container.encode(frequency, forKey: .frequency)
         try container.encode(startDate, forKey: .startDate)
         try container.encode(endDate, forKey: .endDate)
+        // Same three-state trap the transaction form documents: this form
+        // resends every field, so clearing the code or the card category has to
+        // arrive as an explicit null. `encodeIfPresent` would omit the key and
+        // `exclude_unset` would read that as "leave it alone", making the clear
+        // silently do nothing.
+        try container.encode(mcc, forKey: .mcc)
+        try container.encode(cardCategoryId, forKey: .cardCategoryId)
     }
 }
 

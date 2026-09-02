@@ -346,3 +346,67 @@ struct RecurringPostingStatsDecodingTests {
         #expect(rule.totalPosted == 0)
     }
 }
+
+/// What a rule records *about the payment* — the merchant code and the card
+/// category it counts towards — and the three-state encoding that lets an edit
+/// clear either one.
+struct RecurringPaymentDetailCodingTests {
+
+    @Test("A rule decodes the fields it records about the payment")
+    func decodesPaymentDetail() throws {
+        let json = """
+        {
+          "id": "01a04358-0000-0000-0000-000000000001",
+          "household_id": "01a04358-0000-0000-0000-000000000002",
+          "account_id": "01a04358-0000-0000-0000-000000000003",
+          "category_id": "01a04358-0000-0000-0000-000000000004",
+          "amount": "12.98", "currency": "SGD", "description": "Streaming",
+          "frequency": "monthly", "start_date": "2026-01-01", "end_date": null,
+          "next_due_date": "2026-10-01", "last_posted_date": null,
+          "is_active": true, "owner_user_id": null,
+          "mcc": "5814",
+          "card_category_id": "01a04358-0000-0000-0000-000000000005"
+        }
+        """
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.mcc == "5814")
+        #expect(rule.cardCategoryId == "01a04358-0000-0000-0000-000000000005")
+    }
+
+    private func encodedKeys(_ edit: RecurringTransactionEdit) throws -> [String: Any] {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(edit)
+        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    }
+
+    private func edit(mcc: String?, cardCategoryId: String?) -> RecurringTransactionEdit {
+        RecurringTransactionEdit(
+            accountId: "acc", categoryId: "cat", amount: 10,
+            description: "Streaming", frequency: .monthly,
+            startDate: "2026-01-01", endDate: nil,
+            mcc: mcc, cardCategoryId: cardCategoryId
+        )
+    }
+
+    @Test("Clearing either field sends an explicit null, never an omitted key")
+    func clearingSendsNull() throws {
+        // The form resends every field, and the backend's `exclude_unset` reads
+        // an omitted key as "leave it alone" — so `encodeIfPresent` here would
+        // make clearing a code silently do nothing.
+        let object = try encodedKeys(edit(mcc: nil, cardCategoryId: nil))
+        #expect(object.keys.contains("mcc"))
+        #expect(object.keys.contains("card_category_id"))
+        #expect(object["mcc"] is NSNull)
+        #expect(object["card_category_id"] is NSNull)
+    }
+
+    @Test("A recorded code and category are sent as their values")
+    func valuesAreSent() throws {
+        let object = try encodedKeys(edit(mcc: "5814", cardCategoryId: "cc-1"))
+        #expect(object["mcc"] as? String == "5814")
+        #expect(object["card_category_id"] as? String == "cc-1")
+    }
+}

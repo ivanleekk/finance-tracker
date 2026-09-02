@@ -761,3 +761,198 @@ def test_upcoming_includes_today():
         rule, until=date(2026, 12, 1), since=date(2026, 9, 2)
     )
     assert dates[0] == date(2026, 9, 2)
+
+
+# ---------------------------------------------------------------------------
+# What a rule records about the payment, not just the schedule
+# ---------------------------------------------------------------------------
+
+
+def _card_with_category(db_session, household, name="Dining"):
+    """A liability account carrying a card with one category."""
+    account = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name="Amex",
+        liquidity=models.LiquidityStatus.liquid,
+        tax_status=models.TaxTreatment.taxable,
+        kind=models.AccountKind.liability,
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+    card = models.Card(
+        id=uuid.uuid7(),
+        financial_account_id=account.id,
+        cycle_basis=models.CycleBasis.statement,
+        statement_day=18,
+    )
+    db_session.add(card)
+    db_session.commit()
+    category = models.CardCategory(
+        id=uuid.uuid7(), card_id=card.id, name=name, is_default=True, sort_order=0
+    )
+    db_session.add(category)
+    db_session.commit()
+    db_session.refresh(account)
+    db_session.refresh(category)
+    return account, category
+
+
+def test_a_rule_carries_its_mcc_onto_everything_it_posts(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Recording the code once on the rule is the whole point: re-entering it on
+    every occurrence is exactly the work a rule exists to avoid.
+    """
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "mcc": "5814",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["mcc"] == "5814"
+
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+    posted = client.get(
+        f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+    ).json()
+    assert posted
+    assert all(t["mcc"] == "5814" for t in posted if t["recurring_transaction_id"])
+
+
+def test_a_blank_code_on_a_rule_is_absent_not_a_validation_error(
+    client, owner_headers, household, account, rent_category
+):
+    """Same coercion the transaction form relies on — a cleared field sends ""."""
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "mcc": "   ",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["mcc"] is None
+
+
+def test_editing_a_rule_preserves_a_code_it_was_not_asked_about(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    rule = _rule(db_session, household, account, rent_category)
+    rule.mcc = "5814"
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"amount": 99}
+    )
+    assert response.status_code == 200
+    assert response.json()["mcc"] == "5814"
+
+    # An explicit blank clears it.
+    cleared = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"mcc": ""}
+    )
+    assert cleared.json()["mcc"] is None
+
+
+def test_a_rule_cannot_borrow_another_cards_category(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    A card category is one card's private taxonomy, so pointing a rule on a
+    different account at it would meter the wrong card.
+    """
+    _, card_category = _card_with_category(db_session, household)
+
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),  # the plain checking account
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_moving_a_rule_to_another_account_clears_its_card_category(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The pick belongs to the card that was being charged. Left dangling it would
+    meter an account the rule no longer touches.
+    """
+    card_account, card_category = _card_with_category(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(card_account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    ).json()
+    assert created["card_category_id"] == str(card_category.id)
+
+    moved = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"account_id": str(account.id)},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["card_category_id"] is None
+
+
+def test_a_card_rule_tags_the_transactions_it_posts(
+    client, owner_headers, db_session, household, rent_category
+):
+    card_account, card_category = _card_with_category(db_session, household)
+    client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(card_account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    )
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    posted = [
+        t
+        for t in client.get(
+            f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+        ).json()
+        if t["recurring_transaction_id"]
+    ]
+    assert posted
+    assert all(t["card_category_id"] == str(card_category.id) for t in posted)

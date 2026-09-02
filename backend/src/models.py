@@ -473,6 +473,22 @@ class RecurringTransaction(Base):
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Carried onto every transaction the rule posts, so a rule is as complete a
+    # description of a payment as the form that creates one by hand. A
+    # subscription's merchant code doesn't change month to month, and neither
+    # does which of a card's categories it counts towards — having to open each
+    # posted row and add them by hand is exactly the work a rule exists to avoid.
+    mcc = Column(String(4), nullable=True)
+    # ON DELETE RESTRICT, like the column on `Transaction`: deleting a card
+    # category still pointed at by a rule is a 409 that explains itself, not a
+    # rule that silently starts posting untagged.
+    card_category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("card_categories.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     household = relationship("Household", back_populates="recurring_transactions")
     account = relationship("FinancialAccount")
     category = relationship("Category")

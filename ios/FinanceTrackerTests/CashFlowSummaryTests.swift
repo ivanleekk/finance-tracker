@@ -41,7 +41,9 @@ struct CashFlowSummaryTests {
             isActive: isActive,
             ownerUserId: owner,
             postedCount: nil,
-            postedTotalHomeCurrency: nil
+            postedTotalHomeCurrency: nil,
+            mcc: nil,
+            cardCategoryId: nil
         )
     }
 

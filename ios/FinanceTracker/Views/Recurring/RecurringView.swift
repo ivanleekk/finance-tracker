@@ -505,6 +505,12 @@ struct RecurringFormView: View {
     @State private var didSeedPrivacy: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// What the rule records about the payment, carried onto every transaction
+    /// it posts. A subscription's merchant code and the card category it counts
+    /// towards don't change month to month.
+    @State private var mcc: String
+    @State private var cardCategoryId: String
+    @State private var card: CardResponse?
 
     init(
         accounts: [AccountResponse],
@@ -524,6 +530,8 @@ struct RecurringFormView: View {
         _startDate = State(initialValue: existing?.startDate ?? Date())
         _hasEndDate = State(initialValue: existing?.endDate != nil)
         _endDate = State(initialValue: existing?.endDate ?? Date())
+        _mcc = State(initialValue: existing?.mcc ?? "")
+        _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
         // Edit mode has nothing left to seed after init, so it's settled
         // immediately; create mode waits for the `onAppear` privacy seed below.
         _didSeedPrivacy = State(initialValue: existing != nil)
@@ -569,6 +577,22 @@ struct RecurringFormView: View {
                     Text("Back-date the first occurrence and we'll catch up everything you've already paid.")
                 }
 
+                // The same two fields the transaction form records, because a
+                // rule describes a payment too — without them every occurrence
+                // would have to be opened and tagged by hand, which is the work
+                // a rule exists to avoid. No headroom in the labels: a rule
+                // posts on a schedule, so this cycle's remaining allowance is
+                // not the number to put in front of someone editing one.
+                CardCategorySection(
+                    card: card,
+                    headroom: [:],
+                    currency: session.activeHousehold?.baseCurrency ?? "USD",
+                    cardCategoryId: $cardCategoryId,
+                    showsHeadroom: false
+                )
+
+                MerchantCodeSection(mcc: $mcc, subject: "the transactions it posts")
+
                 if existing == nil {
                     Section {
                         Toggle("Private to me", isOn: $isPrivate)
@@ -582,6 +606,13 @@ struct RecurringFormView: View {
                     }
                 }
             }
+            .onAppear { Task { await loadCard(for: accountId) } }
+            .onChange(of: accountId) { _, newValue in
+                // A pick from the old card means nothing on a new one; cleared
+                // here as well as server-side.
+                cardCategoryId = ""
+                Task { await loadCard(for: newValue) }
+            }
             .navigationTitle(existing == nil ? "New Recurring" : "Edit Recurring")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -591,7 +622,7 @@ struct RecurringFormView: View {
                 }
             }
             .discardGuard(
-                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate],
+                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId],
                 // `onAppear` below fills in the private-by-default toggle;
                 // that isn't an edit the user made.
                 settled: didSeedPrivacy
@@ -604,6 +635,16 @@ struct RecurringFormView: View {
                 }
             }
         }
+    }
+
+    /// The card behind the selected account, or nothing — which is the ordinary
+    /// answer for an account that isn't a card, not an error.
+    private func loadCard(for accountId: String) async {
+        guard let householdId = session.activeHousehold?.id, !accountId.isEmpty else {
+            card = nil
+            return
+        }
+        card = await Cards.load(householdId: householdId, accountId: accountId)?.card
     }
 
     private func save() {
@@ -624,7 +665,9 @@ struct RecurringFormView: View {
                             description: trimmedDescription.isEmpty ? nil : trimmedDescription,
                             frequency: frequency,
                             startDate: startDate.apiDateOnly,
-                            endDate: hasEndDate ? endDate.apiDateOnly : nil
+                            endDate: hasEndDate ? endDate.apiDateOnly : nil,
+                            mcc: mcc.isEmpty ? nil : mcc,
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
                         )
                     )
                 } else {
@@ -640,7 +683,9 @@ struct RecurringFormView: View {
                             frequency: frequency,
                             startDate: startDate.apiDateOnly,
                             endDate: hasEndDate ? endDate.apiDateOnly : nil,
-                            ownerUserId: isPrivate ? session.user?.id : nil
+                            ownerUserId: isPrivate ? session.user?.id : nil,
+                            mcc: mcc.isEmpty ? nil : mcc,
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
                         )
                     )
                 }

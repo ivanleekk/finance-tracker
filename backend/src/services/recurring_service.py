@@ -204,6 +204,12 @@ def materialize_due(
                 currency=rule.currency,
                 description=rule.description or f"Recurring: {category.name}",
                 recurring_transaction_id=rule.id,
+                # Whatever the rule records about the payment travels onto every
+                # row it posts — otherwise the fields would have to be re-entered
+                # by hand on each occurrence, which is the work a rule exists to
+                # avoid.
+                mcc=rule.mcc,
+                card_category_id=rule.card_category_id,
             )
             posted += 1
 

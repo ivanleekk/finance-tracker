@@ -48,6 +48,14 @@ FinanceTracker/
                              #     (Portfolio ▸ + ▸ New Goal / Sub-Portfolio → POST /portfolio/subportfolios) and
                              #     `GoalFormView(existing:)` edits one (⋯ ▸ Edit Goal → PATCH .../{id}). Name, risk
                              #     profile, target amount/date, and a Private toggle.
+                             #   Transactions/PaymentDetailSections.swift +
+                             #     TransactionSplitSection.swift = the parts of a payment that are not
+                             #     the amount: the card-category picker, the optional merchant code, and
+                             #     the bill split (view + `TransactionSplits`, its pure half). Shared by
+                             #     TransactionFormView, QuickAddView and RecurringFormView so all three
+                             #     record the same things — they used to live only on the full form,
+                             #     which made the two faster ways to log a payment the two ways that
+                             #     couldn't describe it.
                              #   QuickAdd/  = the command bar (QuickAddView), an options-first quick-add opened by
                              #     pulling down ANY main List (`.quickAddPull` in Components/QuickAddPull.swift reads
                              #     overscroll via onScrollGeometryChange and shows a custom "pull/release" indicator
@@ -444,4 +452,7 @@ Rules worth not re-deriving:
   unrelated description edit still can't silently drop a split — there is just no longer a
   hand-rolled enum needed to get that right.
 - The split section only renders for `.expense`; income has no counterparty.
-- `QuickAddView` deliberately has **no** split support — a separate, later pass.
+- `QuickAddView` records everything the full transaction form does — split, merchant code and
+  card category — via the shared sections above. It was a deliberately reduced surface for a
+  while, which had the effect that the fastest way to log a payment was the only one that
+  couldn't describe it fully, and a split had to be added afterwards from another screen.

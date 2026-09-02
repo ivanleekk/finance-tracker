@@ -716,6 +716,12 @@ class RecurringTransactionBase(BaseModel):
     end_date: Optional[date] = None
     is_active: bool = True
     owner_user_id: Optional[uuid.UUID] = None
+    # Carried onto every transaction the rule posts. A subscription's merchant
+    # code and the card category it counts towards don't change month to month,
+    # so recording them once on the rule is the difference between a rule that
+    # describes a payment and one that only half-describes it.
+    mcc: MerchantCategoryCode = None
+    card_category_id: Optional[uuid.UUID] = None
 
 
 class RecurringTransactionCreate(RecurringTransactionBase):
@@ -733,6 +739,12 @@ class RecurringTransactionUpdate(BaseModel):
     end_date: Optional[date] = None
     next_due_date: Optional[date] = None
     is_active: Optional[bool] = None
+    # Three-state, like their counterparts on `TransactionUpdate`: leave the key
+    # out to preserve what's recorded, send null (or "" for the code) to clear
+    # it. Editing a rule's amount must not silently discard a code the user
+    # looked up once.
+    mcc: MerchantCategoryCode = None
+    card_category_id: Optional[uuid.UUID] = None
 
 
 class RecurringTransactionResponse(RecurringTransactionBase):

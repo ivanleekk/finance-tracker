@@ -925,7 +925,12 @@ def _load_rule_targets(
     category_id: uuid.UUID,
     current_user: models.User,
 ):
-    """Validate that the account and category exist, match the household, and are visible."""
+    """Validate that the account and category exist, match the household, and are visible.
+
+    Returns both, because the caller needs the account again to check a card
+    category against it — re-fetching it would be a second query for a row we
+    have just proved exists.
+    """
     account = db.query(models.FinancialAccount).filter(
         models.FinancialAccount.id == account_id
     ).first()
@@ -961,7 +966,9 @@ def create_recurring_transaction(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(payload.household_id, current_user, db)
-    _load_rule_targets(db, payload.household_id, payload.account_id, payload.category_id, current_user)
+    account, _ = _load_rule_targets(
+        db, payload.household_id, payload.account_id, payload.category_id, current_user
+    )
 
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
@@ -983,6 +990,8 @@ def create_recurring_transaction(
         next_due_date=payload.start_date,
         is_active=payload.is_active,
         owner_user_id=payload.owner_user_id,
+        mcc=payload.mcc,
+        card_category_id=_validated_card_category(db, payload.card_category_id, account),
     )
     db.add(db_rule)
     db.commit()
@@ -1151,14 +1160,29 @@ def update_recurring_transaction(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    target_account = None
     if "account_id" in update_data or "category_id" in update_data:
-        _load_rule_targets(
+        target_account, _ = _load_rule_targets(
             db,
             db_rule.household_id,
             update_data.get("account_id", db_rule.account_id),
             update_data.get("category_id", db_rule.category_id),
             current_user,
         )
+
+    # Same rule as `update_transaction`: a card category belongs to one card, so
+    # an explicit pick is validated against the account the rule will charge, and
+    # moving the rule to a different account clears a pick that no longer means
+    # anything rather than leaving it dangling into another card's taxonomy.
+    if "card_category_id" in update_data:
+        account = target_account or db.query(models.FinancialAccount).filter(
+            models.FinancialAccount.id == db_rule.account_id
+        ).first()
+        update_data["card_category_id"] = _validated_card_category(
+            db, update_data["card_category_id"], account
+        )
+    elif update_data.get("account_id") and update_data["account_id"] != db_rule.account_id:
+        update_data["card_category_id"] = None
 
     for key, value in update_data.items():
         setattr(db_rule, key, value)
