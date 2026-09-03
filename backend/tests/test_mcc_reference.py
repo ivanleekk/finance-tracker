@@ -178,7 +178,20 @@ def test_codes_the_package_leaves_blank_are_still_served(client):
     """
     rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
     assert rows["5262"]["name"] == "Marketplaces"
-    for code in ("5552", "6050", "6532", "6533", "6536", "6537", "6538", "7800", "7801", "7802", "9406"):
+    for code in (
+        "4813",
+        "5552",
+        "6050",
+        "6532",
+        "6533",
+        "6536",
+        "6537",
+        "6538",
+        "7800",
+        "7801",
+        "7802",
+        "9406",
+    ):
         assert rows[code]["name"], code
         assert rows[code]["group"], code
 

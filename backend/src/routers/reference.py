@@ -85,12 +85,18 @@ _BRAND_GROUP = "Airline, hotel and car rental brands"
 # description from any of them and would otherwise be dropped. This is not a
 # general-purpose gap-filler: it names only codes confirmed live in Visa's or
 # Mastercard's own current public MCC manuals (Visa's April 2026 Merchant Data
-# Standards Manual; Mastercard's Quick Reference Booklet — 5262 is the one a
-# user actually hit missing). Every other blank code in the catalogue — the
-# unclaimed 3000-3999 brand slots, and 4733/7013/7280/7295/8912/9400 outside it
-# — is checked against both manuals and is genuinely unassigned today, so it
-# stays dropped rather than guessed at.
+# Standards Manual; Mastercard's Quick Reference Booklet, June 2026 — 5262 is
+# the one a user actually hit missing). Checked every code either manual
+# defines against the full catalogue below: the unclaimed 3000-3999 brand
+# slots and 7013/7280/7295/8912/9400 are in neither manual and are genuinely
+# unassigned today, so they stay dropped rather than guessed at. One gap
+# neither manual can fix: 5723 (Guns and Ammunition Shops, Visa-only) isn't in
+# iso18245's range tables at all, not merely blank, so there's no row here to
+# attach a name to.
 _DESCRIPTION_OVERRIDES: Dict[str, str] = {
+    "4813": "Key-entry Telecom Merchant providing single local and long-distance "
+    "phone calls using a central access number in a non-face-to-face "
+    "environment using key entry",
     "5262": "Marketplaces",
     "5552": "Electric Vehicle Charging",
     "6050": "Quasi Cash – Customer Financial Institution",
