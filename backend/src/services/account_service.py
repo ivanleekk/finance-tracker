@@ -56,6 +56,14 @@ def sync_transaction_to_balances(db: Session, account_id: uuid.UUID, trans_date:
     """
     Synchronizes a transaction's effect to the account_balances table.
     Includes home currency conversion.
+
+    `amount_delta` arrives in *cash-flow* terms — negative when money left, as
+    every caller computes it from the transaction type. A liability's balance is
+    not cash, it is the amount outstanding, stored positive and subtracted by
+    every net-worth reader (`summarizeAccounts`, the report, the projection).
+    The two conventions are opposite, so the sign is flipped here rather than at
+    each of the eight call sites: spending on a credit card increases what you
+    owe, and paying it down decreases it.
     """
     if not isinstance(amount_delta, Decimal):
         amount_delta = Decimal(str(amount_delta))
@@ -64,7 +72,10 @@ def sync_transaction_to_balances(db: Session, account_id: uuid.UUID, trans_date:
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == account_id).first()
     if not db_account:
         return
-    
+
+    if db_account.kind == models.AccountKind.liability:
+        amount_delta = -amount_delta
+
     acc_curr = db_account.currency or "USD"
     home_curr = db_account.household.base_currency or "USD"
 

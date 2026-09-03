@@ -281,8 +281,10 @@ def test_the_code_changes_nothing_else(client, db_session, headers, account, cat
         .order_by(models.AccountBalance.date.desc())
         .first()
     )
-    # Both were charged; neither was treated specially because of a code.
-    assert Decimal(str(latest.balance)) == Decimal("-36.80")
+    # Both were charged; neither was treated specially because of a code. This
+    # is a card, so the charges add to what is owed rather than subtracting from
+    # a pile of cash.
+    assert Decimal(str(latest.balance)) == Decimal("36.80")
 
 
 # ---------------------------------------------------------------------------
