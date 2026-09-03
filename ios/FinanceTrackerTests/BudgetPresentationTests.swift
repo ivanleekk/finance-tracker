@@ -223,4 +223,175 @@ struct BudgetPresentationTests {
     }
 
     private func isoDate(_ value: String) -> String { value }
+
+    // MARK: - Rule health
+
+    private var utc: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(secondsFromGMT: 0)!
+        return c
+    }
+
+    private func day(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        utc.date(from: DateComponents(year: y, month: m, day: d))!
+    }
+
+    private func scheduledRule(
+        nextDue: String,
+        endDate: String? = nil,
+        isActive: Bool = true,
+        postedCount: Int? = nil,
+        lastPosted: String? = nil
+    ) -> RecurringTransactionResponse {
+        let end = endDate.map { "\"\($0)\"" } ?? "null"
+        let last = lastPosted.map { "\"\($0)\"" } ?? "null"
+        let posted = postedCount.map(String.init) ?? "null"
+        let json = """
+        {
+          "id": "r", "household_id": "hh", "account_id": "acc",
+          "category_id": "cat", "amount": "100", "currency": null,
+          "description": null, "frequency": "monthly",
+          "start_date": "2026-01-01", "end_date": \(end),
+          "next_due_date": "\(nextDue)", "last_posted_date": \(last),
+          "is_active": \(isActive), "owner_user_id": null,
+          "posted_count": \(posted), "posted_total_home_currency": null
+        }
+        """.data(using: .utf8)!
+        return try! decoder.decode(RecurringTransactionResponse.self, from: json)
+    }
+
+    @Test("A rule due today is healthy — rules post overnight, so nothing has been missed")
+    func dueTodayIsHealthy() {
+        let rule = scheduledRule(nextDue: "2026-09-02")
+        #expect(BudgetPresentation.health(of: rule, today: day(2026, 9, 2), calendar: utc) == .healthy)
+    }
+
+    @Test("A next date already behind us is overdue")
+    func pastDueIsOverdue() {
+        let rule = scheduledRule(nextDue: "2026-09-01")
+        #expect(BudgetPresentation.health(of: rule, today: day(2026, 9, 2), calendar: utc) == .overdue)
+    }
+
+    @Test("Past its end date reads as ended, even though it is still switched on")
+    func endedBeatsActive() {
+        // The row used to print "next 1 Oct" for a rule that will never post again.
+        let rule = scheduledRule(nextDue: "2026-10-01", endDate: "2026-08-31")
+        #expect(BudgetPresentation.health(of: rule, today: day(2026, 9, 2), calendar: utc) == .ended)
+    }
+
+    @Test("Ended outranks paused: finished is the more useful of the two words")
+    func endedBeatsPaused() {
+        let rule = scheduledRule(nextDue: "2026-10-01", endDate: "2026-08-31", isActive: false)
+        #expect(BudgetPresentation.health(of: rule, today: day(2026, 9, 2), calendar: utc) == .ended)
+    }
+
+    @Test("A paused rule is paused, not overdue, however far behind it has fallen")
+    func pausedNotOverdue() {
+        let rule = scheduledRule(nextDue: "2026-01-01", isActive: false)
+        #expect(BudgetPresentation.health(of: rule, today: day(2026, 9, 2), calendar: utc) == .paused)
+    }
+
+    @Test("The schedule label says which of the four states the row is in")
+    func scheduleLabelWording() {
+        let today = day(2026, 9, 2)
+        #expect(BudgetPresentation.scheduleLabel(for: scheduledRule(nextDue: "2026-10-01"), today: today, calendar: utc).hasPrefix("next"))
+        #expect(BudgetPresentation.scheduleLabel(for: scheduledRule(nextDue: "2026-09-01"), today: today, calendar: utc).hasPrefix("due"))
+        #expect(BudgetPresentation.scheduleLabel(for: scheduledRule(nextDue: "2026-10-01", isActive: false), today: today, calendar: utc) == "paused")
+        #expect(BudgetPresentation.scheduleLabel(for: scheduledRule(nextDue: "2026-10-01", endDate: "2026-08-31"), today: today, calendar: utc).hasPrefix("ended"))
+    }
+
+    @Test("A rule that has never posted gets no posting line rather than \"0 times\"")
+    func postingLabelAbsentWhenNeverPosted() {
+        #expect(BudgetPresentation.postingLabel(for: scheduledRule(nextDue: "2026-10-01")) == nil)
+        #expect(BudgetPresentation.postingLabel(for: scheduledRule(nextDue: "2026-10-01", postedCount: 0)) == nil)
+    }
+
+    @Test("The posting line reads naturally at one and at many")
+    func postingLabelWording() {
+        #expect(
+            BudgetPresentation.postingLabel(
+                for: scheduledRule(nextDue: "2026-10-01", postedCount: 1, lastPosted: "2026-09-01")
+            )?.hasPrefix("Posted once · last") == true
+        )
+        #expect(
+            BudgetPresentation.postingLabel(
+                for: scheduledRule(nextDue: "2026-10-01", postedCount: 14, lastPosted: "2026-09-01")
+            )?.hasPrefix("Posted 14 times · last") == true
+        )
+        // A count with no last-posted date still says something useful.
+        #expect(
+            BudgetPresentation.postingLabel(
+                for: scheduledRule(nextDue: "2026-10-01", postedCount: 3)
+            ) == "Posted 3 times"
+        )
+    }
+
+    // MARK: - Commitment by category
+
+    @Test("Cadences are normalised to a month before they are compared")
+    func commitmentNormalisesFrequency() {
+        let rules = [
+            makeRule(id: "a", categoryId: "subs", amount: 120, frequency: .yearly),
+            makeRule(id: "b", categoryId: "rent", amount: 100, frequency: .monthly),
+        ]
+        let slices = BudgetPresentation.commitmentByCategory(
+            rules: rules,
+            categoryTypes: ["subs": .expense, "rent": .expense],
+            categoryNames: ["subs": "Subscriptions", "rent": "Rent"]
+        )
+        // $120/year is $10/month, so rent leads despite the smaller headline.
+        #expect(slices.map(\.name) == ["Rent", "Subscriptions"])
+        #expect(abs(slices[1].monthly - 10) < 0.0001)
+    }
+
+    @Test("Rules sharing a category are summed and counted")
+    func commitmentGroupsByCategory() {
+        let rules = [
+            makeRule(id: "a", categoryId: "subs", amount: 12, frequency: .monthly),
+            makeRule(id: "b", categoryId: "subs", amount: 30, frequency: .monthly),
+        ]
+        let slices = BudgetPresentation.commitmentByCategory(
+            rules: rules,
+            categoryTypes: ["subs": .expense],
+            categoryNames: ["subs": "Subscriptions"]
+        )
+        #expect(slices.count == 1)
+        #expect(slices[0].monthly == 42)
+        #expect(slices[0].ruleCount == 2)
+    }
+
+    @Test("A rule past its end date commits the household to nothing")
+    func commitmentExcludesEndedRules() {
+        // The engine leaves `is_active` set until the next time it runs, so a
+        // cancelled membership went on being counted as a monthly commitment
+        // indefinitely — in both the headline figure and its breakdown.
+        let live = scheduledRule(nextDue: "2026-10-01")
+        let ended = scheduledRule(nextDue: "2026-10-01", endDate: "2026-08-31")
+        let today = day(2026, 9, 2)
+        #expect(BudgetPresentation.isCommitted(live, today: today, calendar: utc))
+        #expect(!BudgetPresentation.isCommitted(ended, today: today, calendar: utc))
+
+        let totals = BudgetPresentation.monthlyCommitment(
+            rules: [live, ended],
+            categoryTypes: ["cat": .expense],
+            today: today,
+            calendar: utc
+        )
+        #expect(totals.expense == 100)
+    }
+
+    @Test("Income and paused rules are left out")
+    func commitmentExcludesIncomeAndPaused() {
+        let rules = [
+            makeRule(id: "salary", categoryId: "pay", amount: 5000, frequency: .monthly),
+            makeRule(id: "paused", categoryId: "gym", amount: 40, frequency: .monthly, isActive: false),
+            makeRule(id: "rent", categoryId: "rent", amount: 1800, frequency: .monthly),
+        ]
+        let slices = BudgetPresentation.commitmentByCategory(
+            rules: rules,
+            categoryTypes: ["pay": .income, "gym": .expense, "rent": .expense],
+            categoryNames: ["pay": "Salary", "gym": "Gym", "rent": "Rent"]
+        )
+        #expect(slices.map(\.name) == ["Rent"])
+    }
 }

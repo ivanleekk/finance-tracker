@@ -22,7 +22,7 @@ struct RecurringView: View {
     @State private var errorMessage: String?
 
     // Delete confirmation + per-row state lives here, not on the row itself —
-    // a `.confirmationDialog` presented from a view inside a swipe-actions
+    // a confirmation presented from a view inside a swipe-actions
     // row can get torn down along with the row's own dismiss animation
     // before the user ever sees it, silently skipping the confirmation.
     @State private var pendingDelete: RecurringTransactionResponse?
@@ -58,8 +58,48 @@ struct RecurringView: View {
 
     /// Rules whose next occurrence is already due — the nightly job hasn't run yet.
     private var dueCount: Int {
-        let today = Date()
-        return visibleRules.filter { $0.isActive && $0.nextDueDate <= today }.count
+        CashFlowSummary.dueNow(rules: visibleRules).count
+    }
+
+    private var categoryNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+    }
+
+    /// Where the monthly commitment actually goes. The totals above say how
+    /// much; this says on what, which is the half that changes behaviour.
+    private var commitmentSlices: [BudgetPresentation.CommitmentSlice] {
+        BudgetPresentation.commitmentByCategory(
+            rules: visibleRules,
+            categoryTypes: categoryTypes,
+            categoryNames: categoryNames
+        )
+    }
+
+    /// Rules bucketed by what they are actually doing.
+    ///
+    /// A flat list gave a rule that will never post again the same weight as
+    /// one due tomorrow. Empty buckets are dropped, so a household whose rules
+    /// are all fine sees one plain "Rules" section and no scaffolding.
+    private var ruleGroups: [(id: String, label: String, rules: [RecurringTransactionResponse])] {
+        var attention: [RecurringTransactionResponse] = []
+        var active: [RecurringTransactionResponse] = []
+        var paused: [RecurringTransactionResponse] = []
+        for rule in visibleRules {
+            switch BudgetPresentation.health(of: rule) {
+            case .overdue, .ended: attention.append(rule)
+            case .healthy: active.append(rule)
+            case .paused: paused.append(rule)
+            }
+        }
+        // "Rules" rather than "Active" when nothing else is on screen: a lone
+        // bucket doesn't need a name distinguishing it from buckets that
+        // aren't there.
+        let activeLabel = attention.isEmpty && paused.isEmpty ? "Rules" : "Active"
+        return [
+            (id: "attention", label: "Needs attention", rules: attention),
+            (id: "active", label: activeLabel, rules: active),
+            (id: "paused", label: "Paused", rules: paused),
+        ].filter { !$0.rules.isEmpty }
     }
 
     var body: some View {
@@ -82,6 +122,24 @@ struct RecurringView: View {
                 Text(commitment.net >= 0
                     ? "Your recurring income covers your recurring commitments."
                     : "Your recurring commitments exceed your recurring income.")
+            }
+
+            if !commitmentSlices.isEmpty {
+                Section {
+                    ForEach(commitmentSlices) { slice in
+                        CommitmentSliceRow(
+                            slice: slice,
+                            share: commitment.expense > 0 ? slice.monthly / commitment.expense : 0,
+                            currency: currency
+                        )
+                    }
+                } header: {
+                    Text("Where it goes")
+                } footer: {
+                    // Without this the biggest number on the screen looks wrong
+                    // to anyone whose commitments aren't all monthly.
+                    Text("Every cadence normalised to a month, so a yearly premium and a weekly cleaner compare directly.")
+                }
             }
 
             if dueCount > 0 {
@@ -111,21 +169,29 @@ struct RecurringView: View {
                 }
             }
 
-            Section("Rules") {
-                ForEach(visibleRules) { rule in
-                    RecurringRuleRow(
-                        rule: rule,
-                        category: categories.first { $0.id == rule.categoryId },
-                        accountName: accounts.first { $0.id == rule.accountId }?.name,
-                        currency: currency,
-                        isDeleting: deletingRuleId == rule.id,
-                        rowError: rowErrors[rule.id],
-                        onToggle: { await setActive(rule, isActive: !rule.isActive) },
-                        onRequestDelete: { pendingDelete = rule },
-                        onEdit: { editingRule = rule }
-                    )
+            ForEach(ruleGroups, id: \.id) { group in
+                Section(group.label) {
+                    ForEach(group.rules) { rule in
+                        RecurringRuleRow(
+                            rule: rule,
+                            category: categories.first { $0.id == rule.categoryId },
+                            accountName: accounts.first { $0.id == rule.accountId }?.name,
+                            currency: currency,
+                            isDeleting: deletingRuleId == rule.id,
+                            rowError: rowErrors[rule.id],
+                            accounts: accounts,
+                            categories: categories,
+                            onToggle: { await setActive(rule, isActive: !rule.isActive) },
+                            onRequestDelete: { pendingDelete = rule },
+                            onEdit: { editingRule = rule },
+                            onChanged: load
+                        )
+                    }
                 }
-                if visibleRules.isEmpty && !isLoading {
+            }
+
+            if visibleRules.isEmpty && !isLoading {
+                Section("Rules") {
                     Text("Nothing recurring yet. Add your salary and rent first — they make the rest of the picture accurate.")
                         .foregroundStyle(.secondary)
                 }
@@ -182,19 +248,25 @@ struct RecurringView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .confirmationDialog(
+        // Alerts, not confirmation dialogs, for every confirmation in the app —
+        // a confirmation renders as a bubble anchored to whatever view carries
+        // the modifier, and the one place this must be attached (the screen, not
+        // the row) is the one place that points somewhere misleading. See the
+        // Gestures note in ios/AGENTS.md. The Cancel is written out because
+        // `.alert` adds none of its own and can't be dismissed by tapping away.
+        .alert(
             "Delete this recurring transaction?",
             isPresented: .init(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("Delete", role: .destructive) {
                 if let rule = pendingDelete {
                     Task { await confirmDelete(rule) }
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Transactions it already posted stay in your history — only future occurrences stop.")
         }
@@ -278,22 +350,44 @@ struct RecurringRuleRow: View {
     let category: CategoryResponse?
     let accountName: String?
     let currency: String
-    /// Driven from `RecurringView`, not local `@State` — a `.confirmationDialog`
+    /// Driven from `RecurringView`, not local `@State` — a confirmation
     /// presented from a view living inside a swipe-actions row can get torn
     /// down along with the row's own collapse animation before it's ever
     /// seen, which silently skips the confirmation. Keeping the pending/error
     /// state at the screen level (mirrors the Android port) sidesteps that.
     let isDeleting: Bool
     let rowError: String?
+    let accounts: [AccountResponse]
+    let categories: [CategoryResponse]
     let onToggle: () async -> Void
     let onRequestDelete: () -> Void
     let onEdit: () -> Void
+    let onChanged: () async -> Void
 
     private var isIncome: Bool { category?.type == .income }
 
+    private var health: BudgetPresentation.RuleHealth {
+        BudgetPresentation.health(of: rule)
+    }
+
     var body: some View {
-        Button(action: onEdit) { rowContent }
-            .buttonStyle(.plain)
+        // The row pushes the rule's own screen rather than opening the edit
+        // form. "How do I change this" was the only question the form answered;
+        // "is this still doing what I set it up to do" is the one a rule raises,
+        // and that needs the history. Edit is still one tap from there, and on
+        // the swipe and the context menu here.
+        NavigationLink {
+            RecurringDetailView(
+                rule: rule,
+                category: category,
+                accountName: accountName,
+                accounts: accounts,
+                categories: categories,
+                onChanged: onChanged
+            )
+        } label: {
+            rowContent
+        }
             .opacity(rule.isActive ? 1 : 0.55)
             .swipeActions(edge: .leading) {
                 Button {
@@ -334,6 +428,17 @@ struct RecurringRuleRow: View {
             }
     }
 
+    /// "$400 owed by Alice" / "$600 split with Alice, Bob", per occurrence.
+    private func splitLine(for rule: RecurringTransactionResponse, currency: String) -> String {
+        let owed = rule.standingSplits.reduce(0.0) { $0 + $1.amount }
+        let money = owed.currency(rule.currency ?? currency)
+        if rule.standingSplits.count == 1, let only = rule.standingSplits.first {
+            return "\(money) owed by \(only.counterpartyName) each time"
+        }
+        let names = rule.standingSplits.map(\.counterpartyName).joined(separator: ", ")
+        return "\(money) split with \(names) each time"
+    }
+
     private var rowContent: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -347,24 +452,43 @@ struct RecurringRuleRow: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        if !rule.isActive {
-                            Text("PAUSED")
-                                .font(.caption2.bold())
-                                .foregroundStyle(.secondary)
+                        if health == .paused {
+                            RuleStateChip(text: "PAUSED", tint: .secondary)
+                        } else if health == .ended {
+                            RuleStateChip(text: "ENDED", tint: .secondary)
+                        } else if health == .overdue {
+                            RuleStateChip(text: "DUE", tint: .orange)
                         }
                     }
                     Text("\(rule.frequency.label) · \(category?.name ?? "—") · \(accountName ?? "—")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // What it has actually done. Absent for a rule that has
+                    // never posted — "0 times" reads like a broken counter,
+                    // and a brand-new rule isn't broken.
+                    if let posted = BudgetPresentation.postingLabel(for: rule) {
+                        Text(posted)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    // The amount on the right stays the full sum, because that
+                    // is what will leave the account each time. This says how
+                    // much of it won't be yours — the same wording the posted
+                    // transactions carry, so the rule and its rows agree.
+                    if !rule.standingSplits.isEmpty {
+                        Text(splitLine(for: rule, currency: currency))
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text((isIncome ? "+" : "−") + rule.amount.currencyWhole(rule.currency ?? currency))
                         .font(.body.monospacedDigit())
                         .foregroundStyle(isIncome ? .green : .primary)
-                    Text(rule.isActive ? "next \(rule.nextDueDate.shortDay)" : "paused")
+                    Text(BudgetPresentation.scheduleLabel(for: rule))
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(health == .overdue ? .orange : .secondary)
                 }
             }
             if let rowError {
@@ -401,6 +525,17 @@ struct RecurringFormView: View {
     @State private var didSeedPrivacy: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// What the rule records about the payment, carried onto every transaction
+    /// it posts. A subscription's merchant code and the card category it counts
+    /// towards don't change month to month.
+    @State private var mcc: String
+    @State private var cardCategoryId: String
+    @State private var card: CardResponse?
+    /// A standing share of every occurrence — the flatmate's half of the rent,
+    /// recorded once instead of on each posting.
+    @State private var isSplitting: Bool
+    @State private var splitRows: [SplitRow]
+    @State private var counterparties: [Counterparty] = []
 
     init(
         accounts: [AccountResponse],
@@ -420,6 +555,13 @@ struct RecurringFormView: View {
         _startDate = State(initialValue: existing?.startDate ?? Date())
         _hasEndDate = State(initialValue: existing?.endDate != nil)
         _endDate = State(initialValue: existing?.endDate ?? Date())
+        _mcc = State(initialValue: existing?.mcc ?? "")
+        _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
+        let recorded = existing?.standingSplits ?? []
+        _isSplitting = State(initialValue: !recorded.isEmpty)
+        _splitRows = State(initialValue: recorded.map {
+            SplitRow(counterpartyId: $0.counterpartyId, amountText: String($0.amount))
+        })
         // Edit mode has nothing left to seed after init, so it's settled
         // immediately; create mode waits for the `onAppear` privacy seed below.
         _didSeedPrivacy = State(initialValue: existing != nil)
@@ -430,8 +572,18 @@ struct RecurringFormView: View {
         return value
     }
 
+    /// Whether this rule spends money. Splitting income makes no sense — there
+    /// is no counterparty to owe anything — and the category is what decides
+    /// the direction, exactly as on a transaction.
+    private var isExpenseRule: Bool {
+        categories.first { $0.id == categoryId }?.type != .income
+    }
+
     private var canSave: Bool {
         amount != nil && !categoryId.isEmpty && !accountId.isEmpty && !isSaving
+            && TransactionSplits.isUsable(
+                isSplitting: isSplitting && isExpenseRule, amount: amount, rows: splitRows
+            )
     }
 
     var body: some View {
@@ -465,6 +617,34 @@ struct RecurringFormView: View {
                     Text("Back-date the first occurrence and we'll catch up everything you've already paid.")
                 }
 
+                // Expense rules only: an income rule has no counterparty to owe
+                // anything, exactly as on the transaction form.
+                if isExpenseRule, let household = session.activeHousehold {
+                    TransactionSplitSection(
+                        amount: amount,
+                        householdId: household.id,
+                        isSplitting: $isSplitting,
+                        splitRows: $splitRows,
+                        counterparties: $counterparties
+                    )
+                }
+
+                // The same two fields the transaction form records, because a
+                // rule describes a payment too — without them every occurrence
+                // would have to be opened and tagged by hand, which is the work
+                // a rule exists to avoid. No headroom in the labels: a rule
+                // posts on a schedule, so this cycle's remaining allowance is
+                // not the number to put in front of someone editing one.
+                CardCategorySection(
+                    card: card,
+                    headroom: [:],
+                    currency: session.activeHousehold?.baseCurrency ?? "USD",
+                    cardCategoryId: $cardCategoryId,
+                    showsHeadroom: false
+                )
+
+                MerchantCodeSection(mcc: $mcc, subject: "the transactions it posts")
+
                 if existing == nil {
                     Section {
                         Toggle("Private to me", isOn: $isPrivate)
@@ -478,6 +658,16 @@ struct RecurringFormView: View {
                     }
                 }
             }
+            .onAppear {
+                Task { await loadCard(for: accountId) }
+                Task { await loadCounterparties() }
+            }
+            .onChange(of: accountId) { _, newValue in
+                // A pick from the old card means nothing on a new one; cleared
+                // here as well as server-side.
+                cardCategoryId = ""
+                Task { await loadCard(for: newValue) }
+            }
             .navigationTitle(existing == nil ? "New Recurring" : "Edit Recurring")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -487,7 +677,7 @@ struct RecurringFormView: View {
                 }
             }
             .discardGuard(
-                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate],
+                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId, isSplitting, splitRows],
                 // `onAppear` below fills in the private-by-default toggle;
                 // that isn't an edit the user made.
                 settled: didSeedPrivacy
@@ -500,6 +690,41 @@ struct RecurringFormView: View {
                 }
             }
         }
+    }
+
+    /// The household's people, for the split picker. Optional: nobody to split
+    /// with is the ordinary case and must not stop the form opening.
+    private func loadCounterparties() async {
+        guard let householdId = session.activeHousehold?.id else { return }
+        counterparties = (try? await APIClient.shared.get(
+            "/cashflow/counterparties/household/\(householdId)"
+        )) ?? []
+    }
+
+    /// The card behind the selected account, or nothing — which is the ordinary
+    /// answer for an account that isn't a card, not an error.
+    private func loadCard(for accountId: String) async {
+        guard let householdId = session.activeHousehold?.id, !accountId.isEmpty else {
+            card = nil
+            return
+        }
+        card = await Cards.load(householdId: householdId, accountId: accountId)?.card
+    }
+
+    /// What this save should do to the rule's standing split.
+    ///
+    /// Switching the toggle off means *remove* it, which is a different request
+    /// from leaving it alone — so a form that opened with no split and still has
+    /// none sends nothing rather than an explicit empty array.
+    private var splitsToSend: [TransactionSplitInput]? {
+        if isExpenseRule,
+           let inputs = TransactionSplits.forCreate(
+               isSplitting: isSplitting, amount: amount, rows: splitRows
+           ) {
+            return inputs
+        }
+        let hadSplit = !(existing?.standingSplits.isEmpty ?? true)
+        return hadSplit ? [] : nil
     }
 
     private func save() {
@@ -520,7 +745,10 @@ struct RecurringFormView: View {
                             description: trimmedDescription.isEmpty ? nil : trimmedDescription,
                             frequency: frequency,
                             startDate: startDate.apiDateOnly,
-                            endDate: hasEndDate ? endDate.apiDateOnly : nil
+                            endDate: hasEndDate ? endDate.apiDateOnly : nil,
+                            mcc: mcc.isEmpty ? nil : mcc,
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
+                            splits: splitsToSend
                         )
                     )
                 } else {
@@ -536,7 +764,10 @@ struct RecurringFormView: View {
                             frequency: frequency,
                             startDate: startDate.apiDateOnly,
                             endDate: hasEndDate ? endDate.apiDateOnly : nil,
-                            ownerUserId: isPrivate ? session.user?.id : nil
+                            ownerUserId: isPrivate ? session.user?.id : nil,
+                            mcc: mcc.isEmpty ? nil : mcc,
+                            cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
+                            splits: splitsToSend
                         )
                     )
                 }
@@ -546,5 +777,60 @@ struct RecurringFormView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// A small state chip on a rule row: PAUSED / ENDED / DUE.
+///
+/// Three states the row used to compress into one — a rule past its end date
+/// printed a "next" date it will never post on, and one the nightly job had
+/// missed looked exactly like one due tomorrow.
+struct RuleStateChip: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.bold())
+            .foregroundStyle(tint)
+    }
+}
+
+/// One category's share of the monthly commitment, with a bar for its weight.
+///
+/// Deliberately not a donut: this is a ranked list where the top two or three
+/// are the answer, and a bar per row reads at a glance without a legend.
+struct CommitmentSliceRow: View {
+    let slice: BudgetPresentation.CommitmentSlice
+    /// 0...1 of the total monthly expense commitment.
+    let share: Double
+    let currency: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(slice.name)
+                    .lineLimit(1)
+                if slice.ruleCount > 1 {
+                    Text("\(slice.ruleCount)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.quaternary))
+                }
+                Spacer()
+                Text(slice.monthly.currencyWhole(currency) + "/mo")
+                    .font(.subheadline.monospacedDigit())
+            }
+            ProgressView(value: min(max(share, 0), 1))
+                .tint(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(slice.name), \(slice.monthly.currencyWhole(currency)) per month"
+            + (slice.ruleCount > 1 ? ", \(slice.ruleCount) rules" : "")
+        )
     }
 }

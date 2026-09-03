@@ -34,6 +34,11 @@ struct DashboardView: View {
     @State private var lastLoadedAt: Date?
     /// Where the finger is on the net-worth chart, or nil when nobody is scrubbing.
     @State private var netWorthScrub: Date?
+    /// Budgets, card caps and due rules — read only for the exception row. The
+    /// Dashboard asks "is anything wrong?" without being asked; the Cash Flow tab
+    /// is where you go to look deliberately.
+    @State private var cashFlowSummary = CashFlowSummaryData()
+    @State private var isPostingDue = false
 
     private var baseCurrency: String { session.activeHousehold?.baseCurrency ?? "USD" }
 
@@ -172,6 +177,18 @@ struct DashboardView: View {
                         .padding(.vertical, 2)
                     }
                 }
+
+                NeedsAttentionSection(
+                    items: CashFlowSummary.attention(
+                        budgets: cashFlowSummary.budgets,
+                        cards: cashFlowSummary.cardLimits,
+                        dueNowCount: cashFlowSummary.dueNowCount,
+                        formatAmount: { amount, currency in amount.currencyWhole(currency) },
+                        baseCurrency: baseCurrency
+                    ),
+                    onPostDue: { await postDueRecurring() },
+                    isPosting: isPostingDue
+                )
 
                 if let emergencyFund {
                     Section {
@@ -375,10 +392,34 @@ struct DashboardView: View {
             recompute()
             (metrics, emergencyFund, projection) = await (metricsReq, emergencyFundReq, projectionReq)
             owed = await owedReq ?? []
+            // Supplementary, and deliberately after the primary batch: the
+            // exception row appearing a beat late is fine, the net worth figure
+            // waiting on a card endpoint is not.
+            cashFlowSummary = await CashFlowSummary.load(householdId: household.id) { ownerId in
+                viewModeStore.isVisible(ownerUserId: ownerId, currentUserId: session.user?.id)
+            }
             // Recompute once more now that `owed` has landed — it wasn't part of the
             // primary batch above, so the first pass published net worth without it.
             recompute()
             lastLoadedAt = Date()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Posts what the nightly job hasn't got to yet, from the exception row
+    /// itself — the same action the Cash Flow tab offers, so the two can't
+    /// disagree about what "due" means.
+    private func postDueRecurring() async {
+        guard let household = session.activeHousehold else { return }
+        isPostingDue = true
+        defer { isPostingDue = false }
+        do {
+            let _: RecurringRunResponse = try await APIClient.shared.post(
+                "/cashflow/recurring/household/\(household.id)/run",
+                body: EmptyBody()
+            )
+            await load()
         } catch {
             errorMessage = error.localizedDescription
         }

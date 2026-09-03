@@ -54,7 +54,15 @@ struct QuickAddView: View {
     /// most accounts are not cards, and Quick Add is meant to be fast.
     @State private var card: CardResponse?
     @State private var cardHeadroom: [String: CardLimitStatusRow] = [:]
-    @State private var cardCategoryId: String?
+    @State private var cardCategoryId = ""
+    /// The rest of what a payment can record. Quick Add used to leave these out
+    /// as a "reduced surface", which meant the fastest way to log something was
+    /// the one way that couldn't describe it fully — and the split in particular
+    /// had to be added afterwards, from a different screen.
+    @State private var mcc = ""
+    @State private var isSplitting = false
+    @State private var splitRows: [SplitRow] = []
+    @State private var counterparties: [Counterparty] = []
     @State private var fromAccountId: String?
     @State private var toAccountId: String?
 
@@ -93,6 +101,7 @@ struct QuickAddView: View {
         switch mode {
         case .expense, .income:
             return amount ?? 0 > 0 && accountId != nil && categoryId != nil
+                && TransactionSplits.isUsable(isSplitting: isSplitting, amount: amount, rows: splitRows)
         case .transfer:
             return amount ?? 0 > 0 && fromAccountId != nil && toAccountId != nil && fromAccountId != toAccountId
         case .trade:
@@ -139,7 +148,8 @@ struct QuickAddView: View {
             }
             .discardGuard(
                 fields: [mode, amountText, date, description, accountId, categoryId,
-                         cardCategoryId, fromAccountId, toAccountId, subPortfolioId, assetId,
+                         cardCategoryId, mcc, isSplitting, splitRows,
+                         fromAccountId, toAccountId, subPortfolioId, assetId,
                          tradeType, quantityText, priceText, settleFromCash],
                 // `applyDefaults()` picks the default account / category / sub-portfolio only
                 // once the fetch lands, so the baseline can't be taken before then.
@@ -149,7 +159,7 @@ struct QuickAddView: View {
             .onChange(of: mode) { resetForMode() }
             .onChange(of: accountId) { _, newValue in
                 // A pick from the old card is meaningless on a new one.
-                cardCategoryId = nil
+                cardCategoryId = ""
                 Task { await loadCard(for: newValue) }
             }
             .sheet(isPresented: $showingNewCategory) {
@@ -217,20 +227,28 @@ struct QuickAddView: View {
                     Label("New Category", systemImage: "plus.circle")
                 }
             }
-            // Only when the account is a card. Quick Add is a deliberately
-            // reduced surface — it leaves out the split and the merchant code —
-            // but this one earns its row: it carries the headroom, and logging
-            // card spend is exactly when that number can change a decision.
-            if let card {
-                Section {
-                    Picker("Card category", selection: $cardCategoryId) {
-                        Text("Card's default").tag(String?.none)
-                        ForEach(card.categories) { category in
-                            Text(cardCategoryLabel(category)).tag(String?.some(category.id))
-                        }
-                    }
-                }
+            // The same fields the full transaction form records — Quick Add is
+            // the faster way to log a payment, not a lesser one. The card
+            // category carries its headroom because logging card spend is
+            // exactly when that number can still change a decision.
+            CardCategorySection(
+                card: card,
+                headroom: cardHeadroom,
+                currency: card?.currency ?? baseCurrency,
+                cardCategoryId: $cardCategoryId
+            )
+
+            if mode == .expense, let household {
+                TransactionSplitSection(
+                    amount: amount,
+                    householdId: household.id,
+                    isSplitting: $isSplitting,
+                    splitRows: $splitRows,
+                    counterparties: $counterparties
+                )
             }
+
+            MerchantCodeSection(mcc: $mcc)
         }
     }
 
@@ -388,13 +406,6 @@ struct QuickAddView: View {
         cardHeadroom = loaded.headroom
     }
 
-    /// "Dining · $240 left" when the category is metered, otherwise just its name.
-    private func cardCategoryLabel(_ category: CardCategoryResponse) -> String {
-        guard let row = cardHeadroom[category.id] else { return category.name }
-        let currency = card?.currency ?? session.activeHousehold?.baseCurrency ?? "USD"
-        return "\(category.name) · \(Cards.headroomLabel(for: row) { $0.currencyWhole(currency) })"
-    }
-
     private func loadIfNeeded() async {
         guard !loaded, let household else { return }
         do {
@@ -402,7 +413,13 @@ struct QuickAddView: View {
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
             async let subsReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
             async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
+            // Optional: nobody to split with is the ordinary case, and it must
+            // not stop Quick Add opening.
+            async let counterpartiesReq: [Counterparty]? = try? await APIClient.shared.get(
+                "/cashflow/counterparties/household/\(household.id)"
+            )
             (accounts, categories, subPortfolios, assets) = try await (accountsReq, categoriesReq, subsReq, assetsReq)
+            counterparties = await counterpartiesReq ?? []
             loaded = true
             applyDefaults()
         } catch {
@@ -469,7 +486,11 @@ struct QuickAddView: View {
                 date: date, amount: amount,
                 description: description.isEmpty ? nil : description,
                 accountId: accountId, categoryId: categoryId,
-                cardCategoryId: cardCategoryId
+                splits: TransactionSplits.forCreate(
+                    isSplitting: isSplitting, amount: amount, rows: splitRows
+                ),
+                mcc: mcc,
+                cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
             )
         )
     }

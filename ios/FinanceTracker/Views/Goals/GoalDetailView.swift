@@ -130,6 +130,12 @@ struct GoalDetailView: View {
                 }
             }
         }
+        .alert("Delete this goal?", isPresented: $confirmingDelete) {
+            Button("Delete Goal", role: .destructive) { delete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Goals with trades or funding activity can't be deleted.")
+        }
         .sheet(isPresented: $isEditing) {
             GoalFormView(existing: goalState) { await reload() }
         }
@@ -145,11 +151,6 @@ struct GoalDetailView: View {
                     await reload()
                 }
             }
-        }
-        .confirmationDialog("Delete this goal?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete Goal", role: .destructive) { delete() }
-        } message: {
-            Text("Goals with trades or funding activity can't be deleted.")
         }
         .overlay {
             if isLoading && timeseries.isEmpty && trades.isEmpty {

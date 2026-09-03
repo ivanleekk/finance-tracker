@@ -473,10 +473,90 @@ class RecurringTransaction(Base):
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Carried onto every transaction the rule posts, so a rule is as complete a
+    # description of a payment as the form that creates one by hand. A
+    # subscription's merchant code doesn't change month to month, and neither
+    # does which of a card's categories it counts towards — having to open each
+    # posted row and add them by hand is exactly the work a rule exists to avoid.
+    mcc = Column(String(4), nullable=True)
+    # ON DELETE RESTRICT, like the column on `Transaction`: deleting a card
+    # category still pointed at by a rule is a 409 that explains itself, not a
+    # rule that silently starts posting untagged.
+    card_category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("card_categories.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     household = relationship("Household", back_populates="recurring_transactions")
     account = relationship("FinancialAccount")
     category = relationship("Category")
     owner = relationship("User", foreign_keys=[owner_user_id])
+    splits = relationship(
+        "RecurringTransactionSplit",
+        back_populates="rule",
+        cascade="all, delete-orphan",
+    )
+
+
+class RecurringTransactionSplit(Base):
+    """
+    One person's standing share of a recurring expense — the flatmate's half of
+    the rent, every month, without re-entering it.
+
+    A *transaction's* split lives in the journal entry it posts, because that is
+    what keeps the two sides of the money from drifting apart. A rule has posted
+    nothing yet, so there is no entry to hold it: the split has to be recorded on
+    the rule itself and replayed into each occurrence as it is materialized.
+
+    Amounts are absolute, not fractions. A share is what someone owes, and a
+    rent split three ways is rarely three equal thirds; the form's "split
+    remainder evenly" button turns the common case into figures at entry time,
+    which keeps this table saying exactly what each posting will claim.
+    """
+
+    __tablename__ = "recurring_transaction_splits"
+    __table_args__ = (
+        # The same person twice on one rule is a data-entry mistake, not two
+        # shares — the clients already refuse it, and this makes it impossible.
+        UniqueConstraint(
+            "recurring_transaction_id",
+            "counterparty_id",
+            name="uq_recurring_split_rule_counterparty",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid7)
+    # Deleting a rule takes its splits with it. Unlike the transactions a rule
+    # has already posted — which are real history and outlive it — a split that
+    # was never posted describes only future occurrences that will now never
+    # happen.
+    recurring_transaction_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("recurring_transactions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # RESTRICT, matching how a counterparty with ledger history is protected:
+    # deleting someone who is still owed a share of next month's rent should
+    # explain itself, not silently drop the share.
+    counterparty_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("counterparties.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    amount = Column(Numeric, nullable=False)
+
+    rule = relationship("RecurringTransaction", back_populates="splits")
+    counterparty = relationship("Counterparty")
+
+    @property
+    def counterparty_name(self) -> str:
+        """Flattened for `TransactionSplitRow`, which carries the name inline so
+        a client can render a rule's split without a second lookup."""
+        return self.counterparty.name
 
 
 class Budget(Base):

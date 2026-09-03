@@ -115,19 +115,25 @@ struct TradesListView: View {
             }
         }
         .quickAddPull(quickAdd, onReload: load)
-        .confirmationDialog(
+        // Alerts, not confirmation dialogs, for every confirmation in the app —
+        // a confirmation renders as a bubble anchored to whatever view carries
+        // the modifier, and the one place this must be attached (the screen, not
+        // the row) is the one place that points somewhere misleading. See the
+        // Gestures note in ios/AGENTS.md. The Cancel is written out because
+        // `.alert` adds none of its own and can't be dismissed by tapping away.
+        .alert(
             "Delete this trade?",
             isPresented: .init(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("Delete", role: .destructive) {
                 if let trade = pendingDelete {
                     delete([trade], at: IndexSet(integer: 0))
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Holdings and portfolio history are recalculated from this trade's date. This can't be undone.")
         }

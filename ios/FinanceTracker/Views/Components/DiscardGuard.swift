@@ -59,9 +59,7 @@ private struct DiscardGuard: ViewModifier {
                     }
                 }
             }
-            .confirmationDialog(
-                "Discard changes?", isPresented: $isConfirming, titleVisibility: .visible
-            ) {
+            .alert("Discard changes?", isPresented: $isConfirming) {
                 Button("Discard Changes", role: .destructive) { dismiss() }
                 Button("Keep Editing", role: .cancel) {}
             } message: {

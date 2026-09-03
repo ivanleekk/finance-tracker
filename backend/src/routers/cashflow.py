@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -77,6 +78,38 @@ def _resolve_splits(
         if counterparty is None or counterparty.household_id != household_id:
             raise HTTPException(status_code=404, detail="Counterparty not found")
         resolved.append((counterparty, split.amount))
+    return resolved
+
+
+def _rule_splits(
+    db: Session,
+    household_id: uuid.UUID,
+    splits: Optional[List["schemas.TransactionSplitInput"]],
+    amount: Decimal,
+) -> list[tuple[models.Counterparty, Decimal]]:
+    """
+    A rule's standing split, validated against the amount every occurrence will
+    charge.
+
+    Refused rather than clamped when the shares exceed the bill. A transaction
+    clamps because its amount can be edited down after the fact and the entry
+    still has to balance; a rule has no posting yet, so an over-large share is
+    simply a typo, and every client already refuses one for that reason.
+    Silently correcting it would hide the mistake and then repeat it monthly.
+    """
+    resolved = _resolve_splits(db, household_id, splits)
+    if not resolved:
+        return []
+    if len({counterparty.id for counterparty, _ in resolved}) != len(resolved):
+        raise HTTPException(
+            status_code=400, detail="The same person can't appear twice in one split."
+        )
+    total = sum(share for _, share in resolved)
+    if total > amount:
+        raise HTTPException(
+            status_code=400,
+            detail="The shares add up to more than the amount.",
+        )
     return resolved
 
 
@@ -270,6 +303,11 @@ def get_household_transactions(
     # multi-year household pays for a cold start. Omitted = full history, unordered, as
     # before, which is what the Transactions screens still need.
     limit: Optional[int] = Query(None, ge=1),
+    # Everything one recurring rule has actually posted. The rule detail screens
+    # want a rule's own history and nothing else; without this they would have to
+    # download the household's entire history and filter it client-side, which is
+    # the cost `limit` above exists to avoid.
+    recurring_transaction_id: Optional[uuid.UUID] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -286,6 +324,10 @@ def get_household_transactions(
         return []
 
     query = db.query(models.Transaction).filter(models.Transaction.account_id.in_(account_ids))
+    if recurring_transaction_id is not None:
+        query = query.filter(
+            models.Transaction.recurring_transaction_id == recurring_transaction_id
+        )
     if limit is not None:
         # Ordered only when limited: "the newest N" is meaningless without it, and the
         # unlimited path stays byte-for-byte what it was.
@@ -915,7 +957,12 @@ def _load_rule_targets(
     category_id: uuid.UUID,
     current_user: models.User,
 ):
-    """Validate that the account and category exist, match the household, and are visible."""
+    """Validate that the account and category exist, match the household, and are visible.
+
+    Returns both, because the caller needs the account again to check a card
+    category against it — re-fetching it would be a second query for a row we
+    have just proved exists.
+    """
     account = db.query(models.FinancialAccount).filter(
         models.FinancialAccount.id == account_id
     ).first()
@@ -951,7 +998,9 @@ def create_recurring_transaction(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(payload.household_id, current_user, db)
-    _load_rule_targets(db, payload.household_id, payload.account_id, payload.category_id, current_user)
+    account, _ = _load_rule_targets(
+        db, payload.household_id, payload.account_id, payload.category_id, current_user
+    )
 
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
@@ -973,11 +1022,69 @@ def create_recurring_transaction(
         next_due_date=payload.start_date,
         is_active=payload.is_active,
         owner_user_id=payload.owner_user_id,
+        mcc=payload.mcc,
+        card_category_id=_validated_card_category(db, payload.card_category_id, account),
     )
+    for counterparty, share in _rule_splits(
+        db, payload.household_id, payload.splits, payload.amount
+    ):
+        db_rule.splits.append(
+            models.RecurringTransactionSplit(
+                id=uuid.uuid7(), counterparty_id=counterparty.id, amount=share
+            )
+        )
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
-    return db_rule
+    return _with_posting_stats(db, [db_rule])[0]
+
+
+def _with_posting_stats(
+    db: Session, rules: List[models.RecurringTransaction]
+) -> List[schemas.RecurringTransactionResponse]:
+    """Attach what each rule has actually posted.
+
+    One grouped query for the whole page rather than a count per rule — the same
+    shape `_with_split` uses for transaction splits, and for the same reason: a
+    household with forty rules would otherwise make forty round trips to render
+    one screen.
+
+    `amount_home_currency` falls back to `amount`, which is the household's own
+    currency for every rule that isn't on a foreign-currency account; summing the
+    raw amount across currencies would be a different number wearing the same
+    label, and a null here means the conversion was never recorded rather than
+    that the transaction was worth nothing.
+    """
+    if not rules:
+        return []
+    rule_ids = [rule.id for rule in rules]
+    rows = (
+        db.query(
+            models.Transaction.recurring_transaction_id,
+            func.count(models.Transaction.id),
+            func.sum(
+                func.coalesce(
+                    models.Transaction.amount_home_currency, models.Transaction.amount
+                )
+            ),
+        )
+        .filter(models.Transaction.recurring_transaction_id.in_(rule_ids))
+        .group_by(models.Transaction.recurring_transaction_id)
+        .all()
+    )
+    stats = {row[0]: (row[1], row[2] or Decimal("0")) for row in rows}
+    out = []
+    for rule in rules:
+        count, total = stats.get(rule.id, (0, Decimal("0")))
+        out.append(
+            schemas.RecurringTransactionResponse.model_validate(rule).model_copy(
+                update={
+                    "posted_count": count,
+                    "posted_total_home_currency": total,
+                }
+            )
+        )
+    return out
 
 
 @router.get(
@@ -990,8 +1097,14 @@ def get_household_recurring(
     current_user: models.User = Depends(get_current_user),
 ):
     verify_household_access(household_id, current_user, db)
-    return (
+    rules = (
         db.query(models.RecurringTransaction)
+        # Eager, or rendering a page of rules fans out into a query per share.
+        .options(
+            selectinload(models.RecurringTransaction.splits).selectinload(
+                models.RecurringTransactionSplit.counterparty
+            )
+        )
         .filter(
             models.RecurringTransaction.household_id == household_id,
             (models.RecurringTransaction.owner_user_id.is_(None))
@@ -1000,6 +1113,7 @@ def get_household_recurring(
         .order_by(models.RecurringTransaction.next_due_date)
         .all()
     )
+    return _with_posting_stats(db, rules)
 
 
 @router.get(
@@ -1092,8 +1206,9 @@ def update_recurring_transaction(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    target_account = None
     if "account_id" in update_data or "category_id" in update_data:
-        _load_rule_targets(
+        target_account, _ = _load_rule_targets(
             db,
             db_rule.household_id,
             update_data.get("account_id", db_rule.account_id),
@@ -1101,8 +1216,59 @@ def update_recurring_transaction(
             current_user,
         )
 
+    # Same rule as `update_transaction`: a card category belongs to one card, so
+    # an explicit pick is validated against the account the rule will charge, and
+    # moving the rule to a different account clears a pick that no longer means
+    # anything rather than leaving it dangling into another card's taxonomy.
+    if "card_category_id" in update_data:
+        account = target_account or db.query(models.FinancialAccount).filter(
+            models.FinancialAccount.id == db_rule.account_id
+        ).first()
+        update_data["card_category_id"] = _validated_card_category(
+            db, update_data["card_category_id"], account
+        )
+    elif update_data.get("account_id") and update_data["account_id"] != db_rule.account_id:
+        update_data["card_category_id"] = None
+
+    # Three states, as on a transaction: an omitted key leaves the recorded
+    # split alone, `[]` clears it, a populated list replaces it wholesale.
+    incoming_splits = update_data.pop("splits", "unchanged")
+
     for key, value in update_data.items():
         setattr(db_rule, key, value)
+
+    if incoming_splits != "unchanged":
+        resolved = _rule_splits(
+            db,
+            db_rule.household_id,
+            payload.splits,
+            # Validated against the amount the rule will *end up* charging, not
+            # the one it had: shrinking the amount and the shares in one request
+            # has to be judged as a whole.
+            db_rule.amount,
+        )
+        db_rule.splits.clear()
+        # Flushed before the new rows go in: the unique constraint on
+        # (rule, counterparty) is checked per statement, and SQLAlchemy would
+        # otherwise INSERT the replacement share before DELETEing the one it
+        # replaces — so re-saving a split with the same person in it failed.
+        db.flush()
+        for counterparty, share in resolved:
+            db_rule.splits.append(
+                models.RecurringTransactionSplit(
+                    id=uuid.uuid7(), counterparty_id=counterparty.id, amount=share
+                )
+            )
+    elif "amount" in update_data:
+        # The amount moved but the split didn't. A split that now exceeds the
+        # bill would post an impossible entry every month, so it is refused here
+        # rather than at 2am inside the nightly job.
+        recorded = sum(split.amount for split in db_rule.splits)
+        if recorded > db_rule.amount:
+            raise HTTPException(
+                status_code=400,
+                detail="The recorded shares add up to more than the new amount. Update the split too.",
+            )
 
     if db_rule.end_date and db_rule.end_date < db_rule.start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
@@ -1117,7 +1283,9 @@ def update_recurring_transaction(
 
     db.commit()
     db.refresh(db_rule)
-    return db_rule
+    # Pausing a rule must not make it look like it has never posted: this schema
+    # carries the posting stats and they default to zero off a bare ORM row.
+    return _with_posting_stats(db, [db_rule])[0]
 
 
 @router.delete("/recurring/{recurring_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -293,3 +293,174 @@ struct APIURLTests {
         #expect(url.path() == "/x")
     }
 }
+
+/// The posting stats added to `RecurringTransactionResponse`.
+///
+/// They carry defaults so a client pointed at an older backend — and the
+/// create/update responses, which return a freshly written row — decode rather
+/// than failing the whole list. Swift's synthesized decoder does not obviously
+/// honour a default for a missing key, so this pins it rather than assuming it.
+struct RecurringPostingStatsDecodingTests {
+
+    private static let base = """
+    {
+      "id": "01a04358-0000-0000-0000-000000000001",
+      "household_id": "01a04358-0000-0000-0000-000000000002",
+      "account_id": "01a04358-0000-0000-0000-000000000003",
+      "category_id": "01a04358-0000-0000-0000-000000000004",
+      "amount": "42.50",
+      "currency": "SGD",
+      "description": "Rent",
+      "frequency": "monthly",
+      "start_date": "2026-01-01",
+      "end_date": null,
+      "next_due_date": "2026-10-01",
+      "last_posted_date": "2026-09-01",
+      "is_active": true,
+      "owner_user_id": null
+    """
+
+    @Test("Posting stats decode from the backend payload")
+    func statsDecode() throws {
+        let json = Self.base + """
+        ,
+          "posted_count": 3,
+          "posted_total_home_currency": "127.50"
+        }
+        """
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.timesPosted == 3)
+        #expect(rule.totalPosted == 127.50)
+    }
+
+    @Test("A payload with no stats at all still decodes, reporting nothing posted")
+    func missingStatsDecodeAsZero() throws {
+        let json = Self.base + "\n}"
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.postedCount == nil)
+        #expect(rule.timesPosted == 0)
+        #expect(rule.totalPosted == 0)
+    }
+}
+
+/// What a rule records *about the payment* — the merchant code and the card
+/// category it counts towards — and the three-state encoding that lets an edit
+/// clear either one.
+struct RecurringPaymentDetailCodingTests {
+
+    @Test("A rule decodes the fields it records about the payment")
+    func decodesPaymentDetail() throws {
+        let json = """
+        {
+          "id": "01a04358-0000-0000-0000-000000000001",
+          "household_id": "01a04358-0000-0000-0000-000000000002",
+          "account_id": "01a04358-0000-0000-0000-000000000003",
+          "category_id": "01a04358-0000-0000-0000-000000000004",
+          "amount": "12.98", "currency": "SGD", "description": "Streaming",
+          "frequency": "monthly", "start_date": "2026-01-01", "end_date": null,
+          "next_due_date": "2026-10-01", "last_posted_date": null,
+          "is_active": true, "owner_user_id": null,
+          "mcc": "5814",
+          "card_category_id": "01a04358-0000-0000-0000-000000000005"
+        }
+        """
+        let rule = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data(json.utf8)
+        )
+        #expect(rule.mcc == "5814")
+        #expect(rule.cardCategoryId == "01a04358-0000-0000-0000-000000000005")
+    }
+
+    private func encodedKeys(_ edit: RecurringTransactionEdit) throws -> [String: Any] {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(edit)
+        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    }
+
+    private func edit(mcc: String?, cardCategoryId: String?) -> RecurringTransactionEdit {
+        RecurringTransactionEdit(
+            accountId: "acc", categoryId: "cat", amount: 10,
+            description: "Streaming", frequency: .monthly,
+            startDate: "2026-01-01", endDate: nil,
+            mcc: mcc, cardCategoryId: cardCategoryId, splits: nil
+        )
+    }
+
+    @Test("Clearing either field sends an explicit null, never an omitted key")
+    func clearingSendsNull() throws {
+        // The form resends every field, and the backend's `exclude_unset` reads
+        // an omitted key as "leave it alone" — so `encodeIfPresent` here would
+        // make clearing a code silently do nothing.
+        let object = try encodedKeys(edit(mcc: nil, cardCategoryId: nil))
+        #expect(object.keys.contains("mcc"))
+        #expect(object.keys.contains("card_category_id"))
+        #expect(object["mcc"] is NSNull)
+        #expect(object["card_category_id"] is NSNull)
+    }
+
+    @Test("A rule decodes the standing split, and its absence as no split")
+    func decodesStandingSplit() throws {
+        let base = """
+        {
+          "id": "r", "household_id": "hh", "account_id": "acc", "category_id": "cat",
+          "amount": "1000", "currency": null, "description": "Rent",
+          "frequency": "monthly", "start_date": "2026-01-01", "end_date": null,
+          "next_due_date": "2026-10-01", "last_posted_date": null,
+          "is_active": true, "owner_user_id": null
+        """
+        let withSplit = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self,
+            from: Data((base + """
+            ,
+              "splits": [
+                {"counterparty_id": "cp-1", "counterparty_name": "Alice", "amount": "400"}
+              ]
+            }
+            """).utf8)
+        )
+        #expect(withSplit.standingSplits.count == 1)
+        #expect(withSplit.standingSplits[0].counterpartyName == "Alice")
+        #expect(withSplit.standingSplits[0].amount == 400)
+
+        // Every rule created before the feature existed comes back this way.
+        let without = try APIClient.decoder.decode(
+            RecurringTransactionResponse.self, from: Data((base + "\n}").utf8)
+        )
+        #expect(without.standingSplits.isEmpty)
+    }
+
+    @Test("Leaving a split alone omits the key; clearing it sends an empty array")
+    func splitIsThreeState() throws {
+        // nil must *omit*, not null: the backend's `exclude_unset` is what makes
+        // an unrelated edit preserve the recorded split.
+        let untouched = try encodedKeys(
+            RecurringTransactionEdit(
+                accountId: "acc", categoryId: "cat", amount: 10, description: nil,
+                frequency: .monthly, startDate: "2026-01-01", endDate: nil,
+                mcc: nil, cardCategoryId: nil, splits: nil
+            )
+        )
+        #expect(!untouched.keys.contains("splits"))
+
+        let cleared = try encodedKeys(
+            RecurringTransactionEdit(
+                accountId: "acc", categoryId: "cat", amount: 10, description: nil,
+                frequency: .monthly, startDate: "2026-01-01", endDate: nil,
+                mcc: nil, cardCategoryId: nil, splits: []
+            )
+        )
+        #expect((cleared["splits"] as? [Any])?.isEmpty == true)
+    }
+
+    @Test("A recorded code and category are sent as their values")
+    func valuesAreSent() throws {
+        let object = try encodedKeys(edit(mcc: "5814", cardCategoryId: "cc-1"))
+        #expect(object["mcc"] as? String == "5814")
+        #expect(object["card_category_id"] as? String == "cc-1")
+    }
+}

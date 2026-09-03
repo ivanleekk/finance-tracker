@@ -182,10 +182,11 @@ struct MoreView: View {
             }
             .navigationTitle("More")
             .quickAddPull(quickAdd, onReload: {})
-            .confirmationDialog("Log out of Waypoint?", isPresented: $showingLogoutConfirm, titleVisibility: .visible) {
+            .alert("Log out of Waypoint?", isPresented: $showingLogoutConfirm) {
                 Button("Log Out", role: .destructive) {
                     session.logout()
                 }
+                Button("Cancel", role: .cancel) {}
             }
             .sheet(isPresented: $showingCreateHousehold) {
                 CreateHouseholdView()

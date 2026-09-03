@@ -110,13 +110,18 @@ struct HouseholdMembersView: View {
             if isLoading && members.isEmpty { LoadingSkeleton() }
         }
         .quickAddPull(quickAdd, onReload: load)
-        .confirmationDialog(
+        // Alerts, not confirmation dialogs, for every confirmation in the app —
+        // a confirmation renders as a bubble anchored to whatever view carries
+        // the modifier, and the one place this must be attached (the screen, not
+        // the row) is the one place that points somewhere misleading. See the
+        // Gestures note in ios/AGENTS.md. The Cancel is written out because
+        // `.alert` adds none of its own and can't be dismissed by tapping away.
+        .alert(
             pendingRemoval.map { "Remove \($0.name) from this household?" } ?? "Remove this member?",
             isPresented: .init(
                 get: { pendingRemoval != nil },
                 set: { if !$0 { pendingRemoval = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("Remove", role: .destructive) {
                 if let member = pendingRemoval,
@@ -124,6 +129,7 @@ struct HouseholdMembersView: View {
                     removeMembers(at: IndexSet(integer: index))
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("They lose access to shared accounts and goals. Re-invite them to undo it.")
         }

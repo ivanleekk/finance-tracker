@@ -8,7 +8,7 @@ several missed periods after the app has been idle.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -373,7 +373,12 @@ def test_upcoming_occurrences_previews_without_posting(
 ):
     rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
 
-    upcoming = recurring_service.upcoming_occurrences(rule, until=date(2026, 4, 15))
+    # `since` is pinned, not left to default to the real today: this test is
+    # about which dates the schedule produces, and the floor that keeps past
+    # dates out of an "upcoming" list is exercised separately below.
+    upcoming = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 4, 15), since=date(2026, 1, 1)
+    )
 
     assert upcoming == [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1), date(2026, 4, 1)]
     assert _transactions_for(db_session, rule) == []
@@ -383,14 +388,18 @@ def test_upcoming_respects_end_date_and_pause(db_session, household, account, re
     ending = _rule(
         db_session, household, account, rent_category, end_date=date(2026, 2, 28)
     )
-    assert recurring_service.upcoming_occurrences(ending, until=date(2026, 6, 1)) == [
+    assert recurring_service.upcoming_occurrences(
+        ending, until=date(2026, 6, 1), since=date(2026, 1, 1)
+    ) == [
         date(2026, 1, 1),
         date(2026, 2, 1),
     ]
 
     ending.is_active = False
     db_session.commit()
-    assert recurring_service.upcoming_occurrences(ending, until=date(2026, 6, 1)) == []
+    assert recurring_service.upcoming_occurrences(
+        ending, until=date(2026, 6, 1), since=date(2026, 1, 1)
+    ) == []
 
 
 # ---------------------------------------------------------------------------
@@ -605,3 +614,575 @@ def test_another_members_private_rule_is_hidden(
     descriptions = [r["description"] for r in rows]
     assert "Shared rent" in descriptions
     assert "Their private rule" not in descriptions
+
+
+# ---------------------------------------------------------------------------
+# What a rule has actually posted
+# ---------------------------------------------------------------------------
+
+
+def test_list_reports_what_each_rule_has_posted(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    `next_due_date` says a rule is scheduled; only a count says it has ever
+    fired. A rule that has posted nothing in six months is either brand new or
+    broken, and the two are indistinguishable without this.
+    """
+    _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    posted = client.post(
+        f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers
+    ).json()["posted"]
+    assert posted >= 1
+
+    rows = client.get(
+        f"/cashflow/recurring/household/{household.id}", headers=owner_headers
+    ).json()
+    assert len(rows) == 1
+    assert rows[0]["posted_count"] == posted
+    # Every posting is the same amount, so the total is exactly the multiple.
+    assert Decimal(rows[0]["posted_total_home_currency"]) == Decimal("2000") * posted
+
+
+def test_a_rule_that_has_never_posted_reports_zero_not_null(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """Zero and "unknown" must not look the same to a client rendering a count."""
+    _rule(
+        db_session,
+        household,
+        account,
+        rent_category,
+        start_date=date.today() + timedelta(days=30),
+    )
+    rows = client.get(
+        f"/cashflow/recurring/household/{household.id}", headers=owner_headers
+    ).json()
+    assert rows[0]["posted_count"] == 0
+    assert Decimal(rows[0]["posted_total_home_currency"]) == Decimal("0")
+
+
+def test_pausing_a_rule_does_not_reset_its_posting_history(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The update endpoint returns this schema off a freshly written row, where the
+    stats default to zero. Recomputing them is what stops a pause reading as
+    "this rule has never run".
+    """
+    rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    response = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"is_active": False}
+    )
+    assert response.status_code == 200
+    assert response.json()["posted_count"] >= 1
+
+
+def test_transactions_can_be_filtered_to_one_rule(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Without this a rule's own history costs the household's entire transaction
+    list — the exact download `limit` exists to avoid.
+    """
+    rule = _rule(db_session, household, account, rent_category, start_date=date(2026, 1, 1))
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    # An unrelated transaction that must not appear.
+    client.post(
+        "/cashflow/transactions",
+        headers=owner_headers,
+        json={
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 12.5,
+            "transaction_type": "expense",
+            "date": "2026-02-14T00:00:00",
+            "description": "Not from a rule",
+        },
+    )
+
+    rows = client.get(
+        f"/cashflow/transactions/household/{household.id}"
+        f"?recurring_transaction_id={rule.id}&limit=50",
+        headers=owner_headers,
+    ).json()
+    assert rows
+    assert all(r["recurring_transaction_id"] == str(rule.id) for r in rows)
+    assert all(r["description"] != "Not from a rule" for r in rows)
+    # Limited means newest-first, which is the order a history reads in.
+    assert [r["date"] for r in rows] == sorted((r["date"] for r in rows), reverse=True)
+
+
+def test_upcoming_never_lists_a_date_that_has_already_passed():
+    """
+    A rule the engine hasn't caught up with still has `next_due_date` behind it,
+    so walking from there put January into a list a client renders as the coming
+    months — in September. Overdue work is reported by the due count and the
+    "post due now" action; this list is about what happens next.
+    """
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(),
+        household_id=uuid.uuid7(),
+        account_id=uuid.uuid7(),
+        category_id=uuid.uuid7(),
+        amount=Decimal("30"),
+        frequency=F.monthly,
+        start_date=date(2026, 1, 5),
+        next_due_date=date(2026, 1, 5),
+        is_active=True,
+    )
+    dates = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 12, 1), since=date(2026, 9, 2)
+    )
+    assert dates
+    assert min(dates) >= date(2026, 9, 2)
+    # Still anchored to the 5th — the walk starts at next_due_date, only the
+    # emitting is floored, so the schedule isn't re-based onto `since`.
+    assert all(d.day == 5 for d in dates)
+
+
+def test_upcoming_includes_today():
+    """Today's occurrence hasn't posted yet, so it is still ahead of you."""
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(),
+        household_id=uuid.uuid7(),
+        account_id=uuid.uuid7(),
+        category_id=uuid.uuid7(),
+        amount=Decimal("30"),
+        frequency=F.monthly,
+        start_date=date(2026, 9, 2),
+        next_due_date=date(2026, 9, 2),
+        is_active=True,
+    )
+    dates = recurring_service.upcoming_occurrences(
+        rule, until=date(2026, 12, 1), since=date(2026, 9, 2)
+    )
+    assert dates[0] == date(2026, 9, 2)
+
+
+# ---------------------------------------------------------------------------
+# What a rule records about the payment, not just the schedule
+# ---------------------------------------------------------------------------
+
+
+def _card_with_category(db_session, household, name="Dining"):
+    """A liability account carrying a card with one category."""
+    account = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name="Amex",
+        liquidity=models.LiquidityStatus.liquid,
+        tax_status=models.TaxTreatment.taxable,
+        kind=models.AccountKind.liability,
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+    card = models.Card(
+        id=uuid.uuid7(),
+        financial_account_id=account.id,
+        cycle_basis=models.CycleBasis.statement,
+        statement_day=18,
+    )
+    db_session.add(card)
+    db_session.commit()
+    category = models.CardCategory(
+        id=uuid.uuid7(), card_id=card.id, name=name, is_default=True, sort_order=0
+    )
+    db_session.add(category)
+    db_session.commit()
+    db_session.refresh(account)
+    db_session.refresh(category)
+    return account, category
+
+
+def test_a_rule_carries_its_mcc_onto_everything_it_posts(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Recording the code once on the rule is the whole point: re-entering it on
+    every occurrence is exactly the work a rule exists to avoid.
+    """
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "mcc": "5814",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["mcc"] == "5814"
+
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+    posted = client.get(
+        f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+    ).json()
+    assert posted
+    assert all(t["mcc"] == "5814" for t in posted if t["recurring_transaction_id"])
+
+
+def test_a_blank_code_on_a_rule_is_absent_not_a_validation_error(
+    client, owner_headers, household, account, rent_category
+):
+    """Same coercion the transaction form relies on — a cleared field sends ""."""
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "mcc": "   ",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["mcc"] is None
+
+
+def test_editing_a_rule_preserves_a_code_it_was_not_asked_about(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    rule = _rule(db_session, household, account, rent_category)
+    rule.mcc = "5814"
+    db_session.commit()
+
+    response = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"amount": 99}
+    )
+    assert response.status_code == 200
+    assert response.json()["mcc"] == "5814"
+
+    # An explicit blank clears it.
+    cleared = client.put(
+        f"/cashflow/recurring/{rule.id}", headers=owner_headers, json={"mcc": ""}
+    )
+    assert cleared.json()["mcc"] is None
+
+
+def test_a_rule_cannot_borrow_another_cards_category(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    A card category is one card's private taxonomy, so pointing a rule on a
+    different account at it would meter the wrong card.
+    """
+    _, card_category = _card_with_category(db_session, household)
+
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(account.id),  # the plain checking account
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_moving_a_rule_to_another_account_clears_its_card_category(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The pick belongs to the card that was being charged. Left dangling it would
+    meter an account the rule no longer touches.
+    """
+    card_account, card_category = _card_with_category(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(card_account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    ).json()
+    assert created["card_category_id"] == str(card_category.id)
+
+    moved = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"account_id": str(account.id)},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["card_category_id"] is None
+
+
+def test_a_card_rule_tags_the_transactions_it_posts(
+    client, owner_headers, db_session, household, rent_category
+):
+    card_account, card_category = _card_with_category(db_session, household)
+    client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json={
+            "household_id": str(household.id),
+            "account_id": str(card_account.id),
+            "category_id": str(rent_category.id),
+            "amount": 42.5,
+            "frequency": "monthly",
+            "start_date": "2026-01-01",
+            "card_category_id": str(card_category.id),
+        },
+    )
+    client.post(f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers)
+
+    posted = [
+        t
+        for t in client.get(
+            f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+        ).json()
+        if t["recurring_transaction_id"]
+    ]
+    assert posted
+    assert all(t["card_category_id"] == str(card_category.id) for t in posted)
+
+
+# ---------------------------------------------------------------------------
+# A standing split
+# ---------------------------------------------------------------------------
+
+
+def _counterparty(db_session, household, name="Alice"):
+    person = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name=name)
+    db_session.add(person)
+    db_session.commit()
+    db_session.refresh(person)
+    return person
+
+
+def _rule_payload(household, account, category, **overrides):
+    payload = {
+        "household_id": str(household.id),
+        "account_id": str(account.id),
+        "category_id": str(category.id),
+        "amount": 1000,
+        "frequency": "monthly",
+        "start_date": "2026-01-01",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_a_rule_can_carry_a_standing_split(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """The flatmate's half of the rent, without re-entering it every month."""
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["splits"]) == 1
+    assert body["splits"][0]["counterparty_name"] == "Alice"
+    assert Decimal(body["splits"][0]["amount"]) == Decimal("400")
+
+
+def test_every_occurrence_claims_the_share_back(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    The split has to reach each posting's ledger entry — that is what puts the
+    share on Alice's receivable month after month, rather than once.
+    """
+    alice = _counterparty(db_session, household)
+    client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    posted = client.post(
+        f"/cashflow/recurring/household/{household.id}/run", headers=owner_headers
+    ).json()["posted"]
+    assert posted >= 2
+
+    rows = [
+        t
+        for t in client.get(
+            f"/cashflow/transactions/household/{household.id}", headers=owner_headers
+        ).json()
+        if t["recurring_transaction_id"]
+    ]
+    assert len(rows) == posted
+    for row in rows:
+        # The full amount still left the account, because it did.
+        assert Decimal(row["amount"]) == Decimal("1000")
+        assert len(row["splits"]) == 1
+        assert Decimal(row["splits"][0]["amount"]) == Decimal("400")
+
+    # And it accumulates as a real debt, one occurrence at a time.
+    balances = client.get(
+        f"/cashflow/reimbursements/household/{household.id}", headers=owner_headers
+    ).json()
+    owed = next(b for b in balances if b["counterparty_id"] == str(alice.id))
+    assert Decimal(owed["amount"]) == Decimal("400") * posted
+
+
+def test_shares_larger_than_the_bill_are_refused_not_clamped(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    A transaction clamps because its amount can be edited down afterwards and
+    the entry still has to balance. A rule has posted nothing, so an over-large
+    share is a typo — and clamping would repeat the mistake monthly.
+    """
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            amount=100,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    )
+    assert response.status_code == 400
+
+
+def test_the_same_person_cannot_take_two_shares_of_one_rule(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    alice = _counterparty(db_session, household)
+    response = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[
+                {"counterparty_id": str(alice.id), "amount": 100},
+                {"counterparty_id": str(alice.id), "amount": 200},
+            ],
+        ),
+    )
+    assert response.status_code == 400
+
+
+def test_editing_a_rule_leaves_a_split_it_was_not_asked_about(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    # An unrelated edit preserves it...
+    preserved = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"description": "Rent"},
+    )
+    assert len(preserved.json()["splits"]) == 1
+
+    # ...an explicit empty array clears it.
+    cleared = client.put(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers, json={"splits": []}
+    )
+    assert cleared.json()["splits"] == []
+
+
+def test_shrinking_the_amount_below_a_recorded_split_is_refused(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Otherwise the rule would try to post an impossible entry every month, and
+    the failure would surface at 2am inside the nightly job rather than here.
+    """
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    refused = client.put(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers, json={"amount": 100}
+    )
+    assert refused.status_code == 400
+
+    # Sending both together is judged as a whole and allowed.
+    together = client.put(
+        f"/cashflow/recurring/{created['id']}",
+        headers=owner_headers,
+        json={"amount": 100, "splits": [{"counterparty_id": str(alice.id), "amount": 40}]},
+    )
+    assert together.status_code == 200
+    assert Decimal(together.json()["splits"][0]["amount"]) == Decimal("40")
+
+
+def test_deleting_a_rule_takes_its_unposted_split_with_it(
+    client, owner_headers, db_session, household, account, rent_category
+):
+    """
+    Unlike the transactions a rule already posted — real history that outlives
+    it — a split describes only future occurrences that will now never happen.
+    """
+    alice = _counterparty(db_session, household)
+    created = client.post(
+        "/cashflow/recurring",
+        headers=owner_headers,
+        json=_rule_payload(
+            household,
+            account,
+            rent_category,
+            splits=[{"counterparty_id": str(alice.id), "amount": 400}],
+        ),
+    ).json()
+
+    assert client.delete(
+        f"/cashflow/recurring/{created['id']}", headers=owner_headers
+    ).status_code == 204
+    assert (
+        db_session.query(models.RecurringTransactionSplit)
+        .filter(models.RecurringTransactionSplit.recurring_transaction_id == created["id"])
+        .count()
+        == 0
+    )

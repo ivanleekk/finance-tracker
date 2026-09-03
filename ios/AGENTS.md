@@ -23,12 +23,16 @@ FinanceTracker/
   Support/NetWorth.swift    # Swift port of web lib/networth.ts (summarizeAccounts / netWorthBreakdown) — keep in sync
   Support/PortfolioAnalytics.swift # pure equity-curve / allocation / FX maths shared by the Portfolio tab
                              #   and the per-sub-portfolio detail screen (see the growth-chart note below)
+  Support/CashFlowSummary.swift # The "plan" half of the Cash Flow tab: what needs attention
+                             #   (over/at-risk budgets, burst/at-pace card limits, rules due now),
+                             #   the near-horizon upcoming window, and the shared `load` both the
+                             #   Cash Flow tab and the Dashboard's exception row call
   Support/CategoryPeriod.swift # Date window + saved filter for the Transactions "Top Categories"
                              #   card (port of the web's CategoryPeriodPreset); UserDefaults-backed
                              #   TopCategoryFilterStore keyed per household
   Support/AppTheme.swift     # Palette + AppTheme resolved from user's saved color names
   Support/ThemePalettes.swift# GENERATED sRGB scales from the web's Tailwind palette — regenerate, don't hand-edit
-  Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Transactions, More (+ Auth)
+  Views/                     # Tab bar (5): Dashboard, Accounts, Portfolio, Cash Flow, More (+ Auth)
                              #   Accounts/  = the Accounts tab (AccountsListView, wrapped in a NavigationStack by
                              #     MainTabView; also pushed from Dashboard rows) + account create/edit
                              #     (AccountFormView), manual balance entry (AddBalanceView, POST /accounts/balances),
@@ -44,6 +48,14 @@ FinanceTracker/
                              #     (Portfolio ▸ + ▸ New Goal / Sub-Portfolio → POST /portfolio/subportfolios) and
                              #     `GoalFormView(existing:)` edits one (⋯ ▸ Edit Goal → PATCH .../{id}). Name, risk
                              #     profile, target amount/date, and a Private toggle.
+                             #   Transactions/PaymentDetailSections.swift +
+                             #     TransactionSplitSection.swift = the parts of a payment that are not
+                             #     the amount: the card-category picker, the optional merchant code, and
+                             #     the bill split (view + `TransactionSplits`, its pure half). Shared by
+                             #     TransactionFormView, QuickAddView and RecurringFormView so all three
+                             #     record the same things — they used to live only on the full form,
+                             #     which made the two faster ways to log a payment the two ways that
+                             #     couldn't describe it.
                              #   QuickAdd/  = the command bar (QuickAddView), an options-first quick-add opened by
                              #     pulling down ANY main List (`.quickAddPull` in Components/QuickAddPull.swift reads
                              #     overscroll via onScrollGeometryChange and shows a custom "pull/release" indicator
@@ -97,6 +109,13 @@ FinanceTracker/
                              #   Create a household from More → Create Household (SessionStore.createHousehold →
                              #     POST /users/households, then switches active); More shows a household picker once
                              #     there's more than one.
+                             #   CashFlow/  = the summary block that turned the Transactions tab into
+                             #     "Cash Flow": NeedsAttentionSection (exception-only — renders nothing
+                             #     when the household is fine) and SummaryLinkRow, the one-line
+                             #     Budgets / Cards / Coming up / Shared rows that push the full screens.
+                             #     Both are hosted by TransactionsView; NeedsAttentionSection is also
+                             #     mounted on the Dashboard, which is the point — the Dashboard asks
+                             #     "is anything wrong?" unprompted, the tab is where you look on purpose.
                              #   Transactions/ = list + add/edit (TransactionFormView, tap a row to edit;
                              #     transfers are not editable here) + CategoriesView (category CRUD,
                              #     also reached from More → Categories and inline from the New Transaction sheet).
@@ -105,10 +124,17 @@ FinanceTracker/
                              #     GET /cashflow/household/{id}/emergency-fund, plus budget rows with a
                              #     pace marker over GET /cashflow/budgets/household/{id}/status, and
                              #     BudgetFormView for create/edit. Native counterpart of web /budgets.
-                             #   Recurring/ = RecurringView (More → Recurring): rules with swipe to
-                             #     pause/resume/delete, normalized monthly commitment stats, a "post due
-                             #     now" button (POST .../run — the nightly job does this anyway), and the
-                             #     90-day agenda grouped by month. Native counterpart of web /recurring.
+                             #   Recurring/ = RecurringView (More → Recurring, and the Cash Flow tab's
+                             #     "Coming up" row): normalized monthly commitment stats plus a
+                             #     "Where it goes" breakdown by category, a "post due now" button
+                             #     (POST .../run — the nightly job does this anyway), rules grouped by
+                             #     BudgetPresentation.health (Needs attention / Active / Paused) with
+                             #     swipe to pause/resume/delete, and the 90-day agenda grouped by month.
+                             #     A row pushes RecurringDetailView — schedule, track record
+                             #     (posted count / total to date, off the backend's posted_count and
+                             #     posted_total_home_currency) and the transactions the rule posted, via
+                             #     GET /cashflow/transactions/household/{id}?recurring_transaction_id=…
+                             #     Native counterpart of web /recurring.
                              #     Delete asks for confirmation first (a `.confirmationDialog`) and tracks
                              #     pending/error state per-rule in RecurringView itself, not on
                              #     RecurringRuleRow — a dialog presented from inside a swipe-actions row can
@@ -144,6 +170,20 @@ FinanceTracker/
   on the **screen**, not the row: a dialog presented from inside a swipe-actions row is torn
   down with the row's own collapse animation before it is ever shown. Cancelling an invite is
   the deliberate exception (re-inviting undoes it), so it keeps a plain swipe.
+    - **Every confirmation is an `.alert`, never a `.confirmationDialog`.** A confirmation
+      dialog renders as a bubble anchored to whichever view carries the modifier, and for
+      anything fired from a swipe action that view has to be the screen rather than the row —
+      attaching it to the row was tried and *silently* fails, because tapping the swipe's
+      Delete collapses the row, takes the dialog with it, and the user gets neither a
+      confirmation nor a deletion (scoping the binding to the row's id doesn't help; it is the
+      teardown, not the shared state, that kills it). Anchored to the screen the bubble points
+      at the top of the list while the finger is somewhere else entirely — Log Out at the
+      bottom of More produced a tail aimed at "Budgets & Emergency Fund". A centred alert makes
+      no claim about where it was summoned from, so it cannot be wrong about it, and using one
+      everywhere keeps a single style rather than splitting the app by trigger. **Write the
+      Cancel out by hand**: `.confirmationDialog` supplies one and can be dismissed by tapping
+      outside, `.alert` does neither, so an alert carrying only a destructive button is a trap
+      with no way out.
 - **The QuickAdd pull gesture** (`Components/QuickAddPull.swift`) needs two signals: `onScrollGeometryChange` for the overscroll distance, and a `.simultaneousGesture(DragGesture)` for finger down/up. `onScrollPhaseChange` is the API that _looks_ right, but on a `List` it only ever delivers `.idle` — no `.interacting`/`.decelerating` — so it cannot detect release. The bar opens when the pull passes `trigger` (100pt of overscroll ≈ a 220pt pull) and the finger then lifts without flicking back *up* faster than `retractVelocity` (900 pt/s). It is the release **direction** that decides, not its speed: still moving down, or roughly still, completes the gesture the "Release for Quick Add" badge just promised, and a confident fast pull is the most deliberate version of that, not the least — only a sharp flick upward reads as taking it back. Momentum-only overscroll can't arm it at all, because `dragging` (set by the `DragGesture`, cleared on end *and* when the sheet opens) gates every update.
   The live gesture state lives in an `@Observable`
   `PullState` read only by the `PullIndicator` subview, **not** as `@State` on the modifier:
@@ -192,7 +232,8 @@ FinanceTracker/
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `false`** (flipped from `true` — a mandatory Face ID/passcode prompt before the first Dashboard load was pure friction for the common case of a solo household with no one to hide data from) — a user opts in from Privacy & Vault. The preview test user matches this default, so browser/simulator verification isn't blocked by the prompt unless it's turned on locally.
 - **Query strings must go through `APIClient.url(base:path:)`.** `URL.appending(path:)` percent-encodes its argument, so a path like `"/x/projection?months=360"` turns the `?` into `%3F`, the query becomes part of the path, and the request 404s _silently_ if the call site uses `try?` (which is how the dashboard's net-worth outlook first went missing). `send` routes every request through the splitter; don't reintroduce `baseURL.appending(path:)` at a call site. `APIURLTests` pins the behaviour.
-- **`Support/BudgetPresentation.swift`** is the Swift port of the web's `frontend/src/lib/budgets.ts` — budget tone (over / at-risk / ok), the runway label and tone, and the recurring commitment/agenda helpers. Keep the two in sync; both clients must say the same thing about the same numbers. Two rules it encodes deliberately: a budget is "at risk" the moment its _projected_ spend exceeds the limit (warning on the 10th is the point; warning on the 30th is useless), and a nil `monthsCovered` renders as "Not enough data", never "∞" — an undefined runway is not an infinite one.
+- **`Support/BudgetPresentation.swift`** is the Swift port of the web's `frontend/src/lib/budgets.ts` — budget tone (over / at-risk / ok), the runway label and tone, the recurring commitment/agenda helpers, and the **rule health** rules (`health` / `scheduleLabel` / `postingLabel` / `isCommitted` / `commitmentByCategory`). Keep the two in sync; both clients must say the same thing about the same numbers. Two rules it encodes deliberately: a budget is "at risk" the moment its _projected_ spend exceeds the limit (warning on the 10th is the point; warning on the 30th is useless), and a nil `monthsCovered` renders as "Not enough data", never "∞" — an undefined runway is not an infinite one.
+    - **Rule health is four states, not two.** A rule due *today* is healthy — rules post overnight, so nothing has been missed — while a date already behind us is `.overdue`. A rule past its `end_date` is `.ended` even though `is_active` is still true, because the engine only clears that flag the next time it runs; `.ended` also outranks `.paused`, since "finished" is the more useful of the two words. This is what `isCommitted` is for: `is_active` alone counted a cancelled gym membership as a monthly commitment forever, in both the headline figure and the by-category breakdown.
 - **Performance metrics** come from `GET /portfolio/household/{id}/metrics` (`PortfolioMetricsResponse.overallMetrics`, a `PerformanceMetrics` mirroring the backend schema — includes `sortino_ratio`, `treynor_ratio`, `alpha`, `beta`). The Portfolio tab renders the full grid (Unrealized P&L, Div Yield, TWR, IRR/MWR, Sharpe, Sortino, Treynor+Beta, Jensen's α vs SPY); the Dashboard shows a compact Returns row (Overall Return, TWR, IRR/MWR, Sharpe). `StatTile` (in PortfolioView.swift) is the shared card, with `ratioString` / `percentString` / `returnTint` statics reused by both screens. `PerformanceTileGrid` wraps the full grid so `SubPortfolioDetailView` can render the same tiles off `subPortfolioMetrics[…].metrics` instead of the overall ones.
 - **Growth charts** (`Support/PortfolioAnalytics.swift`) are built by `equityCurve(snapshots:subPortfolioId:range:now:)` and shared by the Portfolio tab and the sub-portfolio detail screen. Two deliberate divergences from web:
     - The web has _two_ controls — a range (1M…ALL) and a Daily/Weekly/Monthly/Yearly binning selector. Two adjacent selectors don't fit a phone, so only the range is exposed and the bin is derived from the data's span (`growthBin(forSpanDays:)`: ≤92d daily, ≤550d weekly, else monthly). Binning keeps the **last** value in each bucket, not a sum or mean — an equity curve is a running balance (this matches the web's `binHistory`). Bucketing uses a **UTC, Monday-first** calendar so a snapshot can't drift into a neighbouring bucket by timezone.
@@ -339,6 +380,10 @@ where tests pay off without a running backend:
   supplied `calendar: utc` while `TransactionsView` calls `groupHistory` with the default,
   so the suite pinned a path the app never took. A test for a function with a
   timezone-dependent default has to exercise that default.
+- `CashFlowSummaryTests` — `Support/CashFlowSummary.swift`: what counts as due, the
+  upcoming window's bounds, view-mode scoping of occurrences, and the attention wording
+  (over vs at-risk, a burst cap vs a missed minimum, unmetered limits skipped). Every `now`
+  is injected and dates are built in UTC.
 - `CategoryPeriodTests` — the Top-Categories date-window math (`Support/CategoryPeriod.swift`);
   every case passes an explicit `now` and dates are built in UTC.
 - `ReimbursementsTests` / `ReimbursementCodingTests` — `Support/Reimbursements.swift` (the
@@ -407,4 +452,16 @@ Rules worth not re-deriving:
   unrelated description edit still can't silently drop a split — there is just no longer a
   hand-rolled enum needed to get that right.
 - The split section only renders for `.expense`; income has no counterparty.
-- `QuickAddView` deliberately has **no** split support — a separate, later pass.
+- **A recurring rule can carry a standing split**, edited with the same
+  `TransactionSplitSection` the other two forms use and shown on the rule row
+  ("$400 owed by Alice each time") and in the detail screen's Shared section
+  alongside your own share. Expense rules only — income has no counterparty to
+  owe anything. `RecurringTransactionResponse.splits` is **optional with a
+  `standingSplits` accessor**, the same shape `postedCount`/`timesPosted` uses
+  and for the same reason: Swift's synthesized decoder calls plain `decode` even
+  for a property with a default, so `= []` throws `keyNotFound` on any payload
+  without the key.
+- `QuickAddView` records everything the full transaction form does — split, merchant code and
+  card category — via the shared sections above. It was a deliberately reduced surface for a
+  while, which had the effect that the fastest way to log a payment was the only one that
+  couldn't describe it fully, and a split had to be added afterwards from another screen.

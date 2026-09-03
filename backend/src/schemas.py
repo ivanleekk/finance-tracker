@@ -638,6 +638,10 @@ class TransactionSplitRow(BaseModel):
     counterparty_id: uuid.UUID
     counterparty_name: str
     amount: Decimal
+    # A recurring rule's standing split is an ORM row rather than a ledger line,
+    # and it exposes `counterparty_name` as a property so it maps straight onto
+    # this without the caller assembling it by hand.
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionCreate(TransactionBase):
@@ -716,10 +720,20 @@ class RecurringTransactionBase(BaseModel):
     end_date: Optional[date] = None
     is_active: bool = True
     owner_user_id: Optional[uuid.UUID] = None
+    # Carried onto every transaction the rule posts. A subscription's merchant
+    # code and the card category it counts towards don't change month to month,
+    # so recording them once on the rule is the difference between a rule that
+    # describes a payment and one that only half-describes it.
+    mcc: MerchantCategoryCode = None
+    card_category_id: Optional[uuid.UUID] = None
 
 
 class RecurringTransactionCreate(RecurringTransactionBase):
     household_id: uuid.UUID
+    # A standing share of every occurrence — the flatmate's half of the rent,
+    # without re-entering it each month. Absolute amounts, not fractions, for the
+    # same reason a transaction's split is: a share is what somebody owes.
+    splits: Optional[List[TransactionSplitInput]] = None
 
 
 class RecurringTransactionUpdate(BaseModel):
@@ -733,6 +747,17 @@ class RecurringTransactionUpdate(BaseModel):
     end_date: Optional[date] = None
     next_due_date: Optional[date] = None
     is_active: Optional[bool] = None
+    # Three-state, like their counterparts on `TransactionUpdate`: leave the key
+    # out to preserve what's recorded, send null (or "" for the code) to clear
+    # it. Editing a rule's amount must not silently discard a code the user
+    # looked up once.
+    mcc: MerchantCategoryCode = None
+    card_category_id: Optional[uuid.UUID] = None
+    # Plain optional list, the same three states `TransactionUpdate.splits` uses:
+    # omit to leave the recorded split alone, `[]` to clear it, a populated list
+    # to replace it wholesale. An empty array is already unambiguous, so this
+    # needs no tri-state wrapper.
+    splits: Optional[List[TransactionSplitInput]] = None
 
 
 class RecurringTransactionResponse(RecurringTransactionBase):
@@ -740,6 +765,20 @@ class RecurringTransactionResponse(RecurringTransactionBase):
     household_id: uuid.UUID
     next_due_date: date
     last_posted_date: Optional[date] = None
+    # What the rule has actually done, as opposed to what it is scheduled to do.
+    # `next_due_date` alone says a rule is healthy; these say whether it has ever
+    # fired. A rule that has posted nothing in six months is either new or broken,
+    # and the two look identical without a count.
+    #
+    # Defaulted rather than required so the create/update endpoints — which return
+    # this schema straight off a freshly written row — stay correct without
+    # recomputing: a rule that has just been created has posted nothing.
+    posted_count: int = 0
+    posted_total_home_currency: Decimal = Decimal("0")
+    # What each occurrence will claim back. Named rows rather than ids so a
+    # client can render the rule without a second lookup, matching
+    # `TransactionResponse.splits`.
+    splits: List[TransactionSplitRow] = []
     model_config = ConfigDict(from_attributes=True)
 
 
