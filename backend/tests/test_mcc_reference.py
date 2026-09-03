@@ -165,6 +165,57 @@ def test_brands_come_last_and_each_block_is_ordered_by_code(client):
     assert brands[0] == "3000"
 
 
+def test_brand_codes_the_package_leaves_blank_are_still_served(client):
+    """
+    The 3000-3999 band is "reserved for private use", so Visa's and
+    Mastercard's own brand assignments for it can differ — iso18245's ~400
+    brand names come from Stripe's list and don't cover every code Mastercard
+    itself names. `_BRAND_NAME_OVERRIDES` fills the ones Mastercard's own
+    Quick Reference Booklet assigns that iso18245 leaves blank: real airlines
+    (Emirates, EgyptAir), a rental agency, and a hotel chain, spread across
+    the band rather than clustered at one end.
+    """
+    rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
+    assert rows["3026"]["name"] == "EMIRATES AIRLINES"
+    assert rows["3037"]["name"] == "EGYPTAIR"
+    assert rows["3441"]["name"] == "ADVANTAGE RENT-A-CAR"
+    assert rows["3780"]["name"] == "DISNEY RESORTS"
+    for code in ("3026", "3037", "3441", "3780"):
+        assert rows[code]["is_brand"] is True
+        assert rows[code]["group"] == "Airline, hotel and car rental brands"
+
+
+def test_codes_the_package_leaves_blank_are_still_served(client):
+    """
+    iso18245's Stripe/USDA/ISO sources predate some codes the networks have
+    since put into real use, so those codes carry no name from any of them.
+    5262 (Marketplaces) is the one that sent a user looking for it and finding
+    it silently missing from the picker; a handful of card-network-specific
+    codes (MoneySend, quasi-cash) share the gap. `_DESCRIPTION_OVERRIDES`
+    fills only codes confirmed live in Visa's or Mastercard's own current MCC
+    manuals — everything else the package leaves blank is genuinely
+    unassigned and stays dropped.
+    """
+    rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
+    assert rows["5262"]["name"] == "Marketplaces"
+    for code in (
+        "4813",
+        "5552",
+        "6050",
+        "6532",
+        "6533",
+        "6536",
+        "6537",
+        "6538",
+        "7800",
+        "7801",
+        "7802",
+        "9406",
+    ):
+        assert rows[code]["name"], code
+        assert rows[code]["group"], code
+
+
 def test_the_catalogue_needs_no_login(client):
     """Reference data, like currencies and timezones beside it."""
     assert client.get("/reference/mccs").status_code == 200
