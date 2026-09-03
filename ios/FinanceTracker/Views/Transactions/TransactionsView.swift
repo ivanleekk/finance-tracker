@@ -10,6 +10,7 @@ struct TransactionsView: View {
     @State private var accounts: [AccountResponse] = []
     @State private var categories: [CategoryResponse] = []
     @State private var counterparties: [Counterparty] = []
+    @State private var personalSpend: PersonalSpendResponse?
     @State private var searchText = ""
     @State private var isLoading = true
     @State private var showingAddSheet = false
@@ -207,6 +208,12 @@ struct TransactionsView: View {
                     onPostDue: { await postDueRecurring() },
                     isPosting: isPostingDue
                 )
+
+                if let personalSpend {
+                    Section {
+                        PersonalSpendCard(spend: personalSpend, baseCurrency: baseCurrency)
+                    }
+                }
 
                 if hasAnyExpenses {
                     Section {
@@ -534,6 +541,12 @@ struct TransactionsView: View {
         await load()
     }
 
+    /// A failed personal-spend fetch shouldn't block the rest of the screen — the
+    /// card just doesn't render, same as `hasAnyExpenses` gating the categories card.
+    private func optionalGet<T: Decodable>(_ path: String) async -> T? {
+        try? await APIClient.shared.get(path)
+    }
+
     private func load() async {
         guard let household = session.activeHousehold else { return }
         isLoading = true
@@ -543,7 +556,9 @@ struct TransactionsView: View {
             async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
             async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
             async let counterpartiesReq: [Counterparty] = APIClient.shared.get("/cashflow/counterparties/household/\(household.id)")
+            async let personalSpendReq: PersonalSpendResponse? = optionalGet("/cashflow/household/\(household.id)/personal-spend")
             (transactions, accounts, categories, counterparties) = try await (txnsReq, accountsReq, categoriesReq, counterpartiesReq)
+            personalSpend = await personalSpendReq
             lastLoadedAt = Date()
         } catch {
             errorMessage = error.localizedDescription

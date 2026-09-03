@@ -1480,3 +1480,29 @@ struct EmergencyFundResponse: Codable {
     let monthsOfHistory: Int
     let onTrack: Bool
 }
+
+struct PersonalSpendCategoryRow: Codable, Identifiable, Hashable {
+    let categoryId: String
+    let categoryName: String
+    @MoneyAmount var amount: Double
+
+    var id: String { categoryId }
+}
+
+/// GET /cashflow/household/{id}/personal-spend
+///
+/// This calendar month's spend that is actually the caller's own — their
+/// share, with investing/transfers/balance corrections/reimbursement
+/// settlements left out. Distinct from the raw cashflow total (every
+/// transaction) and the budgets total (mixes monthly/yearly limits).
+struct PersonalSpendResponse: Codable {
+    let householdId: String
+    let baseCurrency: String
+    let periodStart: Date
+    let periodEnd: Date
+    @MoneyAmount var total: Double
+    let previousPeriodStart: Date
+    let previousPeriodEnd: Date
+    @MoneyAmount var previousTotal: Double
+    let categories: [PersonalSpendCategoryRow]
+}

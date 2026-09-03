@@ -64,6 +64,30 @@ struct ModelDecodingTests {
         #expect(txn.transferId == nil)
     }
 
+    @Test func decodesPersonalSpendResponse() throws {
+        let json = """
+        {
+          "household_id": "hh-1",
+          "base_currency": "SGD",
+          "period_start": "2026-08-01",
+          "period_end": "2026-08-31",
+          "total": "1355.00",
+          "previous_period_start": "2026-07-01",
+          "previous_period_end": "2026-07-31",
+          "previous_total": "0.00",
+          "categories": [
+            {"category_id": "cat-1", "category_name": "Dining", "amount": "1355.00"}
+          ]
+        }
+        """.data(using: .utf8)!
+        let spend = try decoder.decode(PersonalSpendResponse.self, from: json)
+        #expect(spend.baseCurrency == "SGD")
+        #expect(abs(spend.total - 1355.0) < 0.0001)
+        #expect(abs(spend.previousTotal - 0.0) < 0.0001)
+        #expect(spend.categories.count == 1)
+        #expect(spend.categories[0].categoryName == "Dining")
+    }
+
     // MARK: date-only vs datetime parsing
 
     @Test func decodesDateOnlyField() throws {
