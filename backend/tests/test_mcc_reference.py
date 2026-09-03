@@ -165,6 +165,24 @@ def test_brands_come_last_and_each_block_is_ordered_by_code(client):
     assert brands[0] == "3000"
 
 
+def test_codes_the_package_leaves_blank_are_still_served(client):
+    """
+    iso18245's Stripe/USDA/ISO sources predate some codes the networks have
+    since put into real use, so those codes carry no name from any of them.
+    5262 (Marketplaces) is the one that sent a user looking for it and finding
+    it silently missing from the picker; a handful of card-network-specific
+    codes (MoneySend, quasi-cash) share the gap. `_DESCRIPTION_OVERRIDES`
+    fills only codes confirmed live in Visa's or Mastercard's own current MCC
+    manuals — everything else the package leaves blank is genuinely
+    unassigned and stays dropped.
+    """
+    rows = {row["code"]: row for row in client.get("/reference/mccs").json()}
+    assert rows["5262"]["name"] == "Marketplaces"
+    for code in ("5552", "6050", "6532", "6533", "6536", "6537", "6538", "7800", "7801", "7802", "9406"):
+        assert rows[code]["name"], code
+        assert rows[code]["group"], code
+
+
 def test_the_catalogue_needs_no_login(client):
     """Reference data, like currencies and timezones beside it."""
     assert client.get("/reference/mccs").status_code == 200

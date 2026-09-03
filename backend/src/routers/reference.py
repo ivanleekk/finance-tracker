@@ -80,6 +80,31 @@ def get_timezones():
 _BRAND_RANGE_START = "3000"
 _BRAND_GROUP = "Airline, hotel and car rental brands"
 
+# iso18245's three sources (Stripe, USDA, ISO) predate a small set of codes the
+# card networks have since put into real use, so those codes carry no
+# description from any of them and would otherwise be dropped. This is not a
+# general-purpose gap-filler: it names only codes confirmed live in Visa's or
+# Mastercard's own current public MCC manuals (Visa's April 2026 Merchant Data
+# Standards Manual; Mastercard's Quick Reference Booklet — 5262 is the one a
+# user actually hit missing). Every other blank code in the catalogue — the
+# unclaimed 3000-3999 brand slots, and 4733/7013/7280/7295/8912/9400 outside it
+# — is checked against both manuals and is genuinely unassigned today, so it
+# stays dropped rather than guessed at.
+_DESCRIPTION_OVERRIDES: Dict[str, str] = {
+    "5262": "Marketplaces",
+    "5552": "Electric Vehicle Charging",
+    "6050": "Quasi Cash – Customer Financial Institution",
+    "6532": "Payment Transaction – Customer Financial Institution",
+    "6533": "Payment Transaction – Merchant",
+    "6536": "MoneySend Intracountry",
+    "6537": "MoneySend Intercountry",
+    "6538": "MoneySend Funding",
+    "7800": "Government-Owned Lotteries (US Region Only)",
+    "7801": "Government Licensed On-Line Casinos (On-Line Gambling) (US Region Only)",
+    "7802": "Government-Licensed Horse/Dog Racing (US Region Only)",
+    "9406": "Government-Owned Lotteries (Non-U.S. Region)",
+}
+
 
 @lru_cache(maxsize=1)
 def _mcc_catalogue() -> List[schemas.MccResponse]:
@@ -90,8 +115,10 @@ def _mcc_catalogue() -> List[schemas.MccResponse]:
     Wording comes from the first source that has one, preferring Stripe's over
     ISO's: ISO's descriptions are terse and occasionally truncated mid-word
     ("Miscellaneous personal services -- not elsew"), where Stripe's are written
-    to be shown to a person ("Miscellaneous General Services"). The four-digit
-    code is the fact; the name is only a label for finding it.
+    to be shown to a person ("Miscellaneous General Services"). Failing all
+    three, `_DESCRIPTION_OVERRIDES` supplies a handful the package itself has no
+    wording for. The four-digit code is the fact; the name is only a label for
+    finding it.
 
     Codes with no description from any source (3780, for one) are dropped rather
     than rendered as "(no description)", which is noise in a list this long.
@@ -107,7 +134,12 @@ def _mcc_catalogue() -> List[schemas.MccResponse]:
     """
     catalogue: List[schemas.MccResponse] = []
     for mcc in iso18245.get_all_mccs():
-        name = mcc.stripe_description or mcc.usda_description or mcc.iso_description
+        name = (
+            mcc.stripe_description
+            or mcc.usda_description
+            or mcc.iso_description
+            or _DESCRIPTION_OVERRIDES.get(mcc.mcc)
+        )
         if not name:
             continue
         is_brand = mcc.range.start == _BRAND_RANGE_START
