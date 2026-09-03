@@ -872,8 +872,12 @@ def post_balance_adjustment(
     so a reconciliation stays visible as a reconciliation instead of disappearing
     into whatever category happened to be handy.
 
-    `delta_home` is **signed**: positive when the account turned out to hold more
-    than the chain said, negative when less.
+    `delta_home` is **signed** in the account's own convention: positive when the
+    account turned out to hold more than the chain said — which on a liability
+    means *more debt*, not more money. That is the account's normal side either
+    way, so growth is a debit on an asset and a credit on a liability; applying
+    the asset direction to a card made a reconciled-up balance pay down the debt
+    in the journal while raising it in `account_balances`.
     """
     delta = _dec(delta_home)
     if abs(delta) <= BALANCE_TOLERANCE:
@@ -881,6 +885,9 @@ def post_balance_adjustment(
 
     account_line = ledger_account_for_financial_account(db, account)
     plug = equity_account(db, account.household_id, models.LedgerAccountRole.adjustment)
+
+    if account.kind == models.AccountKind.liability:
+        delta = -delta
 
     if delta > 0:
         lines = [debit(account_line.id, delta), credit(plug.id, delta)]

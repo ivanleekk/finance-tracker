@@ -233,3 +233,145 @@ def test_editing_the_opening_balance_leaves_it_an_opening_balance(
     opening = db_session.query(models.AccountBalance).filter_by(date=date(2023, 10, 10)).first()
     assert opening.balance == Decimal("250.00")
     assert opening.is_manual is False
+
+
+@pytest.fixture
+def credit_card(db_session, test_household):
+    """A liability account — its balance is money owed, stored positive."""
+    account = models.FinancialAccount(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Credit Card",
+        kind=models.AccountKind.liability,
+        liquidity="liquid",
+        tax_status="taxable",
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    return account
+
+
+@pytest.fixture
+def expense_category(db_session, test_household):
+    category = models.Category(
+        id=uuid.uuid7(),
+        household_id=test_household.id,
+        name="Dining",
+        type="expense",
+    )
+    db_session.add(category)
+    db_session.commit()
+    db_session.refresh(category)
+    return category
+
+
+def test_a_card_charge_increases_what_you_owe(
+    client, auth_headers, credit_card, expense_category, db_session
+):
+    """
+    The bug: spending on a credit card made the household *richer*.
+
+    A liability's balance is the amount outstanding, stored as a positive
+    number and subtracted by every net-worth reader. The balance sync applied
+    the cash-flow sign regardless of the account's kind, so a $100 charge moved
+    the card from 0 to -100 — a debt of *negative* one hundred dollars, which
+    every client happily added to net worth.
+    """
+    client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(credit_card.id),
+        "date": "2023-10-01",
+        "balance": "0.00",
+    })
+
+    client.post("/cashflow/transactions", headers=auth_headers, json={
+        "account_id": str(credit_card.id),
+        "category_id": str(expense_category.id),
+        "date": "2023-10-05T12:00:00Z",
+        "amount": "100.00",
+        "description": "Dinner on the card",
+    })
+
+    db_session.expire_all()
+    assert db_session.query(models.AccountBalance).filter_by(
+        account_id=credit_card.id, date=date(2023, 10, 5)
+    ).first().balance == Decimal("100.00")
+
+
+def test_paying_the_card_down_reduces_what_you_owe(
+    client, auth_headers, test_account, credit_card, expense_category, db_session
+):
+    """The other half: a transfer into a liability settles debt, it isn't a deposit."""
+    for account_id, on, amount in (
+        (test_account.id, "2023-10-01", "1000.00"),
+        (credit_card.id, "2023-10-01", "0.00"),
+    ):
+        client.post("/accounts/balances", headers=auth_headers, json={
+            "account_id": str(account_id), "date": on, "balance": amount,
+        })
+
+    client.post("/cashflow/transactions", headers=auth_headers, json={
+        "account_id": str(credit_card.id),
+        "category_id": str(expense_category.id),
+        "date": "2023-10-05T12:00:00Z",
+        "amount": "300.00",
+        "description": "Groceries",
+    })
+
+    resp = client.post("/cashflow/transfers", headers=auth_headers, json={
+        "from_account_id": str(test_account.id),
+        "to_account_id": str(credit_card.id),
+        "date": "2023-10-20T12:00:00Z",
+        "amount": "200.00",
+        "description": "Card payment",
+    })
+    assert resp.status_code == 201, resp.text
+
+    db_session.expire_all()
+    balances = {
+        b.date: b.balance
+        for b in db_session.query(models.AccountBalance).filter_by(account_id=credit_card.id).all()
+    }
+    assert balances[date(2023, 10, 5)] == Decimal("300.00")
+    assert balances[date(2023, 10, 20)] == Decimal("100.00")
+    # The bank really did lose the money.
+    bank = db_session.query(models.AccountBalance).filter_by(
+        account_id=test_account.id, date=date(2023, 10, 20)
+    ).first()
+    assert bank.balance == Decimal("800.00")
+
+
+def test_reconciling_a_card_upwards_is_a_cost_not_income(
+    client, auth_headers, credit_card, db_session
+):
+    """
+    A reconciliation reads its direction off the account's kind, not off the
+    sign alone: finding more owed on a card than the chain said is a cost. The
+    ledger's equity plug has to move the same way, or the journal pays the card
+    down while `account_balances` raises it.
+    """
+    client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(credit_card.id), "date": "2023-10-01", "balance": "100.00",
+    })
+    resp = client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(credit_card.id), "date": "2023-10-10", "balance": "180.00",
+    })
+    assert resp.status_code == 201, resp.text
+
+    # The opening balance books one of these too; this is the reconciliation.
+    adjustment = db_session.query(models.Transaction).filter(
+        models.Transaction.account_id == credit_card.id,
+        models.Transaction.description == "Automated reconciliation for 2023-10-10",
+    ).one()
+    assert adjustment.transaction_type == models.TransactionType.expense
+    assert adjustment.amount == Decimal("80.00")
+
+    entry = db_session.query(models.JournalEntry).filter_by(source_id=adjustment.id).one()
+    card_line = db_session.query(models.LedgerAccount).filter_by(
+        financial_account_id=credit_card.id
+    ).one()
+    card_leg = next(l for l in entry.lines if l.ledger_account_id == card_line.id)
+    # Credit-normal: more debt is a credit.
+    assert card_leg.credit == Decimal("80.00")
+    assert card_leg.debit == Decimal("0")

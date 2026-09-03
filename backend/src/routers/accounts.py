@@ -404,6 +404,13 @@ def add_account_balance(
 
     # If there's a difference, create a reconciliation transaction
     if delta != 0:
+        # `delta` is in the account's own convention, where a liability's balance
+        # is the amount outstanding. Finding more debt than the chain said is a
+        # cost, not income — the opposite of what the same delta means on an
+        # asset — so the direction is read off the account's kind rather than
+        # off the sign alone.
+        richer = delta < 0 if db_account.kind == models.AccountKind.liability else delta > 0
+        adjustment_type = models.TransactionType.income if richer else models.TransactionType.expense
         # Find or create "Adjustment" category
         adjustment_cat = db.query(models.Category).filter(
             models.Category.household_id == db_account.household_id,
@@ -415,7 +422,7 @@ def add_account_balance(
                 id=uuid.uuid7(),
                 household_id=db_account.household_id,
                 name=models.SYSTEM_CATEGORY_BALANCE_ADJUSTMENT,
-                type=models.TransactionType.income.value if delta > 0 else models.TransactionType.expense.value
+                type=adjustment_type.value
             )
             db.add(adjustment_cat)
             db.flush()
@@ -438,7 +445,7 @@ def add_account_balance(
             currency=acc_curr,
             exchange_rate=1.0,
             description=f"Automated reconciliation for {balance.date}",
-            transaction_type=models.TransactionType.income if delta > 0 else models.TransactionType.expense
+            transaction_type=adjustment_type
         )
         db.add(adj_transaction)
         db.flush()
