@@ -626,6 +626,24 @@ export type EmergencyFundResponse = {
   on_track: boolean;
 };
 
+export type PersonalSpendCategoryRow = {
+  category_id: string;
+  category_name: string;
+  amount: number;
+};
+
+export type PersonalSpendResponse = {
+  household_id: string;
+  base_currency: string;
+  period_start: string;
+  period_end: string;
+  total: number;
+  previous_period_start: string;
+  previous_period_end: string;
+  previous_total: number;
+  categories: PersonalSpendCategoryRow[];
+};
+
 
 // --- Cards & spend limits ---
 

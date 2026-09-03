@@ -40,7 +40,7 @@ export default function Transactions() {
     const { activeHousehold } = useHousehold()
     const { user } = useAuth();
     const { viewMode, hasHousehold } = useViewMode();
-    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [], counterparties = [] } = (useLoaderData() as HistoryLoaderData) || {};
+    const { trades = [], transactions = [], assets = [], categories = [], accounts = [], subportfolios = [], currencies = [], counterparties = [], personalSpend = null } = (useLoaderData() as HistoryLoaderData) || {};
     const navigation = useNavigation()
     const revalidator = useRevalidator()
 
@@ -393,6 +393,47 @@ export default function Transactions() {
                     Export CSV
                 </Button>
             </div>
+
+            {/* My spend this month: your own share, excluding investing/transfers/settlements */}
+            {personalSpend && (
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex items-start justify-between flex-wrap gap-4">
+                            <div>
+                                <CardTitle className="text-sm mb-1">My spend this month</CardTitle>
+                                <p className="text-xs text-base-500 dark:text-base-400 max-w-md">
+                                    Your own share only — split bills, investing, transfers and reimbursement
+                                    settlements are left out, unlike the cashflow total below.
+                                </p>
+                            </div>
+                            <div className="text-right">
+                                <div className="font-display text-3xl font-bold text-base-900 dark:text-base-50">
+                                    {formatHomeAmount(personalSpend.total)}
+                                </div>
+                                {personalSpend.previous_total > 0 && (() => {
+                                    const deltaPct = ((personalSpend.total - personalSpend.previous_total) / personalSpend.previous_total) * 100;
+                                    const worse = deltaPct >= 0;
+                                    return (
+                                        <div className={cn("mt-1 text-xs font-medium", worse ? "text-red-500" : "text-emerald-600 dark:text-emerald-400")}>
+                                            {worse ? "+" : ""}{deltaPct.toFixed(0)}% vs. same point last month
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                        {personalSpend.categories.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-base-100 dark:border-base-800 flex flex-wrap gap-x-5 gap-y-1.5">
+                                {personalSpend.categories.slice(0, 6).map(c => (
+                                    <span key={c.category_id} className="text-xs text-base-500 dark:text-base-400">
+                                        {c.category_name}{" "}
+                                        <span className="font-mono text-base-700 dark:text-base-300">{formatHomeAmount(c.amount)}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Cashflow + Top categories */}
             <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">

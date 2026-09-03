@@ -868,6 +868,24 @@ class EmergencyFundResponse(BaseModel):
     on_track: bool
 
 
+class PersonalSpendCategoryRow(BaseModel):
+    category_id: uuid.UUID
+    category_name: str
+    amount: Decimal
+
+
+class PersonalSpendResponse(BaseModel):
+    household_id: uuid.UUID
+    base_currency: str
+    period_start: date
+    period_end: date
+    total: Decimal
+    previous_period_start: date
+    previous_period_end: date
+    previous_total: Decimal
+    categories: List[PersonalSpendCategoryRow]
+
+
 class TransferCreate(BaseModel):
     from_account_id: uuid.UUID
     to_account_id: uuid.UUID

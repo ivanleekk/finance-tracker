@@ -1540,3 +1540,53 @@ def get_emergency_fund(
         months_of_history=result.months_of_history,
         on_track=result.on_track,
     )
+
+
+# ---------------------------------------------------------------------------
+# PERSONAL SPEND
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/household/{household_id}/personal-spend",
+    response_model=schemas.PersonalSpendResponse,
+)
+def get_personal_spend(
+    household_id: uuid.UUID,
+    as_of: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    This calendar month's spend that is actually the caller's own: their
+    share (fronted-for-others subtracted, spend-on-their-behalf added), with
+    investing, transfers, balance corrections and reimbursement settlements
+    left out — unlike the raw cashflow subtotal, which counts every
+    transaction, and the budgets total, which mixes monthly and yearly
+    limits together.
+    """
+    verify_household_access(household_id, current_user, db)
+
+    household = db.query(models.Household).filter(models.Household.id == household_id).first()
+    on = as_of or datetime.now(timezone.utc).date()
+
+    result = budget_service.personal_spend_summary(db, household_id, current_user, on)
+
+    return schemas.PersonalSpendResponse(
+        household_id=household_id,
+        base_currency=(household.base_currency if household else None) or "USD",
+        period_start=result.period_start,
+        period_end=result.period_end,
+        total=result.total,
+        previous_period_start=result.previous_period_start,
+        previous_period_end=result.previous_period_end,
+        previous_total=result.previous_total,
+        categories=[
+            schemas.PersonalSpendCategoryRow(
+                category_id=c.category_id,
+                category_name=c.category_name,
+                amount=c.amount,
+            )
+            for c in result.categories
+        ],
+    )

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional
 import uuid
@@ -148,8 +148,6 @@ def _spend_by_category(
 
 
 def _one_day():
-    from datetime import timedelta
-
     return timedelta(days=1)
 
 
@@ -359,4 +357,90 @@ def emergency_fund_status(
         shortfall=shortfall,
         months_of_history=months_of_history,
         on_track=months_covered is not None and months_covered >= target_months,
+    )
+
+
+@dataclass
+class PersonalSpendCategory:
+    category_id: uuid.UUID
+    category_name: str
+    amount: Decimal
+
+
+@dataclass
+class PersonalSpendSummary:
+    period_start: date
+    period_end: date
+    total: Decimal
+    previous_period_start: date
+    previous_period_end: date
+    previous_total: Decimal
+    categories: List[PersonalSpendCategory]
+
+
+def personal_spend_summary(
+    db: Session,
+    household_id: uuid.UUID,
+    user: models.User,
+    on: Optional[date] = None,
+) -> PersonalSpendSummary:
+    """
+    This calendar month's spending that is actually the caller's: their own
+    share (the ledger split correction ``_spend_by_category`` already
+    applies — money fronted for someone else subtracted, spend someone
+    covered on their behalf added), with the app's own bookkeeping categories
+    (investing, transfers, balance corrections, reimbursement settlements)
+    left out. Same exclusion the emergency fund's burn rate uses, just for
+    the current month instead of a trailing average, and broken down by
+    category rather than collapsed to one number.
+
+    The comparison period is the same day-of-month span last month, not all
+    of last month, so a partial "this month so far" isn't held up against a
+    full 30 days.
+    """
+    on = on or datetime.now(timezone.utc).date()
+    period_start = date(on.year, on.month, 1)
+    period_end = on
+
+    prev_month_end = period_start - _one_day()
+    prev_month_start = date(prev_month_end.year, prev_month_end.month, 1)
+    days_into_month = (on - period_start).days
+    previous_period_start = prev_month_start
+    previous_period_end = min(prev_month_end, prev_month_start + timedelta(days=days_into_month))
+
+    excluded = _system_category_ids(db, household_id)
+
+    totals, _ = _spend_by_category(db, household_id, user, period_start, period_end)
+    prev_totals, _ = _spend_by_category(db, household_id, user, previous_period_start, previous_period_end)
+
+    category_names = {
+        c.id: c.name
+        for c in db.query(models.Category).filter(models.Category.household_id == household_id).all()
+    }
+
+    categories = [
+        PersonalSpendCategory(
+            category_id=cid,
+            category_name=category_names.get(cid, "Unknown"),
+            amount=money(amount),
+        )
+        for cid, amount in totals.items()
+        if cid not in excluded and amount > 0
+    ]
+    categories.sort(key=lambda c: c.amount, reverse=True)
+
+    total = sum((c.amount for c in categories), Decimal("0"))
+    previous_total = sum(
+        (amount for cid, amount in prev_totals.items() if cid not in excluded),
+        Decimal("0"),
+    )
+
+    return PersonalSpendSummary(
+        period_start=period_start,
+        period_end=period_end,
+        total=money(total),
+        previous_period_start=previous_period_start,
+        previous_period_end=previous_period_end,
+        previous_total=money(previous_total),
+        categories=categories,
     )

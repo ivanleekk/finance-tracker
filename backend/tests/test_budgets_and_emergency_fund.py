@@ -823,3 +823,115 @@ def test_household_rejects_absurd_emergency_target(client, owner_headers, househ
         json={"emergency_fund_target_months": months},
     )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Personal spend
+# ---------------------------------------------------------------------------
+
+
+def test_personal_spend_excludes_system_categories_and_transfers(
+    db_session, household, account, dining, owner
+):
+    investment = models.Category(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        name=models.SYSTEM_CATEGORY_INVESTMENT,
+        type="expense",
+    )
+    db_session.add(investment)
+    db_session.commit()
+
+    _expense(db_session, account, dining, 100, date(2026, 3, 5))
+    _expense(db_session, account, investment, 5000, date(2026, 3, 6))
+    _expense(db_session, account, dining, 20000, date(2026, 3, 7), transfer_id=uuid.uuid7())
+
+    result = budget_service.personal_spend_summary(db_session, household.id, owner, date(2026, 3, 15))
+
+    assert result.total == Decimal("100.00")
+    assert [c.category_name for c in result.categories] == ["Dining"]
+
+
+def test_personal_spend_only_counts_your_own_share(
+    client, db_session, household, account, dining, owner, owner_headers
+):
+    """A $300 dinner split three ways is $100 of the caller's own spend."""
+    alice = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name="Alice")
+    bob = models.Counterparty(id=uuid.uuid7(), household_id=household.id, name="Bob")
+    db_session.add_all([alice, bob])
+    db_session.commit()
+
+    response = client.post(
+        "/cashflow/transactions",
+        json={
+            "account_id": str(account.id),
+            "category_id": str(dining.id),
+            "date": datetime(2026, 3, 5, 12, tzinfo=timezone.utc).isoformat(),
+            "amount": "300",
+            "splits": [
+                {"counterparty_id": str(alice.id), "amount": "100"},
+                {"counterparty_id": str(bob.id), "amount": "100"},
+            ],
+            "description": "Group dinner",
+        },
+        headers=owner_headers,
+    )
+    assert response.status_code == 201, response.text
+
+    result = budget_service.personal_spend_summary(db_session, household.id, owner, date(2026, 3, 15))
+    assert result.total == Decimal("100.00")
+
+
+def test_personal_spend_compares_to_the_same_day_range_last_month(
+    db_session, household, account, dining, owner
+):
+    _expense(db_session, account, dining, 100, date(2026, 3, 5))
+    # Spend on and before the 5th of February counts; spend after does not,
+    # so a partial "this month so far" isn't held up against a full month.
+    _expense(db_session, account, dining, 40, date(2026, 2, 3))
+    _expense(db_session, account, dining, 900, date(2026, 2, 20))
+
+    result = budget_service.personal_spend_summary(db_session, household.id, owner, date(2026, 3, 5))
+
+    assert result.total == Decimal("100.00")
+    assert result.previous_total == Decimal("40.00")
+    assert result.previous_period_start == date(2026, 2, 1)
+    assert result.previous_period_end == date(2026, 2, 5)
+
+
+def test_personal_spend_category_breakdown_is_sorted_by_amount(
+    db_session, household, account, dining, owner
+):
+    groceries = models.Category(
+        id=uuid.uuid7(), household_id=household.id, name="Groceries", type="expense"
+    )
+    db_session.add(groceries)
+    db_session.commit()
+
+    _expense(db_session, account, dining, 50, date(2026, 3, 3))
+    _expense(db_session, account, groceries, 250, date(2026, 3, 4))
+
+    result = budget_service.personal_spend_summary(db_session, household.id, owner, date(2026, 3, 15))
+
+    assert [c.category_name for c in result.categories] == ["Groceries", "Dining"]
+    assert result.total == Decimal("300.00")
+
+
+def test_personal_spend_endpoint(client, owner_headers, db_session, household, account, dining):
+    _expense(db_session, account, dining, 150, date(2026, 3, 5))
+
+    response = client.get(
+        f"/cashflow/household/{household.id}/personal-spend?as_of=2026-03-15",
+        headers=owner_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["total"]) == Decimal("150.00")
+    assert data["base_currency"] == "USD"
+    assert data["categories"][0]["category_name"] == "Dining"
+
+
+def test_personal_spend_requires_household_access(client, stranger_headers, household):
+    assert client.get(
+        f"/cashflow/household/{household.id}/personal-spend", headers=stranger_headers
+    ).status_code == 403
