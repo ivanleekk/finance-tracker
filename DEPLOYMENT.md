@@ -43,7 +43,7 @@ keep working unchanged.
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml logs -f   # watch until healthy
+docker compose --env-file .env.production  -f docker-compose.prod.yml logs -f    # watch until healthy
 ```
 
 The backend container applies Alembic migrations automatically on start, so a
