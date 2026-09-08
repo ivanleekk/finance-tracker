@@ -35,15 +35,14 @@ services:
         environment:
             - PORT=8000
             - NODE_ENV=production
-            - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+            # Neon (managed Postgres) connection string, e.g.
+            # postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/fin?sslmode=require
+            - DATABASE_URL=${DATABASE_URL:?set in .env.production}
             - SECRET_KEY=${SECRET_KEY:?set in .env.production}
             - SCHEDULER_SECRET=${SCHEDULER_SECRET:?set in .env.production}
             - API_URL=https://${API_DOMAIN}
             - CORS_ORIGINS=https://${FRONTEND_DOMAIN}
             - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:?set in .env.production}
-        depends_on:
-            db:
-                condition: service_healthy
 
     frontend:
         build:
@@ -61,23 +60,6 @@ services:
             # SSR loaders/actions talk to the backend over the compose network.
             - INTERNAL_API_URL=http://backend:8000
 
-    db:
-        image: postgres:18-alpine
-        restart: unless-stopped
-        # No host port mapping: only reachable from other containers.
-        # For psql access use: docker compose -f docker-compose.prod.yml exec db psql -U $POSTGRES_USER $POSTGRES_DB
-        environment:
-            POSTGRES_DB: ${POSTGRES_DB:-fin}
-            POSTGRES_USER: ${POSTGRES_USER:-fin}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fin} -d ${POSTGRES_DB:-fin}"]
-            interval: 5s
-            timeout: 5s
-            retries: 12
-        volumes:
-            - finance_tracker_prod_db:/var/lib/postgresql
-
     # Replaces Cloud Scheduler: fires the daily snapshot/dividend catch-up job.
     # The endpoint is idempotent and catches up from the last snapshot date,
     # so a missed run self-heals on the next one.
@@ -91,32 +73,8 @@ services:
         command: >
             sh -c 'printf "0 1 * * * wget -q -O - --header \"X-Scheduler-Secret: $$SCHEDULER_SECRET\" --post-data= http://backend:8000/internal/tasks/daily-snapshot\n" | crontab - && crond -f -l 2'
         depends_on:
-            db:
-                condition: service_healthy
-
-    # Nightly logical backups with 14-day retention. Files land in ./backup_data
-    # on the host (gitignored). Restore procedure is in DEPLOYMENT.md.
-    db-backup:
-        image: postgres:18-alpine
-        restart: unless-stopped
-        environment:
-            - PGHOST=db
-            - PGUSER=${POSTGRES_USER:-fin}
-            - PGPASSWORD=${POSTGRES_PASSWORD}
-            - PGDATABASE=${POSTGRES_DB:-fin}
-        volumes:
-            - ./backup_data:/backups
-        entrypoint: >
-            sh -c 'while true; do
-                pg_dump -Fc -f "/backups/fin-$$(date +%F).dump" &&
-                find /backups -name "fin-*.dump" -mtime +14 -delete;
-                sleep 86400;
-            done'
-        depends_on:
-            db:
-                condition: service_healthy
+            - backend
 
 volumes:
-    finance_tracker_prod_db:
     caddy_data:
     caddy_config:
