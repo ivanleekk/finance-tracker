@@ -353,6 +353,7 @@ def update_transaction(
 
     # Capture old impact for sync before any modifications
     # Capture old impact for sync before any modifications
+    old_account_id = db_transaction.account_id
     old_multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
     old_exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
     old_impact = (db_transaction.amount * Decimal(str(old_exchange_rate))) * old_multiplier
@@ -419,10 +420,10 @@ def update_transaction(
     new_impact = (db_transaction.amount * Decimal(str(new_exchange_rate))) * new_multiplier
     new_date = db_transaction.date.date()
 
-    if old_date == new_date:
+    if old_date == new_date and old_account_id == db_transaction.account_id:
         sync_transaction_to_balances(db, db_transaction.account_id, new_date, new_impact - old_impact)
     else:
-        sync_transaction_to_balances(db, db_transaction.account_id, old_date, -old_impact)
+        sync_transaction_to_balances(db, old_account_id, old_date, -old_impact)
         sync_transaction_to_balances(db, db_transaction.account_id, new_date, new_impact)
 
     # Repost rather than patch: `post_entry` replaces the entry this row already

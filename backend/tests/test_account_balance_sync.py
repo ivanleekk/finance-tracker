@@ -342,6 +342,80 @@ def test_paying_the_card_down_reduces_what_you_owe(
     assert bank.balance == Decimal("800.00")
 
 
+def test_editing_a_transactions_account_moves_the_balance_too(
+    client, auth_headers, test_account, credit_card, test_category, db_session
+):
+    """
+    The bug: editing a transaction onto a different account reversed the old
+    impact against the *new* account instead of the old one, because
+    `update_transaction` overwrote `db_transaction.account_id` via `setattr`
+    before computing which account to reverse. The old account never got its
+    money taken back, and the new account got the wrong delta (often ~0, since
+    it was computed as new_impact - old_impact on the same amount).
+
+    This reproduces the real report: an income transaction on a checking
+    account, edited onto a credit card and back, left the checking account's
+    balance corrupted even though the transaction itself ended up right where
+    it started.
+    """
+    client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(test_account.id), "date": "2023-10-01", "balance": "1000.00",
+    })
+    client.post("/accounts/balances", headers=auth_headers, json={
+        "account_id": str(credit_card.id), "date": "2023-10-01", "balance": "0.00",
+    })
+
+    resp = client.post("/cashflow/transactions", headers=auth_headers, json={
+        "account_id": str(test_account.id),
+        "category_id": str(test_category.id),
+        "date": "2023-10-05T12:00:00Z",
+        "amount": "500.00",
+        "description": "Government: COL payment",
+    })
+    assert resp.status_code == 201, resp.text
+    transaction_id = resp.json()["id"]
+
+    db_session.expire_all()
+    assert db_session.query(models.AccountBalance).filter_by(
+        account_id=test_account.id, date=date(2023, 10, 5)
+    ).first().balance == Decimal("1500.00")
+
+    # Move it onto the credit card.
+    resp = client.put(f"/cashflow/transactions/{transaction_id}", headers=auth_headers, json={
+        "account_id": str(credit_card.id),
+    })
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    checking_after_move = db_session.query(models.AccountBalance).filter_by(
+        account_id=test_account.id, date=date(2023, 10, 5)
+    ).first().balance
+    card_after_move = db_session.query(models.AccountBalance).filter_by(
+        account_id=credit_card.id, date=date(2023, 10, 5)
+    ).first().balance
+    # The $500 must have fully left checking...
+    assert checking_after_move == Decimal("1000.00")
+    # ...and landed on the card. Income received into a liability account pays
+    # it down, so the card's balance (money owed) drops by 500.
+    assert card_after_move == Decimal("-500.00")
+
+    # Move it back to checking.
+    resp = client.put(f"/cashflow/transactions/{transaction_id}", headers=auth_headers, json={
+        "account_id": str(test_account.id),
+    })
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    checking_after_revert = db_session.query(models.AccountBalance).filter_by(
+        account_id=test_account.id, date=date(2023, 10, 5)
+    ).first().balance
+    card_after_revert = db_session.query(models.AccountBalance).filter_by(
+        account_id=credit_card.id, date=date(2023, 10, 5)
+    ).first().balance
+    assert checking_after_revert == Decimal("1500.00")
+    assert card_after_revert == Decimal("0.00")
+
+
 def test_reconciling_a_card_upwards_is_a_cost_not_income(
     client, auth_headers, credit_card, db_session
 ):
