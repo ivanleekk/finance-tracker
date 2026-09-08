@@ -4,12 +4,13 @@ Production runs on a single VPS via `docker-compose.prod.yml`, backed by
 **Neon** (managed serverless Postgres) rather than a local database
 container:
 
-| Service     | Image / build                     | Role                                                   |
-| ----------- | --------------------------------- | ------------------------------------------------------- |
-| `caddy`     | `caddy:2-alpine`                  | Reverse proxy + automatic HTTPS (Let's Encrypt)        |
-| `frontend`  | `frontend/Dockerfile` @production | React Router SSR server on :8080                       |
-| `backend`   | `backend/Dockerfile` @production  | FastAPI on :8000, runs `alembic upgrade head` on boot  |
-| `scheduler` | `alpine:3.21` + crond             | Daily snapshot/dividend job (replaces Cloud Scheduler) |
+| Service     | Image / build                     | Role                                                        |
+| ----------- | --------------------------------- | -------------------------------------------------------------- |
+| `caddy`     | `caddy:2-alpine`                  | Reverse proxy + automatic HTTPS (Let's Encrypt)             |
+| `frontend`  | `frontend/Dockerfile` @production | React Router SSR server on :8080                            |
+| `migrate`   | `backend/Dockerfile` @production  | One-shot: `alembic upgrade head` against Neon, then exits   |
+| `backend`   | `backend/Dockerfile` @production  | FastAPI on :8000; waits for `migrate` to exit 0 before start |
+| `scheduler` | `alpine:3.21` + crond             | Daily snapshot/dividend job (replaces Cloud Scheduler)      |
 
 There is no `db` or `db-backup` service: the backend connects directly to
 Neon over `DATABASE_URL` (see `.env.production.example`), and Neon's own
@@ -43,11 +44,12 @@ keep working unchanged.
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-docker compose --env-file .env.production  -f docker-compose.prod.yml logs -f    # watch until healthy
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f    # watch until healthy
 ```
 
-The backend container applies Alembic migrations automatically on start, so a
-fresh database gets the full schema.
+`migrate` applies Alembic migrations against Neon and exits before `backend`
+starts, so a fresh database gets the full schema without delaying the
+backend's own port bind.
 
 Smoke test:
 
@@ -87,8 +89,10 @@ docker image prune -f
 ```
 
 `up -d --build` only recreates containers whose image or config changed.
-Migrations run automatically. Rollback = `git checkout <last-good-sha>` and
-re-run the same command (plus a backup restore if a migration must be undone).
+`migrate` re-runs and `backend` waits for it before restarting, so migrations
+still apply automatically — just without blocking `backend`'s own boot.
+Rollback = `git checkout <last-good-sha>` and re-run the same command (plus a
+backup restore if a migration must be undone).
 
 ## 5. Scheduled jobs
 

@@ -7,12 +7,18 @@
 
 {$FRONTEND_DOMAIN} {
 	encode gzip
-	reverse_proxy frontend:8080
+	# Retry into the upstream for up to 10s instead of surfacing a 502
+	# immediately — covers the container-restart window during a deploy.
+	reverse_proxy frontend:8080 {
+		lb_try_duration 10s
+	}
 }
 
 {$API_DOMAIN} {
 	encode gzip
-	reverse_proxy backend:8000
+	reverse_proxy backend:8000 {
+		lb_try_duration 10s
+	}
 
 	# The scheduler endpoint is only ever called from inside the compose
 	# network; don't expose it to the internet.

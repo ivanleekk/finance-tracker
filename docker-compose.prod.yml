@@ -24,6 +24,18 @@ services:
             - frontend
             - backend
 
+    # One-shot: applies Alembic migrations against Neon, then exits. Kept out
+    # of the backend's own CMD so a plain restart/redeploy never blocks the
+    # port bind on a migration run (see backend/Dockerfile).
+    migrate:
+        build:
+            context: ./backend
+            target: production
+        restart: "no"
+        environment:
+            - DATABASE_URL=${DATABASE_URL:?set in .env.production}
+        command: ["uv", "run", "alembic", "upgrade", "head"]
+
     backend:
         build:
             context: ./backend
@@ -43,6 +55,9 @@ services:
             - API_URL=https://${API_DOMAIN}
             - CORS_ORIGINS=https://${FRONTEND_DOMAIN}
             - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:?set in .env.production}
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
 
     frontend:
         build:

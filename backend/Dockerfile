@@ -25,5 +25,9 @@ COPY . /app
 # Sync again with project installed, still no-dev
 RUN uv sync --frozen --no-dev
 EXPOSE 8000
-# In production, we use uvicorn directly for better performance and stability
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# In production, we use uvicorn directly for better performance and stability.
+# Migrations do NOT run here: they'd block the port bind on every container
+# start (including plain restarts), and Cloud Run/Caddy would proxy into a
+# closed port in the meantime. They run as their own one-shot `migrate`
+# service in docker-compose.prod.yml, ordered before this one.
+CMD ["sh", "-c", "uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
