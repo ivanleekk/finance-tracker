@@ -49,6 +49,15 @@ def run_deploy() -> None:
                 "--env-file", os.path.join(REPO_DIR, ENV_FILE),
                 "-f", os.path.join(REPO_DIR, COMPOSE_FILE),
                 "up", "-d", "--build",
+                # Deliberately excludes `webhook` itself. BuildKit stamps a
+                # fresh timestamp into the image config on every build even
+                # on a full cache hit, so an unscoped `--build` gives
+                # `webhook` a "new" image on every single deploy — and
+                # recreating the container that's running this very deploy
+                # kills the process mid-run, leaving the rest of the stack
+                # stopped. A change to deploy/webhook/* still needs the
+                # manual command from "Deploying updates", run once by hand.
+                "migrate", "backend", "frontend", "scheduler",
             ],
             ["docker", "image", "prune", "-f"],
         ]

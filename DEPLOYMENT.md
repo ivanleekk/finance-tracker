@@ -194,16 +194,20 @@ goes live. `main` only ever moves by fast-forwarding it to `dev` when ready
 to ship (`git checkout main && git merge --ff-only dev && git push origin
 main`); that push is what fires the webhook.
 
-**A push that changes `deploy/webhook/*` can stall itself.** `up -d --build`
-recreates every service, `webhook` included; if `webhook`'s own image changed,
-compose stops the running `webhook` container to replace it — but that
-container is the one executing the `docker compose` command, so it kills its
-own deploy mid-run. Images finish building, but any container ordered after
-`webhook` never gets (re)started, leaving the stack partly down. Recover by
-re-running the "Deploying updates" command **from the host shell**, not
-through the webhook: `cd $REPO_DIR && docker compose --env-file
-.env.production -f docker-compose.prod.yml up -d --build`. A change to
-anything under `deploy/webhook/` should be deployed this way once, by hand.
+**The automated deploy step deliberately excludes `webhook` from `--build`.**
+BuildKit stamps a fresh timestamp into an image's config on every build, even
+one that's a full cache hit, so an unscoped `docker compose up -d --build`
+gives `webhook` a "new" image — and therefore a container recreate — on
+*every* deploy, not just ones that touch `deploy/webhook/*`. Recreating the
+container that's in the middle of running that very `docker compose` command
+kills the deploy mid-run: images finish building, but `backend`/`frontend`
+never get (re)started, leaving the stack down until someone notices. `run_deploy()`
+in `deploy/webhook/server.py` therefore names the services it builds
+explicitly (`migrate backend frontend scheduler`) rather than leaving the
+list unscoped. A change to anything under `deploy/webhook/` still needs one
+manual deploy from the **host shell** (not triggered through the webhook)
+to pick it up: `cd $REPO_DIR && docker compose --env-file .env.production -f
+docker-compose.prod.yml up -d --build`.
 
 **Security note:** the `webhook` container has the Docker socket
 bind-mounted in, which is effectively root on the host — that's what lets it
