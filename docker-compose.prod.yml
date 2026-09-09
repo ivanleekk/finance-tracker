@@ -67,6 +67,41 @@ services:
             # SSR loaders/actions talk to the backend over the compose network.
             - INTERNAL_API_URL=http://backend:8000
 
+    # Receives GitHub's push webhook and re-runs the "Deploying updates"
+    # steps from DEPLOYMENT.md. Talks to the *host's* dockerd over the
+    # bind-mounted socket (Docker-outside-of-Docker), which is why REPO_DIR
+    # must be the repo's real absolute path on the VPS host, not a
+    # container-local one: docker compose resolves this file's own relative
+    # bind mounts (build contexts, …) against that path, and those resolved
+    # paths are sent to the host daemon, which has no idea what a
+    # container-local alias like /repo would mean. Mounting REPO_DIR to
+    # itself keeps the string identical on both sides. See DEPLOYMENT.md
+    # "Continuous deployment" for the one-time setup, including the route
+    # to add on the shared ~/edge-proxy Caddy.
+    webhook:
+        build:
+            context: ./deploy/webhook
+        restart: unless-stopped
+        # Not exposed to the host: the shared edge Caddy (~/edge-proxy)
+        # reaches it over the `edge` network, same as backend/frontend.
+        networks:
+            - default
+            - edge
+        environment:
+            - WEBHOOK_SECRET=${WEBHOOK_SECRET:?set in .env.production}
+            - DEPLOY_BRANCH=${DEPLOY_BRANCH:-refs/heads/main}
+            - REPO_DIR=${REPO_DIR:?set in .env.production}
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ${REPO_DIR:?set in .env.production}:${REPO_DIR:?set in .env.production}
+            # Reuses whatever git-pull credentials already work on the VPS
+            # host (SSH key + known_hosts) — see DEPLOYMENT.md before
+            # pointing this at your personal key rather than a scoped
+            # deploy key.
+            - ${SSH_DIR:?set in .env.production}:/root/.ssh:ro
+        expose:
+            - "9000"
+
     # Replaces Cloud Scheduler: fires the daily snapshot/dividend catch-up job.
     # The endpoint is idempotent and catches up from the last snapshot date,
     # so a missed run self-heals on the next one.
