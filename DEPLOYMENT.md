@@ -188,6 +188,17 @@ piggybacks on the build already running from the push before it.
 The manual command in "Deploying updates" above still works — for a branch
 other than `main`, a rollback, or if the webhook itself needs debugging.
 
+**A push that changes `deploy/webhook/*` can stall itself.** `up -d --build`
+recreates every service, `webhook` included; if `webhook`'s own image changed,
+compose stops the running `webhook` container to replace it — but that
+container is the one executing the `docker compose` command, so it kills its
+own deploy mid-run. Images finish building, but any container ordered after
+`webhook` never gets (re)started, leaving the stack partly down. Recover by
+re-running the "Deploying updates" command **from the host shell**, not
+through the webhook: `cd $REPO_DIR && docker compose --env-file
+.env.production -f docker-compose.prod.yml up -d --build`. A change to
+anything under `deploy/webhook/` should be deployed this way once, by hand.
+
 **Security note:** the `webhook` container has the Docker socket
 bind-mounted in, which is effectively root on the host — that's what lets it
 run `docker compose up --build` at all. The only thing standing between the
