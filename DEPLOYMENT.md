@@ -188,6 +188,12 @@ piggybacks on the build already running from the push before it.
 The manual command in "Deploying updates" above still works — for a branch
 other than `main`, a rollback, or if the webhook itself needs debugging.
 
+**Branch model**: `dev` stays GitHub's default branch and where PRs land —
+there's no CI test gate on this repo, so `dev` is the checkpoint before code
+goes live. `main` only ever moves by fast-forwarding it to `dev` when ready
+to ship (`git checkout main && git merge --ff-only dev && git push origin
+main`); that push is what fires the webhook.
+
 **A push that changes `deploy/webhook/*` can stall itself.** `up -d --build`
 recreates every service, `webhook` included; if `webhook`'s own image changed,
 compose stops the running `webhook` container to replace it — but that
