@@ -6,24 +6,6 @@
 # bind mounts / reload settings) is never merged in.
 
 services:
-    caddy:
-        image: caddy:2-alpine
-        restart: unless-stopped
-        ports:
-            - "80:80"
-            - "443:443"
-        environment:
-            - FRONTEND_DOMAIN=${FRONTEND_DOMAIN:?set in .env.production}
-            - API_DOMAIN=${API_DOMAIN:?set in .env.production}
-            - ACME_EMAIL=${ACME_EMAIL:?set in .env.production}
-        volumes:
-            - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
-        depends_on:
-            - frontend
-            - backend
-
     # One-shot: applies Alembic migrations against Neon, then exits. Kept out
     # of the backend's own CMD so a plain restart/redeploy never blocks the
     # port bind on a migration run (see backend/Dockerfile).
@@ -41,7 +23,12 @@ services:
             context: ./backend
             target: production
         restart: unless-stopped
-        # Not exposed to the host: Caddy reaches it on the compose network.
+        # Not exposed to the host: the shared edge Caddy (~/edge-proxy) reaches
+        # it over the `edge` network. `default` keeps it reachable from
+        # migrate/scheduler exactly as before.
+        networks:
+            - default
+            - edge
         expose:
             - "8000"
         environment:
@@ -67,6 +54,11 @@ services:
                 # Baked into the client bundle at build time.
                 VITE_API_URL: https://${API_DOMAIN}
         restart: unless-stopped
+        # Not exposed to the host: the shared edge Caddy (~/edge-proxy) reaches
+        # it over the `edge` network.
+        networks:
+            - default
+            - edge
         expose:
             - "8080"
         environment:
@@ -90,6 +82,7 @@ services:
         depends_on:
             - backend
 
-volumes:
-    caddy_data:
-    caddy_config:
+networks:
+    default:
+    edge:
+        external: true
