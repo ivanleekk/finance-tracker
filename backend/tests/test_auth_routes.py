@@ -134,3 +134,67 @@ def test_logout_clears_cookies(client, registered_user):
     set_cookies = response.headers.get_list("set-cookie")
     assert any(c.startswith("access_token=") for c in set_cookies)
     assert any(c.startswith("refresh_token=") for c in set_cookies)
+
+
+# --- AUTH_COOKIE_PREFIX -------------------------------------------------------
+# Staging runs beside production under the same parent domain, and a cookie is
+# keyed by (name, domain, path). AUTH_COOKIE_DOMAIN has to be the parent domain
+# (the only common ancestor of the frontend and API hosts), so without a distinct
+# *name* the two stacks share one `access_token` cookie and overwrite each other's
+# session. See DEPLOYMENT.md §9.
+
+
+def test_cookie_names_default_to_unprefixed(client, registered_user, monkeypatch):
+    """Production sets no prefix and must keep the exact cookie names it always had."""
+    monkeypatch.delenv("AUTH_COOKIE_PREFIX", raising=False)
+    set_cookies = _login(client).headers.get_list("set-cookie")
+    assert any(c.startswith("access_token=") for c in set_cookies)
+    assert any(c.startswith("refresh_token=") for c in set_cookies)
+
+
+def test_cookie_prefix_renames_both_cookies(client, registered_user, monkeypatch):
+    monkeypatch.setenv("AUTH_COOKIE_PREFIX", "staging_")
+    set_cookies = _login(client).headers.get_list("set-cookie")
+    assert any(c.startswith("staging_access_token=") for c in set_cookies)
+    assert any(c.startswith("staging_refresh_token=") for c in set_cookies)
+    # The unprefixed names must not also be set, or the collision remains.
+    assert not any(c.startswith("access_token=") for c in set_cookies)
+    assert not any(c.startswith("refresh_token=") for c in set_cookies)
+
+
+def test_response_body_keys_are_unaffected_by_prefix(client, registered_user, monkeypatch):
+    """The JSON body is the native clients' contract and is not a cookie."""
+    monkeypatch.setenv("AUTH_COOKIE_PREFIX", "staging_")
+    body = _login(client).json()
+    assert body["access_token"] and body["refresh_token"]
+
+
+def test_prefixed_cookie_authenticates_and_refreshes(client, registered_user, monkeypatch):
+    """The renamed cookie is also what the reader looks for, end to end."""
+    monkeypatch.setenv("AUTH_COOKIE_PREFIX", "staging_")
+    _login(client)
+    assert "staging_access_token" in client.cookies
+    # get_current_user reads the prefixed cookie, with no Authorization header.
+    assert client.get("/auth/me").status_code == 200
+    # ...and so does /auth/refresh.
+    assert client.post("/auth/refresh").status_code == 200
+
+
+def test_other_stacks_cookie_is_ignored(client, registered_user, monkeypatch):
+    """A production cookie riding along on the parent domain must not authenticate here.
+
+    This is the actual failure being prevented: the browser sends both cookies to
+    the staging host, and staging must read only its own.
+    """
+    monkeypatch.setenv("AUTH_COOKIE_PREFIX", "staging_")
+    client.cookies.clear()
+    client.cookies.set("access_token", create_access_token(data={"sub": str(registered_user.id)}))
+    assert client.get("/auth/me").status_code == 401
+
+
+def test_logout_clears_the_prefixed_cookies(client, registered_user, monkeypatch):
+    monkeypatch.setenv("AUTH_COOKIE_PREFIX", "staging_")
+    _login(client)
+    set_cookies = client.get("/auth/logout").headers.get_list("set-cookie")
+    assert any(c.startswith("staging_access_token=") for c in set_cookies)
+    assert any(c.startswith("staging_refresh_token=") for c in set_cookies)

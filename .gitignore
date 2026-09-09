@@ -1,5 +1,6 @@
 .env*
 !.env.production.example
+!.env.staging.example
 __pycache__/
 .idea/
 .react-router/

@@ -246,6 +246,188 @@ gcloud secrets delete FINANCE_TRACKER_DB_URL   # after confirming the dump resto
 `cloudbuild.yaml` is retained in the repo for reference during the transition
 and can be deleted once the gcloud project is wound down.
 
+## 9. Staging environment (the `dev` branch, same VPS)
+
+A second stack runs beside production on this box, tracking `dev`, so a change —
+and especially a migration — can be exercised end-to-end before it merges to
+`main`. It uses `docker-compose.staging.yml`, its own checkout, its own Neon
+branch, its own webhook, and joins the same shared `edge` network.
+
+| | Production | Staging |
+| --- | --- | --- |
+| Checkout | `/home/ubuntu/finance-tracker` | `/home/ubuntu/finance-tracker-staging` |
+| Branch | `main` | `dev` |
+| Compose file | `docker-compose.prod.yml` | `docker-compose.staging.yml` |
+| Env file | `.env.production` | `.env.staging` |
+| Project name | `finance-tracker` (from the directory) | `finance-tracker-staging` (top-level `name:`) |
+| Frontend | `finance.ivanleekaikiat.com` | `stagfinance.ivanleekaikiat.com` |
+| API | `financeapi.ivanleekaikiat.com` | `stagfinanceapi.ivanleekaikiat.com` |
+| Database | Neon production branch | Neon **branch** of it |
+| Session cookies | `access_token` / `refresh_token` | `staging_access_token` / … |
+| Snapshot cron | 01:00 UTC | 03:00 UTC |
+
+### Three things that are easy to get wrong
+
+**Service names must not collide.** Compose always registers a service's own name
+as a network alias, in addition to anything under `aliases:`. If staging also
+called its services `backend`/`frontend`/`webhook` on the shared `edge` network,
+those names would resolve to two IPs each and the edge Caddy would round-robin
+**production traffic into staging**. Every service in `docker-compose.staging.yml`
+is therefore suffixed `-staging`. This is also why staging needs its own compose
+file rather than an override on the production one: Compose overrides merge by
+service key, so a service cannot be renamed by an override. The file uses
+`extends` to inherit build contexts and environment so the two cannot drift —
+note that `extends` *does* inherit `depends_on`, whose entries name production's
+service keys, so each `depends_on` there carries `!override`.
+
+**Session cookies collide across the whole zone.** `AUTH_COOKIE_DOMAIN` has to be
+the parent domain, because `ivanleekaikiat.com` is the only common ancestor of the
+frontend and API hosts. A cookie is keyed by (name, domain, path), so two stacks
+under one zone share a single `access_token` cookie and overwrite each other's
+session — and a narrower staging subdomain does not help, since the parent-scoped
+production cookie is sent to every subdomain regardless, leaving the browser
+holding two same-named cookies whose send order is undefined. The fix is
+`AUTH_COOKIE_PREFIX` (`backend/src/auth.py` `auth_cookie_names()`), which staging
+sets to `staging_` and production leaves unset. `backend/tests/test_auth_routes.py`
+pins both the unprefixed default and that a production cookie riding along on the
+parent domain does not authenticate against staging.
+
+**Memory, not disk, is the ceiling.** The box has 3.8 GB and the Vite production
+build wants ~2 GB, so a staging `--build` can OOM-kill the production backend.
+Add swap before running any of this, and note the `mem_limit` on the staging
+backend/frontend:
+
+```bash
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### One-time setup
+
+1. **Neon**: create a branch off the production branch (call it `staging`) with its
+   own compute endpoint; copy its pooled connection string. The branch is a
+   copy-on-write snapshot that then drifts — **reset it from parent before each
+   migration rehearsal**, or you are testing a migration against a database that
+   already has it.
+
+2. **Checkout and env file**:
+
+   ```bash
+   git clone -b dev <repo-url> /home/ubuntu/finance-tracker-staging
+   cd /home/ubuntu/finance-tracker-staging
+   git status -sb          # must show `## dev...origin/dev` — the webhook runs `git pull --ff-only`
+   cp .env.staging.example .env.staging && nano .env.staging
+   ```
+
+   Every secret in it must be freshly generated, not copied from
+   `.env.production` — a shared `SECRET_KEY` in particular would let a
+   staging-minted token authenticate against production. Verify:
+
+   ```bash
+   comm -12 <(grep -hE '^(SECRET_KEY|SCHEDULER_SECRET|WEBHOOK_SECRET)=' \
+               /home/ubuntu/finance-tracker/.env.production | sort) \
+            <(grep -hE '^(SECRET_KEY|SCHEDULER_SECRET|WEBHOOK_SECRET)=' \
+               /home/ubuntu/finance-tracker-staging/.env.staging | sort)
+   # must print nothing
+   ```
+
+3. **DNS**: `A` records for `stagfinance` and `stagfinanceapi` → the VPS IP. The
+   edge Caddy issues certificates over Cloudflare DNS-01, so there is no
+   propagation-before-boot ordering constraint.
+
+4. **Edge proxy**: add two site blocks to `~/edge-proxy/Caddyfile`, leaving the
+   production ones untouched:
+
+   ```caddyfile
+   stagfinance.ivanleekaikiat.com {
+   	encode gzip
+   	header X-Robots-Tag "noindex, nofollow"
+   	reverse_proxy frontend-staging:8080 {
+   		lb_try_duration 10s
+   	}
+   }
+
+   stagfinanceapi.ivanleekaikiat.com {
+   	encode gzip
+   	header X-Robots-Tag "noindex, nofollow"
+
+   	# Same mutually-exclusive `handle` switch as the production API block,
+   	# and for the same reason — see the comment there.
+   	handle /internal/* {
+   		respond 403
+   	}
+   	handle /hooks/* {
+   		reverse_proxy webhook-staging:9000
+   	}
+   	handle {
+   		reverse_proxy backend-staging:8000 {
+   			lb_try_duration 10s
+   		}
+   	}
+   }
+   ```
+
+   Reload without dropping production connections:
+
+   ```bash
+   docker compose -f ~/edge-proxy/docker-compose.yml exec caddy \
+     caddy reload --config /etc/caddy/Caddyfile
+   ```
+
+5. **First deploy**:
+
+   ```bash
+   cd /home/ubuntu/finance-tracker-staging
+   docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
+   ```
+
+6. **Second GitHub webhook**: repo → Settings → Webhooks → Add webhook, payload URL
+   `https://stagfinanceapi.ivanleekaikiat.com/hooks/deploy`, staging's own
+   `WEBHOOK_SECRET`, just the push event. Both webhooks now receive every push and
+   each ignores the other's branch via its `DEPLOY_BRANCH` check.
+
+### Verifying it
+
+```bash
+# 1. No routing ambiguity — every line must print 1. Anything else means the
+#    edge Caddy can round-robin production traffic into staging.
+for h in backend frontend webhook backend-staging frontend-staging webhook-staging; do
+  echo -n "$h: "; docker exec edge-proxy-caddy-1 getent hosts $h | wc -l
+done
+
+# 2. Production untouched, staging up
+curl -I https://finance.ivanleekaikiat.com
+curl -I https://stagfinance.ivanleekaikiat.com
+curl https://stagfinanceapi.ivanleekaikiat.com/hooks/healthz          # -> ok
+curl -o /dev/null -w '%{http_code}\n' \
+  https://stagfinanceapi.ivanleekaikiat.com/internal/tasks/daily-snapshot   # -> 403
+```
+
+Then, in a browser: log into production, log into staging in another tab, and
+reload **both** — each must stay logged in. DevTools → Application → Cookies
+should show `access_token` and `staging_access_token` side by side. Finally,
+paste the staging cookie's value into a production request and confirm the
+secrets really differ:
+
+```bash
+curl -o /dev/null -w '%{http_code}\n' -H "Cookie: access_token=<staging value>" \
+  https://financeapi.ivanleekaikiat.com/auth/me    # -> 401
+```
+
+### Day-to-day
+
+Push to `dev` → staging redeploys. Push to `main` → production redeploys. Watch
+either with `docker compose -f <that stack's file> logs -f webhook[-staging]`.
+
+Build cache grows roughly twice as fast with two stacks building; run
+`docker builder prune --filter until=168h -f` periodically. Either webhook's
+`docker image prune -f` prunes globally, which is harmless (it only removes
+dangling images no container uses) but shared between the stacks.
+
+The native clients (`ios/`, `android/`) hardcode the production API base URL;
+pointing one at staging is a per-client build-config change.
+
 ## Swappable choices
 
 - **Proxy**: Caddy (in the separate `~/edge-proxy` stack) was chosen for
