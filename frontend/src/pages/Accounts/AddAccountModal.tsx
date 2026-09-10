@@ -66,6 +66,21 @@ export function AddAccountModal({
                             />
                         </div>
                         <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                                Institution <span className="font-normal text-base-500">— optional</span>
+                            </label>
+                            <Input
+                                name="institution"
+                                placeholder="e.g. DBS"
+                                value={newAccount.institution}
+                                onChange={(e) => setNewAccount({ ...newAccount, institution: e.target.value })}
+                            />
+                            <p className="text-xs text-base-500 dark:text-base-400">
+                                Accounts sharing a name here are listed together — how to hold one
+                                bank's SGD and USD balances side by side.
+                            </p>
+                        </div>
+                        <div className="space-y-2">
                             <label className="text-sm font-medium text-base-900 dark:text-base-50">Account Type</label>
                             <Select
                                 name="kind"

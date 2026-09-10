@@ -141,6 +141,10 @@ export type AccountResponse = {
   // number; aggregates subtract them.
   kind: AccountKind;
   currency: string;
+  // Who holds it — a free-text grouping label, so one bank's SGD and USD
+  // accounts list together. Optional on the wire: a client that has not been
+  // updated sees an ungrouped account rather than failing to decode one.
+  institution?: string | null;
   // NULL = shared with the household. Set = private to that user.
   owner_user_id?: string | null;
 

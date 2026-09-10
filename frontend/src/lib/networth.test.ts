@@ -5,7 +5,7 @@ import {
     cashChartAccountsOf,
     sampleProjection,
     netWorthBreakdown,
-    type AccountLike, selectableAccounts } from "./networth";
+    type AccountLike, selectableAccounts, clusterByInstitution } from "./networth";
 import { AccountKind, LiquidityStatus } from "../types/types";
 import type { BalanceResponse, NetWorthProjectionPoint } from "../types/types";
 
@@ -271,5 +271,49 @@ describe('selectableAccounts', () => {
     it('treats a missing flag as open, not archived', () => {
         // The field is optional on the wire; absent must never hide an account.
         expect(selectableAccounts([legacy])).toHaveLength(1);
+    });
+});
+
+describe('clusterByInstitution', () => {
+    const account = (id: string, institution?: string | null) => ({ id, institution });
+
+    it('gathers two accounts at one bank under a single heading', () => {
+        // The whole point: "DBS SGD" and "DBS USD" are what the app offers
+        // instead of a multi-currency account, so they must read as one bank.
+        const clusters = clusterByInstitution([
+            account('sgd', 'DBS'),
+            account('usd', 'DBS'),
+        ]);
+        expect(clusters).toHaveLength(1);
+        expect(clusters[0].institution).toBe('DBS');
+        expect(clusters[0].accounts.map(a => a.id)).toEqual(['sgd', 'usd']);
+    });
+
+    it('leaves a lone labelled account without a heading', () => {
+        // A heading over one row says nothing and nests the whole list a level
+        // deeper for nothing.
+        const clusters = clusterByInstitution([account('sgd', 'DBS'), account('cash', 'Mattress')]);
+        expect(clusters.map(c => c.institution)).toEqual([null, null]);
+    });
+
+    it('gathers accounts wherever they appear, not only when adjacent', () => {
+        // The list arrives ordered by liquidity or by name, so two accounts at
+        // one bank are rarely next to each other.
+        const clusters = clusterByInstitution([
+            account('dbs-sgd', 'DBS'),
+            account('chase', 'Chase'),
+            account('dbs-usd', 'DBS'),
+            account('chase-2', 'Chase'),
+        ]);
+        // Each cluster sits where its *first* member was, so gathering never
+        // reorders the list around it.
+        expect(clusters.map(c => c.institution)).toEqual(['DBS', 'Chase']);
+        expect(clusters[0].accounts.map(a => a.id)).toEqual(['dbs-sgd', 'dbs-usd']);
+    });
+
+    it('leaves unlabelled accounts standing on their own', () => {
+        const clusters = clusterByInstitution([account('a'), account('b', null), account('c', '')]);
+        expect(clusters).toHaveLength(3);
+        expect(clusters.every(c => c.institution === null)).toBe(true);
     });
 });
