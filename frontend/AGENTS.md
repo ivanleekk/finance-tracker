@@ -85,7 +85,28 @@ When constructing pages, follow these approved layouts:
   follows the references, preceded by `react-router typegen` so generated route module types
   exist if a loader ever imports them. It exits non-zero on error, so it is safe in CI.
 - **The repo is not type-clean, so judge by the delta, not the total.** `dev` currently has
-  38 errors. A change is fine if it adds none of its own; "all green" is not achievable yet
-  and waiting for it just means never typechecking.
+  35 errors (it said 38 until this was re-measured on 2026-09-10). A change is fine if it
+  adds none of its own; "all green" is not achievable yet and waiting for it just means never
+  typechecking.
+- **The ⌘K command bar's reference data comes from `lib/ReferenceDataContext.tsx`, not from a
+  fetch on open.** The bar used to fire four requests from an effect gated on `isOpen`, so the
+  first ⌘K after a page load had no accounts to parse against for a full round trip — typing
+  "12.34 lunch chase" resolved no account and the resting view showed no recents, which is
+  indistinguishable from a household with nothing in it (#272; the same bug was reported on iOS
+  and fixed on all three clients). The provider sits at the root beside `CommandBarProvider`,
+  loads when the active household resolves, and is re-loaded by `reload()` after a command is
+  logged or undone — route revalidation does not cover it. Four rules it encodes, shared with
+  `ios/.../ReferenceDataStore.swift` and `android/.../ReferenceDataViewModel.kt`:
+    - **Accounts and categories are published before the other two are awaited**
+      (`essentials` → `ready`). Parsing a command needs only those.
+    - **`hasEssentials` is a latch, not a reading of `status`.** A refresh that fails leaves the
+      previous answer in place and it is still the best one available.
+    - **`idle` (no household) is not `loading`.** The bar is mounted at the root, so it renders
+      for a logged-out visitor and mid-onboarding; showing "Loading your accounts…" there would
+      be a promise that never resolves. The banner is gated on `loading && !hasEssentials`, so a
+      refresh over data we already have stays silent too.
+    - **The transaction request is capped** (`?limit=`). The bar displays three; without a limit
+      this pulled the household's entire history to show them, and it is by far the heaviest of
+      the four.
 - **Check Schemas:** Always verify the Pydantic schemas in `backend/src/schemas.py` before binding API data to the frontend state.
 - **Aesthetics Matter:** The design must WOW the user. Ensure smooth hover effects, micro-animations, glassmorphism (if applicable), and flawless 4pt alignment. A basic MVP-looking UI is unacceptable.

@@ -16,6 +16,9 @@ FinanceTracker/
   Networking/APIClient.swift # actor; Bearer auth, 401 → /auth/refresh retry (mirrors mobile/src/lib/api.ts)
   Networking/Keychain.swift  # token storage
   State/SessionStore.swift   # @Observable: user, households, activeHousehold (mirrors mobile AuthContext + HouseholdContext)
+  State/ReferenceDataStore.swift # @Observable: the accounts/categories/sub-portfolios/assets/
+                             #   counterparties Quick Add fills its pickers from, loaded once per
+                             #   household at the app root — see the Quick Add note in Conventions
   Support/Formatters.swift   # currency/percent/date formatting helpers
   Support/GoalProjection.swift # Swift port of web lib/goals.ts (projectGoal / valueHistory) — keep in sync
   Support/HistoryGroups.swift # Swift port of web lib/historyGroups.ts — day/month/year bucketing
@@ -226,8 +229,33 @@ FinanceTracker/
       default account / category / sub-portfolio in `applyDefaults()` *after* a fetch.
       Snapshotting "the values as first drawn" caught both mid-setup and read their own seeding
       as a user edit, so a brand-new account sheet asked "Discard changes?" before it had been
-      touched. Those two pass `settled:` (`didSeedPrivacy && !currency.isEmpty`, and `loaded`);
+      touched. Those two pass `settled:` (`didSeedPrivacy && !currency.isEmpty`, and — since
+      the Quick Add reference data moved to `ReferenceDataStore` — `appliedDefaults`);
       the baseline is taken when it turns true. Any new form that seeds itself must do the same.
+      **Settle on your own "I have finished seeding" flag, not on the state the seeding reacts
+      to.** `QuickAddView` briefly settled on `reference.status == .ready`; the status is read
+      during `body`, which SwiftUI re-evaluates *before* the `.task` that reacts to it, so the
+      baseline was snapshotted one pass early and the sheet's own default asset read back as a
+      user edit — "Discard changes?" on an untouched form.
+- **Quick Add's pickers come from `ReferenceDataStore`, not from a fetch on open**
+  (`State/ReferenceDataStore.swift`, app-root environment, loaded by `MainTabView` on
+  `.task(id: activeHousehold?.id)` and re-loaded on `QuickAddStore.reloadToken`). The sheet used
+  to fetch accounts, categories, sub-portfolios, assets and counterparties when it was presented;
+  on a cold start those five requests queue behind the Dashboard's twelve, so on a real network
+  the account picker sat on a bare "Select" for ~6 seconds — indistinguishable from "this
+  household has no accounts", which is what sent people to the Accounts tab and back (#272).
+  Three rules the store encodes:
+    - **Accounts and categories are published before the portfolio sets are awaited**
+      (`.essentials` → `.ready`). An expense is the default mode and needs only those two;
+      making it wait on `/portfolio/assets` buys it nothing.
+    - **`hasEssentials` is a latch, not a reading of `status`.** A refresh that fails leaves the
+      previous accounts and categories in place and they are still the best answer available —
+      deriving the flag from the status made a failed refresh hide data the store was still
+      holding, reproducing the original symptom.
+    - **The sheet says which of three states it is in**: still loading (spinner), failed (the
+      message plus a Retry that force-reloads), or genuinely empty (no accounts yet). Leaving
+      every picker on "Select" for all three is the bug.
+
 - **API base URL** resolves in `APIClient.baseURL` via `AppConfig.defaultBaseURL`, which reads the `API_BASE_URL` Info.plist key (fed by the per-configuration `API_BASE_URL` build setting in `project.yml`, `$(API_BASE_URL)`; falls back to `http://localhost:8000`). **Debug builds only** additionally honour a runtime override (`UserDefaults` key `api_base_url`, editable in the More tab and on the login screen) for physical-device/LAN testing — the whole override (UI + read path) is wrapped in `#if DEBUG`, so it compiles out of Release/production builds. To ship against a real backend, set the Release `API_BASE_URL` build setting. ATS is opened for local networking only (`NSAllowsLocalNetworking`).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`. `ViewModeStore` (`State/ViewModeStore.swift`, app-root environment) holds the persisted mode + a `hasSecondPerson` flag; the `ViewModeSwitcher` toolbar control (`Views/Components/`) renders only once the active household has a second person (member beyond owner, or a pending invite — refreshed on household change in `MainTabView` and after invite changes via `setComposition`). `isVisible(ownerUserId:currentUserId:)` filters accounts/sub-portfolios (and their balances/holdings/transactions) on Dashboard, Accounts, Portfolio, and Transactions. Solo households always render `blended` (everything the user owns), so filtering is a no-op until a second person exists.
 - **Face ID vault lock** (`require_face_id_for_vault`, an existing backend field that neither the web nor mobile surfaced) is enforced only on iOS. `ViewModeStore` also owns the vault state: `configureVault(requireFaceId:)` (called from `MainTabView` on login / when the user record's flag changes) caches `BiometricAuth.isAvailable`; while `isVaultLocked` (setting on **and** device can authenticate **and** not yet unlocked), `isVisible` hides **all** private items regardless of view mode. Unlock is `LocalAuthentication` via `Support/BiometricAuth.swift` using `.deviceOwnerAuthentication` (Face ID / Touch ID with passcode fallback). **It fails open**: a device with no biometrics/passcode can't lock, so users are never shut out of their own data. `MainTabView` auto-prompts once on login/foreground and re-locks on `.background` (guarding against `.inactive`, since the biometric sheet itself makes the app inactive — locking there would loop). The `VaultLockButton` toolbar control shows a lock/unlock affordance when the feature is active. Note the backend **defaults this field to `false`** (flipped from `true` — a mandatory Face ID/passcode prompt before the first Dashboard load was pure friction for the common case of a solo household with no one to hide data from) — a user opts in from Privacy & Vault. The preview test user matches this default, so browser/simulator verification isn't blocked by the prompt unless it's turned on locally.
@@ -396,6 +424,10 @@ where tests pay off without a running backend:
   state, so unlike `cardCategoryId` (still hand-written for its own explicit-null requirement)
   there is no tri-state wrapper for this field.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
+- `ReferenceDataStoreTests` — the non-fetching half of `State/ReferenceDataStore.swift`: that
+  no household is `.idle` rather than a failure, that `hasEssentials` survives a *failed
+  refresh* (the regression that reproduces #272's empty picker), and that a row created
+  inside Quick Add folds in without duplicating when the next refresh returns it.
 - `FormattersTests` — the backend-critical `Date.apiDateOnly` (exact); currency/percent
   helpers get locale-tolerant structural checks only (their output is Foundation's, not ours).
 - `DateParserTests` — the hand-rolled ISO-8601 scanner in `APIClient.swift`, asserted

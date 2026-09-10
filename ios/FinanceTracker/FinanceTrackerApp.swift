@@ -5,6 +5,7 @@ struct FinanceTrackerApp: App {
     @State private var session = SessionStore()
     @State private var quickAdd = QuickAddStore()
     @State private var viewMode = ViewModeStore()
+    @State private var reference = ReferenceDataStore()
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +13,7 @@ struct FinanceTrackerApp: App {
                 .environment(session)
                 .environment(quickAdd)
                 .environment(viewMode)
+                .environment(reference)
                 .task { await session.bootstrap() }
         }
     }

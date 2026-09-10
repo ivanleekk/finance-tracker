@@ -48,6 +48,8 @@ android/app/src/main/java/com/ivanlee/financetracker/
   state/SessionViewModel.kt  # auth, user, households, active household (mirrors SessionStore)
   state/ViewModeViewModel.kt # Private/Household/Blended + vault lock (mirrors ViewModeStore)
   state/QuickAddViewModel.kt # command-sheet presentation + reloadToken
+  state/ReferenceDataViewModel.kt # the accounts/categories/sub-portfolios/assets Quick Add
+                             #   fills its pickers from, loaded once per household at the app root
   logic/                     # PURE, JVM-testable: PortfolioAnalytics, GoalProjection, NetWorth,
                              #   BudgetPresentation, Formatters, ViewModeVisibility, CategoryPeriod
                              #   (the Top-Categories date window; its SharedPreferences half lives
@@ -211,6 +213,27 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   trigger **and** the finger lifts below `FLICK_VELOCITY` — without the velocity gate a fast
   flick back to the top of a long list opens it too, which is what "too sensitive" means in
   practice.
+- **Quick Add's pickers come from `ReferenceDataViewModel`, not from a fetch on open**
+  (loaded by `MainScaffold` on the active household and re-loaded on
+  `QuickAddViewModel.reloadToken`; the Kotlin twin of iOS's `ReferenceDataStore`). The sheet
+  used to fetch accounts, categories, sub-portfolios and assets from inside itself — and
+  because `MainScaffold` only composes it under `if (quickAddVm.isPresented)`, that happened on
+  *every* open, not just the first. On a cold start over a real network the account picker
+  therefore sat on "Select…" for a full round trip, which reads as "this household has no
+  accounts" (#272). Three rules it encodes, all shared with iOS:
+    - **Accounts and categories are published before the portfolio sets are awaited**
+      (`Essentials` → `Ready`). An expense is the default mode and needs only those two; the
+      defaults used to wait on all four, so the account stayed unselected until
+      `/portfolio/assets` came back.
+    - **`hasEssentials` is a latch, not a reading of `status`.** A refresh that fails leaves the
+      previous accounts and categories in place and they are still the best answer available.
+    - **The sheet says which of three states it is in**: still loading (spinner), failed (the
+      message plus a Retry that force-reloads), or genuinely empty (no accounts yet). Leaving
+      every picker on "Select…" for all three is the bug.
+  Note the queueing amplifier iOS has does **not** exist here: `Api` uses OkHttp `execute()` on
+  `Dispatchers.IO`, which isn't bounded by OkHttp's async dispatcher, so a screen's requests all
+  start at once rather than queueing six at a time. The empty window was one round trip here
+  and several seconds on iOS — same defect, different blast radius.
 - **Swipe rows** (`ui/components/SwipeRow.kt`) use `SwipeToDismissBox` but never complete the
   dismissal: `confirmValueChange` fires the action and returns false, so the row springs back.
   That's right here because every destructive action goes through a confirmation dialog — a row
@@ -281,6 +304,11 @@ where tests pay off without a backend or an emulator:
   plus the Today/Yesterday rule pinned from both sides of UTC. The label tests pass an explicit
   `localZone`; leaving it to `ZoneId.systemDefault()` makes them agree or disagree depending on
   where the build machine is.
+- `ReferenceDataViewModelTest` — the non-fetching half of `state/ReferenceDataViewModel.kt`:
+  that no household is `Idle` rather than a failure, that `hasEssentials` survives a *failed
+  refresh* (the regression that reproduces #272's empty picker), and that a row created inside
+  Quick Add folds in without duplicating when the next refresh returns it. Twin of iOS's
+  `ReferenceDataStoreTests`.
 - `ApiUrlTest` — query-string splitting.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.

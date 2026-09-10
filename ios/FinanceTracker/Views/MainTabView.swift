@@ -9,6 +9,7 @@ struct MainTabView: View {
     @Environment(QuickAddStore.self) private var quickAdd
     @Environment(SessionStore.self) private var session
     @Environment(ViewModeStore.self) private var viewMode
+    @Environment(ReferenceDataStore.self) private var reference
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab = .dashboard
 
@@ -55,6 +56,18 @@ struct MainTabView: View {
         }
         .task(id: session.activeHousehold?.id) {
             await viewMode.refresh(householdId: session.activeHousehold?.id)
+        }
+        // Fill Quick Add's pickers as soon as there's a household to fill them from,
+        // rather than when the sheet opens — on a cold start those requests otherwise
+        // queue behind this screen's own batch and the sheet shows an empty account
+        // picker for seconds (#272).
+        .task(id: session.activeHousehold?.id) {
+            await reference.load(householdId: session.activeHousehold?.id)
+        }
+        // A logged change can create an account or move a balance, so the sheet's next
+        // open should not be working from the pre-change list.
+        .onChange(of: quickAdd.reloadToken) { _, _ in
+            Task { await reference.load(householdId: session.activeHousehold?.id, force: true) }
         }
         // Configure the private-vault lock from the user's setting when they log in / change,
         // then auto-prompt once so opening the app goes straight to the biometric unlock.

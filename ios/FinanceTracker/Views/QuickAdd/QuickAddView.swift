@@ -8,6 +8,7 @@ struct QuickAddView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SessionStore.self) private var session
     @Environment(QuickAddStore.self) private var quickAdd
+    @Environment(ReferenceDataStore.self) private var reference
 
     enum Mode: String, CaseIterable, Identifiable {
         case expense, income, transfer, trade, dividend, balance
@@ -34,12 +35,12 @@ struct QuickAddView: View {
         }
     }
 
-    // Loaded data
-    @State private var accounts: [AccountResponse] = []
-    @State private var categories: [CategoryResponse] = []
-    @State private var subPortfolios: [SubPortfolioResponse] = []
-    @State private var assets: [AssetResponse] = []
-    @State private var loaded = false
+    // Reference data, loaded once per household at the app root rather than on every
+    // open — see `ReferenceDataStore` and #272.
+    private var accounts: [AccountResponse] { reference.accounts }
+    private var categories: [CategoryResponse] { reference.categories }
+    private var subPortfolios: [SubPortfolioResponse] { reference.subPortfolios }
+    private var assets: [AssetResponse] { reference.assets }
 
     // Shared fields
     @State private var mode: Mode = .expense
@@ -75,6 +76,8 @@ struct QuickAddView: View {
     @State private var settleFromCash = false
 
     @State private var isSaving = false
+    /// Defaults are picked once, when the reference data first arrives.
+    @State private var appliedDefaults = false
     @State private var showingNewCategory = false
     @State private var showingNewAsset = false
     @State private var errorMessage: String?
@@ -122,6 +125,8 @@ struct QuickAddView: View {
                         .listRowBackground(Color.clear)
                 }
 
+                referenceStatusSection
+
                 switch mode {
                 case .expense, .income: cashFlowFields
                 case .transfer: transferFields
@@ -152,10 +157,15 @@ struct QuickAddView: View {
                          fromAccountId, toAccountId, subPortfolioId, assetId,
                          tradeType, quantityText, priceText, settleFromCash],
                 // `applyDefaults()` picks the default account / category / sub-portfolio only
-                // once the fetch lands, so the baseline can't be taken before then.
-                settled: loaded
+                // once the reference data lands, so the baseline can't be taken before then.
+                settled: referenceSettled
             )
-            .task { await loadIfNeeded() }
+            // Normally a no-op: the app root loaded this when the household resolved. It
+            // still matters on the two paths that leave it unloaded — a household that
+            // changed while the sheet was closed, and a load that failed, which this
+            // retries on open.
+            .task { await reference.load(householdId: household?.id) }
+            .task(id: reference.status) { syncFromReference() }
             .onChange(of: mode) { resetForMode() }
             .onChange(of: accountId) { _, newValue in
                 // A pick from the old card is meaningless on a new one.
@@ -165,14 +175,14 @@ struct QuickAddView: View {
             .sheet(isPresented: $showingNewCategory) {
                 if let household {
                     CategoryEditView(category: nil, householdId: household.id, lockedType: mode == .income ? .income : .expense) { created in
-                        categories.append(created)
+                        reference.add(category: created)
                         categoryId = created.id
                     }
                 }
             }
             .sheet(isPresented: $showingNewAsset) {
                 AssetCreateView(defaultCurrency: selectedAsset?.currency ?? accounts.first?.currency ?? baseCurrency) { created in
-                    assets.append(created)
+                    reference.add(asset: created)
                     assetId = created.id
                 }
             }
@@ -406,24 +416,60 @@ struct QuickAddView: View {
         cardHeadroom = loaded.headroom
     }
 
-    private func loadIfNeeded() async {
-        guard !loaded, let household else { return }
-        do {
-            async let accountsReq: [AccountResponse] = APIClient.shared.get("/accounts/household/\(household.id)")
-            async let categoriesReq: [CategoryResponse] = APIClient.shared.get("/cashflow/categories/household/\(household.id)")
-            async let subsReq: [SubPortfolioResponse] = APIClient.shared.get("/portfolio/subportfolios/household/\(household.id)")
-            async let assetsReq: [AssetResponse] = APIClient.shared.get("/portfolio/assets")
-            // Optional: nobody to split with is the ordinary case, and it must
-            // not stop Quick Add opening.
-            async let counterpartiesReq: [Counterparty]? = try? await APIClient.shared.get(
-                "/cashflow/counterparties/household/\(household.id)"
-            )
-            (accounts, categories, subPortfolios, assets) = try await (accountsReq, categoriesReq, subsReq, assetsReq)
-            counterparties = await counterpartiesReq ?? []
-            loaded = true
-            applyDefaults()
-        } catch {
-            errorMessage = error.localizedDescription
+    /// True once the defaults below are final and the discard guard can snapshot its
+    /// baseline. It tracks `applyDefaults()` having run to completion, **not** the store
+    /// reaching `.ready`: the store's status is read during `body`, which SwiftUI
+    /// re-evaluates before the `.task` that reacts to it, so settling on the status alone
+    /// takes the baseline one pass too early and the sheet's own default asset reads back
+    /// as a user edit — "Discard changes?" on an untouched form.
+    private var referenceSettled: Bool { appliedDefaults || reference.isFailed }
+
+    /// Fold the store's latest into the sheet's own state. Called whenever the store's
+    /// status moves, so the pickers pick up the staged arrivals (accounts and categories
+    /// first, the portfolio sets a moment later).
+    private func syncFromReference() {
+        // The split section can create a counterparty inline, so the sheet owns a mutable
+        // copy. Merge rather than overwrite, or the second stage of the load would drop
+        // one the user had just added. (Dismissing the sheet bumps `reloadToken`, which
+        // re-fetches the store, so the addition isn't lost on the next open either.)
+        let known = Set(reference.counterparties.map(\.id))
+        counterparties = (reference.counterparties + counterparties.filter { !known.contains($0.id) })
+            .sorted { $0.name < $1.name }
+        guard reference.hasEssentials, !appliedDefaults else { return }
+        applyDefaults()
+        // Only once everything has landed are the sub-portfolio and asset defaults real,
+        // so the second stage gets its own pass before this is called done.
+        if reference.status == .ready { appliedDefaults = true }
+    }
+
+    /// Says which of the three states the pickers are in — still loading, failed, or
+    /// genuinely empty — instead of leaving every picker on a bare "Select", which reads
+    /// as "this household has no accounts" (#272).
+    @ViewBuilder
+    private var referenceStatusSection: some View {
+        if let message = reference.failureMessage {
+            Section {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                Button {
+                    Task { await reference.load(householdId: household?.id, force: true) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+        } else if !reference.hasEssentials {
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading your accounts…").foregroundStyle(.secondary)
+                }
+            }
+        } else if selectableAccounts(accounts).isEmpty {
+            Section {
+                Label("No accounts yet — add one from the Accounts tab first.",
+                      systemImage: "building.columns")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

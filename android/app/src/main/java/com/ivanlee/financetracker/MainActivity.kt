@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ivanlee.financetracker.state.QuickAddViewModel
+import com.ivanlee.financetracker.state.ReferenceDataViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.state.ViewModeViewModel
 import com.ivanlee.financetracker.ui.MainScaffold
@@ -48,6 +49,7 @@ fun WaypointRoot() {
     val sessionVm: SessionViewModel = viewModel()
     val viewModeVm: ViewModeViewModel = viewModel()
     val quickAddVm: QuickAddViewModel = viewModel()
+    val referenceVm: ReferenceDataViewModel = viewModel()
 
     LaunchedEffect(Unit) { sessionVm.bootstrap() }
 
@@ -66,7 +68,7 @@ fun WaypointRoot() {
                 // it finishes — see SessionViewModel.needsOnboarding.
                 sessionVm.needsOnboarding -> OnboardingScreen(sessionVm)
 
-                else -> MainScaffold(sessionVm, viewModeVm, quickAddVm)
+                else -> MainScaffold(sessionVm, viewModeVm, quickAddVm, referenceVm)
             }
         }
     }

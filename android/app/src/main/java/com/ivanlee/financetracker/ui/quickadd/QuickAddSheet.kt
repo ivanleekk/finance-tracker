@@ -8,11 +8,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -38,14 +43,10 @@ import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.logic.selectableAccounts
-import com.ivanlee.financetracker.data.model.AccountResponse
-import com.ivanlee.financetracker.data.model.AssetResponse
 import com.ivanlee.financetracker.data.model.BalanceCreate
 import com.ivanlee.financetracker.data.model.BalanceResponse
-import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.DividendCreate
 import com.ivanlee.financetracker.data.model.DividendResponse
-import com.ivanlee.financetracker.data.model.SubPortfolioResponse
 import com.ivanlee.financetracker.data.model.TradeCreate
 import com.ivanlee.financetracker.data.model.TradeResponse
 import com.ivanlee.financetracker.data.model.TradeType
@@ -56,6 +57,7 @@ import com.ivanlee.financetracker.data.model.TransferCreate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.currency
+import com.ivanlee.financetracker.state.ReferenceDataViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.DateField
 import com.ivanlee.financetracker.ui.components.DropdownField
@@ -65,8 +67,6 @@ import com.ivanlee.financetracker.ui.components.SegmentedChoice
 import com.ivanlee.financetracker.ui.components.SwitchRow
 import com.ivanlee.financetracker.ui.transactions.CategoryEditDialog
 import com.ivanlee.financetracker.ui.portfolio.AssetCreateDialog
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.Instant
 
@@ -89,17 +89,19 @@ enum class QuickAddMode(val label: String) {
 @Composable
 fun QuickAddSheet(
     sessionVm: SessionViewModel,
+    referenceVm: ReferenceDataViewModel,
     onDone: () -> Unit,
 ) {
     val household = sessionVm.activeHousehold
     val baseCurrency = household?.baseCurrency ?: "USD"
     val scope = rememberCoroutineScope()
 
-    var accounts by remember { mutableStateOf<List<AccountResponse>>(emptyList()) }
-    var categories by remember { mutableStateOf<List<CategoryResponse>>(emptyList()) }
-    var subPortfolios by remember { mutableStateOf<List<SubPortfolioResponse>>(emptyList()) }
-    var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
-    var loaded by remember { mutableStateOf(false) }
+    // Reference data, loaded once per household at the app root rather than on every open —
+    // see ReferenceDataViewModel and #272.
+    val accounts = referenceVm.accounts
+    val categories = referenceVm.categories
+    val subPortfolios = referenceVm.subPortfolios
+    val assets = referenceVm.assets
 
     var mode by remember { mutableStateOf(QuickAddMode.EXPENSE) }
     var amountText by remember { mutableStateOf("") }
@@ -164,45 +166,41 @@ fun QuickAddSheet(
         QuickAddMode.BALANCE -> amount != null && accountId != null
     }
 
-    LaunchedEffect(household?.id) {
-        if (loaded || household == null) return@LaunchedEffect
-        try {
-            coroutineScope {
-                val a = async { Api.get<List<AccountResponse>>("/accounts/household/${household.id}") }
-                val c = async { Api.get<List<CategoryResponse>>("/cashflow/categories/household/${household.id}") }
-                val s = async { Api.get<List<SubPortfolioResponse>>("/portfolio/subportfolios/household/${household.id}") }
-                val t = async { Api.get<List<AssetResponse>>("/portfolio/assets") }
-                accounts = a.await(); categories = c.await(); subPortfolios = s.await(); assets = t.await()
+    // Normally a no-op: the app root loaded this when the household resolved. It still
+    // matters on the two paths that leave it unloaded — a household that changed while the
+    // sheet was closed, and a load that failed, which this retries on open.
+    LaunchedEffect(household?.id) { referenceVm.load(household?.id) }
+
+    // Defaults mirror the web/iOS quick-add routing: the household's configured funding
+    // account and sub-portfolio, except expense/income, which start from the user's own
+    // default expense account when one is set.
+    //
+    // Keyed on the store's status so the two stages each get a pass — the account defaults
+    // land with `Essentials`, the sub-portfolio and asset ones with `Ready`. Every assignment
+    // is guarded on the field still being null, so re-running is harmless and a pick the user
+    // has already made is never overwritten.
+    LaunchedEffect(referenceVm.status) {
+        if (household == null || !referenceVm.hasEssentials) return@LaunchedEffect
+        val loadedAccounts = referenceVm.accounts
+        val funding = loadedAccounts.firstOrNull { it.id == household.defaultFundingAccountId }
+            ?: loadedAccounts.firstOrNull()
+        val expenseDefault =
+            loadedAccounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId } ?: funding
+        if (accountId == null) {
+            accountId = if (mode == QuickAddMode.EXPENSE || mode == QuickAddMode.INCOME) {
+                expenseDefault?.id
+            } else {
+                funding?.id
             }
-            loaded = true
-            // Defaults mirror the web/mobile quick-add routing: the household's configured
-            // funding account and sub-portfolio, except expense/income, which start from the
-            // user's own default expense account when one is set.
-            //
-            // These read the freshly-awaited lists, NOT the derived `tradableAssets` /
-            // `filteredCategories` above — those were captured when the effect launched, i.e.
-            // while everything was still empty, so seeding from them silently did nothing.
-            val loadedAccounts = accounts
-            val funding = loadedAccounts.firstOrNull { it.id == household.defaultFundingAccountId }
-                ?: loadedAccounts.firstOrNull()
-            val expenseDefault =
-                loadedAccounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId } ?: funding
-            if (accountId == null) {
-                accountId = if (mode == QuickAddMode.EXPENSE || mode == QuickAddMode.INCOME) {
-                    expenseDefault?.id
-                } else {
-                    funding?.id
-                }
-            }
-            if (fromAccountId == null) fromAccountId = funding?.id
-            if (toAccountId == null) toAccountId = loadedAccounts.firstOrNull { it.id != fromAccountId }?.id
-            if (subPortfolioId == null) {
-                subPortfolioId = (subPortfolios.firstOrNull { it.id == household.defaultSubPortfolioId }
-                    ?: subPortfolios.firstOrNull())?.id
-            }
-            if (assetId == null) assetId = assets.filter { !it.isCash }.minByOrNull { it.ticker }?.id
-        } catch (e: Exception) {
-            error = e.message
+        }
+        if (fromAccountId == null) fromAccountId = funding?.id
+        if (toAccountId == null) toAccountId = loadedAccounts.firstOrNull { it.id != fromAccountId }?.id
+        if (subPortfolioId == null) {
+            subPortfolioId = (referenceVm.subPortfolios.firstOrNull { it.id == household.defaultSubPortfolioId }
+                ?: referenceVm.subPortfolios.firstOrNull())?.id
+        }
+        if (assetId == null) {
+            assetId = referenceVm.assets.filter { !it.isCash }.minByOrNull { it.ticker }?.id
         }
     }
 
@@ -321,6 +319,43 @@ fun QuickAddSheet(
         }
 
         HorizontalDivider()
+
+        // Says which of the three states the pickers are in — still loading, failed, or
+        // genuinely empty — instead of leaving every picker on a bare "Select…", which reads
+        // as "this household has no accounts" (#272).
+        val referenceFailure = referenceVm.failureMessage
+        when {
+            referenceFailure != null -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    referenceFailure,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { referenceVm.load(household?.id, force = true) }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Retry")
+                }
+            }
+
+            !referenceVm.hasEssentials -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text(
+                    "Loading your accounts…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            selectableAccounts(accounts).isEmpty() -> Text(
+                "No accounts yet — add one from the Accounts tab first.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         when (mode) {
             QuickAddMode.EXPENSE, QuickAddMode.INCOME -> {
@@ -522,7 +557,7 @@ fun QuickAddSheet(
             lockedType = if (mode == QuickAddMode.INCOME) TransactionType.INCOME else TransactionType.EXPENSE,
             onDismiss = { showNewCategory = false },
             onSaved = { created ->
-                categories = categories + created
+                referenceVm.add(created)
                 categoryId = created.id
             },
         )
@@ -533,7 +568,7 @@ fun QuickAddSheet(
             defaultCurrency = selectedAsset?.currency ?: accounts.firstOrNull()?.currency ?: baseCurrency,
             onDismiss = { showNewAsset = false },
             onCreated = { created ->
-                assets = assets + created
+                referenceVm.add(created)
                 assetId = created.id
             },
         )
