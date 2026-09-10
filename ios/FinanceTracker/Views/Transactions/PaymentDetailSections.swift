@@ -77,3 +77,68 @@ struct MerchantCodeSection: View {
         }
     }
 }
+
+/// The currency a charge happened in, and — when that isn't the account's own —
+/// what the account was actually charged.
+///
+/// Shared by the transaction form and Quick Add for the same reason the two
+/// sections above are: a charge in a foreign currency is not a rare enough
+/// thing to be loggable from only one of the ways you can log a payment.
+///
+/// The charged amount is optional and the form works without it: left blank,
+/// the backend pulls the spot rate for the transaction's date. Given, it is the
+/// better answer, because the card's spread is already inside it.
+struct ForeignChargeSection: View {
+    /// The currency of the selected account. Empty while nothing is selected.
+    let accountCurrency: String
+    /// The amount as currently typed, for the rate hint.
+    let amount: Double?
+    @Binding var currency: String
+    @Binding var amountChargedText: String
+
+    private var isForeign: Bool {
+        Fx.isForeignCharge(currency, accountCurrency: accountCurrency)
+    }
+
+    private var rateHint: String {
+        Fx.impliedRateLabel(
+            amount: amount,
+            charged: CalculatorInput.evaluateArithmeticExpression(amountChargedText),
+            chargeCurrency: currency,
+            accountCurrency: accountCurrency
+        )
+    }
+
+    var body: some View {
+        Section {
+            NavigationLink {
+                ReferencePicker(
+                    title: "Charged In",
+                    path: "/reference/currencies",
+                    selection: $currency,
+                    id: \ReferenceCurrency.code,
+                    label: { "\($0.code) — \($0.name)" },
+                    searchText: { "\($0.code) \($0.name)" }
+                )
+            } label: {
+                LabeledContent("Charged in", value: currency.isEmpty ? accountCurrency : currency)
+            }
+
+            if isForeign {
+                HStack {
+                    Text("Charged to account")
+                    CalculatorField(placeholder: accountCurrency, text: $amountChargedText)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        } footer: {
+            if isForeign {
+                Text(
+                    rateHint.isEmpty
+                        ? "Optional. Leave blank to convert at the \(currency) rate for this date."
+                        : "\(rateHint) — the rate your statement implies, spread included."
+                )
+            }
+        }
+    }
+}

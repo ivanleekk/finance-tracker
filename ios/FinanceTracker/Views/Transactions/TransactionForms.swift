@@ -47,6 +47,13 @@ struct TransactionFormView: View {
     /// cards, so this is not fetched with the form.
     @State private var card: CardResponse?
     @State private var cardHeadroom: [String: [CardLimitStatusRow]] = [:]
+    /// The currency the merchant billed in. Starts as the selected account's own
+    /// — a charge is in the account's currency unless the user says otherwise.
+    @State private var currency: String
+    /// What the account was actually charged, in its own currency. Empty means
+    /// "I don't know it", which is the normal case: the backend then pulls the
+    /// spot rate for the date.
+    @State private var amountChargedText: String
 
     init(
         accounts: [AccountResponse],
@@ -75,6 +82,23 @@ struct TransactionFormView: View {
         })
         _mcc = State(initialValue: existing?.mcc ?? "")
         _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
+        let openingAccount = accounts.first { $0.id == existing?.accountId }
+        _currency = State(initialValue: existing?.currency ?? openingAccount?.currency ?? "")
+        // Recovered from the two figures the row already stores rather than
+        // left blank: an edit that dropped it would re-price the row at the
+        // mid-market close, throwing away the rate the user's own statement
+        // gave. Only meaningful when the row is actually in another currency.
+        _amountChargedText = State(initialValue: Self.chargedString(existing, account: openingAccount))
+    }
+
+    /// The account-currency figure a stored row implies, as editable text —
+    /// empty unless the row was charged in something other than its account's
+    /// currency, where there is no conversion to show.
+    private static func chargedString(_ existing: TransactionResponse?, account: AccountResponse?) -> String {
+        guard let existing, let rate = existing.exchangeRate,
+              Fx.isForeignCharge(existing.currency, accountCurrency: account?.currency)
+        else { return "" }
+        return amountString((existing.amount * rate * 100).rounded() / 100)
     }
 
     /// Editable string for a stored amount: drop the trailing ".0" on whole numbers.
@@ -88,6 +112,18 @@ struct TransactionFormView: View {
 
     private var amount: Double? {
         CalculatorInput.evaluateArithmeticExpression(amountText)
+    }
+
+    private var selectedAccountCurrency: String {
+        accounts.first { $0.id == accountId }?.currency ?? ""
+    }
+
+    /// Sent only when it means something: the user typed it *and* the charge is
+    /// in another currency. A figure in the account's own currency would just
+    /// restate the amount, and a stale one would define a bogus rate.
+    private var amountCharged: Double? {
+        guard Fx.isForeignCharge(currency, accountCurrency: selectedAccountCurrency) else { return nil }
+        return CalculatorInput.evaluateArithmeticExpression(amountChargedText)
     }
 
     private var canSave: Bool {
@@ -158,6 +194,13 @@ struct TransactionFormView: View {
                     )
                 }
 
+                ForeignChargeSection(
+                    accountCurrency: selectedAccountCurrency,
+                    amount: amount,
+                    currency: $currency,
+                    amountChargedText: $amountChargedText
+                )
+
                 CardCategorySection(
                     card: card,
                     headroom: cardHeadroom,
@@ -185,7 +228,7 @@ struct TransactionFormView: View {
             }
             .discardGuard(fields: [
                 type, amountText, date, description, accountId, categoryId, mcc, cardCategoryId,
-                isSplitting, splitRows,
+                isSplitting, splitRows, currency, amountChargedText,
             ])
             .onAppear {
                 if accountId == nil {
@@ -193,12 +236,22 @@ struct TransactionFormView: View {
                     accountId = (defaultAccount ?? accounts.first)?.id
                 }
                 if categoryId == nil { categoryId = filteredCategories.first?.id }
+                // A new transaction has no account until the line above picks
+                // one, so its opening currency cannot be settled in `init`.
+                if currency.isEmpty { currency = selectedAccountCurrency }
                 Task { await loadCard(for: accountId) }
             }
             .onChange(of: accountId) { _, newValue in
                 // A pick from the old card is meaningless on a new one, so it is
                 // cleared here as well as server-side.
                 cardCategoryId = ""
+                // The currency follows the account for the same reason it
+                // defaults to it, and a charged amount named in the account you
+                // just left means nothing in the one you landed on.
+                if let moved = accounts.first(where: { $0.id == newValue })?.currency {
+                    currency = moved
+                }
+                amountChargedText = ""
                 Task { await loadCard(for: newValue) }
             }
             .sheet(isPresented: $showingNewCategory) {
@@ -264,7 +317,9 @@ struct TransactionFormView: View {
                         mcc: mcc,
                         // Empty means "the card's default", which the API reads
                         // from an explicit null rather than an empty string.
-                        cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId
+                        cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
+                        currency: currency.isEmpty ? nil : currency,
+                        amountCharged: amountCharged
                     )
                     let _: TransactionResponse = try await APIClient.shared.put(
                         "/cashflow/transactions/\(existing.id)", body: body
@@ -277,7 +332,9 @@ struct TransactionFormView: View {
                         accountId: accountId,
                         categoryId: categoryId,
                         splits: splitsForCreate,
-                        mcc: mcc
+                        mcc: mcc,
+                        currency: currency.isEmpty ? nil : currency,
+                        amountCharged: amountCharged
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(
                         "/cashflow/transactions", body: body

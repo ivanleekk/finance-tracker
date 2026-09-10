@@ -455,10 +455,15 @@ struct TransactionResponse: Codable, Identifiable {
     let mcc: String?
     /// Which of the card's own categories this counts towards, if any.
     let cardCategoryId: String?
+    /// The rate from `currency` to the *account's* currency, frozen when the row
+    /// was written. `amount * exchangeRate` is what the account was charged —
+    /// which is how the edit form recovers the figure the user typed.
+    let exchangeRate: Double?
 
     private enum CodingKeys: String, CodingKey {
         case id, accountId, categoryId, date, amount, amountHomeCurrency, currency
         case description, transactionType, transferId, splits, mcc, cardCategoryId
+        case exchangeRate
     }
 
     /// Hand-written only so `splits` can default to empty when the key is
@@ -480,6 +485,7 @@ struct TransactionResponse: Codable, Identifiable {
         splits = try container.decodeIfPresent([TransactionSplitRow].self, forKey: .splits) ?? []
         mcc = try container.decodeIfPresent(String.self, forKey: .mcc)
         cardCategoryId = try container.decodeIfPresent(String.self, forKey: .cardCategoryId)
+        exchangeRate = try container.decodeIfPresent(Double.self, forKey: .exchangeRate)
     }
 }
 
@@ -497,6 +503,14 @@ struct TransactionCreate: Encodable {
     var mcc: String? = nil
     /// Nil falls to the card's default category, so untagged spend is still metered.
     var cardCategoryId: String? = nil
+    /// The currency the merchant billed in. Nil means the account's own, which
+    /// is the normal case; anything else makes the backend pull the spot rate
+    /// for `date`.
+    var currency: String? = nil
+    /// What the account was actually charged, in its own currency — the figure
+    /// on the statement. Given, it *defines* the rate (spread included) and no
+    /// rate is looked up at all.
+    var amountCharged: Double? = nil
 }
 
 /// PUT /cashflow/transactions/{id} (schemas.TransactionUpdate).
@@ -523,8 +537,25 @@ struct TransactionUpdate: Encodable {
     /// and there would then be no way to untag a transaction at all.
     let cardCategoryId: String?
 
+    /// The currency the merchant billed in.
+    ///
+    /// Defaulted, unlike `mcc` and `cardCategoryId` above, because forgetting it
+    /// is not destructive: an omitted key preserves what the row already had.
+    /// The form nevertheless always sends it, since it always knows it.
+    var currency: String? = nil
+
+    /// What the account was actually charged, in its own currency.
+    ///
+    /// Sent on every edit of a foreign-currency row, and this is load-bearing
+    /// rather than tidy: the backend re-derives the rate whenever an edit
+    /// carries an amount or a date, so a row whose rate came from the user's
+    /// own statement would silently be re-priced at the mid-market close by an
+    /// unrelated description fix. Sending it back keeps the round trip lossless.
+    var amountCharged: Double? = nil
+
     private enum CodingKeys: String, CodingKey {
         case date, amount, description, accountId, categoryId, splits, mcc, cardCategoryId
+        case currency, amountCharged
     }
 
     /// Hand-written only because `cardCategoryId` needs an explicit JSON null on
@@ -543,6 +574,11 @@ struct TransactionUpdate: Encodable {
         // null, because that is what clears the tag.
         try container.encode(cardCategoryId, forKey: .cardCategoryId)
         try container.encodeIfPresent(splits, forKey: .splits)
+        try container.encodeIfPresent(currency, forKey: .currency)
+        // `encodeIfPresent`, unlike `cardCategoryId` above: nil here means
+        // "nothing to say about the rate", not "clear it". There is no such
+        // thing as clearing a rate — a transaction always has one.
+        try container.encodeIfPresent(amountCharged, forKey: .amountCharged)
     }
 }
 

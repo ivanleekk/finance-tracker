@@ -6,6 +6,7 @@ import { Select } from "../../components/ui/Select"
 import { selectableAccounts } from "../../lib/networth"
 import type { AccountResponse, CategoryResponse, CounterpartyResponse, CurrencyResponse, UserResponse } from "../../types/types"
 import { evenSplitRemainder, parseMoney } from "../../lib/reimbursements"
+import { impliedRateLabel, isForeignCharge } from "../../lib/fx"
 import { splitHint, type SplitFormRow } from "./transactionsHelpers"
 
 /** The shape the Income/Expense tab edits. */
@@ -141,15 +142,15 @@ export function LogTransactionDialog({
     onCreateCategory,
 }: Props) {
     const accountCurrency = accounts.find(a => a.id === formData.accountId)?.currency || ""
+    const isForeign = isForeignCharge(formData.currency, accountCurrency)
     // Shown back to the user so the rate their two figures imply is visible
-    // before they commit to it — a mistyped charged amount is otherwise a
-    // plausible-looking rate nobody notices.
-    const chargedRateHint = (() => {
-        const amount = parseMoney(formData.amount)
-        const charged = parseMoney(formData.amountCharged)
-        if (!amount || !charged) return ""
-        return `1 ${formData.currency} = ${(charged / amount).toFixed(4)} ${accountCurrency}`
-    })()
+    // before they commit to it — see `impliedRateLabel`.
+    const chargedRateHint = impliedRateLabel(
+        parseMoney(formData.amount),
+        parseMoney(formData.amountCharged),
+        formData.currency,
+        accountCurrency,
+    )
 
     return (
         <Dialog isOpen={isOpen} onClose={onClose}>
@@ -292,7 +293,7 @@ export function LogTransactionDialog({
                         </div>
                     </div>
 
-                    {accountCurrency && formData.currency && formData.currency !== accountCurrency && (
+                    {isForeign && (
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-base-700 dark:text-base-300">
                                 Charged to the account ({accountCurrency})

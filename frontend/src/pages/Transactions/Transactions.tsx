@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
+import { isForeignCharge } from "../../lib/fx";
 import { useLoaderData, useNavigation, useRevalidator, useFetcher } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -274,7 +275,7 @@ export default function Transactions() {
                 // Only sent when the user actually knows it. Given, it defines
                 // the rate — spread included — and the backend looks nothing
                 // up; omitted, the backend pulls the spot rate for this date.
-                ...(formData.amountCharged.trim() && formData.currency !== accountCurrencyOf(formData.accountId)
+                ...(formData.amountCharged.trim() && isForeignCharge(formData.currency, accountCurrencyOf(formData.accountId))
                     ? { amount_charged: parseFloat(formData.amountCharged) }
                     : {}),
                 description: formData.description,
