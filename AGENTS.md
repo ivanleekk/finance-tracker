@@ -41,6 +41,7 @@ This document provides a high-level overview and instructions for AI agents work
   `ios/.../GoalProjection.swift` and `android/.../logic/GoalProjection.kt`.
 - `docker-compose.yml`: Infrastructure orchestration (backend + web frontend only; mobile runs via `expo start`).
 - `docker-compose.prod.yml` + `deploy/` + `DEPLOYMENT.md`: Fully dockerized VPS production stack (Caddy auto-HTTPS proxy, Postgres, cron container for the daily snapshot job, nightly pg_dump backups). The old Cloud Run flow (`cloudbuild.yaml`) is deprecated.
+- `docker-compose.staging.yml` + `.env.staging.example`: a second stack on the same VPS tracking `dev`, so migrations and changes can be rehearsed before they reach `main` (DEPLOYMENT.md §9). Its services are **renamed** (`backend-staging`, …) rather than overridden, because Compose always registers a service's own name as a network alias — reusing `backend` on the shared `edge` network would make the edge proxy round-robin production traffic into staging. That is also why it is a separate file: overrides merge by service key and cannot rename a service.
 
 ## 4a. Private vs. Shared Ownership
 
@@ -52,6 +53,8 @@ This document provides a high-level overview and instructions for AI agents work
 ## 4. Cross-Cutting Concerns
 
 - **Authentication:** JWT-based authentication via HTTP-only cookies. The React Router v7 SSR frontend must manually extract and forward cookies from the incoming browser request to the backend during server-side `loader` and `action` execution.
+    - **The cookie *name* is what separates deployments, not the domain.** `AUTH_COOKIE_DOMAIN` has to be the parent domain, because it is the only common ancestor of the frontend and API hosts — so staging and production under one zone would share a single `access_token` cookie (a cookie is keyed by name+domain+path) and silently overwrite each other's session. A narrower staging subdomain does not help: the parent-scoped production cookie is sent to every subdomain regardless, leaving the browser holding two same-named cookies whose send order is undefined. `auth_cookie_names()` in `backend/src/auth.py` applies `AUTH_COOKIE_PREFIX`, empty in production and `staging_` in `docker-compose.staging.yml`; it is read per request, matching how `AUTH_COOKIE_DOMAIN` already is. The JSON response body keys (`{"access_token": ...}`) are the native clients' contract and are deliberately **not** prefixed — they are not cookies.
+    - The SSR frontend forwards cookies **opaquely** (`headers.getSetCookie()` and the raw `Cookie` header in `frontend/src/pages/{Login,Signup,Logout}`), never by name, which is what keeps renaming a backend-only change.
 - **API Communication:** Frontend communicates with backend via REST API. Client-side fetches use `http://localhost:8000`, but Server-Side fetches (in loaders/actions) MUST use the internal Docker network `http://backend:8000` (handled by `getApiUrl` utility).
 - **Data Consistency:** Ensure that frontend models/types stay in sync with backend Pydantic schemas (`backend/src/schemas.py`).
 - **Data Fetching Paradigm:** The frontend strictly uses React Router v7 SSR paradigms (Loaders and Actions). Do not use `useEffect` for data fetching or mutations.

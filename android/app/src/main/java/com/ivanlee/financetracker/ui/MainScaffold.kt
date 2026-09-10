@@ -17,6 +17,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ivanlee.financetracker.state.QuickAddViewModel
+import com.ivanlee.financetracker.state.ReferenceDataViewModel
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.state.ViewModeViewModel
 import com.ivanlee.financetracker.ui.components.rememberFragmentActivity
@@ -37,6 +38,7 @@ fun MainScaffold(
     sessionVm: SessionViewModel,
     viewModeVm: ViewModeViewModel,
     quickAddVm: QuickAddViewModel,
+    referenceVm: ReferenceDataViewModel,
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -47,6 +49,21 @@ fun MainScaffold(
     // household changes — it gates the whole Private/Household/Blended switch.
     LaunchedEffect(sessionVm.activeHousehold?.id) {
         viewModeVm.refresh(sessionVm.activeHousehold?.id)
+    }
+
+    // Fill Quick Add's pickers as soon as there's a household to fill them from, rather than
+    // when the sheet opens — the sheet is only composed while presented, so fetching there
+    // meant a round trip on every open and an empty account picker on a cold start (#272).
+    LaunchedEffect(sessionVm.activeHousehold?.id) {
+        referenceVm.load(sessionVm.activeHousehold?.id)
+    }
+
+    // A logged change can create an account or move a balance, so the sheet's next open
+    // should not be working from the pre-change list.
+    LaunchedEffect(quickAddVm.reloadToken) {
+        if (quickAddVm.reloadToken > 0) {
+            referenceVm.load(sessionVm.activeHousehold?.id, force = true)
+        }
     }
 
     // Configure the vault from the user's setting on login / whenever the flag changes, then
@@ -105,6 +122,7 @@ fun MainScaffold(
         ) {
             QuickAddSheet(
                 sessionVm = sessionVm,
+                referenceVm = referenceVm,
                 onDone = {
                     quickAddVm.dismiss()
                     quickAddVm.requestReload()

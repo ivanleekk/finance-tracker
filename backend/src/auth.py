@@ -18,6 +18,26 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 
+def auth_cookie_names() -> tuple[str, str]:
+    """The (access, refresh) session cookie names, honouring AUTH_COOKIE_PREFIX.
+
+    A cookie is keyed by (name, domain, path), and AUTH_COOKIE_DOMAIN has to be
+    the *parent* domain because that is the only common ancestor of the frontend
+    and API hosts. So two deployments of this app under one domain — staging
+    beside production — would otherwise share a single `access_token` cookie and
+    silently overwrite each other's session, and a narrower staging domain does
+    not help either: the parent-scoped production cookie is still sent to every
+    subdomain, leaving the browser holding two cookies of the same name whose
+    send order is not specified by domain specificity.
+
+    Read per call rather than at import, matching how AUTH_COOKIE_DOMAIN is read
+    at request time. Defaults to "" so production behaviour is unchanged.
+    """
+    prefix = os.getenv("AUTH_COOKIE_PREFIX", "")
+    return f"{prefix}access_token", f"{prefix}refresh_token"
+
+
+
 
 class OAuth2PasswordBearerWithCookie(OAuth2PasswordBearer):
     async def __call__(self, request: Request) -> str | None:
@@ -27,7 +47,8 @@ class OAuth2PasswordBearerWithCookie(OAuth2PasswordBearer):
             if scheme.lower() == "bearer":
                 return param
 
-        cookie_token = request.cookies.get("access_token")
+        access_cookie, _ = auth_cookie_names()
+        cookie_token = request.cookies.get(access_cookie)
         if cookie_token:
             return cookie_token
 
