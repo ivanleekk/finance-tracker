@@ -256,3 +256,51 @@ def test_the_journal_line_records_the_rate_that_reconciles_its_own_numbers(
     assert Decimal(str(line.native_amount)) == Decimal("12000")
     assert line.exchange_rate == pytest.approx(0.02)  # JPY → USD, not JPY → SGD
     assert Decimal(str(line.credit)) == Decimal("240.00")
+
+
+def test_a_rule_we_cannot_price_is_skipped_rather_than_failing_the_nightly_run(
+    db_session, household, account, dining
+):
+    """
+    Strict rates have a consequence at 2am that the API path does not have.
+
+    A user typing a transaction can be handed a 422 and asked for the rate. The
+    nightly job has nobody to ask — and one household's missing rate must not
+    abort the run for every household after it. The occurrence is skipped with
+    `next_due_date` left where it is, so tomorrow retries it; the alternative to
+    skipping is writing the row at a rate we invented.
+    """
+    import uuid
+    from datetime import date
+
+    from src.services.recurring_service import materialize_due
+
+    due = date(2026, 3, 4)
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(),
+        household_id=household.id,
+        account_id=account.id,
+        category_id=dining.id,
+        amount=Decimal("12000"),
+        currency="JPY",
+        frequency="monthly",
+        start_date=due,
+        next_due_date=due,
+        is_active=True,
+    )
+    db_session.add(rule)
+    db_session.commit()
+
+    with _rates({("SGD", "USD"): SGD_PER_USD}):  # no JPY→SGD pair
+        posted = materialize_due(db_session, household.id, as_of=due)
+
+    assert posted == 0
+    assert db_session.query(models.Transaction).count() == 0
+    # Left where it was, so the occurrence is owed rather than lost.
+    assert rule.next_due_date == due
+    assert rule.is_active is True
+
+    # And once a rate exists, the same occurrence posts.
+    with _rates({("JPY", "SGD"): JPY_PER_SGD, ("SGD", "USD"): SGD_PER_USD}):
+        assert materialize_due(db_session, household.id, as_of=due) == 1
+    assert _balance(db_session, account) == Decimal("-120.00")
