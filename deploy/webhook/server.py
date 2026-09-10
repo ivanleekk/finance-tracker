@@ -22,6 +22,14 @@ DEPLOY_BRANCH = os.environ.get("DEPLOY_BRANCH", "refs/heads/main")
 REPO_DIR = os.environ["REPO_DIR"]
 ENV_FILE = os.environ.get("ENV_FILE", ".env.production")
 COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.prod.yml")
+# Which services this stack's deploy rebuilds. Must name services that exist in
+# COMPOSE_FILE: the staging stack renames every service (`backend-staging`, …)
+# so that its aliases don't collide with production's on the shared `edge`
+# network, and the production names below simply don't exist there. Defaulting
+# to production's list keeps `.env.production` unchanged.
+DEPLOY_SERVICES = os.environ.get(
+    "DEPLOY_SERVICES", "migrate backend frontend scheduler"
+).split()
 PORT = int(os.environ.get("PORT", "9000"))
 MAX_BODY_BYTES = 1_000_000
 
@@ -49,15 +57,16 @@ def run_deploy() -> None:
                 "--env-file", os.path.join(REPO_DIR, ENV_FILE),
                 "-f", os.path.join(REPO_DIR, COMPOSE_FILE),
                 "up", "-d", "--build",
-                # Deliberately excludes `webhook` itself. BuildKit stamps a
-                # fresh timestamp into the image config on every build even
-                # on a full cache hit, so an unscoped `--build` gives
-                # `webhook` a "new" image on every single deploy — and
-                # recreating the container that's running this very deploy
-                # kills the process mid-run, leaving the rest of the stack
-                # stopped. A change to deploy/webhook/* still needs the
-                # manual command from "Deploying updates", run once by hand.
-                "migrate", "backend", "frontend", "scheduler",
+                # DEPLOY_SERVICES deliberately excludes this webhook service
+                # itself. BuildKit stamps a fresh timestamp into the image
+                # config on every build even on a full cache hit, so an
+                # unscoped `--build` gives the webhook a "new" image on every
+                # single deploy — and recreating the container that's running
+                # this very deploy kills the process mid-run, leaving the rest
+                # of the stack stopped. A change to deploy/webhook/* still
+                # needs the manual command from "Deploying updates", run once
+                # by hand.
+                *DEPLOY_SERVICES,
             ],
             ["docker", "image", "prune", "-f"],
         ]
@@ -137,6 +146,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # An empty list would make the `up` above unscoped, which recreates this
+    # very container mid-deploy — the exact failure DEPLOY_SERVICES exists to
+    # avoid. Refuse to start rather than discover it on the next push.
+    if not DEPLOY_SERVICES:
+        raise SystemExit("DEPLOY_SERVICES is empty; refusing to start")
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     log(f"listening on :{PORT}, watching {DEPLOY_BRANCH}, repo {REPO_DIR}")
     server.serve_forever()

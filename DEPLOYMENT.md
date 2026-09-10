@@ -203,8 +203,11 @@ container that's in the middle of running that very `docker compose` command
 kills the deploy mid-run: images finish building, but `backend`/`frontend`
 never get (re)started, leaving the stack down until someone notices. `run_deploy()`
 in `deploy/webhook/server.py` therefore names the services it builds
-explicitly (`migrate backend frontend scheduler`) rather than leaving the
-list unscoped. A change to anything under `deploy/webhook/` still needs one
+explicitly rather than leaving the list unscoped — `DEPLOY_SERVICES`, which
+defaults to production's `migrate backend frontend scheduler`. Staging
+overrides it in `docker-compose.staging.yml`, because every service there is
+renamed and the production names would abort the deploy with `no such
+service` (§9). A change to anything under `deploy/webhook/` still needs one
 manual deploy from the **host shell** (not triggered through the webhook)
 to pick it up: `cd $REPO_DIR && docker compose --env-file .env.production -f
 docker-compose.prod.yml up -d --build`.

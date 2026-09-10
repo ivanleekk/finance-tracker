@@ -61,12 +61,17 @@ services:
             file: docker-compose.prod.yml
             service: webhook
         environment:
-            # server.py already reads these; no code change needed. DEPLOY_BRANCH
-            # (refs/heads/dev) and REPO_DIR come from .env.staging. `docker compose`
-            # is invoked without -p, so the top-level `name:` above supplies the
-            # project name.
+            # server.py reads all three. DEPLOY_BRANCH (refs/heads/dev) and
+            # REPO_DIR come from .env.staging. `docker compose` is invoked
+            # without -p, so the top-level `name:` above supplies the project
+            # name.
             - ENV_FILE=.env.staging
             - COMPOSE_FILE=docker-compose.staging.yml
+            # Every service here is renamed, so production's default list
+            # (`migrate backend frontend scheduler`) names nothing that exists
+            # in this file and the deploy would abort with `no such service`.
+            # Excludes webhook-staging itself — see the note in server.py.
+            - DEPLOY_SERVICES=migrate-staging backend-staging frontend-staging scheduler-staging
 
     # Offset from production's 01:00 so both stacks don't hit yfinance at once —
     # production's real snapshots are the ones that suffer if throttled.
