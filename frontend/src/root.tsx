@@ -14,6 +14,7 @@ import { ThemeProvider } from "./lib/ThemeContext";
 import { HouseholdProvider } from "./lib/HouseholdContext";
 import { ViewModeProvider } from "./lib/ViewModeContext";
 import { CommandBarProvider } from "./lib/CommandBarContext";
+import { ReferenceDataProvider } from "./lib/ReferenceDataContext";
 import Sidebar, { MobileNav } from "./components/sidebar";
 import { CommandBar } from "./components/CommandBar/CommandBar";
 import { QuickAddButton } from "./components/QuickAddButton";
@@ -93,21 +94,23 @@ export function Layout({
                     <ThemeProvider>
                         <HouseholdProvider initialHouseholds={households}>
                             <ViewModeProvider>
-                                <CommandBarProvider>
-                                    <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300 print:block print:h-auto print:overflow-visible print:bg-white">
-                                        <Sidebar />
-                                        {/* min-w-0 lets this column shrink below its content's intrinsic
-                                            width — without it a wide table pushes the whole shell sideways. */}
-                                        <div className="flex min-w-0 flex-1 flex-col print:block">
-                                            <MobileNav />
-                                            <main className="min-w-0 flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
-                                                {children}
-                                            </main>
+                                <ReferenceDataProvider>
+                                    <CommandBarProvider>
+                                        <div className="flex h-dvh overflow-hidden bg-base-100 text-base-900 dark:bg-base-950 dark:text-base-50 transition-colors duration-300 print:block print:h-auto print:overflow-visible print:bg-white">
+                                            <Sidebar />
+                                            {/* min-w-0 lets this column shrink below its content's intrinsic
+                                                width — without it a wide table pushes the whole shell sideways. */}
+                                            <div className="flex min-w-0 flex-1 flex-col print:block">
+                                                <MobileNav />
+                                                <main className="min-w-0 flex-1 overflow-y-auto bg-base-50 dark:bg-base-900 transition-colors duration-300 print:overflow-visible print:bg-white">
+                                                    {children}
+                                                </main>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <QuickAddButton />
-                                    <CommandBar />
-                                </CommandBarProvider>
+                                        <QuickAddButton />
+                                        <CommandBar />
+                                    </CommandBarProvider>
+                                </ReferenceDataProvider>
                             </ViewModeProvider>
                         </HouseholdProvider>
                     </ThemeProvider>

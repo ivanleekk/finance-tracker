@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo} from "react";
 import { useNavigate, useRevalidator, useFetcher } from "react-router";
 import { useCommandBar } from "../../lib/CommandBarContext";
+import { useReferenceData } from "../../lib/ReferenceDataContext";
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode } from "../../lib/ViewModeContext";
@@ -25,7 +26,7 @@ import {
     TradeView,
     TransferView,
 } from "./CommandBarViews";
-import type { AccountResponse, SubPortfolioResponse, TransactionResponse, CategoryResponse, AssetResponse } from "../../types/types";
+import type { AccountResponse, AssetResponse } from "../../types/types";
 import type { CardPickerData } from "../../pages/Transactions/cardCategories.resource";
 import { cardCategoryPickerOptions } from "../../lib/cards";
 
@@ -35,6 +36,20 @@ export function CommandBar() {
     const { activeHousehold } = useHousehold();
     const { user } = useAuth();
     const { hasHousehold } = useViewMode();
+    // Reference data, loaded once per household at the app root rather than on every open —
+    // see `ReferenceDataContext` and #272.
+    const {
+        accounts,
+        categories,
+        subportfolios,
+        recent,
+        status: referenceStatus,
+        hasEssentials,
+        failureMessage: referenceFailure,
+        reload: reloadReference,
+        addCategory,
+        addAccount,
+    } = useReferenceData();
     const revalidator = useRevalidator();
     const navigate = useNavigate();
 
@@ -54,10 +69,6 @@ export function CommandBar() {
     const [submitting, setSubmitting] = useState(false);
     const [undoData, setUndoData] = useState<{ path: string } | null>(null);
 
-    const [accounts, setAccounts] = useState<AccountResponse[]>([]);
-    const [subportfolios, setSubportfolios] = useState<SubPortfolioResponse[]>([]);
-    const [categories, setCategories] = useState<CategoryResponse[]>([]);
-    const [recent, setRecent] = useState<TransactionResponse[]>([]);
     const [assetSuggestions, setAssetSuggestions] = useState<AssetResponse[]>([]);
     const [livePrice, setLivePrice] = useState<{ ticker: string; price: number; currency: string } | null>(null);
     const [priceLoading, setPriceLoading] = useState(false);
@@ -82,16 +93,9 @@ export function CommandBar() {
         setLivePrice(null);
         setHighlightIndex(0);
         requestAnimationFrame(() => inputRef.current?.focus());
-
-        if (activeHousehold) {
-            api.get(`/accounts/household/${activeHousehold.id}`).then(r => setAccounts(r.data)).catch(() => setAccounts([]));
-            api.get(`/portfolio/subportfolios/household/${activeHousehold.id}`).then(r => setSubportfolios(r.data)).catch(() => setSubportfolios([]));
-            api.get(`/cashflow/categories/household/${activeHousehold.id}`).then(r => setCategories(r.data)).catch(() => setCategories([]));
-            api.get(`/cashflow/transactions/household/${activeHousehold.id}`).then(r => {
-                const sorted = [...r.data].sort((a: TransactionResponse, b: TransactionResponse) => (a.date < b.date ? 1 : -1));
-                setRecent(sorted.slice(0, 3));
-            }).catch(() => setRecent([]));
-        }
+        // No fetch here. The reference data is already loaded (or on its way) from the app
+        // root, which is the whole point — opening the bar used to start four requests and
+        // leave the parser with no accounts to match against until they landed.
     }, [isOpen, activeHousehold?.id]);
 
     useEffect(() => () => {
@@ -113,6 +117,10 @@ export function CommandBar() {
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [isOpen, handleClose]);
+
+    // The resting and search views show the three newest, as they always have; the context
+    // holds more so a later consumer isn't forced back to a per-open fetch.
+    const recentThree = useMemo(() => recent.slice(0, 3), [recent]);
 
     const parsed: ParsedCommand = scanResult ? { type: "expense", amount: scanResult.amount, merchant: scanResult.merchant, category: scanResult.category, account: accounts[0] || null } : parseCommand(query, accounts);
     const activeTicker = parsed.type === "trade" || parsed.type === "dividend" ? parsed.ticker : null;
@@ -296,7 +304,7 @@ export function CommandBar() {
         if (existing) return existing.id;
         try {
             const res = await api.post("/cashflow/categories", { household_id: activeHousehold.id, name, type });
-            setCategories(prev => [...prev, res.data]);
+            addCategory(res.data);
             return res.data.id;
         } catch {
             return null;
@@ -311,6 +319,9 @@ export function CommandBar() {
         setUndoData(undo);
         setPhase("success");
         revalidator.revalidate();
+        // Route loaders don't cover the bar's own reference data, and the next open reads it
+        // straight from the context rather than re-fetching.
+        reloadReference();
         successTimer.current = setTimeout(() => {
             handleClose();
         }, 1800);
@@ -320,6 +331,7 @@ export function CommandBar() {
         if (undoData) {
             try { await api.delete(undoData.path); } catch { /* best effort */ }
             revalidator.revalidate();
+            reloadReference();
         }
         handleClose();
     };
@@ -361,7 +373,7 @@ export function CommandBar() {
                         owner_user_id: null,
                     });
                     account = created.data;
-                    setAccounts(prev => [...prev, account!]);
+                    addAccount(account);
                 }
                 const res = await api.post("/accounts/balances", {
                     account_id: account.id,
@@ -521,6 +533,29 @@ export function CommandBar() {
                     </button>
                 </div>
 
+                {/* Says which of the two unhappy states the bar is in rather than silently
+                    parsing against an empty account list — a command bar that can't resolve
+                    "chase" looks broken, and looks identical to a household with no accounts
+                    (#272). Nothing renders once the data is there, which is the common case,
+                    nor when there is no household at all (`idle`), where "loading" would be a
+                    lie that never resolves. A refresh over data we already have stays silent
+                    too — the bar is fully usable, so saying so would only be noise. */}
+                {referenceFailure ? (
+                    <div className="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-2.5 text-xs dark:border-base-800">
+                        <span className="text-red-500">{referenceFailure}</span>
+                        <button
+                            onClick={reloadReference}
+                            className="shrink-0 font-semibold text-primary-500 hover:underline"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : referenceStatus.kind === "loading" && !hasEssentials ? (
+                    <div className="border-b border-base-200 px-4 py-2.5 text-xs text-base-400 dark:border-base-800">
+                        Loading your accounts…
+                    </div>
+                ) : null}
+
                 {/* Body */}
                 <div className="max-h-[420px] overflow-y-auto">
                     {phase === "scanning" && <ScanView pct={scanPct} />}
@@ -536,7 +571,7 @@ export function CommandBar() {
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "empty" && (
-                        <RestingView recent={recent} accounts={accounts} onDemo={runDemo} />
+                        <RestingView recent={recentThree} accounts={accounts} onDemo={runDemo} />
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "expense" && (
@@ -602,7 +637,7 @@ export function CommandBar() {
                     )}
 
                     {phase !== "scanning" && phase !== "success" && parsed.type === "search" && (
-                        <SearchView term={parsed.term} subportfolios={subportfolios} recent={recent} onSelectGoal={(id) => goToSearchResult(`/goals/${id}`)} onSelectTxn={() => goToSearchResult("/transactions")} />
+                        <SearchView term={parsed.term} subportfolios={subportfolios} recent={recentThree} onSelectGoal={(id) => goToSearchResult(`/goals/${id}`)} onSelectTxn={() => goToSearchResult("/transactions")} />
                     )}
                 </div>
 
