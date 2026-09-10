@@ -55,6 +55,9 @@ describe('emptyTransactionForm', () => {
         expect(form.mcc).toBe('');
         expect(form.categoryId).toBe('');
         expect(form.amount).toBe('');
+        // Carrying this over would apply one transaction's implied FX rate to
+        // the next one's amount — a plausible-looking wrong number.
+        expect(form.amountCharged).toBe('');
         expect(form.description).toBe('');
         expect(form.splits).toEqual([]);
     });

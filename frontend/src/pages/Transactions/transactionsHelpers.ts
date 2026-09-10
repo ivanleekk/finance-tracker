@@ -130,7 +130,17 @@ export function emptyTransactionForm(accountId: string, currency: string) {
         accountId,
         categoryId: "",
         amount: "",
+        // The currency the *charge* was in, which starts as the account's own
+        // — not the household's base. Most spending on an account happens in
+        // the currency that account is denominated in, and defaulting to base
+        // meant a USD account in an SGD household opened pre-set to SGD and
+        // converted a figure that never needed converting.
         currency,
+        // What the account was actually charged, in its own currency — the
+        // figure on the statement. Optional, and only meaningful when the two
+        // currencies differ: given, it defines the rate (spread included) and
+        // the backend looks nothing up.
+        amountCharged: "",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
         description: "",
         // Optional even when the field is shown — most purchases have no code the

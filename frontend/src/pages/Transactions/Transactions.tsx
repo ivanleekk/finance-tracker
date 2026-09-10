@@ -151,8 +151,18 @@ export default function Transactions() {
         ? user.default_account_id
         : "";
 
-    // Form state for normal transactions
-    const blankForm = () => emptyTransactionForm(defaultAccountId(), activeHousehold?.base_currency || "USD");
+    // Form state for normal transactions. The currency starts as the preselected
+    // account's own, not the household's base: a charge is in the currency of
+    // the account it hit unless the user says otherwise, and defaulting to base
+    // made a USD account in an SGD household convert a figure needlessly.
+    const blankForm = () => {
+        const accountId = defaultAccountId();
+        const account = accounts.find(a => a.id === accountId);
+        return emptyTransactionForm(
+            accountId,
+            account?.currency || activeHousehold?.base_currency || "USD",
+        );
+    };
     const [formData, setFormData] = useState(blankForm);
     const [isSplitting, setIsSplitting] = useState(false);
 
@@ -239,6 +249,9 @@ export default function Transactions() {
         }
     };
 
+    const accountCurrencyOf = (accountId: string) =>
+        accounts.find(a => a.id === accountId)?.currency || "";
+
     const handleLogTransaction = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
@@ -258,6 +271,12 @@ export default function Transactions() {
                 date: formData.date,
                 amount: parseFloat(formData.amount),
                 currency: formData.currency,
+                // Only sent when the user actually knows it. Given, it defines
+                // the rate — spread included — and the backend looks nothing
+                // up; omitted, the backend pulls the spot rate for this date.
+                ...(formData.amountCharged.trim() && formData.currency !== accountCurrencyOf(formData.accountId)
+                    ? { amount_charged: parseFloat(formData.amountCharged) }
+                    : {}),
                 description: formData.description,
                 // Blank is sent as-is; the API treats "" as "not given" rather than
                 // rejecting it, so there is nothing to convert here.

@@ -13,7 +13,10 @@ export type TransactionFormData = {
     accountId: string
     categoryId: string
     amount: string
+    /** The currency the charge was in. Defaults to the selected account's own. */
     currency: string
+    /** What the account was actually charged, in its own currency. "" = unknown. */
+    amountCharged: string
     date: string
     description: string
     mcc: string
@@ -137,6 +140,17 @@ export function LogTransactionDialog({
     isSavingCategory,
     onCreateCategory,
 }: Props) {
+    const accountCurrency = accounts.find(a => a.id === formData.accountId)?.currency || ""
+    // Shown back to the user so the rate their two figures imply is visible
+    // before they commit to it — a mistyped charged amount is otherwise a
+    // plausible-looking rate nobody notices.
+    const chargedRateHint = (() => {
+        const amount = parseMoney(formData.amount)
+        const charged = parseMoney(formData.amountCharged)
+        if (!amount || !charged) return ""
+        return `1 ${formData.currency} = ${(charged / amount).toFixed(4)} ${accountCurrency}`
+    })()
+
     return (
         <Dialog isOpen={isOpen} onClose={onClose}>
             <DialogHeader>
@@ -179,7 +193,23 @@ export function LogTransactionDialog({
                                     // Moving to a different card makes any pick
                                     // from the old one meaningless, so it is
                                     // cleared here as well as server-side.
-                                    setFormData({ ...formData, accountId, cardCategoryId: "" });
+                                    //
+                                    // The currency follows the account for the
+                                    // same reason it defaults to it: the charge
+                                    // is in the account's currency unless the
+                                    // user says otherwise, and a rate carried
+                                    // over from the previous account's currency
+                                    // would convert a figure twice. A charged
+                                    // amount named in the old account's
+                                    // currency is meaningless here too.
+                                    const account = accounts.find(a => a.id === accountId);
+                                    setFormData({
+                                        ...formData,
+                                        accountId,
+                                        cardCategoryId: "",
+                                        currency: account?.currency || formData.currency,
+                                        amountCharged: "",
+                                    });
                                     onAccountChange(accountId);
                                 }}
                                 options={selectableAccounts(accounts).map(acc => ({ value: acc.id, label: acc.name }))}
@@ -261,6 +291,27 @@ export function LogTransactionDialog({
                             />
                         </div>
                     </div>
+
+                    {accountCurrency && formData.currency && formData.currency !== accountCurrency && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                Charged to the account ({accountCurrency})
+                                <span className="ml-1 font-normal text-base-500">— optional</span>
+                            </label>
+                            <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={`Amount in ${accountCurrency}`}
+                                value={formData.amountCharged}
+                                onChange={(e) => setFormData({ ...formData, amountCharged: e.target.value })}
+                            />
+                            <p className="text-xs text-base-500 dark:text-base-400">
+                                {chargedRateHint
+                                    ? `Rate ${chargedRateHint} — the one your statement implies, spread included.`
+                                    : `Leave blank to convert at the ${formData.currency} rate for this date.`}
+                            </p>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
