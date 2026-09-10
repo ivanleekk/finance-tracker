@@ -1,0 +1,85 @@
+# Staging stack — same VPS, same shared `edge` network, tracking `dev`.
+# See DEPLOYMENT.md §9 for the full runbook.
+#
+#   docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
+#
+# Run from the SEPARATE staging checkout (/home/ubuntu/finance-tracker-staging),
+# never from the production one — `webhook-staging` bind-mounts $REPO_DIR to
+# itself and redeploys whatever lives there.
+#
+# Why this is its own file rather than an override on docker-compose.prod.yml:
+# every service here is *renamed*, and Compose overrides merge by service key,
+# so a service cannot be renamed by an override. The rename is not cosmetic —
+# Compose always registers a service's own name as a network alias, in addition
+# to anything under `aliases:`. Reusing `backend`/`frontend`/`webhook` on the
+# shared external `edge` network would make those names resolve to two IPs each,
+# and the edge Caddy would round-robin PRODUCTION traffic into this stack.
+#
+# `extends` pulls build contexts, ports and environment from the production file
+# so the two cannot drift. It DOES inherit `depends_on`, and those inherited
+# entries name production's service keys, which do not exist here — so every
+# `depends_on` below carries `!override` to replace the inherited list outright
+# rather than merge with it. Without the tag Compose fails with
+# `depends on undefined service "migrate"`.
+name: finance-tracker-staging
+
+services:
+    migrate-staging:
+        extends:
+            file: docker-compose.prod.yml
+            service: migrate
+
+    backend-staging:
+        extends:
+            file: docker-compose.prod.yml
+            service: backend
+        # Caps staging so a leak here cannot starve production on a 3.8 GB box.
+        mem_limit: 640m
+        environment:
+            # Renames the session cookies. AUTH_COOKIE_DOMAIN must stay the
+            # parent domain (the only common ancestor of the frontend and API
+            # hosts), so without a distinct *name* a staging login would share —
+            # and overwrite — production's `access_token` cookie. Picking a
+            # different staging subdomain does not help: the parent-scoped
+            # production cookie is sent to every subdomain regardless.
+            - AUTH_COOKIE_PREFIX=${AUTH_COOKIE_PREFIX:-staging_}
+        depends_on: !override
+            migrate-staging:
+                condition: service_completed_successfully
+
+    frontend-staging:
+        extends:
+            file: docker-compose.prod.yml
+            service: frontend
+        mem_limit: 640m
+        environment:
+            # SSR loaders/actions talk to this stack's backend, not production's.
+            - INTERNAL_API_URL=http://backend-staging:8000
+
+    webhook-staging:
+        extends:
+            file: docker-compose.prod.yml
+            service: webhook
+        environment:
+            # server.py already reads these; no code change needed. DEPLOY_BRANCH
+            # (refs/heads/dev) and REPO_DIR come from .env.staging. `docker compose`
+            # is invoked without -p, so the top-level `name:` above supplies the
+            # project name.
+            - ENV_FILE=.env.staging
+            - COMPOSE_FILE=docker-compose.staging.yml
+
+    # Offset from production's 01:00 so both stacks don't hit yfinance at once —
+    # production's real snapshots are the ones that suffer if throttled.
+    scheduler-staging:
+        extends:
+            file: docker-compose.prod.yml
+            service: scheduler
+        command: >
+            sh -c 'printf "0 3 * * * wget -q -O - --header \"X-Scheduler-Secret: $$SCHEDULER_SECRET\" --post-data= http://backend-staging:8000/internal/tasks/daily-snapshot\n" | crontab - && crond -f -l 2'
+        depends_on: !override
+            - backend-staging
+
+networks:
+    default:
+    edge:
+        external: true

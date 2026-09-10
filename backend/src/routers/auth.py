@@ -14,6 +14,7 @@ from src.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
     get_current_user,
+    auth_cookie_names,
     SECRET_KEY,
     ALGORITHM,
 )
@@ -53,10 +54,11 @@ def login_for_access_token(
 
     # Set the cookies in the response
     cookie_domain = os.getenv("AUTH_COOKIE_DOMAIN", None)
+    access_cookie, refresh_cookie = auth_cookie_names()
     is_prod = os.getenv("NODE_ENV") == "production"
     
     response.set_cookie(
-        key="access_token",
+        key=access_cookie,
         value=access_token,
         httponly=True,
         samesite="lax",
@@ -66,7 +68,7 @@ def login_for_access_token(
     )
     
     response.set_cookie(
-        key="refresh_token",
+        key=refresh_cookie,
         value=refresh_token,
         httponly=True,
         samesite="lax",
@@ -89,7 +91,8 @@ def refresh_token(
     db: Session = Depends(get_db),
 ):
     # Web uses the httponly cookie; mobile (no cookie jar) sends the refresh token as a bearer header.
-    refresh_token = request.cookies.get("refresh_token")
+    _, refresh_cookie = auth_cookie_names()
+    refresh_token = request.cookies.get(refresh_cookie)
     if not refresh_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.lower().startswith("bearer "):
@@ -130,10 +133,11 @@ def refresh_token(
     new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
     cookie_domain = os.getenv("AUTH_COOKIE_DOMAIN", None)
+    access_cookie, refresh_cookie = auth_cookie_names()
     is_prod = os.getenv("NODE_ENV") == "production"
 
     response.set_cookie(
-        key="access_token",
+        key=access_cookie,
         value=access_token,
         httponly=True,
         samesite="lax",
@@ -143,7 +147,7 @@ def refresh_token(
     )
     
     response.set_cookie(
-        key="refresh_token",
+        key=refresh_cookie,
         value=new_refresh_token,
         httponly=True,
         samesite="lax",
@@ -158,15 +162,16 @@ def refresh_token(
 @router.get("/logout", status_code=status.HTTP_200_OK)
 def logout(response: Response):
     cookie_domain = os.getenv("AUTH_COOKIE_DOMAIN", None)
+    access_cookie, refresh_cookie = auth_cookie_names()
     response.delete_cookie(
-        "access_token",
+        access_cookie,
         domain=cookie_domain,
         httponly=True,
         samesite="lax",
         secure=os.getenv("NODE_ENV") == "production"
     )
     response.delete_cookie(
-        "refresh_token",
+        refresh_cookie,
         domain=cookie_domain,
         httponly=True,
         samesite="lax",
