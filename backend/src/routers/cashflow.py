@@ -11,7 +11,7 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_account_ids
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
-from src.services.transaction_service import create_transaction
+from src.services.transaction_service import create_transaction, resolve_rates
 from src.services import ledger_service, recurring_service, budget_service
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
@@ -173,6 +173,7 @@ def log_transaction(
         amount=transaction.amount,
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
+        amount_charged=transaction.amount_charged,
         description=transaction.description,
         splits=_resolve_splits(db, db_account.household_id, transaction.splits),
         # A receivable arising from a private account stays private, the same way
@@ -375,10 +376,11 @@ def update_transaction(
         db_transaction.transaction_type = new_category.type
 
     update_data = transaction_update.model_dump(exclude_unset=True)
-    # The split is not a column on this row — it is applied to the ledger entry
-    # further down. Setting it here would put a stray attribute on the model.
+    # Neither is a column on this row: the split is applied to the ledger entry
+    # further down, and `amount_charged` only ever defines the rate. Setting
+    # either here would put a stray attribute on the model.
     column_updates = {
-        k: v for k, v in update_data.items() if k != "splits"
+        k: v for k, v in update_data.items() if k not in ("splits", "amount_charged")
     }
 
     # A card category belongs to one card. Moving the transaction to another
@@ -402,15 +404,28 @@ def update_transaction(
     for key, value in column_updates.items():
         setattr(db_transaction, key, value)
 
-    # Recalculate amount_home_currency if needed
-    if any(k in column_updates for k in ('amount', 'currency', 'date', 'account_id')):
-        target_account = db_account
-        if transaction_update.account_id:
-            target_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transaction_update.account_id).first()
-        
-        home_curr = target_account.household.base_currency or "USD"
-        trans_curr = db_transaction.currency or target_account.currency or "USD"
-        rate_to_home = fetch_and_cache_exchange_rates(db, trans_curr, home_curr, db_transaction.date.date())
+    # Re-derive both rates, not just the home one. The account rate is what the
+    # balance chain is moved by, so leaving it stale applied a USD rate to a JPY
+    # figure the moment someone corrected a row's currency — or moved it to an
+    # account denominated in something else. Same helper `create_transaction`
+    # uses, so the two paths cannot drift.
+    if any(
+        k in update_data
+        for k in ("amount", "currency", "date", "account_id", "exchange_rate", "amount_charged")
+    ):
+        txn_currency, rate, rate_to_home = resolve_rates(
+            db,
+            account=target_account,
+            date=db_transaction.date,
+            amount=db_transaction.amount,
+            currency=db_transaction.currency,
+            # An explicit rate or charged amount in *this* request wins; without
+            # one the spot close for the (possibly new) date is used.
+            exchange_rate=transaction_update.exchange_rate,
+            amount_charged=transaction_update.amount_charged,
+        )
+        db_transaction.currency = txn_currency
+        db_transaction.exchange_rate = rate
         db_transaction.amount_home_currency = db_transaction.amount * Decimal(str(rate_to_home))
 
     # Calculate new impact

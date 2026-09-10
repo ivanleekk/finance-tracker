@@ -20,7 +20,62 @@ from sqlalchemy.orm import Session
 from src import models
 from src.services import ledger_service
 from src.services.account_service import sync_transaction_to_balances
-from src.services.market_data import fetch_and_cache_exchange_rates
+from src.services.market_data import (
+    ExchangeRateUnavailable,
+    fetch_and_cache_exchange_rates,
+)
+
+
+def resolve_rates(
+    db: Session,
+    *,
+    account: models.FinancialAccount,
+    date: datetime,
+    amount: Decimal,
+    currency: Optional[str] = None,
+    exchange_rate: Optional[float] = None,
+    amount_charged: Optional[Decimal] = None,
+) -> tuple[str, float, float]:
+    """
+    The two rates a transaction needs, derived once so create and edit agree.
+
+    Returns ``(currency, rate_to_account, rate_to_home)``.
+
+    Three ways to get the account rate, in order of how much the caller knows:
+
+    1. ``amount_charged`` — what the account was actually charged, in its own
+       currency. This is the best answer when the user has it, because the card
+       spread is already inside it: the rate is ``charged / amount``, exactly
+       the rate the statement implies, and no lookup happens at all. It is not
+       stored, because ``amount * exchange_rate`` reproduces it.
+    2. ``exchange_rate`` — an explicit rate the caller worked out.
+    3. The spot close for the transaction's own date, nearest preceding for
+       weekends and holidays. Strict: a pair that cannot be resolved raises
+       rather than quietly becoming 1.0.
+
+    The home rate is composed *through* the account rather than looked up
+    independently. That keeps ``amount_home_currency`` consistent with what the
+    balance chain was moved by — two independent lookups can disagree — and it
+    is what carries a user-supplied rate, spread and all, into every rollup
+    instead of discarding it in favour of the mid-market close.
+    """
+    acc_currency = account.currency or "USD"
+    home_currency = account.household.base_currency or "USD"
+    txn_currency = currency or acc_currency
+
+    if amount_charged is not None and amount > 0:
+        rate = float(Decimal(str(amount_charged)) / Decimal(str(amount)))
+    elif exchange_rate:
+        rate = float(exchange_rate)
+    else:
+        rate = fetch_and_cache_exchange_rates(
+            db, txn_currency, acc_currency, date.date(), strict=True
+        )
+
+    acc_to_home = fetch_and_cache_exchange_rates(
+        db, acc_currency, home_currency, date.date(), strict=True
+    )
+    return txn_currency, rate, rate * acc_to_home
 
 
 def create_transaction(
@@ -32,6 +87,9 @@ def create_transaction(
     amount: Decimal,
     currency: Optional[str] = None,
     exchange_rate: Optional[float] = None,
+    # What the account was actually charged, in its own currency. Defines the
+    # rate when given, spread included — see `resolve_rates`.
+    amount_charged: Optional[Decimal] = None,
     description: Optional[str] = None,
     recurring_transaction_id: Optional[uuid.UUID] = None,
     splits: Sequence[tuple[models.Counterparty, Decimal]] = (),
@@ -52,15 +110,15 @@ def create_transaction(
     ledger entry rather than in a column, so the two sides can never disagree —
     it is the same entry that puts each share on its counterparty's receivable.
     """
-    acc_currency = account.currency or "USD"
-    txn_currency = currency or acc_currency
-
-    rate = exchange_rate
-    if not rate:
-        rate = fetch_and_cache_exchange_rates(db, txn_currency, acc_currency, date.date())
-
-    home_currency = account.household.base_currency or "USD"
-    rate_to_home = fetch_and_cache_exchange_rates(db, txn_currency, home_currency, date.date())
+    txn_currency, rate, rate_to_home = resolve_rates(
+        db,
+        account=account,
+        date=date,
+        amount=amount,
+        currency=currency,
+        exchange_rate=exchange_rate,
+        amount_charged=amount_charged,
+    )
 
     db_transaction = models.Transaction(
         id=uuid.uuid7(),

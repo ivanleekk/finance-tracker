@@ -661,6 +661,12 @@ class TransactionSplitRow(BaseModel):
 class TransactionCreate(TransactionBase):
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # What the account was actually charged, in the account's own currency —
+    # the figure on the statement. When given it *defines* the rate
+    # (`charged / amount`), so the card's spread is carried rather than
+    # replaced by a mid-market close, and no rate lookup happens at all. Not
+    # stored: `amount * exchange_rate` reproduces it exactly.
+    amount_charged: Optional[PositiveDecimal] = None
     # Part of this expense was one or more other people's. `amount` stays the
     # full sum that left the account — that really happened — while each
     # split's amount is carved off onto that counterparty's receivable, so
@@ -685,6 +691,9 @@ class TransactionUpdate(BaseModel):
     amount_home_currency: Optional[FiniteDecimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
+    # See TransactionCreate.amount_charged. Sending it on an edit re-derives
+    # the rate from the new pair of figures.
+    amount_charged: Optional[PositiveDecimal] = None
     description: Optional[str] = None
     account_id: Optional[uuid.UUID] = None
     category_id: Optional[uuid.UUID] = None

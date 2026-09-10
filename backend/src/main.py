@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from src.routers import accounts, cards, cashflow, portfolio, users, auth, reference, internal, exports
+from src.services.market_data import ExchangeRateUnavailable
 
 # 1. Grab the current API URL from the environment (default to localhost for dev)
 api_url = os.getenv("API_URL", "http://localhost:8000")
@@ -73,6 +74,29 @@ def _sanitize_non_finite(obj):
     if isinstance(obj, (list, tuple)):
         return [_sanitize_non_finite(v) for v in obj]
     return obj
+
+
+@app.exception_handler(ExchangeRateUnavailable)
+async def exchange_rate_unavailable_handler(request: Request, exc: ExchangeRateUnavailable):
+    """
+    A write that needed a rate and could not get one is refused, not guessed at.
+
+    422 rather than 502: the request is answerable, but only with something the
+    caller has and the server does not — the rate, or the amount the account was
+    actually charged. Both are fields on the request body, so this is a
+    malformed-input answer, and it tells the client which pair and which date.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": str(exc),
+            "exchange_rate_unavailable": {
+                "base": exc.base,
+                "target": exc.target,
+                "date": exc.on_date.isoformat(),
+            },
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)

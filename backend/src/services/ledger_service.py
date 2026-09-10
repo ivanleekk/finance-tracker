@@ -509,11 +509,17 @@ def post_transaction(
     )
     # Record what actually moved on the account line, for a foreign-currency account.
     if transaction.currency and transaction.currency != (account.household.base_currency or "USD"):
+        # The rate stored has to be the one that reconciles the line's own two
+        # numbers — native to *home*, since debit/credit are in home currency.
+        # `Transaction.exchange_rate` is native to the *account*, which is the
+        # same figure only when the account is denominated in the base currency.
+        native = _dec(transaction.amount)
+        rate_to_home = float(total / native) if native > 0 else transaction.exchange_rate
         for line in entry.lines:
             if line.ledger_account_id == account_line.id:
-                line.native_amount = _dec(transaction.amount)
+                line.native_amount = native
                 line.native_currency = transaction.currency
-                line.exchange_rate = transaction.exchange_rate
+                line.exchange_rate = rate_to_home
     return entry
 
 
