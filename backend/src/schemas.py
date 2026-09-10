@@ -59,6 +59,26 @@ MerchantCategoryCode = Annotated[
     BeforeValidator(_blank_to_none),
 ]
 
+def _trimmed_or_none(value: object) -> object:
+    """Trim a name, and treat what is left of a blank one as "not given"."""
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return value
+
+
+# Who holds an account — a free-text grouping label, or nothing.
+#
+# Trimming is what makes it a *group* rather than a string: " DBS " and "DBS"
+# must land under one heading, or the feature quietly produces two banks with
+# the same name. Blank coercion is the same rule `MerchantCategoryCode` needs
+# and for the same reason — a cleared text field sends "" from all three
+# clients, and "I'm not grouping this one" must not be a 422.
+InstitutionName = Annotated[
+    Optional[Annotated[str, Field(max_length=120)]],
+    BeforeValidator(_trimmed_or_none),
+]
+
 # A password long enough to be meaningfully hashed. Empty/1-char passwords are
 # a red flag for automated account creation.
 Password = Annotated[str, Field(min_length=8, max_length=256)]
@@ -243,6 +263,10 @@ class AccountBase(AccountLoanTerms):
     tax_status: TaxTreatment
     kind: AccountKind = AccountKind.asset
     currency: str
+    # Who holds the account, for grouping "DBS SGD" and "DBS USD" under one
+    # heading. Blank and whitespace both land as None, so a cleared field is not
+    # a group of its own and " DBS " does not become a second bank.
+    institution: InstitutionName = None
     owner_user_id: Optional[uuid.UUID] = None
     # Earmarks the account to a sub-portfolio/goal (#252). The balance still counts
     # once towards net worth; this additionally counts it towards that goal.
@@ -261,6 +285,8 @@ class AccountUpdate(AccountLoanTerms):
     tax_status: Optional[TaxTreatment] = None
     kind: Optional[AccountKind] = None
     currency: Optional[str] = None
+    # Omit to preserve; send null or "" to clear the grouping label.
+    institution: InstitutionName = None
     owner_user_id: Optional[uuid.UUID] = None
     # Send an explicit null to un-earmark; omitting the key leaves the link alone
     # (update_account uses exclude_unset).

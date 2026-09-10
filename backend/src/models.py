@@ -302,6 +302,20 @@ class FinancialAccount(Base):
     # as a positive number; aggregates subtract them instead of adding.
     kind = Column(Enum(AccountKind, native_enum=False), nullable=False, default=AccountKind.asset, server_default="asset")
     currency = Column(String)
+    # Who holds the account — "DBS", "Chase". Free text, purely a grouping label:
+    # nothing is derived from it and no total depends on it.
+    #
+    # This is the app's answer to "one account, several currencies". A bank's
+    # multi-currency account is, in double-entry terms, several balances under
+    # one relationship that can only be moved between by an FX conversion — which
+    # is a transfer, which already exists. Two accounts model that exactly, and
+    # each keeps its own currency, chain, chart account and reconciliation; all
+    # that was missing was a heading to gather them under. Making the *balance*
+    # chain multi-currency would mean a per-currency chain on the hottest write
+    # path, splitting the one-chart-account-per-account constraint the ledger
+    # relies on, and a daily FX revaluation the architecture deliberately avoids
+    # elsewhere — for a shorter list.
+    institution = Column(String, nullable=True)
     # NULL = shared with the whole household (default). Non-null = private, visible only to that user.
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
