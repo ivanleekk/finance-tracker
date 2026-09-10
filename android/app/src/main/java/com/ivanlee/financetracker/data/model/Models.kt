@@ -159,6 +159,12 @@ data class AccountResponse(
     val taxStatus: String,
     val kind: String? = null,
     val currency: String,
+    /**
+     * Who holds it — a free-text grouping label, so one bank's SGD and USD accounts list
+     * together. Optional on the wire: a client that has not been updated sees an ungrouped
+     * account rather than failing to decode one.
+     */
+    val institution: String? = null,
     /** null = shared with the household; set = private to that user. */
     val ownerUserId: String? = null,
 
@@ -209,6 +215,11 @@ data class AccountCreate(
     val taxStatus: TaxTreatment,
     val kind: AccountKind,
     val currency: String,
+    /**
+     * Who holds it. Blank is coerced to null server-side, so an empty field is "not grouped"
+     * rather than a group of its own.
+     */
+    val institution: String? = null,
     val ownerUserId: String? = null,
     val originalPrincipal: Double? = null,
     val interestRateAnnual: Double? = null,
@@ -239,6 +250,11 @@ data class AccountUpdate(
     val taxStatus: TaxTreatment,
     val kind: AccountKind,
     val currency: String,
+    /**
+     * Who holds it. This form always sends it, so clearing the field clears the grouping —
+     * the API reads "" as null.
+     */
+    val institution: String? = null,
     val ownerUserId: String? = null,
     val originalPrincipal: Double? = null,
     val interestRateAnnual: Double? = null,

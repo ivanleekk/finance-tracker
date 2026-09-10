@@ -286,6 +286,10 @@ struct AccountResponse: Codable, Identifiable, Hashable {
     let taxStatus: String
     let kind: String?
     let currency: String
+    /// Who holds it — a free-text grouping label, so one bank's SGD and USD
+    /// accounts list together. Optional on the wire: a client that has not been
+    /// updated sees an ungrouped account rather than failing to decode one.
+    let institution: String?
     /// nil = shared with the household; set = private to that user.
     let ownerUserId: String?
     /// Closed but kept. Optional on the wire, and a missing value means *open* —
@@ -328,6 +332,9 @@ struct AccountCreate: Encodable {
     let taxStatus: TaxTreatment
     let kind: AccountKind
     let currency: String
+    /// Who holds it. Blank is coerced to null server-side, so an empty field is
+    /// "not grouped" rather than a group of its own.
+    var institution: String? = nil
     let ownerUserId: String?
 
     // Optional loan/property terms. nil is omitted from the body, so an account
@@ -352,6 +359,9 @@ struct AccountUpdate: Encodable {
     let taxStatus: TaxTreatment
     let kind: AccountKind
     let currency: String
+    /// Who holds it. This form always sends it, so clearing the field clears the
+    /// grouping — the API reads "" as null.
+    var institution: String? = nil
     let ownerUserId: String?
 
     var originalPrincipal: Double? = nil

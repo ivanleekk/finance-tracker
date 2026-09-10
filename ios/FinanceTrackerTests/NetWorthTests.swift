@@ -216,3 +216,61 @@ struct SelectableAccountsTests {
         #expect(selectableAccounts([account("c", archived: nil)]).count == 1)
     }
 }
+
+/// Grouping a bank's accounts under one heading — twin of the web
+/// `clusterByInstitution` tests in `lib/networth.test.ts` and Android's
+/// `NetWorthTest`. This is what the app offers instead of a multi-currency
+/// account, so the three clients have to gather the same rows the same way.
+struct ClusterByInstitutionTests {
+    private func account(_ id: String, institution: String?) -> AccountResponse {
+        let label = institution.map { "\"\($0)\"" } ?? "null"
+        let json = """
+        {"id":"\(id)","household_id":"h","name":"A","liquidity":"liquid",
+         "tax_status":"taxable","kind":"asset","currency":"USD","owner_user_id":null,
+         "institution":\(label)}
+        """
+        return try! APIClient.decoder.decode(AccountResponse.self, from: Data(json.utf8))
+    }
+
+    @Test func gathersTwoAccountsAtOneBankUnderASingleHeading() {
+        let clusters = clusterByInstitution([
+            account("sgd", institution: "DBS"),
+            account("usd", institution: "DBS"),
+        ])
+        #expect(clusters.count == 1)
+        #expect(clusters[0].institution == "DBS")
+        #expect(clusters[0].accounts.map(\.id) == ["sgd", "usd"])
+    }
+
+    @Test func leavesALoneLabelledAccountWithoutAHeading() {
+        // A heading over one row says nothing and nests the whole list a level
+        // deeper for nothing.
+        let clusters = clusterByInstitution([
+            account("sgd", institution: "DBS"),
+            account("cash", institution: "Mattress"),
+        ])
+        #expect(clusters.allSatisfy { $0.institution == nil })
+    }
+
+    @Test func gathersAccountsWhereverTheyAppearNotOnlyWhenAdjacent() {
+        let clusters = clusterByInstitution([
+            account("dbs-sgd", institution: "DBS"),
+            account("chase", institution: "Chase"),
+            account("dbs-usd", institution: "DBS"),
+            account("chase-2", institution: "Chase"),
+        ])
+        // Each cluster sits where its *first* member was, so gathering one from
+        // further down never reorders the list around it.
+        #expect(clusters.map(\.institution) == ["DBS", "Chase"])
+        #expect(clusters[0].accounts.map(\.id) == ["dbs-sgd", "dbs-usd"])
+    }
+
+    @Test func leavesUnlabelledAccountsStandingOnTheirOwn() {
+        let clusters = clusterByInstitution([
+            account("a", institution: nil),
+            account("b", institution: ""),
+        ])
+        #expect(clusters.count == 2)
+        #expect(clusters.allSatisfy { $0.institution == nil })
+    }
+}
