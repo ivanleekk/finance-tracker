@@ -112,6 +112,13 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   LAN testing; the whole override — UI and read path — is behind `BuildConfig.DEBUG` so it
   compiles out of release. Cleartext HTTP is opened for loopback/LAN only, in
   `res/xml/network_security_config.xml`.
+- **Staging** is a third build type (`staging`, `initWith(release)`) pointed at
+  `https://stagfinanceapi.ivanleekaikiat.com` (the `dev`-branch stack, DEPLOYMENT.md §9).
+  `applicationIdSuffix = ".staging"` installs it **beside** production with its own storage,
+  so a staging login can't overwrite production tokens; its launcher label ("Waypoint Stg")
+  comes from `src/staging/res/values/strings.xml`. `BuildConfig.IS_STAGING` drives the orange
+  `StagingBadge` on the login screen and More tab. `./gradlew :app:installStaging` (signed with
+  the release keystore when `keystore.properties` exists, unsigned otherwise).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`.
   `ViewModeViewModel` holds the persisted mode plus a `hasSecondPerson` flag; the
   `ViewModeSwitcher` toolbar control renders only once the active household has a second person

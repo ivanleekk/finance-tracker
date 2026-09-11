@@ -48,10 +48,12 @@ android {
             // `docker compose up` backend on the Mac is reachable without any config.
             // A physical device on the LAN uses the in-app override (Settings ▸ API server).
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000\"")
+            buildConfigField("Boolean", "IS_STAGING", "false")
             isDebuggable = true
         }
         release {
             buildConfigField("String", "API_BASE_URL", "\"https://financeapi.ivanleekaikiat.com\"")
+            buildConfigField("Boolean", "IS_STAGING", "false")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -61,6 +63,18 @@ android {
             if (keystoreProperties.isNotEmpty()) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+        // A release build pointed at the staging stack (`dev` branch, DEPLOYMENT.md §9).
+        // The applicationId suffix installs it beside the production app with its own
+        // storage, so a staging login can never overwrite the production tokens.
+        //   ./gradlew :app:installStaging
+        create("staging") {
+            initWith(getByName("release"))
+            buildConfigField("String", "API_BASE_URL", "\"https://stagfinanceapi.ivanleekaikiat.com\"")
+            buildConfigField("Boolean", "IS_STAGING", "true")
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            matchingFallbacks += listOf("release")
         }
     }
 

@@ -44,6 +44,10 @@ struct LoginView: View {
                     header
                         .padding(.top, 48)
 
+                    if AppConfig.isStaging {
+                        StagingBadge()
+                    }
+
                     Picker("Mode", selection: $mode) {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
@@ -227,5 +231,19 @@ struct LoginView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// Marks a Staging build wherever a real account could otherwise be mistaken for it: the
+/// login screen and the More tab. Staging holds a copy of production data, so without this the
+/// two apps are indistinguishable once signed in.
+struct StagingBadge: View {
+    var body: some View {
+        Label("Staging · \(AppConfig.defaultBaseURL.host() ?? "")", systemImage: "hammer.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.orange, in: Capsule())
     }
 }
