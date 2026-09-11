@@ -14,8 +14,9 @@ Two adjacent gaps surfaced while scoping this:
 
 - **Android cannot pick a reset basis at all** — its add-limit dialog hardcodes
   `resetBasis = "cycle"` (`android/.../ui/more/CardDialogs.kt`).
-- **iOS and Android cannot edit a card after setup** — only web has `updateCard`.
-  Existing cards are exactly the ones that need an anniversary added.
+- **No client can edit a card after setup.** Web's loader has an `updateCard`
+  action but nothing in the UI submits it; iOS and Android have neither. Existing
+  cards are exactly the ones that need an anniversary added.
 
 Both are fixed here, because the feature is unusable on native without them.
 
@@ -117,8 +118,12 @@ creating an anniversary limit before updating.
 ### Web
 
 `frontend/src/pages/Cards/CardDialogs.tsx`, `cards.loader.ts`, `types/types.ts`: two
-new `RESET_OPTIONS`, date input on setup and on the existing `updateCard` form; an
-empty input submits as `null` to clear.
+new reset options, a date input on setup, and a **new card-settings section** in the
+Manage dialog (cycle basis, statement day, anniversary) that finally submits the
+existing `updateCard` action; an empty date submits as `null` to clear.
+
+On iOS and Android, where a menu row cannot reliably be disabled, the anniversary
+options are left out of the picker (with the same hint) rather than greyed out.
 
 ### iOS
 
