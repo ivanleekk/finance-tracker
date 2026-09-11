@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Staging build type only: the launcher label that tells it apart from production. -->
+<resources>
+    <string name="app_name">Waypoint Stg</string>
+</resources>

@@ -299,3 +299,22 @@ fun LoadingSkeleton(
         }
     }
 }
+
+/**
+ * Marks a staging build wherever it could be mistaken for production: the login screen and the
+ * More tab. Staging holds a copy of production data, so without this the two apps are
+ * indistinguishable once signed in. Twin of iOS's `StagingBadge`.
+ */
+@Composable
+fun StagingBadge(host: String, modifier: Modifier = Modifier) {
+    Text(
+        "Staging · $host",
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xFFF97316))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        color = Color.White,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+    )
+}

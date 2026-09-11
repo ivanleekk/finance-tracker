@@ -11,9 +11,15 @@ final class SessionStore {
         case loading
         case unauthenticated
         case authenticated
+        /// Signed in (tokens are still in the Keychain) but the launch requests failed for
+        /// a reason that says nothing about the session — offline, a timeout, a 5xx. Shown
+        /// as "couldn't reach the server" with a Retry, never as the login screen.
+        case unreachable
     }
 
     var phase: Phase = .loading
+    /// Why the last launch attempt couldn't load the session, for the `.unreachable` screen.
+    var bootstrapError: String?
     var user: UserResponse?
     var households: [HouseholdResponse] = []
 
@@ -117,9 +123,41 @@ final class SessionStore {
         }
         do {
             try await loadSession()
+            bootstrapError = nil
             phase = .authenticated
         } catch {
-            phase = .unauthenticated
+            // Only the server rejecting the session is a reason to ask for the password
+            // again. Every cold start after the 30-minute access token has lapsed costs three
+            // round trips (401, refresh, retry) before anything renders, and treating a failure
+            // in any of them as "logged out" put the login screen in front of a user whose
+            // tokens were perfectly valid — several times a day on a mobile network.
+            if Self.isAuthRejection(error) {
+                Keychain.clearTokens()
+                phase = .unauthenticated
+            } else {
+                bootstrapError = error.localizedDescription
+                phase = .unreachable
+            }
+        }
+    }
+
+    /// Try the launch requests again from the `.unreachable` screen (or on returning to the
+    /// foreground while it is showing).
+    func retryBootstrap() async {
+        guard phase == .unreachable else { return }
+        phase = .loading
+        await bootstrap()
+    }
+
+    /// Whether a launch failure means the session itself is dead. `sessionExpired` is the
+    /// refresh endpoint's own 401; a plain 401 is a request that still failed *after* a
+    /// successful refresh. Everything else — transport errors, timeouts, 5xx, a decode
+    /// failure — leaves the tokens exactly as valid as they were.
+    nonisolated static func isAuthRejection(_ error: any Error) -> Bool {
+        switch error {
+        case APIError.sessionExpired: return true
+        case APIError.http(status: 401, _): return true
+        default: return false
         }
     }
 
@@ -193,6 +231,7 @@ final class SessionStore {
         user = nil
         households = []
         activeHousehold = nil
+        bootstrapError = nil
         phase = .unauthenticated
     }
 

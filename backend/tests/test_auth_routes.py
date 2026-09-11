@@ -99,6 +99,37 @@ def test_refresh_with_bearer_header(client, registered_user):
     assert response.json()["access_token"]
 
 
+def test_refresh_returns_rotated_refresh_token_in_body(client, registered_user):
+    """Native clients read the rotated refresh token from the body, not a cookie.
+
+    Without it they keep the token from login, and the session dies 30 days after
+    sign-in however often the app is used.
+    """
+    from datetime import timedelta
+
+    import jwt
+
+    from src.auth import ALGORITHM, SECRET_KEY
+
+    old = create_refresh_token(
+        data={"sub": str(registered_user.id)}, expires_delta=timedelta(minutes=5)
+    )
+    client.cookies.clear()
+    response = client.post("/auth/refresh", headers={"Authorization": f"Bearer {old}"})
+    assert response.status_code == 200
+
+    new = response.json()["refresh_token"]
+    old_claims = jwt.decode(old, SECRET_KEY, algorithms=[ALGORITHM])
+    new_claims = jwt.decode(new, SECRET_KEY, algorithms=[ALGORITHM])
+    assert new_claims["type"] == "refresh"
+    assert new_claims["sub"] == str(registered_user.id)
+    assert new_claims["exp"] > old_claims["exp"]
+
+    # And the rotated token is itself usable for the next refresh.
+    again = client.post("/auth/refresh", headers={"Authorization": f"Bearer {new}"})
+    assert again.status_code == 200
+
+
 def test_refresh_rejects_access_token(client, registered_user):
     access = create_access_token(data={"sub": str(registered_user.id)})
     client.cookies.clear()

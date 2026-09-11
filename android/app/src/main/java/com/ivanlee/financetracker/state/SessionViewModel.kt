@@ -25,9 +25,12 @@ import com.ivanlee.financetracker.data.model.UserCreate
 import com.ivanlee.financetracker.data.model.UserResponse
 import com.ivanlee.financetracker.data.model.UserUpdate
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.ApiException
+import com.ivanlee.financetracker.data.net.SessionExpiredException
 import com.ivanlee.financetracker.data.net.TokenStore
 import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.ui.theme.AppTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
 
@@ -40,9 +43,18 @@ import java.time.Instant
  */
 class SessionViewModel(app: Application) : AndroidViewModel(app) {
 
-    enum class Phase { LOADING, UNAUTHENTICATED, AUTHENTICATED }
+    /**
+     * `UNREACHABLE` = still signed in (tokens are in the TokenStore) but the launch requests
+     * failed for a reason that says nothing about the session — offline, a timeout, a 5xx.
+     * Shown as "couldn't reach the server" with a Retry, never as the login screen.
+     */
+    enum class Phase { LOADING, UNAUTHENTICATED, AUTHENTICATED, UNREACHABLE }
 
     var phase by mutableStateOf(Phase.LOADING)
+        private set
+
+    /** Why the last launch attempt couldn't load the session, for the `UNREACHABLE` screen. */
+    var bootstrapError by mutableStateOf<String?>(null)
         private set
     var user by mutableStateOf<UserResponse?>(null)
         private set
@@ -94,10 +106,30 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         }
         phase = try {
             loadSession()
+            bootstrapError = null
             Phase.AUTHENTICATED
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Phase.UNAUTHENTICATED
+            // Only the server rejecting the session is a reason to ask for the password again.
+            // A cold start after the 30-minute access token has lapsed costs three round trips
+            // (401, refresh, retry), and treating a failure in any of them as "logged out" put
+            // the login screen in front of users whose tokens were perfectly valid.
+            if (isAuthRejection(e)) {
+                TokenStore.clear()
+                Phase.UNAUTHENTICATED
+            } else {
+                bootstrapError = e.message
+                Phase.UNREACHABLE
+            }
         }
+    }
+
+    /** Try the launch requests again from the `UNREACHABLE` screen (or on resume while it shows). */
+    suspend fun retryBootstrap() {
+        if (phase != Phase.UNREACHABLE) return
+        phase = Phase.LOADING
+        bootstrap()
     }
 
     suspend fun login(email: String, password: String) {
@@ -227,6 +259,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         user = null
         households.clear()
         activeHousehold = null
+        bootstrapError = null
         phase = Phase.UNAUTHENTICATED
     }
 
@@ -239,7 +272,17 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         activeHousehold = loaded.firstOrNull { it.id == savedId } ?: loaded.firstOrNull()
     }
 
-    private companion object {
-        const val ACTIVE_HOUSEHOLD_KEY = "activeHouseholdId"
+    companion object {
+        private const val ACTIVE_HOUSEHOLD_KEY = "activeHouseholdId"
+
+        /**
+         * Whether a launch failure means the session itself is dead. [SessionExpiredException]
+         * is the refresh endpoint's own 401; a plain 401 is a request that still failed *after*
+         * a successful refresh. Everything else — transport errors, timeouts, 5xx, a decode
+         * failure — leaves the tokens exactly as valid as they were. Twin of iOS's
+         * `SessionStore.isAuthRejection`.
+         */
+        fun isAuthRejection(error: Throwable): Boolean =
+            error is SessionExpiredException || (error is ApiException && error.status == 401)
     }
 }

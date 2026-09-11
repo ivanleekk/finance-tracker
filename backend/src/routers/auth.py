@@ -156,7 +156,15 @@ def refresh_token(
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    # The rotated refresh token goes in the body too, not only the cookie: the native
+    # clients have no cookie jar and read the body. Leaving it out meant they kept the
+    # refresh token from login forever, so every session died 30 days after sign-in no
+    # matter how often the app was used.
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get("/logout", status_code=status.HTTP_200_OK)
