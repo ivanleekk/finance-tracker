@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.ivanlee.financetracker.BuildConfig
 import com.ivanlee.financetracker.state.QuickAddViewModel
@@ -36,6 +38,7 @@ import com.ivanlee.financetracker.state.ViewModeViewModel
 import com.ivanlee.financetracker.ui.components.ConfirmDialog
 import com.ivanlee.financetracker.ui.components.MainScreenScaffold
 import com.ivanlee.financetracker.ui.components.SectionCard
+import com.ivanlee.financetracker.ui.components.StagingBadge
 import com.ivanlee.financetracker.ui.components.cardListItemColors
 
 /** Everything that isn't one of the four working tabs. */
@@ -114,6 +117,17 @@ fun MoreScreen(
                 MoreRow("Members & invites", Icons.Filled.Group) { onNavigate(routes.members) }
                 HorizontalDivider()
                 MoreRow("Create household", Icons.Filled.Add) { onNavigate(routes.createHousehold) }
+            }
+        }
+
+        if (BuildConfig.IS_STAGING) {
+            item {
+                SectionCard(title = "Environment") {
+                    StagingBadge(
+                        host = java.net.URI(BuildConfig.API_BASE_URL).host.orEmpty(),
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
         }
 

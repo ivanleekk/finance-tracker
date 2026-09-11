@@ -42,6 +42,7 @@ import com.ivanlee.financetracker.BuildConfig
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.state.SessionViewModel
 import com.ivanlee.financetracker.ui.components.FormField
+import com.ivanlee.financetracker.ui.components.StagingBadge
 import com.ivanlee.financetracker.ui.theme.LocalAppTheme
 import com.ivanlee.financetracker.ui.theme.luminanceIsDark
 import kotlinx.coroutines.launch
@@ -187,6 +188,13 @@ fun LoginScreen(sessionVm: SessionViewModel) {
                     Text(
                         if (isSignUp) "Already have an account? Log in"
                         else "New here? Create an account"
+                    )
+                }
+
+                if (BuildConfig.IS_STAGING) {
+                    StagingBadge(
+                        host = java.net.URI(BuildConfig.API_BASE_URL).host.orEmpty(),
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
                     )
                 }
 

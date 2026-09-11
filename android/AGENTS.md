@@ -112,6 +112,13 @@ per sub-portfolio inside the Portfolio tab and drilled into via `GoalDetailScree
   LAN testing; the whole override — UI and read path — is behind `BuildConfig.DEBUG` so it
   compiles out of release. Cleartext HTTP is opened for loopback/LAN only, in
   `res/xml/network_security_config.xml`.
+- **Staging** is a third build type (`staging`, `initWith(release)`) pointed at
+  `https://stagfinanceapi.ivanleekaikiat.com` (the `dev`-branch stack, DEPLOYMENT.md §9).
+  `applicationIdSuffix = ".staging"` installs it **beside** production with its own storage,
+  so a staging login can't overwrite production tokens; its launcher label ("Waypoint Stg")
+  comes from `src/staging/res/values/strings.xml`. `BuildConfig.IS_STAGING` drives the orange
+  `StagingBadge` on the login screen and More tab. `./gradlew :app:installStaging` (signed with
+  the release keystore when `keystore.properties` exists, unsigned otherwise).
 - **View mode (Private/Household/Blended)** mirrors the web `ViewModeContext`.
   `ViewModeViewModel` holds the persisted mode plus a `hasSecondPerson` flag; the
   `ViewModeSwitcher` toolbar control renders only once the active household has a second person
@@ -310,6 +317,9 @@ where tests pay off without a backend or an emulator:
   Quick Add folds in without duplicating when the next refresh returns it. Twin of iOS's
   `ReferenceDataStoreTests`.
 - `ApiUrlTest` — query-string splitting.
+- `SessionBootstrapTest` — `SessionViewModel.isAuthRejection`; twin of iOS's
+  `SessionBootstrapTests`. Only an auth rejection sends a failed launch to the login screen;
+  anything else is `Phase.UNREACHABLE` with a Retry.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.
 

@@ -161,6 +161,14 @@ struct MoreView: View {
                     }
                 }
 
+                if AppConfig.isStaging {
+                    Section {
+                        StagingBadge()
+                    } footer: {
+                        Text("This build talks to the staging server, not production.")
+                    }
+                }
+
                 #if DEBUG
                 Section {
                     TextField("http://192.168.1.142:8000", text: $apiBaseURL)

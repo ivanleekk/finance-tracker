@@ -17,6 +17,13 @@ enum AppConfig {
         #endif
     }
 
+    /// True for the Staging configuration (the "FinanceTracker Staging" scheme), which points
+    /// at the staging stack instead of production. Read from the `APP_ENVIRONMENT` build
+    /// setting via Info.plist, so it is a fact about the build, not a user preference.
+    static var isStaging: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "APP_ENVIRONMENT") as? String == "staging"
+    }
+
     /// Backend base URL baked into this build. Falls back to localhost if the build
     /// setting is empty or was left unresolved (e.g. `$(API_BASE_URL)` not substituted).
     static var defaultBaseURL: URL {

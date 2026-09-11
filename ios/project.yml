@@ -6,6 +6,14 @@ options:
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
+# Staging is a Release-type build (optimised, no DEBUG, no runtime API override) pointed at
+# the staging stack (`dev` branch, DEPLOYMENT.md §9). Build it with the "FinanceTracker
+# Staging" scheme below. It has its own bundle id, so it installs beside the production app
+# and keeps its own Keychain — a staging login can't clobber the production one.
+configs:
+  Debug: debug
+  Staging: release
+  Release: release
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -30,7 +38,7 @@ targets:
     info:
       path: FinanceTracker/Info.plist
       properties:
-        CFBundleDisplayName: Waypoint
+        CFBundleDisplayName: $(APP_DISPLAY_NAME)
         UILaunchScreen: {}
         # iPhone stays portrait-only; iPad must declare all four or it forfeits Split View
         # and Stage Manager (iPadOS only offers multitasking to fully rotatable apps).
@@ -48,9 +56,12 @@ targets:
         NSLocalNetworkUsageDescription: Used to reach your finance tracker backend running on your local network during development.
         # Backend endpoint baked in per build configuration; read via AppConfig.defaultBaseURL.
         API_BASE_URL: $(API_BASE_URL)
+        APP_ENVIRONMENT: $(APP_ENVIRONMENT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker
+        APP_DISPLAY_NAME: Waypoint
+        APP_ENVIRONMENT: production
         # 1 = iPhone, 2 = iPad. Universal.
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -62,6 +73,12 @@ targets:
         # (NSAllowsLocalNetworking), so a plain-http production URL is blocked outright.
         Debug:
           API_BASE_URL: http://localhost:8000
+          APP_ENVIRONMENT: development
+        Staging:
+          API_BASE_URL: https://stagfinanceapi.ivanleekaikiat.com
+          APP_ENVIRONMENT: staging
+          PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker.staging
+          APP_DISPLAY_NAME: Waypoint Stg
         Release:
           API_BASE_URL: https://financeapi.ivanleekaikiat.com
   # Logic unit tests (Swift Testing). Because this target depends on the app target,
@@ -84,3 +101,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivanlee.financetracker.tests
         GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  # Run / archive against the staging backend. Tests stay on the main scheme (Debug).
+  FinanceTracker Staging:
+    build:
+      targets:
+        FinanceTracker: all
+    run:
+      config: Staging
+    profile:
+      config: Staging
+    analyze:
+      config: Staging
+    archive:
+      config: Staging
