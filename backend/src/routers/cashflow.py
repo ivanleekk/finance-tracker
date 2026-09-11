@@ -11,7 +11,11 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_account_ids
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
-from src.services.transaction_service import create_transaction, resolve_rates
+from src.services.transaction_service import (
+    create_transaction,
+    resolve_rates,
+    sync_fee_transaction,
+)
 from src.services import ledger_service, recurring_service, budget_service
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
@@ -174,6 +178,7 @@ def log_transaction(
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
         amount_charged=transaction.amount_charged,
+        fee_percent=transaction.fee_percent,
         description=transaction.description,
         splits=_resolve_splits(db, db_account.household_id, transaction.splits),
         # A receivable arising from a private account stays private, the same way
@@ -473,6 +478,12 @@ def update_transaction(
         owner_user_id=target_account.owner_user_id if target_account else None,
     )
 
+    # The fee row is derived from this one, so it is re-derived here rather than
+    # patched: a changed amount, rate, date or percentage all move it, and
+    # `sync_fee_transaction` converges on whatever the purchase now says.
+    if target_account is not None:
+        sync_fee_transaction(db, db_transaction, target_account)
+
     db.commit()
     db.refresh(db_transaction)
     return _with_split(db, [db_transaction])[0]
@@ -497,6 +508,20 @@ def delete_transaction(
     exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
     sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * Decimal(str(exchange_rate)) * multiplier))
     
+    # A fee row means nothing without the purchase that caused it, so deleting
+    # the purchase takes it along — through the same reversal, not through a DB
+    # cascade, which would drop the row while leaving its balance impact and its
+    # journal entry behind.
+    for fee in db.query(models.Transaction).filter(
+        models.Transaction.fee_for_transaction_id == db_transaction.id
+    ).all():
+        sync_transaction_to_balances(
+            db, fee.account_id, fee.date.date(),
+            fee.amount * Decimal(str(fee.exchange_rate or 1.0)),
+        )
+        ledger_service.delete_entry_for(db, models.JournalSource.transaction, fee.id)
+        db.delete(fee)
+
     transfer_id = db_transaction.transfer_id
     ledger_service.delete_entry_for(db, models.JournalSource.transaction, db_transaction.id)
     if transfer_id:

@@ -248,6 +248,7 @@ def _post_occurrence(
         # avoid.
         mcc=rule.mcc,
         card_category_id=rule.card_category_id,
+        fee_percent=rule.fee_percent,
         # The rule's standing split, replayed into this occurrence. A
         # transaction's split lives in the journal entry it posts, so
         # each posting gets its own entry carving out the same shares —

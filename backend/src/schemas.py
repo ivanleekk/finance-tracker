@@ -79,6 +79,15 @@ InstitutionName = Annotated[
     BeforeValidator(_trimmed_or_none),
 ]
 
+# A card's surcharge on one purchase, as a percentage of it.
+#
+# Bounded rather than open: a foreign-transaction fee is 1-3%, and the worst
+# real-world surcharges are single digits, so 100 is already absurd and a
+# mistyped 300 is a typo rather than a fee. 0 is allowed and means the same as
+# absent — a fee of nothing is no fee, and rejecting it would make "I set it
+# back to zero" an error.
+FeePercent = Annotated[Optional[Decimal], Field(ge=0, le=100, allow_inf_nan=False)]
+
 # A password long enough to be meaningfully hashed. Empty/1-char passwords are
 # a red flag for automated account creation.
 Password = Annotated[str, Field(min_length=8, max_length=256)]
@@ -658,6 +667,10 @@ class TransactionBase(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
+    # What the card added on top, as a percentage of this purchase. The money is
+    # posted as its own linked row under "Card Fees" rather than folded into the
+    # amount — see models.Transaction.fee_percent.
+    fee_percent: FeePercent = None
     # Optional, and recorded rather than evaluated — see models.Transaction.mcc.
     mcc: MerchantCategoryCode = None
     # Which of the card's own categories this counts towards. Null falls to the
@@ -733,12 +746,18 @@ class TransactionUpdate(BaseModel):
     mcc: MerchantCategoryCode = None
     # Same three-state rule: omit to preserve, send null to untag.
     card_category_id: Optional[uuid.UUID] = None
+    # Same again: omit to preserve the fee already recorded, send null or 0 to
+    # remove it. Changing it reprices the linked fee row.
+    fee_percent: FeePercent = None
 
 
 class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # Set on a fee row, naming the purchase that caused it, so a client can show
+    # the two together instead of as unrelated neighbours.
+    fee_for_transaction_id: Optional[uuid.UUID] = None
     # Populated from the ledger where the row was split. Empty means none of it
     # was somebody else's — including for everything logged before the ledger.
     splits: List[TransactionSplitRow] = []
@@ -774,6 +793,9 @@ class RecurringTransactionBase(BaseModel):
     # so recording them once on the rule is the difference between a rule that
     # describes a payment and one that only half-describes it.
     mcc: MerchantCategoryCode = None
+    # The card's surcharge on each posting — a foreign subscription's 3% does
+    # not change month to month, so the rule carries it like the two above.
+    fee_percent: FeePercent = None
     card_category_id: Optional[uuid.UUID] = None
 
 
@@ -801,6 +823,8 @@ class RecurringTransactionUpdate(BaseModel):
     # it. Editing a rule's amount must not silently discard a code the user
     # looked up once.
     mcc: MerchantCategoryCode = None
+    # Three-state like the two beside it: omit to preserve, null or 0 to remove.
+    fee_percent: FeePercent = None
     card_category_id: Optional[uuid.UUID] = None
     # Plain optional list, the same three states `TransactionUpdate.splits` uses:
     # omit to leave the recorded split alone, `[]` to clear it, a populated list
