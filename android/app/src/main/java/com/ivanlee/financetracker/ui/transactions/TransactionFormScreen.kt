@@ -115,6 +115,8 @@ fun TransactionFormScreen(
     // What the account was actually charged, in its own currency. Blank means "I don't know it",
     // which is the normal case: the backend then pulls the spot rate for the date.
     var amountChargedText by remember { mutableStateOf("") }
+    // A surcharge the card adds on top, as a percentage. Blank means none.
+    var feePercentText by remember { mutableStateOf("") }
     var currencies by remember { mutableStateOf<List<ReferenceCurrency>>(emptyList()) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     // Part of this bill is one or more other people's. The amount above stays the full sum
@@ -191,6 +193,9 @@ fun TransactionFormScreen(
                         // money fields on this form read back the same way.
                         (Math.round(txn.amount * storedRate * 100) / 100.0).toString()
                     } else ""
+                feePercentText = txn.feePercent?.let {
+                    if (it == Math.floor(it)) it.toInt().toString() else it.toString()
+                }.orEmpty()
             } else {
                 accountId = accounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId }?.id
                     ?: accounts.firstOrNull { it.id == h.defaultFundingAccountId }?.id
@@ -217,6 +222,12 @@ fun TransactionFormScreen(
     // stale one would define a bogus rate.
     val amountCharged =
         if (isForeignCharge) CalculatorInput.evaluateArithmeticExpression(amountChargedText) else null
+    val feePercent = CalculatorInput.evaluateArithmeticExpression(feePercentText)
+    // The purchase as the account sees it, for the fee hint: the charged amount when the user
+    // gave one, the raw amount when no conversion is involved — and null for a foreign charge
+    // with neither, where only the server knows the rate and guessing would show a fee that is
+    // not the fee.
+    val amountInAccountCurrency = amountCharged ?: if (isForeignCharge) null else amount
 
     // Only rows with a person picked count as an entry — a still-blank "+ Add person" row
     // must not itself make the split invalid.
@@ -274,6 +285,9 @@ fun TransactionFormScreen(
                             cardCategoryId = cardCategoryId,
                             currency = chargeCurrency.ifEmpty { null },
                             amountCharged = amountCharged,
+                            // 0 rather than null for "no fee": null omits the key, which the
+                            // API reads as "preserve", leaving no way to remove a surcharge.
+                            feePercent = feePercent ?: 0.0,
                         ),
                     )
                 } else {
@@ -295,6 +309,7 @@ fun TransactionFormScreen(
                             cardCategoryId = cardCategoryId,
                             currency = chargeCurrency.ifEmpty { null },
                             amountCharged = amountCharged,
+                            feePercent = feePercent,
                         ),
                     )
                 }
@@ -551,6 +566,26 @@ fun TransactionFormScreen(
                         },
                     )
                 }
+            }
+
+            // A surcharge the card adds on top. Deliberately not inside the foreign-charge
+            // section above, despite usually appearing with one: a card can surcharge a
+            // domestic transaction too, and hiding the field behind a currency mismatch would
+            // make those unrecordable. The money posts as its own row under "Card Fees", so
+            // the amount above keeps matching the receipt.
+            SectionCard {
+                val fee = Fx.feeAmount(amountInAccountCurrency, feePercent)
+                MoneyField(
+                    "Card fee (optional, %)",
+                    feePercentText,
+                    { feePercentText = it },
+                    supportingText = if (fee == null) {
+                        "Some cards add a percentage on top — a foreign transaction fee, a surcharge."
+                    } else {
+                        "Posts a separate ${fee.currency(accountCurrency ?: "")} row under " +
+                            "Card Fees, so this purchase keeps the amount on your receipt."
+                    },
+                )
             }
 
             // Only when the selected account is actually a card. The headroom sits in

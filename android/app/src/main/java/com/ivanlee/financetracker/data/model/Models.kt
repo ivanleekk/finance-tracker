@@ -372,6 +372,13 @@ data class TransactionResponse(
     /** Which of the card's own categories this counts towards, if any. */
     val cardCategoryId: String? = null,
     /**
+     * A surcharge the card added on top, as a percentage of this purchase. The money itself is
+     * a separate row — see [feeForTransactionId].
+     */
+    val feePercent: Double? = null,
+    /** Set on a fee row, naming the purchase that caused it. */
+    val feeForTransactionId: String? = null,
+    /**
      * The rate from [currency] to the *account's* currency, frozen when the row was written.
      * `amount * exchangeRate` is what the account was charged — which is how the edit form
      * recovers the figure the user typed.
@@ -406,6 +413,11 @@ data class TransactionCreate(
      * Given, it *defines* the rate (spread included) and no rate is looked up at all.
      */
     val amountCharged: Double? = null,
+    /**
+     * A surcharge the card adds on top, as a percentage. Posts its own linked row under
+     * "Card Fees" rather than inflating this one.
+     */
+    val feePercent: Double? = null,
 )
 
 /**
@@ -453,6 +465,12 @@ data class TransactionUpdate(
      * description fix. Sending it back keeps the round trip lossless.
      */
     val amountCharged: Double? = null,
+    /**
+     * The card's surcharge. Always sent by the transaction form, and **0 is the clear**: the
+     * field is three-state like [mcc], where an omitted key preserves what the row has, so
+     * sending null for "no fee" would make removing a surcharge impossible.
+     */
+    val feePercent: Double? = null,
 )
 
 fun transactionUpdate(
@@ -470,6 +488,8 @@ fun transactionUpdate(
     currency: String? = null,
     /** Null omits the key; a value re-derives the rate from the two figures. */
     amountCharged: Double? = null,
+    /** 0 removes a recorded surcharge; null omits the key and preserves it. */
+    feePercent: Double? = null,
 ): TransactionUpdate = TransactionUpdate(
     date = date,
     amount = amount,
@@ -482,6 +502,7 @@ fun transactionUpdate(
     cardCategoryId = cardCategoryId?.let { JsonPrimitive(it) } ?: JsonNull,
     currency = currency,
     amountCharged = amountCharged,
+    feePercent = feePercent,
 )
 
 // MARK: Reimbursements

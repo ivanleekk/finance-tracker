@@ -142,3 +142,45 @@ struct ForeignChargeSection: View {
         }
     }
 }
+
+
+/// A surcharge the card adds on top of a purchase, as a percentage.
+///
+/// Not part of `ForeignChargeSection` above, despite usually appearing with
+/// one: a card can surcharge a domestic transaction too, and hiding the field
+/// behind a currency mismatch would make those unrecordable.
+///
+/// The money posts as its own row under "Card Fees" rather than inflating the
+/// purchase, so the amount on this form keeps matching the receipt.
+struct CardFeeSection: View {
+    /// The account-currency value of the purchase, for the money hint. Nil when
+    /// only the server knows it — a foreign charge with no charged amount typed.
+    let amountInAccountCurrency: Double?
+    let accountCurrency: String
+    @Binding var feePercentText: String
+
+    private var feeHint: String {
+        guard let fee = Fx.feeAmount(
+            amountInAccountCurrency: amountInAccountCurrency,
+            feePercent: CalculatorInput.evaluateArithmeticExpression(feePercentText)
+        ) else { return "" }
+        return fee.currency(accountCurrency)
+    }
+
+    var body: some View {
+        Section {
+            HStack {
+                Text("Card fee")
+                CalculatorField(placeholder: "0%", text: $feePercentText)
+                    .multilineTextAlignment(.trailing)
+                Text("%").foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text(
+                feeHint.isEmpty
+                    ? "Optional. Some cards add a percentage on top — a foreign transaction fee, a surcharge."
+                    : "Posts a separate \(feeHint) row under Card Fees, so this purchase keeps the amount on your receipt."
+            )
+        }
+    }
+}

@@ -64,6 +64,23 @@ class FxTest {
     }
 
     @Test
+    fun `the fee is a percentage of the converted amount, to the cent`() {
+        // What the card bills a percentage of is what it charged you, so a ¥12,000 dinner
+        // settled at S$124.80 carries S$3.74 — not 3% of ¥12,000.
+        assertEquals(3.74, Fx.feeAmount(124.80, 3.0)!!, 1e-9)
+        assertEquals(3.0, Fx.feeAmount(100.0, 3.0)!!, 1e-9)
+    }
+
+    @Test
+    fun `there is no fee to show without two positive figures`() {
+        assertNull(Fx.feeAmount(124.80, 0.0))
+        assertNull(Fx.feeAmount(124.80, null))
+        assertNull(Fx.feeAmount(null, 3.0))
+        assertNull(Fx.feeAmount(0.0, 3.0))
+        assertNull(Fx.feeAmount(124.80, Double.NaN))
+    }
+
+    @Test
     fun `the hint names both currencies so the direction cannot be misread`() {
         assertEquals(
             "1 JPY = 0.0104 SGD",
@@ -85,7 +102,11 @@ class FxTest {
  * encoder both drop a null, so both clients have to be checked rather than assumed.
  */
 class FxEncodingTest {
-    private fun encoded(currency: String?, amountCharged: Double?) = Api.json.encodeToString(
+    private fun encoded(
+        currency: String?,
+        amountCharged: Double?,
+        feePercent: Double? = null,
+    ) = Api.json.encodeToString(
         transactionUpdate(
             date = Instant.EPOCH,
             amount = 12000.0,
@@ -95,6 +116,7 @@ class FxEncodingTest {
             mcc = "",
             currency = currency,
             amountCharged = amountCharged,
+            feePercent = feePercent,
         ),
     ).let { Api.json.parseToJsonElement(it).jsonObject }
 
@@ -113,6 +135,20 @@ class FxEncodingTest {
         val json = encoded(currency = "JPY", amountCharged = 124.80)
         assertEquals("JPY", json["currency"]?.jsonPrimitive?.content)
         assertEquals(124.80, json["amount_charged"]?.jsonPrimitive?.double)
+    }
+
+    @Test
+    fun `sends a zero fee so a surcharge can be removed`() {
+        // The API reads an omitted key as "preserve", so null would leave no way to take a
+        // recorded surcharge off a transaction. The form sends 0.
+        val json = encoded(currency = "SGD", amountCharged = null, feePercent = 0.0)
+        assertEquals(0.0, json["fee_percent"]?.jsonPrimitive?.double)
+    }
+
+    @Test
+    fun `sends the fee when one is set`() {
+        val json = encoded(currency = "SGD", amountCharged = null, feePercent = 3.0)
+        assertEquals(3.0, json["fee_percent"]?.jsonPrimitive?.double)
     }
 
     @Test

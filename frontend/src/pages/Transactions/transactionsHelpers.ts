@@ -141,6 +141,10 @@ export function emptyTransactionForm(accountId: string, currency: string) {
         // currencies differ: given, it defines the rate (spread included) and
         // the backend looks nothing up.
         amountCharged: "",
+        // What the card adds on top, as a percentage. Blank is the normal case;
+        // the fee posts as its own linked row, so carrying a stale one over
+        // would charge the next purchase a fee it never incurred.
+        feePercent: "",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
         description: "",
         // Optional even when the field is shown — most purchases have no code the

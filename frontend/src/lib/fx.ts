@@ -69,3 +69,27 @@ export function impliedRateLabel(
     if (rate === null || !chargeCurrency || !accountCurrency) return "";
     return `1 ${chargeCurrency} = ${formatRate(rate)} ${accountCurrency}`;
 }
+
+/**
+ * What a card's surcharge comes to, in the account's own currency.
+ *
+ * Charged on the *converted* purchase, because that is what the card bills a
+ * percentage of — the fee on a ¥12,000 dinner settled at S$124.80 is 3% of
+ * S$124.80, not of the yen. Null when there is no fee to show, which is the
+ * normal case.
+ *
+ * This mirrors `fee_amount` in `backend/src/services/transaction_service.py`:
+ * the server computes the figure that is actually posted, and this is only so
+ * a form can show the user what they are about to agree to. Ported to
+ * `ios/.../Support/Fx.swift` and `android/.../logic/Fx.kt`.
+ */
+export function feeAmount(
+    amountInAccountCurrency: number | null | undefined,
+    feePercent: number | null | undefined,
+): number | null {
+    if (amountInAccountCurrency === null || amountInAccountCurrency === undefined) return null;
+    if (feePercent === null || feePercent === undefined) return null;
+    if (!Number.isFinite(amountInAccountCurrency) || !Number.isFinite(feePercent)) return null;
+    if (amountInAccountCurrency <= 0 || feePercent <= 0) return null;
+    return Math.round(amountInAccountCurrency * feePercent) / 100;
+}

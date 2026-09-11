@@ -465,6 +465,11 @@ struct TransactionResponse: Codable, Identifiable {
     let mcc: String?
     /// Which of the card's own categories this counts towards, if any.
     let cardCategoryId: String?
+    /// A surcharge the card added on top, as a percentage of this purchase. The
+    /// money itself is a separate row — see `feeForTransactionId`.
+    let feePercent: Double?
+    /// Set on a fee row, naming the purchase that caused it.
+    let feeForTransactionId: String?
     /// The rate from `currency` to the *account's* currency, frozen when the row
     /// was written. `amount * exchangeRate` is what the account was charged —
     /// which is how the edit form recovers the figure the user typed.
@@ -473,7 +478,7 @@ struct TransactionResponse: Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, accountId, categoryId, date, amount, amountHomeCurrency, currency
         case description, transactionType, transferId, splits, mcc, cardCategoryId
-        case exchangeRate
+        case exchangeRate, feePercent, feeForTransactionId
     }
 
     /// Hand-written only so `splits` can default to empty when the key is
@@ -496,6 +501,8 @@ struct TransactionResponse: Codable, Identifiable {
         mcc = try container.decodeIfPresent(String.self, forKey: .mcc)
         cardCategoryId = try container.decodeIfPresent(String.self, forKey: .cardCategoryId)
         exchangeRate = try container.decodeIfPresent(Double.self, forKey: .exchangeRate)
+        feePercent = try container.decodeIfPresent(Double.self, forKey: .feePercent)
+        feeForTransactionId = try container.decodeIfPresent(String.self, forKey: .feeForTransactionId)
     }
 }
 
@@ -521,6 +528,9 @@ struct TransactionCreate: Encodable {
     /// on the statement. Given, it *defines* the rate (spread included) and no
     /// rate is looked up at all.
     var amountCharged: Double? = nil
+    /// A surcharge the card adds on top, as a percentage. Posts its own linked
+    /// row under "Card Fees" rather than inflating this one.
+    var feePercent: Double? = nil
 }
 
 /// PUT /cashflow/transactions/{id} (schemas.TransactionUpdate).
@@ -563,9 +573,17 @@ struct TransactionUpdate: Encodable {
     /// unrelated description fix. Sending it back keeps the round trip lossless.
     var amountCharged: Double? = nil
 
+    /// The card's surcharge.
+    ///
+    /// Always sent by the transaction form, and **0 is the clear**: the field
+    /// is three-state like `mcc`, where omitting preserves what the row has.
+    /// Encoding it with `encodeIfPresent` and a nil for "no fee" would make
+    /// removing a surcharge impossible, so the form sends 0 rather than nil.
+    var feePercent: Double? = nil
+
     private enum CodingKeys: String, CodingKey {
         case date, amount, description, accountId, categoryId, splits, mcc, cardCategoryId
-        case currency, amountCharged
+        case currency, amountCharged, feePercent
     }
 
     /// Hand-written only because `cardCategoryId` needs an explicit JSON null on
@@ -589,6 +607,7 @@ struct TransactionUpdate: Encodable {
         // "nothing to say about the rate", not "clear it". There is no such
         // thing as clearing a rate — a transaction always has one.
         try container.encodeIfPresent(amountCharged, forKey: .amountCharged)
+        try container.encodeIfPresent(feePercent, forKey: .feePercent)
     }
 }
 

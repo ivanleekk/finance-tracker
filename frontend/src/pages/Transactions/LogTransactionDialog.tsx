@@ -6,7 +6,7 @@ import { Select } from "../../components/ui/Select"
 import { selectableAccounts } from "../../lib/networth"
 import type { AccountResponse, CategoryResponse, CounterpartyResponse, CurrencyResponse, UserResponse } from "../../types/types"
 import { evenSplitRemainder, parseMoney } from "../../lib/reimbursements"
-import { impliedRateLabel, isForeignCharge } from "../../lib/fx"
+import { feeAmount, impliedRateLabel, isForeignCharge } from "../../lib/fx"
 import { splitHint, type SplitFormRow } from "./transactionsHelpers"
 
 /** The shape the Income/Expense tab edits. */
@@ -18,6 +18,8 @@ export type TransactionFormData = {
     currency: string
     /** What the account was actually charged, in its own currency. "" = unknown. */
     amountCharged: string
+    /** A surcharge the card adds on top, as a percentage. "" = none. */
+    feePercent: string
     date: string
     description: string
     mcc: string
@@ -145,6 +147,20 @@ export function LogTransactionDialog({
     const isForeign = isForeignCharge(formData.currency, accountCurrency)
     // Shown back to the user so the rate their two figures imply is visible
     // before they commit to it — see `impliedRateLabel`.
+    // What the fee will come to, so the user sees the money rather than only the
+    // percentage — 3% of a large foreign bill is not obvious in the head.
+    const feeHint = (() => {
+        const charged = parseMoney(formData.amountCharged)
+        const amount = parseMoney(formData.amount)
+        // The account-currency figure: the charged amount if the user gave one,
+        // otherwise the raw amount when no conversion is involved. With a
+        // foreign charge and no charged amount, only the server knows the rate,
+        // so the hint stays quiet rather than guessing at one.
+        const inAccountCurrency = charged ?? (isForeign ? null : amount)
+        const fee = feeAmount(inAccountCurrency, parseMoney(formData.feePercent))
+        return fee === null ? "" : `${accountCurrency} ${fee.toFixed(2)}`
+    })()
+
     const chargedRateHint = impliedRateLabel(
         parseMoney(formData.amount),
         parseMoney(formData.amountCharged),
@@ -313,6 +329,26 @@ export function LogTransactionDialog({
                             </p>
                         </div>
                     )}
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                            Card fee <span className="font-normal text-base-500">— optional, %</span>
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="e.g. 3 for a 3% foreign transaction fee"
+                            value={formData.feePercent}
+                            onChange={(e) => setFormData({ ...formData, feePercent: e.target.value })}
+                        />
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {feeHint
+                                ? `Posts a separate ${feeHint} row under Card Fees, so the purchase keeps the amount on your receipt.`
+                                : "Some cards add a percentage on top — a foreign transaction fee, a surcharge."}
+                        </p>
+                    </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">

@@ -278,6 +278,9 @@ export default function Transactions() {
                 ...(formData.amountCharged.trim() && isForeignCharge(formData.currency, accountCurrencyOf(formData.accountId))
                     ? { amount_charged: parseFloat(formData.amountCharged) }
                     : {}),
+                // Omitted when blank, so a transaction with no surcharge sends
+                // nothing rather than an explicit zero.
+                ...(formData.feePercent.trim() ? { fee_percent: parseFloat(formData.feePercent) } : {}),
                 description: formData.description,
                 // Blank is sent as-is; the API treats "" as "not given" rather than
                 // rejecting it, so there is nothing to convert here.

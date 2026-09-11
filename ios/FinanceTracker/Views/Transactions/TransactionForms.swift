@@ -54,6 +54,8 @@ struct TransactionFormView: View {
     /// "I don't know it", which is the normal case: the backend then pulls the
     /// spot rate for the date.
     @State private var amountChargedText: String
+    /// A surcharge the card adds on top, as a percentage. Empty means none.
+    @State private var feePercentText: String
 
     init(
         accounts: [AccountResponse],
@@ -89,6 +91,7 @@ struct TransactionFormView: View {
         // mid-market close, throwing away the rate the user's own statement
         // gave. Only meaningful when the row is actually in another currency.
         _amountChargedText = State(initialValue: Self.chargedString(existing, account: openingAccount))
+        _feePercentText = State(initialValue: existing?.feePercent.map(Self.amountString) ?? "")
     }
 
     /// The account-currency figure a stored row implies, as editable text —
@@ -116,6 +119,15 @@ struct TransactionFormView: View {
 
     private var selectedAccountCurrency: String {
         accounts.first { $0.id == accountId }?.currency ?? ""
+    }
+
+    /// The purchase as the account sees it, for the fee hint. The charged amount
+    /// when the user gave one, the raw amount when no conversion is involved —
+    /// and nil for a foreign charge with neither, where only the server knows
+    /// the rate and guessing at one would show a fee that is not the fee.
+    private var amountInAccountCurrency: Double? {
+        if let charged = amountCharged { return charged }
+        return Fx.isForeignCharge(currency, accountCurrency: selectedAccountCurrency) ? nil : amount
     }
 
     /// Sent only when it means something: the user typed it *and* the charge is
@@ -201,6 +213,12 @@ struct TransactionFormView: View {
                     amountChargedText: $amountChargedText
                 )
 
+                CardFeeSection(
+                    amountInAccountCurrency: amountInAccountCurrency,
+                    accountCurrency: selectedAccountCurrency,
+                    feePercentText: $feePercentText
+                )
+
                 CardCategorySection(
                     card: card,
                     headroom: cardHeadroom,
@@ -228,7 +246,7 @@ struct TransactionFormView: View {
             }
             .discardGuard(fields: [
                 type, amountText, date, description, accountId, categoryId, mcc, cardCategoryId,
-                isSplitting, splitRows, currency, amountChargedText,
+                isSplitting, splitRows, currency, amountChargedText, feePercentText,
             ])
             .onAppear {
                 if accountId == nil {
@@ -319,7 +337,11 @@ struct TransactionFormView: View {
                         // from an explicit null rather than an empty string.
                         cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
                         currency: currency.isEmpty ? nil : currency,
-                        amountCharged: amountCharged
+                        amountCharged: amountCharged,
+                        // 0 rather than nil for "no fee": nil omits the key,
+                        // which the API reads as "preserve", leaving no way to
+                        // remove a surcharge that was recorded.
+                        feePercent: CalculatorInput.evaluateArithmeticExpression(feePercentText) ?? 0
                     )
                     let _: TransactionResponse = try await APIClient.shared.put(
                         "/cashflow/transactions/\(existing.id)", body: body
@@ -334,7 +356,8 @@ struct TransactionFormView: View {
                         splits: splitsForCreate,
                         mcc: mcc,
                         currency: currency.isEmpty ? nil : currency,
-                        amountCharged: amountCharged
+                        amountCharged: amountCharged,
+                        feePercent: CalculatorInput.evaluateArithmeticExpression(feePercentText)
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(
                         "/cashflow/transactions", body: body

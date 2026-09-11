@@ -44,6 +44,21 @@ struct FxTests {
         #expect(Fx.formatRate(2) == "2")
     }
 
+    @Test func theFeeIsAPercentageOfTheConvertedAmountToTheCent() {
+        // What the card bills a percentage of is what it charged you, so a
+        // ¥12,000 dinner settled at S$124.80 carries S$3.74 — not 3% of ¥12,000.
+        #expect(Fx.feeAmount(amountInAccountCurrency: 124.80, feePercent: 3) == 3.74)
+        #expect(Fx.feeAmount(amountInAccountCurrency: 100, feePercent: 3) == 3)
+    }
+
+    @Test func thereIsNoFeeToShowWithoutTwoPositiveFigures() {
+        #expect(Fx.feeAmount(amountInAccountCurrency: 124.80, feePercent: 0) == nil)
+        #expect(Fx.feeAmount(amountInAccountCurrency: 124.80, feePercent: nil) == nil)
+        #expect(Fx.feeAmount(amountInAccountCurrency: nil, feePercent: 3) == nil)
+        #expect(Fx.feeAmount(amountInAccountCurrency: 0, feePercent: 3) == nil)
+        #expect(Fx.feeAmount(amountInAccountCurrency: 124.80, feePercent: .nan) == nil)
+    }
+
     @Test func theHintNamesBothCurrenciesSoTheDirectionCannotBeMisread() {
         #expect(
             Fx.impliedRateLabel(amount: 12000, charged: 124.80, chargeCurrency: "JPY", accountCurrency: "SGD")
@@ -59,7 +74,11 @@ struct FxTests {
 
 /// The encoder side: what a transaction write actually puts on the wire.
 struct FxEncodingTests {
-    private func update(currency: String?, amountCharged: Double?) throws -> [String: Any] {
+    private func update(
+        currency: String?,
+        amountCharged: Double?,
+        feePercent: Double? = nil
+    ) throws -> [String: Any] {
         let body = TransactionUpdate(
             date: Date(),
             amount: 12000,
@@ -69,7 +88,8 @@ struct FxEncodingTests {
             mcc: "",
             cardCategoryId: nil,
             currency: currency,
-            amountCharged: amountCharged
+            amountCharged: amountCharged,
+            feePercent: feePercent
         )
         // Configured the way `APIClient` configures it, so these assert on the
         // keys that actually reach the API rather than on Swift's property names.
@@ -92,6 +112,18 @@ struct FxEncodingTests {
         let json = try update(currency: "JPY", amountCharged: 124.80)
         #expect(json["currency"] as? String == "JPY")
         #expect(json["amount_charged"] as? Double == 124.80)
+    }
+
+    @Test func sendsAZeroFeeSoASurchargeCanBeRemoved() throws {
+        // The API reads an omitted key as "preserve", so nil would leave no way
+        // to take a recorded surcharge off a transaction. The form sends 0.
+        let json = try update(currency: "SGD", amountCharged: nil, feePercent: 0)
+        #expect(json["fee_percent"] as? Double == 0)
+    }
+
+    @Test func sendsTheFeeWhenOneIsSet() throws {
+        let json = try update(currency: "SGD", amountCharged: nil, feePercent: 3)
+        #expect(json["fee_percent"] as? Double == 3)
     }
 
     @Test func omitsTheCurrencyWhenTheFormHasNoneToOffer() throws {

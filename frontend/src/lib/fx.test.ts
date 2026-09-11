@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
+import { feeAmount, formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
 
 describe('isForeignCharge', () => {
     it('is false when the charge is in the account\'s own currency', () => {
@@ -51,5 +51,22 @@ describe('impliedRateLabel', () => {
     it('is empty while there is nothing to show', () => {
         expect(impliedRateLabel(12000, null, 'JPY', 'SGD')).toBe('');
         expect(impliedRateLabel(12000, 124.8, 'JPY', '')).toBe('');
+    });
+});
+
+describe('feeAmount', () => {
+    it('is a percentage of the converted amount, to the cent', () => {
+        // What the card bills a percentage of is what it charged you, so a
+        // ¥12,000 dinner settled at S$124.80 carries S$3.74 — not 3% of ¥12,000.
+        expect(feeAmount(124.8, 3)).toBe(3.74);
+        expect(feeAmount(100, 3)).toBe(3);
+    });
+
+    it('has no answer when there is no fee to show', () => {
+        expect(feeAmount(124.8, 0)).toBeNull();
+        expect(feeAmount(124.8, null)).toBeNull();
+        expect(feeAmount(null, 3)).toBeNull();
+        expect(feeAmount(0, 3)).toBeNull();
+        expect(feeAmount(124.8, Number.NaN)).toBeNull();
     });
 });

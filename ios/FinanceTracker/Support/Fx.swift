@@ -51,6 +51,22 @@ enum Fx {
         return text
     }
 
+    /// What a card's surcharge comes to, in the account's own currency.
+    ///
+    /// Charged on the *converted* purchase, because that is what the card bills
+    /// a percentage of — the fee on a ¥12,000 dinner settled at S$124.80 is 3%
+    /// of S$124.80, not of the yen. Nil when there is no fee to show.
+    ///
+    /// Mirrors `fee_amount` in the backend's `transaction_service.py`: the
+    /// server computes the figure that is actually posted, and this exists only
+    /// so a form can show what the user is about to agree to.
+    static func feeAmount(amountInAccountCurrency: Double?, feePercent: Double?) -> Double? {
+        guard let amount = amountInAccountCurrency, let percent = feePercent,
+              amount.isFinite, percent.isFinite,
+              amount > 0, percent > 0 else { return nil }
+        return (amount * percent).rounded() / 100
+    }
+
     /// The hint a form shows back before the user commits: "1 JPY = 0.0104 SGD".
     ///
     /// Empty when there is no rate yet. It exists because a mistyped charged
