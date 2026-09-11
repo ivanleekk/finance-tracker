@@ -310,6 +310,9 @@ where tests pay off without a backend or an emulator:
   Quick Add folds in without duplicating when the next refresh returns it. Twin of iOS's
   `ReferenceDataStoreTests`.
 - `ApiUrlTest` — query-string splitting.
+- `SessionBootstrapTest` — `SessionViewModel.isAuthRejection`; twin of iOS's
+  `SessionBootstrapTests`. Only an auth rejection sends a failed launch to the login screen;
+  anything else is `Phase.UNREACHABLE` with a Retry.
 - `FormattersTest` — dates asserted exactly (they're UTC by design); currency gets structural
   checks only, since its digit grouping comes from the JVM's locale data rather than from us.
 

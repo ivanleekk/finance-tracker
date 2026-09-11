@@ -424,6 +424,11 @@ where tests pay off without a running backend:
   state, so unlike `cardCategoryId` (still hand-written for its own explicit-null requirement)
   there is no tri-state wrapper for this field.
 - `ViewModeStoreTests` — the Private/Household/Blended `isVisible` + `effectiveMode` rules.
+- `SessionBootstrapTests` — `SessionStore.isAuthRejection`, the rule that decides whether a
+  failed launch shows the login screen. Only a refresh rejection or a 401 after refresh may;
+  a timeout, a 5xx or a decode failure lands on the `.unreachable` Retry screen instead,
+  because the tokens are still valid. It used to send every launch failure to login, which
+  logged people out several times a day on a mobile network.
 - `ReferenceDataStoreTests` — the non-fetching half of `State/ReferenceDataStore.swift`: that
   no household is `.idle` rather than a failure, that `hasEssentials` survives a *failed
   refresh* (the regression that reproduces #272's empty picker), and that a row created
