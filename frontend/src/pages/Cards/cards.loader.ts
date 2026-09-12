@@ -1,6 +1,7 @@
 import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
 import type { AccountResponse, CardResponse, CardStatusResponse } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
+import { cardUpdateBody } from "./cardForms";
 
 export type CardsLoaderData = {
     cards: CardResponse[];
@@ -63,6 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 financial_account_id: formData.get("financial_account_id"),
                 cycle_basis: formData.get("cycle_basis") || "statement",
                 statement_day: Number(formData.get("statement_day")) || 1,
+                anniversary_date: formData.get("anniversary_date") || null,
             }),
         });
         if (!res.ok) return fail(res, "Couldn't set up that card.");
@@ -73,12 +75,9 @@ export async function action({ request }: ActionFunctionArgs) {
         const res = await ssrFetch(`/cards/${formData.get("cardId")}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                cycle_basis: formData.get("cycle_basis"),
-                statement_day: Number(formData.get("statement_day")),
-            }),
+            body: JSON.stringify(cardUpdateBody(formData)),
         });
-        if (!res.ok) return fail(res, "Couldn't update the cycle.");
+        if (!res.ok) return fail(res, "Couldn't update the card.");
         return { success: true };
     }
 

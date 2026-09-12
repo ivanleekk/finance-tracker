@@ -22,6 +22,7 @@ const loaderData = (): CardsLoaderData => ({
             currency: 'SGD',
             cycle_basis: 'statement',
             statement_day: 18,
+            anniversary_date: null,
             categories: [
                 { id: 'cc-1', card_id: 'card-1', name: 'Dining', is_default: true, sort_order: 0, limit_id: 'lim-cap' },
                 { id: 'cc-2', card_id: 'card-1', name: 'Everything else', is_default: false, sort_order: 1, limit_id: 'lim-min' },

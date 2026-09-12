@@ -649,7 +649,8 @@ export type PersonalSpendResponse = {
 
 export type CycleBasis = "statement" | "calendar";
 export type LimitDirection = "ceiling" | "floor";
-export type LimitResetBasis = "cycle" | "calendar_month" | "quarter" | "year";
+export type LimitResetBasis =
+  | "cycle" | "calendar_month" | "quarter" | "year" | "card_year" | "card_quarter";
 
 export interface CardLimitResponse {
   id: string;
@@ -677,6 +678,8 @@ export interface CardResponse {
   currency: string | null;
   cycle_basis: CycleBasis;
   statement_day: number;
+  /** "yyyy-MM-dd". Anchors card_year / card_quarter limits; null when unset. */
+  anniversary_date: string | null;
   categories: CardCategoryResponse[];
   limits: CardLimitResponse[];
 }

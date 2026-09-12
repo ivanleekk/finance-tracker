@@ -7,6 +7,7 @@ import { Select } from "../../components/ui/Select";
 import { selectableAccounts } from "../../lib/networth";
 import { Dialog } from "../../components/ui/Dialog";
 import { LimitRow } from "./CardMeters";
+import { resetOptions } from "./cardForms";
 import type { AccountResponse, CardResponse } from "../../types/types";
 
 /**
@@ -20,13 +21,6 @@ import type { AccountResponse, CardResponse } from "../../types/types";
  * Owning the state here is what makes the forms actually work, and the state
  * has to live somewhere that re-renders on change.
  */
-
-const RESET_OPTIONS = [
-    { value: "cycle", label: "Resets each statement cycle" },
-    { value: "calendar_month", label: "Resets each calendar month" },
-    { value: "quarter", label: "Resets each quarter" },
-    { value: "year", label: "Resets each year" },
-];
 
 export function SetUpCardDialog({
     isOpen,
@@ -89,6 +83,12 @@ export function SetUpCardDialog({
                             helperText="Clamped in shorter months, so 31 still closes in February."
                         />
                     )}
+                    <Input
+                        label="Card anniversary (optional)"
+                        name="anniversary_date"
+                        type="date"
+                        helperText="The date the card was opened. Limits that reset each card year or card quarter count from it."
+                    />
                     <div className="flex justify-end gap-2">
                         <Button type="button" variant="secondary" onClick={close}>
                             Cancel
@@ -145,7 +145,7 @@ function AddLimitForm({ card }: { card: CardResponse }) {
                 value={resetBasis}
                 onChange={setResetBasis}
                 wrapperClassName="col-span-2"
-                options={RESET_OPTIONS}
+                options={resetOptions(Boolean(card.anniversary_date))}
             />
             <p className="col-span-2 text-xs text-base-500 dark:text-base-400">
                 {direction === "floor"
@@ -214,6 +214,67 @@ function AddCategoryForm({ card }: { card: CardResponse }) {
     );
 }
 
+/**
+ * The card's own settings — cycle basis, statement day and anniversary.
+ *
+ * Submitted through a fetcher for the same reason `AddLimitForm` is: a plain
+ * Form would leave a stale error sitting under the fields after a successful
+ * save. The anniversary field always has a value (possibly empty), which is
+ * what lets `cardUpdateBody` send an explicit `null` to clear it rather than
+ * omitting the key, which the backend reads as "leave it alone".
+ */
+function CardSettingsForm({ card }: { card: CardResponse }) {
+    const fetcher = useFetcher<{ error?: string; success?: boolean }>();
+    const [cycleBasis, setCycleBasis] = useState<string>(card.cycle_basis);
+
+    return (
+        <fetcher.Form method="post" className="grid grid-cols-2 gap-2">
+            <input type="hidden" name="_intent" value="updateCard" />
+            <input type="hidden" name="cardId" value={card.id} />
+            <Select
+                label="Limits reset on"
+                name="cycle_basis"
+                value={cycleBasis}
+                onChange={setCycleBasis}
+                wrapperClassName="col-span-2"
+                options={[
+                    { value: "statement", label: "The statement cycle" },
+                    { value: "calendar", label: "The calendar month" },
+                ]}
+            />
+            {cycleBasis === "statement" && (
+                <Input
+                    label="Statement closes on day"
+                    name="statement_day"
+                    type="number"
+                    min="1"
+                    max="31"
+                    defaultValue={String(card.statement_day)}
+                />
+            )}
+            <Input
+                label="Card anniversary"
+                name="anniversary_date"
+                type="date"
+                defaultValue={card.anniversary_date ?? ""}
+                helperText="Clear it to remove. Needed for card-year and card-quarter limits."
+            />
+            {fetcher.data?.error && (
+                <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{fetcher.data.error}</p>
+            )}
+            <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                className="col-span-2"
+                disabled={fetcher.state !== "idle"}
+            >
+                Save card settings
+            </Button>
+        </fetcher.Form>
+    );
+}
+
 export function ManageCardDialog({
     card,
     onClose,
@@ -232,6 +293,16 @@ export function ManageCardDialog({
                     </h3>
 
                     <section className="mb-6">
+                        <h4 className="mb-2 text-sm font-medium text-base-900 dark:text-base-50">
+                            Card
+                        </h4>
+                        <CardSettingsForm
+                            key={`settings-${card.id}-${card.anniversary_date ?? ""}`}
+                            card={card}
+                        />
+                    </section>
+
+                    <section className="mb-6 border-t border-base-100 pt-4 dark:border-base-800">
                         <h4 className="mb-2 text-sm font-medium text-base-900 dark:text-base-50">
                             Limits
                         </h4>
