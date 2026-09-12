@@ -79,12 +79,13 @@ def dining(db_session, household):
     return cat
 
 
-def _card(db_session, account, *, basis=models.CycleBasis.statement, day=18):
+def _card(db_session, account, *, basis=models.CycleBasis.statement, day=18, anniversary=None):
     card = models.Card(
         id=uuid.uuid7(),
         financial_account_id=account.id,
         cycle_basis=basis,
         statement_day=day,
+        anniversary_date=anniversary,
     )
     db_session.add(card)
     db_session.commit()
@@ -250,6 +251,91 @@ class TestLimitBounds:
             date(2026, 9, 1),
             date(2026, 9, 30),
         )
+
+
+class TestAnniversaryWindows:
+    """
+    A card year runs from the date the card was opened, not from January.
+
+    The boundary is computed as "anchor + n months, clamped" rather than stepped
+    from the last one, for the reason the recurrence engine documents: stepping
+    clamps 31 Jan to 30 Apr and never climbs back, so every later quarter would
+    quietly start on the 30th.
+    """
+
+    def test_a_card_year_runs_from_one_anniversary_to_the_day_before_the_next(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 9, 11), 12) == (
+            date(2026, 3, 14),
+            date(2027, 3, 13),
+        )
+
+    def test_the_anniversary_itself_starts_a_new_year(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 3, 14), 12)[0] == date(2026, 3, 14)
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 3, 13), 12) == (
+            date(2025, 3, 14),
+            date(2026, 3, 13),
+        )
+
+    def test_card_quarters_step_three_months_from_the_anchor(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 9, 11), 3) == (
+            date(2026, 6, 14),
+            date(2026, 9, 13),
+        )
+
+    def test_a_31st_anchor_does_not_drift_down_after_a_short_month(self):
+        anchor = date(2024, 1, 31)
+        # April has 30 days, so that quarter opens on the 30th...
+        assert card_service.anniversary_bounds(anchor, date(2026, 5, 15), 3) == (
+            date(2026, 4, 30),
+            date(2026, 7, 30),
+        )
+        # ...and the next one climbs back to the 31st, two years on.
+        assert card_service.anniversary_bounds(anchor, date(2026, 8, 1), 3)[0] == date(2026, 7, 31)
+
+    def test_a_leap_day_anchor_falls_back_to_the_28th_and_returns(self):
+        anchor = date(2024, 2, 29)
+        assert card_service.anniversary_bounds(anchor, date(2025, 6, 1), 12) == (
+            date(2025, 2, 28),
+            date(2026, 2, 27),
+        )
+        assert card_service.anniversary_bounds(anchor, date(2028, 3, 1), 12)[0] == date(2028, 2, 29)
+
+    def test_dates_before_the_card_opened_still_resolve(self):
+        start, end = card_service.anniversary_bounds(date(2026, 3, 14), date(2025, 1, 5), 12)
+        assert (start, end) == (date(2024, 3, 14), date(2025, 3, 13))
+
+    @pytest.mark.parametrize("anchor", [date(2024, 3, 14), date(2024, 1, 31), date(2024, 2, 29)])
+    @pytest.mark.parametrize("step", [12, 3])
+    def test_every_day_lands_in_exactly_one_window(self, anchor, step):
+        """Over a leap year and the non-leap year after it: no gaps, no overlaps."""
+        day = date(2028, 1, 1)
+        _, current_end = card_service.anniversary_bounds(anchor, day, step)
+        while day < date(2029, 12, 31):
+            start, end = card_service.anniversary_bounds(anchor, day, step)
+            assert start <= day <= end
+            if end != current_end:
+                assert start == current_end + card_service.ONE_DAY
+                current_end = end
+            day += card_service.ONE_DAY
+
+    def test_the_ends_of_the_calendar_answer_instead_of_crashing(self):
+        start, end = card_service.anniversary_bounds(date(2024, 3, 14), date(9999, 12, 31), 12)
+        assert start <= date(9999, 12, 31) <= end
+        start, end = card_service.anniversary_bounds(date(2024, 3, 14), date(1, 1, 1), 12)
+        assert start <= date(1, 1, 1) <= end
+
+    def test_limit_bounds_uses_the_cards_anniversary(self, db_session, card_account):
+        card = _card(db_session, card_account, anniversary=date(2024, 3, 14))
+        year = _limit(db_session, card, "Y", 100, reset=models.LimitResetBasis.card_year)
+        quarter = _limit(db_session, card, "Q", 100, reset=models.LimitResetBasis.card_quarter)
+        assert card_service.limit_bounds(card, year, date(2026, 9, 11)) == (date(2026, 3, 14), date(2027, 3, 13))
+        assert card_service.limit_bounds(card, quarter, date(2026, 9, 11)) == (date(2026, 6, 14), date(2026, 9, 13))
+
+    def test_an_anniversary_limit_on_a_card_with_no_anniversary_refuses_to_guess(self, db_session, card_account):
+        card = _card(db_session, card_account)
+        lim = _limit(db_session, card, "Y", 100, reset=models.LimitResetBasis.card_year)
+        with pytest.raises(ValueError):
+            card_service.limit_bounds(card, lim, date(2026, 9, 11))
 
 
 # --- The meter ----------------------------------------------------------------

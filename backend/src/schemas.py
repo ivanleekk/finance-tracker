@@ -480,7 +480,8 @@ def _enum_to_value(value: object) -> object:
 CycleBasisField = Annotated[Literal["statement", "calendar"], BeforeValidator(_enum_to_value)]
 LimitDirectionField = Annotated[Literal["ceiling", "floor"], BeforeValidator(_enum_to_value)]
 LimitResetField = Annotated[
-    Literal["cycle", "calendar_month", "quarter", "year"], BeforeValidator(_enum_to_value)
+    Literal["cycle", "calendar_month", "quarter", "year", "card_year", "card_quarter"],
+    BeforeValidator(_enum_to_value),
 ]
 
 
@@ -489,6 +490,8 @@ class CardBase(BaseModel):
     # 1-31, clamped to the end of shorter months so a card closing on the 31st
     # still closes in February.
     statement_day: int = Field(1, ge=1, le=31)
+    # Anchors card_year / card_quarter limits. Only month and day are used.
+    anniversary_date: Optional[date] = None
 
 
 class CardCreate(CardBase):
@@ -498,6 +501,9 @@ class CardCreate(CardBase):
 class CardUpdate(BaseModel):
     cycle_basis: Optional[CycleBasisField] = None
     statement_day: Optional[int] = Field(None, ge=1, le=31)
+    # Three states: omitted leaves it alone, null clears it (read via
+    # exclude_unset in the router). Clearing is refused while a limit uses it.
+    anniversary_date: Optional[date] = None
 
 
 class CardLimitBase(BaseModel):

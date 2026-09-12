@@ -19,6 +19,7 @@ import uuid
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -69,15 +70,19 @@ class LimitResetBasis(enum.Enum):
     """
     How often a card limit starts over.
 
-    ``cycle`` follows the card's own statement window; the rest are ordinary
-    calendar periods, which some issuers use for caps even on a card whose
-    statement closes mid-month.
+    ``cycle`` follows the card's own statement window; ``calendar_month``,
+    ``quarter`` and ``year`` are ordinary calendar periods, which some issuers use
+    for caps even on a card whose statement closes mid-month. ``card_year`` and
+    ``card_quarter`` count from the card's `anniversary_date` instead — the
+    membership year many issuers reset annual caps on.
     """
 
     cycle = "cycle"
     calendar_month = "calendar_month"
     quarter = "quarter"
     year = "year"
+    card_year = "card_year"
+    card_quarter = "card_quarter"
 
 # --- CARD SPEND LIMITS ---
 #
@@ -124,6 +129,12 @@ class Card(Base):
     # cycle_basis is `calendar`, but kept rather than nulled: switching basis
     # back and forth must not lose the number the user already entered.
     statement_day = Column(Integer, nullable=False, default=1)
+    # The date the card was opened, which anchors `card_year` and `card_quarter`
+    # limits. Optional because most limits never need it; stated by the user and
+    # never inferred, like `statement_day`. Only its month and day drive the
+    # windows. A full date rather than a month-day pair because it is what the
+    # issuer prints, and every client already has a date picker.
+    anniversary_date = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     account = relationship("FinancialAccount")
