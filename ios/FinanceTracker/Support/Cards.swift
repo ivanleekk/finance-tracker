@@ -15,6 +15,15 @@ enum CardLimitTone: String {
     case ok
 }
 
+/// One row of the limit "Resets" picker.
+struct ResetOption: Hashable {
+    let basis: LimitResetBasis
+    let label: String
+    /// False for the anniversary resets until the card has a date. The picker
+    /// leaves those out (a menu row can't reliably be disabled) and shows the hint.
+    let isAvailable: Bool
+}
+
 enum Cards {
 
     /// How a limit should read right now.
@@ -119,5 +128,18 @@ enum Cards {
     /// everything is fine.
     static func needingAttention(_ rows: [CardLimitStatusRow]) -> [CardLimitStatusRow] {
         rows.filter { tone(for: $0) != .ok }
+    }
+
+    static let anniversaryHint = "Set the card's anniversary first — under Edit card — to reset on the card year or card quarter."
+
+    static func resetOptions(hasAnniversary: Bool) -> [ResetOption] {
+        [
+            ResetOption(basis: .cycle, label: "Each statement cycle", isAvailable: true),
+            ResetOption(basis: .calendarMonth, label: "Each calendar month", isAvailable: true),
+            ResetOption(basis: .quarter, label: "Each quarter", isAvailable: true),
+            ResetOption(basis: .year, label: "Each year", isAvailable: true),
+            ResetOption(basis: .cardYear, label: "Each card year", isAvailable: hasAnniversary),
+            ResetOption(basis: .cardQuarter, label: "Each card quarter", isAvailable: hasAnniversary),
+        ]
     }
 }

@@ -1334,6 +1334,16 @@ enum LimitResetBasis: String, Codable, Hashable {
     case calendarMonth = "calendar_month"
     case quarter
     case year
+    case cardYear = "card_year"
+    case cardQuarter = "card_quarter"
+    /// A schedule this build doesn't know — a newer server. Never sent. Not a
+    /// fallback to a known case: that would label a card year a statement cycle.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LimitResetBasis(rawValue: raw) ?? .unknown
+    }
 }
 
 struct CardLimitResponse: Codable, Identifiable, Hashable {
@@ -1362,6 +1372,8 @@ struct CardResponse: Codable, Identifiable, Hashable {
     let currency: String?
     let cycleBasis: CycleBasis
     let statementDay: Int
+    /// Anchors card-year / card-quarter limits. A date-only field, parsed at UTC midnight.
+    var anniversaryDate: Date? = nil
     let categories: [CardCategoryResponse]
     let limits: [CardLimitResponse]
 }
@@ -1413,6 +1425,31 @@ struct CardCreate: Encodable {
     let financialAccountId: String
     let cycleBasis: String
     let statementDay: Int
+    /// Bare "yyyy-MM-dd".
+    var anniversaryDate: String? = nil
+}
+
+/// PUT /cards/{id} from the Edit card sheet, which states the whole card.
+/// `anniversaryDate` is always encoded: the backend reads an omitted key as
+/// "keep it" and only an explicit null as "clear it", and synthesized
+/// `Encodable` would drop a nil — so this is written by hand.
+struct CardUpdate: Encodable {
+    let cycleBasis: String
+    let statementDay: Int
+    /// Bare "yyyy-MM-dd", or nil to clear.
+    let anniversaryDate: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case cycleBasis, statementDay, anniversaryDate
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(cycleBasis, forKey: .cycleBasis)
+        try container.encode(statementDay, forKey: .statementDay)
+        // encode(String?) writes an explicit null when nil — the point.
+        try container.encode(anniversaryDate, forKey: .anniversaryDate)
+    }
 }
 
 struct CardLimitCreate: Encodable {

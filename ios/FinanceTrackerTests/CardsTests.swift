@@ -184,4 +184,53 @@ struct CardsTests {
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(json["cardCategoryId"] as? String == "cc-1")
     }
+
+    // MARK: - Anniversary resets
+
+    @Test func aCardYearDecodesAsItself() throws {
+        let data = #""card_year""#.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(LimitResetBasis.self, from: data) == .cardYear)
+    }
+
+    @Test func anUnknownScheduleDecodesAsUnknownRatherThanFailingTheCard() throws {
+        // A newer server must not blank the Cards screen, and must not be
+        // relabelled as a schedule this build does know.
+        let data = #""fortnightly""#.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(LimitResetBasis.self, from: data) == .unknown)
+    }
+
+    @Test func aCardDecodesItsAnniversary() throws {
+        let json = """
+        {"id":"c","financial_account_id":"a","account_name":"Amex","currency":"SGD",
+         "cycle_basis":"statement","statement_day":18,"anniversary_date":"2024-03-14",
+         "categories":[],"limits":[]}
+        """.data(using: .utf8)!
+        let card = try APIClient.decoder.decode(CardResponse.self, from: json)
+        #expect(card.anniversaryDate?.apiDateOnly == "2024-03-14")
+    }
+
+    private func encodedObject(_ update: CardUpdate) throws -> [String: Any] {
+        let data = try APIClient.encoder.encode(update)
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test func aCardUpdateSendsTheAnniversary() throws {
+        let object = try encodedObject(CardUpdate(cycleBasis: "statement", statementDay: 18, anniversaryDate: "2024-03-14"))
+        #expect(object["anniversary_date"] as? String == "2024-03-14")
+    }
+
+    @Test func aClearedAnniversaryIsAnExplicitNullNotAnOmittedKey() throws {
+        // Omitted would mean "keep it" to the backend; only null clears it.
+        let object = try encodedObject(CardUpdate(cycleBasis: "statement", statementDay: 18, anniversaryDate: nil))
+        #expect(object.keys.contains("anniversary_date"))
+        #expect(object["anniversary_date"] is NSNull)
+    }
+
+    @Test func anniversaryResetsAreOnlyOfferedOnceTheCardHasADate() {
+        let without = Cards.resetOptions(hasAnniversary: false)
+        #expect(without.filter(\.isAvailable).map(\.basis) == [.cycle, .calendarMonth, .quarter, .year])
+        let with = Cards.resetOptions(hasAnniversary: true)
+        #expect(with.filter(\.isAvailable).map(\.basis).contains(.cardYear))
+        #expect(with.filter(\.isAvailable).map(\.basis).contains(.cardQuarter))
+    }
 }
