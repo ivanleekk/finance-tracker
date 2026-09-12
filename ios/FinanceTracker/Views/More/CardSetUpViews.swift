@@ -110,6 +110,7 @@ struct CardManageView: View {
     let onChanged: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var currentCard: CardResponse
     @State private var limits: [CardLimitResponse]
     @State private var categories: [CardCategoryResponse]
     @State private var errorMessage: String?
@@ -126,6 +127,7 @@ struct CardManageView: View {
     init(card: CardResponse, onChanged: @escaping () async -> Void) {
         self.card = card
         self.onChanged = onChanged
+        _currentCard = State(initialValue: card)
         _limits = State(initialValue: card.limits)
         _categories = State(initialValue: card.categories)
         _anniversaryDate = State(initialValue: card.anniversaryDate)
@@ -249,7 +251,8 @@ struct CardManageView: View {
             // which swiping away used to lose silently.
             .discardGuard(fields: [limitName, limitAmount, limitDirection, limitReset, categoryName, categoryLimitId])
             .sheet(isPresented: $editing) {
-                CardEditView(card: card) { updated in
+                CardEditView(card: currentCard) { updated in
+                    currentCard = updated
                     anniversaryDate = updated.anniversaryDate
                     await onChanged()
                 }

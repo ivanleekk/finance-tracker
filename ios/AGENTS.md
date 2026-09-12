@@ -108,7 +108,11 @@ FinanceTracker/
                              #     HouseholdSettingsView (rename + base currency → PUT
                              #     /users/households/{id}). Currency/timezone use `ReferencePicker`, a searchable
                              #     list over GET /reference/currencies|timezones. Appearance + Reports + Categories
-                             #     stay inline in MoreView.
+                             #     stay inline in MoreView. Cards (More → Cards) is CardsView, backed by
+                             #     CardSetUpView (create) and CardManageView (limits/categories, in
+                             #     CardSetUpViews.swift) plus CardEditView.swift (cycle basis, statement day, and
+                             #     the card anniversary that card-year/card-quarter limits count from) — reached
+                             #     from CardManageView's "Edit card" button.
                              #   Create a household from More → Create Household (SessionStore.createHousehold →
                              #     POST /users/households, then switches active); More shows a household picker once
                              #     there's more than one.
@@ -216,9 +220,11 @@ FinanceTracker/
   the legend rows are buttons that select the same wedge (a thin sector is a poor touch target
   and the only accessible way in).
 - **Sheets can't discard unsaved work by accident** — `.discardGuard(fields:settled:)`
-  (`Views/Components/DiscardGuard.swift`) is on all ten create/edit sheets. It supplies the
-  Cancel button (so the wording and the confirmation are identical everywhere rather than ten
-  near-copies), blocks the drag-to-dismiss while the form is dirty, and asks "Discard changes?"
+  (`Views/Components/DiscardGuard.swift`) is on every create/edit sheet — thirteen as of
+  CardEditView, and rising as new forms ship, so treat this as "all of them" rather than a
+  number to keep in sync. It supplies the
+  Cancel button (so the wording and the confirmation are identical everywhere rather than each
+  form writing its own), blocks the drag-to-dismiss while the form is dirty, and asks "Discard changes?"
   on Cancel. Dirtiness is a comparison against a baseline the modifier snapshots, not an
   `initial` copy hand-maintained inside each form — those drift as forms gain fields and a
   stale one silently stops guarding. A field omitted from `fields` under-protects (the sheet
