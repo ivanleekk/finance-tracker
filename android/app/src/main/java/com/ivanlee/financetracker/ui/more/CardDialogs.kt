@@ -30,13 +30,22 @@ import com.ivanlee.financetracker.data.model.CardCreate
 import com.ivanlee.financetracker.data.model.CardLimitCreate
 import com.ivanlee.financetracker.data.model.CardLimitResponse
 import com.ivanlee.financetracker.data.model.CardResponse
+import com.ivanlee.financetracker.data.model.CardUpdate
+import com.ivanlee.financetracker.data.model.CycleBasis
 import com.ivanlee.financetracker.data.model.LimitDirection
 import com.ivanlee.financetracker.data.model.LimitResetBasis
+import com.ivanlee.financetracker.data.model.cardUpdate
 import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
+import com.ivanlee.financetracker.logic.ANNIVERSARY_HINT
 import com.ivanlee.financetracker.logic.currencyWhole
+import com.ivanlee.financetracker.logic.resetOptions
+import com.ivanlee.financetracker.ui.components.DateField
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
 import com.ivanlee.financetracker.ui.components.SegmentedChoice
+import com.ivanlee.financetracker.ui.components.SwitchRow
+import java.time.Instant
 import kotlinx.coroutines.launch
 
 /**
@@ -56,6 +65,8 @@ fun CardSetUpDialog(
     var accountId by remember { mutableStateOf(accounts.firstOrNull()?.id) }
     var calendarBasis by remember { mutableStateOf(false) }
     var statementDay by remember { mutableStateOf("1") }
+    var hasAnniversary by remember { mutableStateOf(false) }
+    var anniversary by remember { mutableStateOf(Instant.now()) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -99,6 +110,15 @@ fun CardSetUpDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                SwitchRow(
+                    title = "Card anniversary",
+                    subtitle = "Optional. Card-year and card-quarter limits count from it.",
+                    checked = hasAnniversary,
+                    onCheckedChange = { hasAnniversary = it },
+                )
+                if (hasAnniversary) {
+                    DateField("Opened on", anniversary) { anniversary = it }
+                }
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -117,6 +137,7 @@ fun CardSetUpDialog(
                                     financialAccountId = account,
                                     cycleBasis = if (calendarBasis) "calendar" else "statement",
                                     statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31) ?: 1,
+                                    anniversaryDate = if (hasAnniversary) anniversary.apiDateOnly() else null,
                                 ),
                             )
                             onSaved()
@@ -126,6 +147,82 @@ fun CardSetUpDialog(
                     }
                 },
             ) { Text("Set up") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Editing a card after setup. Sends the whole card (see [CardUpdate]), so a cleared
+ * anniversary goes out as JsonNull. The backend refuses to clear it while a limit
+ * still counts from it, and that explanation is shown as-is.
+ */
+@Composable
+fun CardEditDialog(
+    card: CardResponse,
+    onDismiss: () -> Unit,
+    onSaved: (CardResponse) -> Unit,
+) {
+    var calendarBasis by remember(card.id) { mutableStateOf(card.cycleBasis == CycleBasis.CALENDAR) }
+    var statementDay by remember(card.id) { mutableStateOf(card.statementDay.toString()) }
+    var hasAnniversary by remember(card.id) { mutableStateOf(card.anniversaryDate != null) }
+    var anniversary by remember(card.id) { mutableStateOf(card.anniversaryDate ?: Instant.now()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit card") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SegmentedChoice(
+                    options = listOf("Statement cycle", "Calendar month"),
+                    selected = if (calendarBasis) "Calendar month" else "Statement cycle",
+                    optionLabel = { it },
+                    onSelect = { calendarBasis = it == "Calendar month" },
+                )
+                if (!calendarBasis) {
+                    FormField(
+                        "Statement closes on day",
+                        statementDay,
+                        { statementDay = it.filter(Char::isDigit).take(2) },
+                    )
+                }
+                SwitchRow(
+                    title = "Card anniversary",
+                    subtitle = "Card-year and card-quarter limits count from it.",
+                    checked = hasAnniversary,
+                    onCheckedChange = { hasAnniversary = it },
+                )
+                if (hasAnniversary) {
+                    DateField("Opened on", anniversary) { anniversary = it }
+                }
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                scope.launch {
+                    try {
+                        val updated = Api.put<CardUpdate, CardResponse>(
+                            "/cards/${card.id}",
+                            cardUpdate(
+                                cycleBasis = if (calendarBasis) "calendar" else "statement",
+                                statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31) ?: card.statementDay,
+                                anniversaryDate = if (hasAnniversary) anniversary.apiDateOnly() else null,
+                            ),
+                        )
+                        onSaved(updated)
+                    } catch (e: Exception) {
+                        error = e.message ?: "Couldn't update the card."
+                    }
+                }
+            }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -144,6 +241,9 @@ fun CardManageDialog(
     var limitName by remember(card.id) { mutableStateOf("") }
     var limitAmount by remember(card.id) { mutableStateOf("") }
     var isFloor by remember(card.id) { mutableStateOf(false) }
+    var resetBasis by remember(card.id) { mutableStateOf(LimitResetBasis.CYCLE) }
+    var anniversary by remember(card.id) { mutableStateOf(card.anniversaryDate) }
+    var editing by remember { mutableStateOf(false) }
     var categoryName by remember(card.id) { mutableStateOf("") }
     var categoryLimitId by remember(card.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -157,6 +257,7 @@ fun CardManageDialog(
                 modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                TextButton(onClick = { editing = true }) { Text("Edit card — cycle and anniversary") }
                 Text("Limits", style = MaterialTheme.typography.titleSmall)
                 if (limits.isEmpty()) {
                     Text(
@@ -200,6 +301,19 @@ fun CardManageDialog(
                     optionLabel = { it },
                     onSelect = { isFloor = it.startsWith("Minimum") },
                 )
+                Text("Resets", style = MaterialTheme.typography.labelMedium)
+                resetOptions(hasAnniversary = anniversary != null).filter { it.isAvailable }.forEach { option ->
+                    TextButton(onClick = { resetBasis = option.basis }) {
+                        Text((if (resetBasis == option.basis) "● " else "○ ") + option.label)
+                    }
+                }
+                if (anniversary == null) {
+                    Text(
+                        ANNIVERSARY_HINT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     if (isFloor) {
                         "The spend you need to reach — a fee waiver or a bonus qualifier."
@@ -220,13 +334,14 @@ fun CardManageDialog(
                                         name = limitName,
                                         amount = CalculatorInput.evaluateArithmeticExpression(limitAmount) ?: return@launch,
                                         direction = if (isFloor) "floor" else "ceiling",
-                                        resetBasis = "cycle",
+                                        resetBasis = resetBasis.wire,
                                     ),
                                 )
                                 limits = limits + created
                                 limitName = ""
                                 limitAmount = ""
                                 isFloor = false
+                                resetBasis = LimitResetBasis.CYCLE
                                 error = null
                                 onChanged()
                             } catch (e: Exception) {
@@ -324,6 +439,24 @@ fun CardManageDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+
+    if (editing) {
+        CardEditDialog(
+            card = card.copy(anniversaryDate = anniversary),
+            onDismiss = { editing = false },
+            onSaved = { updated ->
+                anniversary = updated.anniversaryDate
+                // A cleared anniversary can strip the picker's available options out from
+                // under a selection made while it still had one — clamp back to CYCLE rather
+                // than silently send a card-year/card-quarter reset the backend will 400 on.
+                if (resetOptions(hasAnniversary = anniversary != null).none { it.isAvailable && it.basis == resetBasis }) {
+                    resetBasis = LimitResetBasis.CYCLE
+                }
+                editing = false
+                onChanged()
+            },
+        )
+    }
 }
 
 private fun categoryLabel(category: CardCategoryResponse): String {
