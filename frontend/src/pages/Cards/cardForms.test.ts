@@ -40,4 +40,9 @@ describe('cardUpdateBody', () => {
         const body = cardUpdateBody(form({ cycle_basis: 'calendar', anniversary_date: '' }));
         expect(body).not.toHaveProperty('statement_day');
     });
+
+    it('also leaves the statement day out when a statement card clears its visible field, preserving the existing value', () => {
+        const body = cardUpdateBody(form({ cycle_basis: 'statement', statement_day: '', anniversary_date: '' }));
+        expect(body).not.toHaveProperty('statement_day');
+    });
 });

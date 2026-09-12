@@ -29,8 +29,11 @@ export function resetOptions(hasAnniversary: boolean): SelectOption[] {
  *
  * The form always states the anniversary, so an empty field is an explicit
  * `null` — the backend's "clear it", as opposed to an omitted key, which would
- * preserve it. The statement day is omitted when a calendar card hides it,
- * rather than sent as 0 and rejected.
+ * preserve it. The statement day is omitted whenever `Number(...)` on it is
+ * falsy — not just when a calendar-basis card hides the field, but also when a
+ * statement-basis card's visible field is cleared to empty. Either way there is
+ * no value to send, and omitting the key preserves whatever the card already
+ * has rather than sending a `0` the backend would reject.
  */
 export function cardUpdateBody(formData: FormData): Record<string, unknown> {
     const anniversary = String(formData.get("anniversary_date") ?? "").trim();

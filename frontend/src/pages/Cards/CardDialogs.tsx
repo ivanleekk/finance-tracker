@@ -114,6 +114,7 @@ function AddLimitForm({ card }: { card: CardResponse }) {
     const formRef = useRef<HTMLFormElement>(null);
     const [direction, setDirection] = useState("ceiling");
     const [resetBasis, setResetBasis] = useState("cycle");
+    const resetChoices = resetOptions(Boolean(card.anniversary_date));
 
     const saved = fetcher.state === "idle" && fetcher.data?.success;
     useEffect(() => {
@@ -122,6 +123,21 @@ function AddLimitForm({ card }: { card: CardResponse }) {
         setDirection("ceiling");
         setResetBasis("cycle");
     }, [saved]);
+
+    // Clearing the card's anniversary (in the settings form below, in the same
+    // open dialog) disables the anniversary-basis options here, but a `resetBasis`
+    // already pointed at one of them doesn't know that — the mirrored native
+    // `<select>` would submit it anyway and the backend 400s. Clamp back to the
+    // default whenever the current selection drops out of the enabled set,
+    // derived from `resetOptions`'s own `disabled` flag rather than hardcoding
+    // which values are anniversary-only.
+    useEffect(() => {
+        const stillEnabled = resetOptions(Boolean(card.anniversary_date))
+            .some(o => o.value === resetBasis && !o.disabled);
+        if (!stillEnabled) {
+            setResetBasis("cycle");
+        }
+    }, [card.anniversary_date, resetBasis]);
 
     return (
         <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
@@ -145,7 +161,7 @@ function AddLimitForm({ card }: { card: CardResponse }) {
                 value={resetBasis}
                 onChange={setResetBasis}
                 wrapperClassName="col-span-2"
-                options={resetOptions(Boolean(card.anniversary_date))}
+                options={resetChoices}
             />
             <p className="col-span-2 text-xs text-base-500 dark:text-base-400">
                 {direction === "floor"
