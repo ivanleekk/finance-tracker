@@ -14,6 +14,8 @@ struct CardSetUpView: View {
     @State private var accountId: String?
     @State private var cycleBasis: CycleBasis = .statement
     @State private var statementDay = 1
+    @State private var hasAnniversary = false
+    @State private var anniversary = Date()
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -47,6 +49,18 @@ struct CardSetUpView: View {
                     )
                 }
 
+                Section {
+                    Toggle("Card anniversary", isOn: $hasAnniversary)
+                    if hasAnniversary {
+                        DatePicker("Opened on", selection: $anniversary, displayedComponents: .date)
+                            // The backend date means a calendar day, read back at UTC
+                            // midnight; pick in UTC so it round-trips to the same day.
+                            .environment(\.timeZone, .gmt)
+                    }
+                } footer: {
+                    Text("Optional. Limits that reset each card year or card quarter count from it.")
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -62,7 +76,7 @@ struct CardSetUpView: View {
                         .disabled(accountId == nil || isSaving)
                 }
             }
-            .discardGuard(fields: [accountId, cycleBasis, statementDay])
+            .discardGuard(fields: [accountId, cycleBasis, statementDay, hasAnniversary, anniversary])
         }
     }
 
@@ -78,7 +92,8 @@ struct CardSetUpView: View {
                     body: CardCreate(
                         financialAccountId: accountId,
                         cycleBasis: cycleBasis.rawValue,
-                        statementDay: statementDay
+                        statementDay: statementDay,
+                        anniversaryDate: hasAnniversary ? anniversary.apiDateOnly : nil
                     )
                 )
                 await onSaved()
@@ -105,12 +120,15 @@ struct CardManageView: View {
     @State private var limitReset: LimitResetBasis = .cycle
     @State private var categoryName = ""
     @State private var categoryLimitId: String?
+    @State private var anniversaryDate: Date?
+    @State private var editing = false
 
     init(card: CardResponse, onChanged: @escaping () async -> Void) {
         self.card = card
         self.onChanged = onChanged
         _limits = State(initialValue: card.limits)
         _categories = State(initialValue: card.categories)
+        _anniversaryDate = State(initialValue: card.anniversaryDate)
     }
 
     var body: some View {
@@ -140,21 +158,25 @@ struct CardManageView: View {
                         Text("Minimum — reach it").tag(LimitDirection.floor)
                     }
                     Picker("Resets", selection: $limitReset) {
-                        Text("Each statement cycle").tag(LimitResetBasis.cycle)
-                        Text("Each calendar month").tag(LimitResetBasis.calendarMonth)
-                        Text("Each quarter").tag(LimitResetBasis.quarter)
-                        Text("Each year").tag(LimitResetBasis.year)
+                        ForEach(Cards.resetOptions(hasAnniversary: anniversaryDate != nil).filter(\.isAvailable), id: \.basis) { option in
+                            Text(option.label).tag(option.basis)
+                        }
                     }
                     Button("Add limit") { Task { await addLimit() } }
                         .disabled(limitName.isEmpty || CalculatorInput.evaluateArithmeticExpression(limitAmount) == nil)
                 } header: {
                     Text("Add a limit")
                 } footer: {
-                    Text(
-                        limitDirection == .floor
-                            ? "The spend you need to reach — a fee waiver or a bonus qualifier."
-                            : "Enter caps as a spend figure. A cap the issuer states in rewards (\"max $60 cashback\") has to be converted — at 10%, that is $600 of spend."
-                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(
+                            limitDirection == .floor
+                                ? "The spend you need to reach — a fee waiver or a bonus qualifier."
+                                : "Enter caps as a spend figure. A cap the issuer states in rewards (\"max $60 cashback\") has to be converted — at 10%, that is $600 of spend."
+                        )
+                        if anniversaryDate == nil {
+                            Text(Cards.anniversaryHint)
+                        }
+                    }
                 }
 
                 Section {
@@ -215,6 +237,9 @@ struct CardManageView: View {
             .navigationTitle(card.accountName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Edit card") { editing = true }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
@@ -223,6 +248,12 @@ struct CardManageView: View {
             // is tapped — what this guards is the half-typed draft in either inline form,
             // which swiping away used to lose silently.
             .discardGuard(fields: [limitName, limitAmount, limitDirection, limitReset, categoryName, categoryLimitId])
+            .sheet(isPresented: $editing) {
+                CardEditView(card: card) { updated in
+                    anniversaryDate = updated.anniversaryDate
+                    await onChanged()
+                }
+            }
         }
     }
 
