@@ -254,6 +254,17 @@ struct CardManageView: View {
                     await onChanged()
                 }
             }
+            // Clearing the anniversary from Edit card can leave `limitReset` on
+            // "Each card year"/"Each card quarter" after the Picker has already
+            // stopped offering it. Clamp back to the default whenever the current
+            // selection drops out of the available set, rather than hardcoding
+            // which bases are anniversary-only.
+            .onChange(of: anniversaryDate) {
+                let available = Set(Cards.resetOptions(hasAnniversary: anniversaryDate != nil).filter(\.isAvailable).map(\.basis))
+                if !available.contains(limitReset) {
+                    limitReset = .cycle
+                }
+            }
         }
     }
 
