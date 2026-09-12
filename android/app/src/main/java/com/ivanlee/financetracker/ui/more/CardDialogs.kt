@@ -234,6 +234,7 @@ fun CardManageDialog(
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
 ) {
+    var currentCard by remember(card.id) { mutableStateOf(card) }
     var limits by remember(card.id) { mutableStateOf(card.limits) }
     var categories by remember(card.id) { mutableStateOf(card.categories) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -442,9 +443,13 @@ fun CardManageDialog(
 
     if (editing) {
         CardEditDialog(
-            card = card.copy(anniversaryDate = anniversary),
+            card = currentCard,
             onDismiss = { editing = false },
             onSaved = { updated ->
+                // Hold the PUT's response rather than just its anniversary date — the same
+                // dialog also edits cycleBasis/statementDay, and reopening Edit card must not
+                // re-seed those from the stale snapshot this composable was first created with.
+                currentCard = updated
                 anniversary = updated.anniversaryDate
                 // A cleared anniversary can strip the picker's available options out from
                 // under a selection made while it still had one — clamp back to CYCLE rather
