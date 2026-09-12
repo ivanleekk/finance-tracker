@@ -22,7 +22,26 @@ if not DATABASE_URL:
         database=os.getenv("POSTGRES_DB", "postgres"),
     )
 
-engine = create_engine(DATABASE_URL)
+# Neon suspends its compute when the app goes quiet and drops the connections
+# it was holding. The pool is never told: it keeps sockets that are already dead
+# and hands one to the next request, which fails with "server closed the
+# connection unexpectedly" — a 500, and the web app's error page. The refresh a
+# second later works only because that failure discards the dead connection, so
+# the cost of a quiet spell lands entirely on whoever arrives first.
+#
+# `pool_pre_ping` spends a round trip checking a pooled connection is alive
+# before handing it over, and transparently reconnects when it isn't: the
+# request that used to fail now just takes slightly longer. `pool_recycle`
+# retires connections before a serverless provider is likely to have given up
+# on them, so the ping usually has nothing to fix.
+POOL_RECYCLE_SECONDS = 300
+
+
+def create_app_engine(url: str):
+    return create_engine(url, pool_pre_ping=True, pool_recycle=POOL_RECYCLE_SECONDS)
+
+
+engine = create_app_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 metadata = MetaData(schema="finance_tracker")
