@@ -5,10 +5,27 @@ import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.LimitDirection
+import com.ivanlee.financetracker.data.model.LimitResetBasis
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/** One row of the limit "Resets" picker. */
+data class ResetOption(val basis: LimitResetBasis, val label: String, val isAvailable: Boolean)
+
+const val ANNIVERSARY_HINT =
+    "Set the card's anniversary first — under Edit card — to reset on the card year or card quarter."
+
+/** Anniversary resets are unavailable until the card has a date; the picker leaves them out. */
+fun resetOptions(hasAnniversary: Boolean): List<ResetOption> = listOf(
+    ResetOption(LimitResetBasis.CYCLE, "Each statement cycle", true),
+    ResetOption(LimitResetBasis.CALENDAR_MONTH, "Each calendar month", true),
+    ResetOption(LimitResetBasis.QUARTER, "Each quarter", true),
+    ResetOption(LimitResetBasis.YEAR, "Each year", true),
+    ResetOption(LimitResetBasis.CARD_YEAR, "Each card year", hasAnniversary),
+    ResetOption(LimitResetBasis.CARD_QUARTER, "Each card quarter", hasAnniversary),
+)
 
 /**
  * Kotlin port of the web's `frontend/src/lib/cards.ts` and iOS's

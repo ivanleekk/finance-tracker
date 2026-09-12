@@ -4,15 +4,25 @@ import com.ivanlee.financetracker.data.model.CardCategoryResponse
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
+import com.ivanlee.financetracker.data.model.CardUpdate
 import com.ivanlee.financetracker.data.model.CycleBasis
 import com.ivanlee.financetracker.data.model.LimitDirection
+import com.ivanlee.financetracker.data.model.LimitResetBasis
+import com.ivanlee.financetracker.data.model.cardUpdate
 import com.ivanlee.financetracker.data.model.transactionUpdate
+import com.ivanlee.financetracker.data.net.Api
+import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.Cards
+import com.ivanlee.financetracker.logic.resetOptions
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -216,5 +226,56 @@ class CardsTest {
     @Test
     fun `sends the card category when one is picked`() {
         assertEquals(JsonPrimitive("cc-1"), encoded("cc-1")["cardCategoryId"])
+    }
+
+    // --- Anniversary resets ---
+
+    @Test
+    fun aCardYearDecodesAsItself() {
+        assertEquals(LimitResetBasis.CARD_YEAR, Api.json.decodeFromString<LimitResetBasis>("\"card_year\""))
+    }
+
+    @Test
+    fun anUnknownScheduleDecodesAsUnknownRatherThanFailingTheCard() {
+        assertEquals(LimitResetBasis.UNKNOWN, Api.json.decodeFromString<LimitResetBasis>("\"fortnightly\""))
+    }
+
+    @Test
+    fun aCardDecodesItsAnniversary() {
+        val card = Api.json.decodeFromString<CardResponse>(
+            """{"id":"c","financial_account_id":"a","account_name":"Amex","currency":"SGD",
+               "cycle_basis":"statement","statement_day":18,"anniversary_date":"2024-03-14",
+               "categories":[],"limits":[]}""",
+        )
+        assertEquals("2024-03-14", card.anniversaryDate?.apiDateOnly())
+    }
+
+    @Test
+    fun aCardUpdateSendsTheAnniversary() {
+        val obj = Api.json.parseToJsonElement(
+            Api.json.encodeToString(cardUpdate("statement", 18, "2024-03-14")),
+        ).jsonObject
+        assertEquals("2024-03-14", obj["anniversary_date"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun aClearedAnniversaryIsAnExplicitNullNotAnOmittedKey() {
+        // explicitNulls = false would drop a Kotlin null; only JsonNull reaches the wire.
+        val obj = Api.json.parseToJsonElement(
+            Api.json.encodeToString(cardUpdate("statement", 18, null)),
+        ).jsonObject
+        assertTrue(obj.containsKey("anniversary_date"))
+        assertEquals(JsonNull, obj["anniversary_date"])
+    }
+
+    @Test
+    fun anniversaryResetsAreOnlyOfferedOnceTheCardHasADate() {
+        assertEquals(
+            listOf(LimitResetBasis.CYCLE, LimitResetBasis.CALENDAR_MONTH, LimitResetBasis.QUARTER, LimitResetBasis.YEAR),
+            resetOptions(hasAnniversary = false).filter { it.isAvailable }.map { it.basis },
+        )
+        val available = resetOptions(hasAnniversary = true).filter { it.isAvailable }.map { it.basis }
+        assertTrue(LimitResetBasis.CARD_YEAR in available)
+        assertTrue(LimitResetBasis.CARD_QUARTER in available)
     }
 }

@@ -4,8 +4,14 @@ import com.ivanlee.financetracker.data.net.InstantSerializer
 import com.ivanlee.financetracker.data.net.MoneySerializer
 import com.ivanlee.financetracker.data.net.OptionalInstantSerializer
 import com.ivanlee.financetracker.data.net.OptionalMoneySerializer
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -1254,12 +1260,32 @@ enum class LimitDirection {
     @SerialName("floor") FLOOR,
 }
 
-@Serializable
-enum class LimitResetBasis {
-    @SerialName("cycle") CYCLE,
-    @SerialName("calendar_month") CALENDAR_MONTH,
-    @SerialName("quarter") QUARTER,
-    @SerialName("year") YEAR,
+/**
+ * How often a card limit starts over. Decoded leniently: a value this build doesn't
+ * know (a newer server) becomes [UNKNOWN] instead of failing the whole card list —
+ * and deliberately not a known value, which would label a card year a statement cycle.
+ */
+@Serializable(with = LimitResetBasisSerializer::class)
+enum class LimitResetBasis(val wire: String) {
+    CYCLE("cycle"),
+    CALENDAR_MONTH("calendar_month"),
+    QUARTER("quarter"),
+    YEAR("year"),
+    CARD_YEAR("card_year"),
+    CARD_QUARTER("card_quarter"),
+    /** Never sent. */
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWire(raw: String): LimitResetBasis = entries.firstOrNull { it.wire == raw } ?: UNKNOWN
+    }
+}
+
+object LimitResetBasisSerializer : KSerializer<LimitResetBasis> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("LimitResetBasis", PrimitiveKind.STRING)
+    override fun deserialize(decoder: Decoder): LimitResetBasis = LimitResetBasis.fromWire(decoder.decodeString())
+    override fun serialize(encoder: Encoder, value: LimitResetBasis) = encoder.encodeString(value.wire)
 }
 
 @Serializable
@@ -1292,6 +1318,9 @@ data class CardResponse(
     val currency: String? = null,
     val cycleBasis: CycleBasis,
     val statementDay: Int,
+    /** Anchors card-year / card-quarter limits. A date-only field. */
+    @Serializable(with = OptionalInstantSerializer::class)
+    val anniversaryDate: Instant? = null,
     val categories: List<CardCategoryResponse> = emptyList(),
     val limits: List<CardLimitResponse> = emptyList(),
 )
@@ -1354,6 +1383,27 @@ data class CardCreate(
     val financialAccountId: String,
     val cycleBasis: String,
     val statementDay: Int,
+    /** Bare "yyyy-MM-dd". Omitted when null, which is correct on create. */
+    val anniversaryDate: String? = null,
+)
+
+/**
+ * PUT /cards/{id} from the Edit card dialog, which states the whole card. Build it
+ * with [cardUpdate]: [anniversaryDate] is a [JsonElement] because `explicitNulls = false`
+ * drops a Kotlin null, and the backend reads an omitted key as "keep it" — only an
+ * explicit null clears the date.
+ */
+@Serializable
+data class CardUpdate(
+    val cycleBasis: String,
+    val statementDay: Int,
+    val anniversaryDate: JsonElement,
+)
+
+fun cardUpdate(cycleBasis: String, statementDay: Int, anniversaryDate: String?): CardUpdate = CardUpdate(
+    cycleBasis = cycleBasis,
+    statementDay = statementDay,
+    anniversaryDate = anniversaryDate?.let { JsonPrimitive(it) } ?: JsonNull,
 )
 
 @Serializable
