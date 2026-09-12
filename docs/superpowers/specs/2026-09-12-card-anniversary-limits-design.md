@@ -100,8 +100,11 @@ The work is models and forms.
   with a hint** ("Set the card's anniversary first") when the card has no date, so
   the 400 is a backstop.
 - Anniversary date field in card setup and card edit — optional, clearable.
-- The existing period label on each meter ("14 Mar – 13 Mar") already makes a card
-  year legible; no new display work.
+- No client renders a limit's own `period_start`/`period_end` today — the only
+  window shown anywhere is the card's statement cycle in the section header, so a
+  card-year cap renders under that header same as any other limit. Giving each
+  limit its own window is real, deliberate follow-up work, not part of this
+  branch.
 
 ### Lenient enum decoding (native)
 
