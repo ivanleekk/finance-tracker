@@ -879,3 +879,101 @@ class TestUntaggedSpendAlwaysLands:
         res = client.delete(f"/cards/categories/{default_id}", headers=headers)
         assert res.status_code == 409
         assert "the default" in res.json()["detail"].lower()
+
+
+class TestAnniversaryEndpoints:
+    def _new_card(self, client, headers, account, **extra):
+        res = client.post(
+            "/cards",
+            json={"financial_account_id": str(account.id), "statement_day": 18, **extra},
+            headers=headers,
+        )
+        assert res.status_code == 201, res.text
+        return res.json()
+
+    def test_a_card_can_be_created_with_an_anniversary(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        assert card["anniversary_date"] == "2024-03-14"
+
+    def test_a_card_without_one_reads_null(self, client, headers, card_account):
+        assert self._new_card(client, headers, card_account)["anniversary_date"] is None
+
+    def test_an_anniversary_limit_needs_the_date_first(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account)
+        res = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        assert res.status_code == 400
+        assert "anniversary" in res.json()["detail"].lower()
+
+    def test_switching_a_limit_to_card_quarter_needs_the_date_too(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account)
+        limit = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Cap", "amount": 1000},
+            headers=headers,
+        ).json()
+        res = client.put(
+            f"/cards/limits/{limit['id']}", json={"reset_basis": "card_quarter"}, headers=headers
+        )
+        assert res.status_code == 400
+
+    def test_omitting_the_date_on_update_preserves_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        res = client.put(f"/cards/{card['id']}", json={"statement_day": 5}, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["anniversary_date"] == "2024-03-14"
+
+    def test_an_explicit_null_clears_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": None}, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["anniversary_date"] is None
+
+    def test_clearing_it_is_refused_while_a_limit_counts_from_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": None}, headers=headers)
+        assert res.status_code == 400
+        assert "Annual cap" in res.json()["detail"]
+
+    def test_moving_the_date_is_allowed_while_a_limit_counts_from_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": "2024-04-01"}, headers=headers)
+        assert res.status_code == 200
+
+
+class TestAnniversaryMeter:
+    def test_last_aprils_charge_counts_toward_the_card_year_not_the_calendar_year(
+        self, db_session, card_account, dining
+    ):
+        card = _card(db_session, card_account, anniversary=date(2024, 3, 14))
+        card_year = _limit(db_session, card, "Card year", 25000, reset=models.LimitResetBasis.card_year)
+        calendar_year = _limit(db_session, card, "Calendar year", 25000, reset=models.LimitResetBasis.year)
+        a = _category(db_session, card, "A", limit=card_year, is_default=True)
+        b = _category(db_session, card, "B", limit=calendar_year)
+
+        _spend(db_session, card_account, dining, 400, date(2025, 4, 2), card_category=a)
+        _spend(db_session, card_account, dining, 400, date(2025, 4, 2), card_category=b)
+
+        by_name = {
+            s.limit.name: s
+            for s in card_service.card_limit_statuses(db_session, card, on=date(2026, 1, 10))
+        }
+        assert (by_name["Card year"].period_start, by_name["Card year"].period_end) == (
+            date(2025, 3, 14),
+            date(2026, 3, 13),
+        )
+        assert by_name["Card year"].spent == Decimal("400.00")
+        assert by_name["Calendar year"].spent == Decimal("0.00")

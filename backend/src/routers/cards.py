@@ -67,9 +67,28 @@ def _card_response(card: models.Card, account: models.FinancialAccount) -> schem
         currency=account.currency,
         cycle_basis=card.cycle_basis,
         statement_day=card.statement_day,
+        anniversary_date=card.anniversary_date,
         categories=[schemas.CardCategoryResponse.model_validate(c) for c in card.categories],
         limits=[schemas.CardLimitResponse.model_validate(l) for l in card.limits],
     )
+
+
+ANNIVERSARY_NEEDED = (
+    "Set the card's anniversary date first — a card-year or card-quarter "
+    "limit is counted from it."
+)
+
+
+def _require_anniversary_for(card: models.Card, reset_basis: str) -> None:
+    """
+    Refuse an anniversary limit on a card with no anniversary.
+
+    Falling back to the calendar year would meter over a window the issuer never
+    applies and still look plausible — the silent kind of wrong.
+    """
+    basis = models.LimitResetBasis(reset_basis)
+    if basis in card_service.ANNIVERSARY_RESET_BASES and card.anniversary_date is None:
+        raise HTTPException(status_code=400, detail=ANNIVERSARY_NEEDED)
 
 
 # --- The card itself ----------------------------------------------------------
@@ -98,6 +117,7 @@ def create_card(
         financial_account_id=account.id,
         cycle_basis=models.CycleBasis(payload.cycle_basis),
         statement_day=payload.statement_day,
+        anniversary_date=payload.anniversary_date,
     )
     db.add(card)
     db.flush()
@@ -164,10 +184,26 @@ def update_card(
     current_user: models.User = Depends(get_current_user),
 ):
     card = _visible_card(db, card_id, current_user)
+    fields = payload.model_dump(exclude_unset=True)
     if payload.cycle_basis is not None:
         card.cycle_basis = models.CycleBasis(payload.cycle_basis)
     if payload.statement_day is not None:
         card.statement_day = payload.statement_day
+    if "anniversary_date" in fields:
+        if fields["anniversary_date"] is None:
+            dependent = [
+                l.name for l in card.limits
+                if l.reset_basis in card_service.ANNIVERSARY_RESET_BASES
+            ]
+            if dependent:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "These limits count from the anniversary: "
+                        f"{', '.join(dependent)}. Change their reset first, or keep the date."
+                    ),
+                )
+        card.anniversary_date = fields["anniversary_date"]
     db.commit()
     db.refresh(card)
     return _card_response(card, _account_or_404(db, card.financial_account_id))
@@ -213,6 +249,7 @@ def create_limit(
     current_user: models.User = Depends(get_current_user),
 ):
     card = _visible_card(db, card_id, current_user)
+    _require_anniversary_for(card, payload.reset_basis)
     limit = models.CardLimit(
         id=uuid.uuid7(),
         card_id=card.id,
@@ -237,7 +274,7 @@ def update_limit(
     limit = db.query(models.CardLimit).filter(models.CardLimit.id == limit_id).first()
     if not limit:
         raise HTTPException(status_code=404, detail="Limit not found")
-    _visible_card(db, limit.card_id, current_user)
+    card = _visible_card(db, limit.card_id, current_user)
 
     if payload.name is not None:
         limit.name = payload.name
@@ -246,6 +283,7 @@ def update_limit(
     if payload.direction is not None:
         limit.direction = models.LimitDirection(payload.direction)
     if payload.reset_basis is not None:
+        _require_anniversary_for(card, payload.reset_basis)
         limit.reset_basis = models.LimitResetBasis(payload.reset_basis)
     db.commit()
     db.refresh(limit)
