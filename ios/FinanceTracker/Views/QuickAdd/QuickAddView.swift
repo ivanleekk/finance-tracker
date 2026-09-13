@@ -142,6 +142,8 @@ struct QuickAddView: View {
                     }
                 }
             }
+            // The amount field sits at the top of a form that runs well past the keyboard.
+            .calculatorKeyboard()
             .navigationTitle("Quick Add")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

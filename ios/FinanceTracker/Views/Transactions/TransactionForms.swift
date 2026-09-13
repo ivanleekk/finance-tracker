@@ -174,6 +174,7 @@ struct TransactionFormView: View {
                     }
                 }
             }
+            .calculatorKeyboard()
             .navigationTitle(existing == nil ? "New Transaction" : "Edit Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -219,6 +219,15 @@ FinanceTracker/
   slice; the picked wedge grows outward and the rest dim, the donut's centre reads it out, and
   the legend rows are buttons that select the same wedge (a thin sector is a poor touch target
   and the only accessible way in).
+- **A long form hosts the calculator accessory itself** — `.calculatorKeyboard()` on the
+  `Form` (`Views/Components/CalculatorField.swift`; Quick Add, TransactionFormView,
+  RecurringFormView). Without it each `CalculatorField` declares its own keyboard toolbar,
+  which lives only as long as its lazy Form row: scroll the focused amount field out of view
+  and the toolbar is torn down and rebuilt in a loop, yo-yoing the form. The host also adds
+  bottom content margin on iOS 26, where the floating `+ − × ÷ Done` bar isn't part of the
+  keyboard inset and otherwise covers the last rows (Quick Add's merchant code). Short forms
+  can keep the per-field fallback. A sheet presented from a hosted form inherits its
+  environment, so give it its own `.calculatorKeyboard()` before putting a `CalculatorField` in it.
 - **Sheets can't discard unsaved work by accident** — `.discardGuard(fields:settled:)`
   (`Views/Components/DiscardGuard.swift`) is on every create/edit sheet — thirteen as of
   CardEditView, and rising as new forms ship, so treat this as "all of them" rather than a
