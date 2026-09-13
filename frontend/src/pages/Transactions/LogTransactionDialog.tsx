@@ -37,6 +37,9 @@ export type TransferFormData = {
     amount: string
     date: string
     description: string
+    // What arrived, in the destination's currency. Blank means "convert at the
+    // close"; only offered when the two accounts' currencies differ.
+    amountReceived: string
 }
 
 type Props = {
@@ -160,6 +163,16 @@ export function LogTransactionDialog({
         const fee = feeAmount(inAccountCurrency, parseMoney(formData.feePercent))
         return fee === null ? "" : `${accountCurrency} ${fee.toFixed(2)}`
     })()
+
+    const fromCurrency = accounts.find(a => a.id === transferData.fromAccountId)?.currency || ""
+    const toCurrency = accounts.find(a => a.id === transferData.toAccountId)?.currency || ""
+    const isCrossCurrencyTransfer = isForeignCharge(fromCurrency, toCurrency)
+    const receivedRateHint = impliedRateLabel(
+        parseMoney(transferData.amount),
+        parseMoney(transferData.amountReceived),
+        fromCurrency,
+        toCurrency,
+    )
 
     const chargedRateHint = impliedRateLabel(
         parseMoney(formData.amount),
@@ -609,6 +622,28 @@ export function LogTransactionDialog({
                             />
                         </div>
                     </div>
+
+                    {isCrossCurrencyTransfer && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                Amount received ({toCurrency})
+                                <span className="ml-1 font-normal text-base-500">— optional</span>
+                            </label>
+                            <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={`Amount in ${toCurrency}`}
+                                value={transferData.amountReceived}
+                                onChange={(e) => setTransferData({ ...transferData, amountReceived: e.target.value })}
+                            />
+                            <p className="text-xs text-base-500 dark:text-base-400">
+                                {receivedRateHint
+                                    ? `Rate ${receivedRateHint}. Anything lost against the day's close is recorded as FX Conversion.`
+                                    : `Leave blank to convert at the ${fromCurrency} to ${toCurrency} rate for this date.`}
+                            </p>
+                        </div>
+                    )}
 
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>
