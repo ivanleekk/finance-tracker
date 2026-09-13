@@ -17,7 +17,7 @@ import com.ivanlee.financetracker.logic.Cards
  */
 data class LoadedCard(
     val card: CardResponse,
-    val headroom: Map<String, CardLimitStatusRow>,
+    val headroom: Map<String, List<CardLimitStatusRow>>,
 )
 
 suspend fun loadCardForAccount(householdId: String, accountId: String): LoadedCard? {
@@ -29,7 +29,7 @@ suspend fun loadCardForAccount(householdId: String, accountId: String): LoadedCa
     // A missing meter makes the picker plainer, never the form unusable, so the
     // status is allowed to fail on its own.
     val headroom = runCatching {
-        Cards.headroomByCategory(card, Api.get<CardStatusResponse>("/cards/${card.id}/status"))
+        Cards.headroomByCategory(Api.get<CardStatusResponse>("/cards/${card.id}/status"))
     }.getOrDefault(emptyMap())
 
     return LoadedCard(card, headroom)

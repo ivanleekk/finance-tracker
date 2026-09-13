@@ -1,6 +1,7 @@
 package com.ivanlee.financetracker.logic
 
 import com.ivanlee.financetracker.data.model.CardCategoryResponse
+import com.ivanlee.financetracker.data.model.CardLimitResponse
 import com.ivanlee.financetracker.data.model.CardLimitStatusRow
 import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
@@ -77,37 +78,61 @@ object Cards {
      *
      * Formatted in UTC, like everything else that renders a backend calendar
      * date — a cycle boundary is a fact about the card, not an instant, and
-     * rendering it in the device zone shifts it a day west of Greenwich.
+     * rendering it in the device zone shifts it a day west of Greenwich. A window
+     * crossing into another year says which years, or a card year reads
+     * "14 Sep – 13 Sep" — a window of either one day or one year.
      */
     fun cycleLabel(start: Instant, end: Instant, locale: Locale = Locale.getDefault()): String {
-        val formatter = DateTimeFormatter.ofPattern("d MMM", locale).withZone(ZoneOffset.UTC)
+        val crossesYear = start.atZone(ZoneOffset.UTC).year != end.atZone(ZoneOffset.UTC).year
+        val formatter = DateTimeFormatter.ofPattern(if (crossesYear) "d MMM yyyy" else "d MMM", locale)
+            .withZone(ZoneOffset.UTC)
         return "${formatter.format(start)} – ${formatter.format(end)}"
     }
 
     /**
-     * Headroom for each of a card's categories, keyed by category id.
+     * A limit's own window, worded like the card's cycle — or null when it is the
+     * card's cycle.
+     *
+     * The card header shows the statement cycle, which is right for most limits
+     * and wrong for the rest: a monthly minimum and an annual cap on the same
+     * category sit side by side, and reading both against the cycle makes the
+     * annual one look wildly over pace. Only the ones that differ are labelled.
+     */
+    fun limitWindowLabel(
+        row: CardLimitStatusRow,
+        status: CardStatusResponse,
+        locale: Locale = Locale.getDefault(),
+    ): String? {
+        if (row.periodStart == status.cycleStart && row.periodEnd == status.cycleEnd) return null
+        return cycleLabel(row.periodStart, row.periodEnd, locale)
+    }
+
+    /**
+     * Every limit each of a card's categories counts towards, keyed by category id.
      *
      * The status endpoint reports limits, but the picker is a list of
-     * *categories* — and several categories can share one limit, so this fans the
-     * limit back out over the categories pointing at it. A category with no limit
-     * gets no entry rather than a zero, because "unmetered" and "nothing left"
-     * must not look the same.
+     * *categories* — so this fans each limit back out over the categories
+     * counting towards it. A category can count towards several, so each gets a
+     * list in the status payload's order, which is most urgent first. A category
+     * with no limit gets no entry rather than an empty list, because "unmetered"
+     * and "nothing left" must not look the same.
      */
-    fun headroomByCategory(
-        card: CardResponse,
-        status: CardStatusResponse,
-    ): Map<String, CardLimitStatusRow> {
-        val byLimit = status.limits.associateBy { it.limitId }
-        val out = mutableMapOf<String, CardLimitStatusRow>()
-        for (category in card.categories) {
-            // An unmetered category has no limit id, which matches nothing here
-            // and is skipped by the same lookup that skips a limit missing from
-            // the payload — no separate guard needed.
-            val row = category.limitId?.let { byLimit[it] } ?: continue
-            out[category.id] = row
+    fun headroomByCategory(status: CardStatusResponse): Map<String, List<CardLimitStatusRow>> {
+        val out = linkedMapOf<String, MutableList<CardLimitStatusRow>>()
+        for (row in status.limits) {
+            for (categoryId in row.categoryIds) {
+                out.getOrPut(categoryId) { mutableListOf() }.add(row)
+            }
         }
         return out
     }
+
+    /**
+     * Whether any limit counts this category. Read from the card's limits rather
+     * than the status, so Manage can say "unmetered" without a status fetch.
+     */
+    fun isMetered(categoryId: String, limits: List<CardLimitResponse>): Boolean =
+        limits.any { categoryId in it.categoryIds }
 
     /**
      * A limit with no categories pointing at it measures nothing.
@@ -128,13 +153,15 @@ object Cards {
     fun needingAttention(rows: List<CardLimitStatusRow>): List<CardLimitStatusRow> =
         rows.filter { tone(it) != Tone.OK }
 
-    /** "Dining · $240 left" when metered, otherwise just the name. */
+    /**
+     * A card category's picker label: its name, then every limit it counts
+     * towards — "Dining · $300 to go · $11,000 left".
+     */
     fun categoryLabel(
         category: CardCategoryResponse,
-        headroom: Map<String, CardLimitStatusRow>,
+        headroom: Map<String, List<CardLimitStatusRow>>,
         formatAmount: (Double) -> String,
-    ): String {
-        val row = headroom[category.id] ?: return category.name
-        return "${category.name} · ${headroomLabel(row, formatAmount)}"
-    }
+    ): String =
+        (listOf(category.name) + headroom[category.id].orEmpty().map { headroomLabel(it, formatAmount) })
+            .joinToString(" · ")
 }

@@ -113,7 +113,7 @@ fun QuickAddSheet(
     // The card behind the selected account, if it is one. Fetched on demand —
     // most accounts are not cards, and Quick Add is meant to be fast.
     var card by remember { mutableStateOf<CardResponse?>(null) }
-    var cardHeadroom by remember { mutableStateOf<Map<String, CardLimitStatusRow>>(emptyMap()) }
+    var cardHeadroom by remember { mutableStateOf<Map<String, List<CardLimitStatusRow>>>(emptyMap()) }
     var cardCategoryId by remember { mutableStateOf<String?>(null) }
 
     // Reloads whenever the account changes. A pick from the old card is

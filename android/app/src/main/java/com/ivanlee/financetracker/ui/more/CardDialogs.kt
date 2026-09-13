@@ -1,5 +1,6 @@
 package com.ivanlee.financetracker.ui.more
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -18,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.logic.CalculatorInput
@@ -27,6 +30,7 @@ import com.ivanlee.financetracker.data.model.CardCategoryCreate
 import com.ivanlee.financetracker.data.model.CardCategoryDefaultUpdate
 import com.ivanlee.financetracker.data.model.CardCategoryResponse
 import com.ivanlee.financetracker.data.model.CardCreate
+import com.ivanlee.financetracker.data.model.CardLimitCategoriesUpdate
 import com.ivanlee.financetracker.data.model.CardLimitCreate
 import com.ivanlee.financetracker.data.model.CardLimitResponse
 import com.ivanlee.financetracker.data.model.CardResponse
@@ -38,6 +42,7 @@ import com.ivanlee.financetracker.data.model.cardUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.ANNIVERSARY_HINT
+import com.ivanlee.financetracker.logic.Cards
 import com.ivanlee.financetracker.logic.currencyWhole
 import com.ivanlee.financetracker.logic.resetOptions
 import com.ivanlee.financetracker.ui.components.DateField
@@ -245,8 +250,9 @@ fun CardManageDialog(
     var resetBasis by remember(card.id) { mutableStateOf(LimitResetBasis.CYCLE) }
     var anniversary by remember(card.id) { mutableStateOf(card.anniversaryDate) }
     var editing by remember { mutableStateOf(false) }
+    var limitCategoryIds by remember(card.id) { mutableStateOf(emptySet<String>()) }
+    var editingLimitId by remember(card.id) { mutableStateOf<String?>(null) }
     var categoryName by remember(card.id) { mutableStateOf("") }
-    var categoryLimitId by remember(card.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val currency = card.currency ?: "USD"
 
@@ -271,26 +277,58 @@ fun CardManageDialog(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "${limit.name} · ${if (limit.direction == LimitDirection.FLOOR) "min" else "cap"} ${limit.amount.currencyWhole(currency)}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${limit.name} · ${if (limit.direction == LimitDirection.FLOOR) "min" else "cap"} ${limit.amount.currencyWhole(currency)}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                categories.filter { it.id in limit.categoryIds }.joinToString(" · ") { it.name }
+                                    .ifEmpty { "No categories — measuring nothing" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = {
+                            editingLimitId = if (editingLimitId == limit.id) null else limit.id
+                        }) { Text(if (editingLimitId == limit.id) "Close" else "Categories") }
                         TextButton(onClick = {
                             scope.launch {
                                 try {
                                     Api.delete("/cards/limits/${limit.id}")
+                                    // Its categories survive; any counting towards nothing
+                                    // else read as unmetered, derived from `limits`.
                                     limits = limits.filterNot { it.id == limit.id }
-                                    // Its categories survive and become unmetered.
-                                    categories = categories.map {
-                                        if (it.limitId == limit.id) it.copy(limitId = null) else it
-                                    }
                                     onChanged()
                                 } catch (e: Exception) {
                                     error = e.message ?: "Couldn't remove that limit."
                                 }
                             }
                         }) { Text("Remove") }
+                    }
+                    if (editingLimitId == limit.id) {
+                        CategoryChecklist(
+                            categories = categories,
+                            selected = limit.categoryIds.toSet(),
+                            onToggle = { id ->
+                                val next = limit.categoryIds.toSet().let { if (id in it) it - id else it + id }
+                                scope.launch {
+                                    try {
+                                        val updated = Api.put<CardLimitCategoriesUpdate, CardLimitResponse>(
+                                            "/cards/limits/${limit.id}",
+                                            CardLimitCategoriesUpdate(categories.map { it.id }.filter { it in next }),
+                                        )
+                                        limits = limits.map { if (it.id == updated.id) updated else it }
+                                        error = null
+                                        onChanged()
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Couldn't update that limit's categories."
+                                    }
+                                }
+                            },
+                        )
                     }
                 }
 
@@ -308,6 +346,12 @@ fun CardManageDialog(
                         Text((if (resetBasis == option.basis) "● " else "○ ") + option.label)
                     }
                 }
+                Text("Counts spending in", style = MaterialTheme.typography.labelMedium)
+                CategoryChecklist(
+                    categories = categories,
+                    selected = limitCategoryIds,
+                    onToggle = { id -> limitCategoryIds = if (id in limitCategoryIds) limitCategoryIds - id else limitCategoryIds + id },
+                )
                 if (anniversary == null) {
                     Text(
                         ANNIVERSARY_HINT,
@@ -336,6 +380,7 @@ fun CardManageDialog(
                                         amount = CalculatorInput.evaluateArithmeticExpression(limitAmount) ?: return@launch,
                                         direction = if (isFloor) "floor" else "ceiling",
                                         resetBasis = resetBasis.wire,
+                                        categoryIds = categories.map { it.id }.filter { it in limitCategoryIds },
                                     ),
                                 )
                                 limits = limits + created
@@ -343,6 +388,7 @@ fun CardManageDialog(
                                 limitAmount = ""
                                 isFloor = false
                                 resetBasis = LimitResetBasis.CYCLE
+                                limitCategoryIds = emptySet()
                                 error = null
                                 onChanged()
                             } catch (e: Exception) {
@@ -354,7 +400,7 @@ fun CardManageDialog(
 
                 Text("Categories", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "This card's own slicing of spend — free to cut across your budget categories. Untagged spending lands in the default.",
+                    "This card's own slicing of spend — free to cut across your budget categories. Untagged spending lands in the default. Which limits a category counts towards is chosen on the limit.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -363,7 +409,7 @@ fun CardManageDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(categoryLabel(category), style = MaterialTheme.typography.bodySmall)
+                        Text(categoryLabel(category, limits), style = MaterialTheme.typography.bodySmall)
                         Row {
                             if (!category.isDefault) {
                                 TextButton(onClick = {
@@ -402,16 +448,6 @@ fun CardManageDialog(
                 }
 
                 FormField("Category name", categoryName, { categoryName = it }, placeholder = "e.g. Online")
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { categoryLimitId = null }) {
-                        Text(if (categoryLimitId == null) "● No limit" else "○ No limit")
-                    }
-                    limits.forEach { limit ->
-                        TextButton(onClick = { categoryLimitId = limit.id }) {
-                            Text((if (categoryLimitId == limit.id) "● " else "○ ") + limit.name)
-                        }
-                    }
-                }
                 TextButton(
                     enabled = categoryName.isNotBlank(),
                     onClick = {
@@ -419,11 +455,10 @@ fun CardManageDialog(
                             try {
                                 val created = Api.post<CardCategoryCreate, CardCategoryResponse>(
                                     "/cards/${card.id}/categories",
-                                    CardCategoryCreate(name = categoryName, limitId = categoryLimitId),
+                                    CardCategoryCreate(name = categoryName),
                                 )
                                 categories = categories + created
                                 categoryName = ""
-                                categoryLimitId = null
                                 error = null
                                 onChanged()
                             } catch (e: Exception) {
@@ -464,10 +499,38 @@ fun CardManageDialog(
     }
 }
 
-private fun categoryLabel(category: CardCategoryResponse): String {
+/**
+ * A checklist of a card's categories, for choosing what counts towards a limit.
+ * A category already counting towards another limit is offered all the same —
+ * stacking a monthly minimum and an annual cap on the same spend is the point.
+ */
+@Composable
+private fun CategoryChecklist(
+    categories: List<CardCategoryResponse>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    Column {
+        categories.forEach { category ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle(category.id) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Checkbox(checked = category.id in selected, onCheckedChange = null)
+                Text(category.name, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private fun categoryLabel(category: CardCategoryResponse, limits: List<CardLimitResponse>): String {
     val notes = buildList {
         if (category.isDefault) add("default")
-        if (category.limitId == null) add("unmetered")
+        if (!Cards.isMetered(category.id, limits)) add("unmetered")
     }
     return if (notes.isEmpty()) category.name else "${category.name} · ${notes.joinToString(" · ")}"
 }

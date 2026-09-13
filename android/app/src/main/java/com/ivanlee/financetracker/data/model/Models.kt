@@ -1297,6 +1297,11 @@ data class CardLimitResponse(
     val amount: Double,
     val direction: LimitDirection,
     val resetBasis: LimitResetBasis,
+    /**
+     * The card categories counting towards this limit. A category may count
+     * towards several — a monthly minimum and an annual cap on the same spend.
+     */
+    val categoryIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -1306,8 +1311,6 @@ data class CardCategoryResponse(
     val name: String,
     val isDefault: Boolean,
     val sortOrder: Int,
-    /** Null means tracked but unmetered — deliberately distinct from "nothing left". */
-    val limitId: String? = null,
 )
 
 @Serializable
@@ -1334,6 +1337,7 @@ data class CardResponse(
 data class CardLimitStatusRow(
     val limitId: String,
     val name: String,
+    val categoryIds: List<String> = emptyList(),
     val categoryNames: List<String> = emptyList(),
     val direction: LimitDirection,
     @Serializable(with = MoneySerializer::class)
@@ -1412,17 +1416,28 @@ data class CardLimitCreate(
     val amount: Double,
     val direction: String,
     val resetBasis: String,
+    val categoryIds: List<String>,
 )
 
+/**
+ * PUT /cards/limits/{id} carrying only the category set. Always a full list (no
+ * default, so it is always encoded): the backend reads an omitted key as "leave
+ * them alone", so an empty list is how "counts nothing" is said.
+ */
+@Serializable
+data class CardLimitCategoriesUpdate(
+    val categoryIds: List<String>,
+)
+
+/** Which limits a category counts towards is set on the limit, not here. */
 @Serializable
 data class CardCategoryCreate(
     val name: String,
-    val limitId: String? = null,
 )
 
 /**
  * Sets a category as its card's default. `isDefault` is the only field sent —
- * the backend's `exclude_unset` leaves name/limit alone on an omitted key.
+ * the backend's `exclude_unset` leaves the name alone on an omitted key.
  */
 @Serializable
 data class CardCategoryDefaultUpdate(
