@@ -181,8 +181,9 @@ def sync_fee_transaction(
         description=f"{purchase.fee_percent}% fee",
         transaction_type=models.TransactionType.expense.value,
         fee_for_transaction_id=purchase.id,
-        # The same card category as the purchase, so a metered card sees the fee
-        # against the same cap the spend it came from counts towards.
+        # The same card category as the purchase, so the fee is labelled on the
+        # card like the spend it came from. It moves no meter: `card_service`
+        # skips fee rows, because issuers exclude fees from caps and minimums.
         card_category_id=purchase.card_category_id,
     )
     db.add(fee)

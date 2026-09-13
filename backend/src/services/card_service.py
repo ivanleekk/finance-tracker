@@ -218,6 +218,11 @@ def _card_spend_by_category(
     spending — the payment moves money to the card, it is not a new purchase.
     System categories go too, for the reason the burn rate drops them.
 
+    A card's own surcharge (a row with `fee_for_transaction_id`) is excluded as
+    well. Unlike a transfer it is real spending, and budgets count it; but
+    issuers leave fees out of both bonus caps and minimum spends, and with a
+    category counting towards several limits it would draw down all of them.
+
     The ledger split correction that `budget_service` applies is deliberately
     **not** applied here. A dinner you paid for and split three ways is a third
     of your budget but the whole of the card's cap: the issuer charged the card
@@ -237,6 +242,7 @@ def _card_spend_by_category(
         models.Transaction.account_id == card.financial_account_id,
         models.Transaction.transaction_type == models.TransactionType.expense,
         models.Transaction.transfer_id.is_(None),
+        models.Transaction.fee_for_transaction_id.is_(None),
         models.Transaction.date >= datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
         models.Transaction.date < datetime.combine(end + ONE_DAY, datetime.min.time(), tzinfo=timezone.utc),
     )
