@@ -172,7 +172,7 @@ fun CardsScreen(
                         )
                     } else {
                         status.limits.forEach { row ->
-                            CardLimitMeter(row, currency)
+                            CardLimitMeter(row, currency, Cards.limitWindowLabel(row, status))
                         }
                     }
 
@@ -228,7 +228,12 @@ fun CardsScreen(
  * is deliberately the same shape, which is why this reuses rather than reinvents.
  */
 @Composable
-fun CardLimitMeter(row: CardLimitStatusRow, currency: String) {
+fun CardLimitMeter(
+    row: CardLimitStatusRow,
+    currency: String,
+    /** The limit's own window when it isn't the card's cycle ([Cards.limitWindowLabel]). */
+    windowLabel: String? = null,
+) {
     val tone = Cards.tone(row)
     val toneColor = when (tone) {
         Cards.Tone.OVER -> negativeColor()
@@ -252,9 +257,10 @@ fun CardLimitMeter(row: CardLimitStatusRow, currency: String) {
                         )
                     }
                 }
-                if (row.categoryNames.isNotEmpty()) {
+                val detail = row.categoryNames + listOfNotNull(windowLabel)
+                if (detail.isNotEmpty()) {
                     Text(
-                        row.categoryNames.joinToString(" · "),
+                        detail.joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -297,7 +303,7 @@ fun CardLimitMeter(row: CardLimitStatusRow, currency: String) {
                 if (row.direction == LimitDirection.FLOOR) {
                     "On pace for ${row.projectedSpend.currencyWhole(currency)} — short of the minimum."
                 } else {
-                    "On pace for ${row.projectedSpend.currencyWhole(currency)} by the end of the cycle."
+                    "On pace for ${row.projectedSpend.currencyWhole(currency)} by the end of the ${if (windowLabel == null) "cycle" else "period"}."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = warningColor(),

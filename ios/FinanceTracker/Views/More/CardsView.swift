@@ -49,7 +49,11 @@ struct CardsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(status.limits) { row in
-                            CardLimitMeter(row: row, currency: card.currency ?? baseCurrency)
+                            CardLimitMeter(
+                                row: row,
+                                windowLabel: Cards.limitWindowLabel(for: row, status: status),
+                                currency: card.currency ?? baseCurrency
+                            )
                         }
                         if !status.categories.isEmpty {
                             ForEach(status.categories) { spend in
@@ -142,6 +146,8 @@ struct CardsView: View {
 /// limit row is deliberately the same shape as a budget row.
 struct CardLimitMeter: View {
     let row: CardLimitStatusRow
+    /// The limit's own window when it isn't the card's cycle (`Cards.limitWindowLabel`).
+    var windowLabel: String? = nil
     let currency: String
 
     var body: some View {
@@ -158,8 +164,9 @@ struct CardLimitMeter: View {
                                 .background(Color.secondary.opacity(0.15), in: Capsule())
                         }
                     }
-                    if !row.categoryNames.isEmpty {
-                        Text(row.categoryNames.joined(separator: " · "))
+                    let detail = row.categoryNames + [windowLabel].compactMap { $0 }
+                    if !detail.isEmpty {
+                        Text(detail.joined(separator: " · "))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -203,7 +210,7 @@ struct CardLimitMeter: View {
                 Text(
                     row.direction == .floor
                         ? "On pace for \(row.projectedSpend.currencyWhole(currency)) — short of the minimum."
-                        : "On pace for \(row.projectedSpend.currencyWhole(currency)) by the end of the cycle."
+                        : "On pace for \(row.projectedSpend.currencyWhole(currency)) by the end of the \(windowLabel == nil ? "cycle" : "period")."
                 )
                 .font(.caption)
                 .foregroundStyle(.orange)

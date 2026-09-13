@@ -102,7 +102,7 @@ fun TransactionFormScreen(
     // The card behind the selected account, if it is one. Fetched on demand,
     // because most accounts are not cards and most households have none.
     var card by remember { mutableStateOf<CardResponse?>(null) }
-    var cardHeadroom by remember { mutableStateOf<Map<String, CardLimitStatusRow>>(emptyMap()) }
+    var cardHeadroom by remember { mutableStateOf<Map<String, List<CardLimitStatusRow>>>(emptyMap()) }
     var cardCategoryId by remember { mutableStateOf<String?>(null) }
     var showCardCategoryPicker by remember { mutableStateOf(false) }
     var mccs by remember { mutableStateOf<List<ReferenceMcc>>(emptyList()) }

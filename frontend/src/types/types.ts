@@ -649,7 +649,8 @@ export type PersonalSpendResponse = {
 
 export type CycleBasis = "statement" | "calendar";
 export type LimitDirection = "ceiling" | "floor";
-export type LimitResetBasis = "cycle" | "calendar_month" | "quarter" | "year";
+export type LimitResetBasis =
+  | "cycle" | "calendar_month" | "quarter" | "year" | "card_year" | "card_quarter";
 
 export interface CardLimitResponse {
   id: string;
@@ -658,6 +659,8 @@ export interface CardLimitResponse {
   amount: string;
   direction: LimitDirection;
   reset_basis: LimitResetBasis;
+  /** The card categories counting towards this limit. A category may be in several. */
+  category_ids: string[];
 }
 
 export interface CardCategoryResponse {
@@ -666,8 +669,6 @@ export interface CardCategoryResponse {
   name: string;
   is_default: boolean;
   sort_order: number;
-  /** Null means tracked but unmetered. */
-  limit_id: string | null;
 }
 
 export interface CardResponse {
@@ -677,6 +678,8 @@ export interface CardResponse {
   currency: string | null;
   cycle_basis: CycleBasis;
   statement_day: number;
+  /** "yyyy-MM-dd". Anchors card_year / card_quarter limits; null when unset. */
+  anniversary_date: string | null;
   categories: CardCategoryResponse[];
   limits: CardLimitResponse[];
 }
@@ -688,6 +691,7 @@ export interface CardResponse {
 export interface CardLimitStatusRow {
   limit_id: string;
   name: string;
+  category_ids: string[];
   category_names: string[];
   direction: LimitDirection;
   amount: string;

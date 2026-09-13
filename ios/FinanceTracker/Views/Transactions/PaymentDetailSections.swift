@@ -16,7 +16,7 @@ import SwiftUI
 /// anyone overspending.
 struct CardCategorySection: View {
     let card: CardResponse?
-    let headroom: [String: CardLimitStatusRow]
+    let headroom: [String: [CardLimitStatusRow]]
     let currency: String
     @Binding var cardCategoryId: String
     /// Rules post on a schedule rather than at a moment, so the cycle's
@@ -40,8 +40,8 @@ struct CardCategorySection: View {
     }
 
     private func label(for category: CardCategoryResponse) -> String {
-        guard showsHeadroom, let row = headroom[category.id] else { return category.name }
-        return "\(category.name) · \(Cards.headroomLabel(for: row) { $0.currencyWhole(currency) })"
+        guard showsHeadroom else { return category.name }
+        return Cards.pickerLabel(for: category, headroom: headroom) { $0.currencyWhole(currency) }
     }
 }
 

@@ -79,12 +79,13 @@ def dining(db_session, household):
     return cat
 
 
-def _card(db_session, account, *, basis=models.CycleBasis.statement, day=18):
+def _card(db_session, account, *, basis=models.CycleBasis.statement, day=18, anniversary=None):
     card = models.Card(
         id=uuid.uuid7(),
         financial_account_id=account.id,
         cycle_basis=basis,
         statement_day=day,
+        anniversary_date=anniversary,
     )
     db_session.add(card)
     db_session.commit()
@@ -98,7 +99,8 @@ def _category(db_session, card, name, *, limit=None, is_default=False, order=0):
         card_id=card.id,
         name=name,
         is_default=is_default,
-        limit_id=limit.id if limit else None,
+        # One limit or several — a category may count towards any number.
+        limits=[] if limit is None else list(limit) if isinstance(limit, (list, tuple)) else [limit],
         sort_order=order,
     )
     db_session.add(cat)
@@ -252,6 +254,91 @@ class TestLimitBounds:
         )
 
 
+class TestAnniversaryWindows:
+    """
+    A card year runs from the date the card was opened, not from January.
+
+    The boundary is computed as "anchor + n months, clamped" rather than stepped
+    from the last one, for the reason the recurrence engine documents: stepping
+    clamps 31 Jan to 30 Apr and never climbs back, so every later quarter would
+    quietly start on the 30th.
+    """
+
+    def test_a_card_year_runs_from_one_anniversary_to_the_day_before_the_next(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 9, 11), 12) == (
+            date(2026, 3, 14),
+            date(2027, 3, 13),
+        )
+
+    def test_the_anniversary_itself_starts_a_new_year(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 3, 14), 12)[0] == date(2026, 3, 14)
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 3, 13), 12) == (
+            date(2025, 3, 14),
+            date(2026, 3, 13),
+        )
+
+    def test_card_quarters_step_three_months_from_the_anchor(self):
+        assert card_service.anniversary_bounds(date(2024, 3, 14), date(2026, 9, 11), 3) == (
+            date(2026, 6, 14),
+            date(2026, 9, 13),
+        )
+
+    def test_a_31st_anchor_does_not_drift_down_after_a_short_month(self):
+        anchor = date(2024, 1, 31)
+        # April has 30 days, so that quarter opens on the 30th...
+        assert card_service.anniversary_bounds(anchor, date(2026, 5, 15), 3) == (
+            date(2026, 4, 30),
+            date(2026, 7, 30),
+        )
+        # ...and the next one climbs back to the 31st, two years on.
+        assert card_service.anniversary_bounds(anchor, date(2026, 8, 1), 3)[0] == date(2026, 7, 31)
+
+    def test_a_leap_day_anchor_falls_back_to_the_28th_and_returns(self):
+        anchor = date(2024, 2, 29)
+        assert card_service.anniversary_bounds(anchor, date(2025, 6, 1), 12) == (
+            date(2025, 2, 28),
+            date(2026, 2, 27),
+        )
+        assert card_service.anniversary_bounds(anchor, date(2028, 3, 1), 12)[0] == date(2028, 2, 29)
+
+    def test_dates_before_the_card_opened_still_resolve(self):
+        start, end = card_service.anniversary_bounds(date(2026, 3, 14), date(2025, 1, 5), 12)
+        assert (start, end) == (date(2024, 3, 14), date(2025, 3, 13))
+
+    @pytest.mark.parametrize("anchor", [date(2024, 3, 14), date(2024, 1, 31), date(2024, 2, 29)])
+    @pytest.mark.parametrize("step", [12, 3])
+    def test_every_day_lands_in_exactly_one_window(self, anchor, step):
+        """Over a leap year and the non-leap year after it: no gaps, no overlaps."""
+        day = date(2028, 1, 1)
+        _, current_end = card_service.anniversary_bounds(anchor, day, step)
+        while day < date(2029, 12, 31):
+            start, end = card_service.anniversary_bounds(anchor, day, step)
+            assert start <= day <= end
+            if end != current_end:
+                assert start == current_end + card_service.ONE_DAY
+                current_end = end
+            day += card_service.ONE_DAY
+
+    def test_the_ends_of_the_calendar_answer_instead_of_crashing(self):
+        start, end = card_service.anniversary_bounds(date(2024, 3, 14), date(9999, 12, 31), 12)
+        assert start <= date(9999, 12, 31) <= end
+        start, end = card_service.anniversary_bounds(date(2024, 3, 14), date(1, 1, 1), 12)
+        assert start <= date(1, 1, 1) <= end
+
+    def test_limit_bounds_uses_the_cards_anniversary(self, db_session, card_account):
+        card = _card(db_session, card_account, anniversary=date(2024, 3, 14))
+        year = _limit(db_session, card, "Y", 100, reset=models.LimitResetBasis.card_year)
+        quarter = _limit(db_session, card, "Q", 100, reset=models.LimitResetBasis.card_quarter)
+        assert card_service.limit_bounds(card, year, date(2026, 9, 11)) == (date(2026, 3, 14), date(2027, 3, 13))
+        assert card_service.limit_bounds(card, quarter, date(2026, 9, 11)) == (date(2026, 6, 14), date(2026, 9, 13))
+
+    def test_an_anniversary_limit_on_a_card_with_no_anniversary_refuses_to_guess(self, db_session, card_account):
+        card = _card(db_session, card_account)
+        lim = _limit(db_session, card, "Y", 100, reset=models.LimitResetBasis.card_year)
+        with pytest.raises(ValueError):
+            card_service.limit_bounds(card, lim, date(2026, 9, 11))
+
+
 # --- The meter ----------------------------------------------------------------
 
 
@@ -351,6 +438,31 @@ class TestRollupRules:
         [status] = card_service.card_limit_statuses(db_session, card, on=date(2026, 9, 5))
         assert status.spent == Decimal("650.00"), "both categories draw the same limit down"
         assert sorted(status.category_names) == ["Dining", "Groceries"]
+
+    def test_one_charge_draws_down_every_limit_its_category_counts_towards(
+        self, db_session, card_account, dining
+    ):
+        """
+        The case the join table exists for: a monthly minimum and an annual cap
+        on the same spend, each measured over its own window.
+        """
+        card = _card(db_session, card_account, day=18)
+        monthly = _limit(db_session, card, "Monthly minimum", 500,
+                         direction=models.LimitDirection.floor,
+                         reset=models.LimitResetBasis.calendar_month)
+        annual = _limit(db_session, card, "Annual cap", 12000, reset=models.LimitResetBasis.year)
+        food = _category(db_session, card, "Dining", limit=[monthly, annual], is_default=True)
+        _spend(db_session, card_account, dining, 700, date(2026, 8, 20), card_category=food)
+        _spend(db_session, card_account, dining, 300, date(2026, 9, 2), card_category=food)
+
+        db_session.refresh(card)
+        by_name = {s.limit.name: s for s in card_service.card_limit_statuses(db_session, card, on=date(2026, 9, 5))}
+        assert by_name["Monthly minimum"].spent == Decimal("300.00"), "only September counts this month"
+        assert (by_name["Monthly minimum"].period_start, by_name["Monthly minimum"].period_end) == (
+            date(2026, 9, 1), date(2026, 9, 30)
+        )
+        assert by_name["Annual cap"].spent == Decimal("1000.00"), "and both count towards the year"
+        assert by_name["Annual cap"].category_ids == [food.id]
 
     def test_untagged_spend_falls_to_the_cards_default_category(self, db_session, card_account, dining):
         card = _card(db_session, card_account, day=18)
@@ -525,32 +637,110 @@ class TestCardEndpoints:
         assert defaults == ["B"], "exactly one default, and it moved"
         assert first["id"] != second["id"]
 
-    def test_detaching_a_limit_needs_an_explicit_null(self, client, headers, card_account):
+    def test_a_limits_categories_are_replaced_only_when_sent(self, client, headers, card_account):
         card = client.post(
             "/cards",
             json={"financial_account_id": str(card_account.id), "statement_day": 18},
             headers=headers,
         ).json()
-        limit = client.post(
-            f"/cards/{card['id']}/limits", json={"name": "Cap", "amount": 1000}, headers=headers
+        dining = client.post(
+            f"/cards/{card['id']}/categories", json={"name": "Dining"}, headers=headers
         ).json()
-        cat = client.post(
-            f"/cards/{card['id']}/categories",
-            json={"name": "Dining", "limit_id": limit["id"]},
+        travel = client.post(
+            f"/cards/{card['id']}/categories", json={"name": "Travel"}, headers=headers
+        ).json()
+        limit = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Cap", "amount": 1000, "category_ids": [dining["id"]]},
             headers=headers,
         ).json()
+        assert limit["category_ids"] == [dining["id"]]
 
-        # Omitting the key preserves it — renaming must not silently unmeter.
-        renamed = client.put(
-            f"/cards/categories/{cat['id']}", json={"name": "Food"}, headers=headers
-        ).json()
-        assert renamed["limit_id"] == limit["id"]
+        # Omitting the key preserves them — changing the amount must not unmeter.
+        edited = client.put(f"/cards/limits/{limit['id']}", json={"amount": 1500}, headers=headers).json()
+        assert edited["category_ids"] == [dining["id"]]
 
-        # An explicit null detaches it.
-        detached = client.put(
-            f"/cards/categories/{cat['id']}", json={"limit_id": None}, headers=headers
+        # A list replaces the set.
+        moved = client.put(
+            f"/cards/limits/{limit['id']}",
+            json={"category_ids": [travel["id"], dining["id"], travel["id"]]},
+            headers=headers,
         ).json()
-        assert detached["limit_id"] is None
+        assert sorted(moved["category_ids"]) == sorted([dining["id"], travel["id"]]), "duplicates collapse"
+
+        # An empty list un-meters it.
+        cleared = client.put(
+            f"/cards/limits/{limit['id']}", json={"category_ids": []}, headers=headers
+        ).json()
+        assert cleared["category_ids"] == []
+
+    def test_one_category_can_count_towards_several_limits(self, client, headers, card_account):
+        card = client.post(
+            "/cards",
+            json={"financial_account_id": str(card_account.id), "statement_day": 18},
+            headers=headers,
+        ).json()
+        dining = client.post(
+            f"/cards/{card['id']}/categories", json={"name": "Dining"}, headers=headers
+        ).json()
+        for body in (
+            {"name": "Monthly minimum", "amount": 500, "direction": "floor", "reset_basis": "calendar_month"},
+            {"name": "Annual cap", "amount": 12000, "direction": "ceiling", "reset_basis": "year"},
+        ):
+            res = client.post(
+                f"/cards/{card['id']}/limits",
+                json={**body, "category_ids": [dining["id"]]},
+                headers=headers,
+            )
+            assert res.status_code == 201, res.text
+
+        refreshed = client.get(f"/cards/{card['id']}", headers=headers).json()
+        assert [l["category_ids"] for l in refreshed["limits"]] == [[dining["id"]], [dining["id"]]]
+
+        status_rows = client.get(f"/cards/{card['id']}/status?on=2026-09-05", headers=headers).json()["limits"]
+        assert {r["name"]: r["category_ids"] for r in status_rows} == {
+            "Monthly minimum": [dining["id"]],
+            "Annual cap": [dining["id"]],
+        }
+
+    def test_a_limit_cannot_count_another_cards_category(
+        self, client, headers, db_session, household, card_account
+    ):
+        other_account = models.FinancialAccount(
+            id=uuid.uuid7(),
+            household_id=household.id,
+            name="Other card",
+            currency="USD",
+            kind=models.AccountKind.liability,
+        )
+        db_session.add(other_account)
+        db_session.commit()
+        mine = client.post(
+            "/cards",
+            json={"financial_account_id": str(card_account.id), "statement_day": 18},
+            headers=headers,
+        ).json()
+        theirs = client.post(
+            "/cards",
+            json={"financial_account_id": str(other_account.id), "statement_day": 1},
+            headers=headers,
+        ).json()
+        foreign = theirs["categories"][0]["id"]
+
+        created = client.post(
+            f"/cards/{mine['id']}/limits",
+            json={"name": "Cap", "amount": 1000, "category_ids": [foreign]},
+            headers=headers,
+        )
+        assert created.status_code == 400
+
+        limit = client.post(
+            f"/cards/{mine['id']}/limits", json={"name": "Cap", "amount": 1000}, headers=headers
+        ).json()
+        updated = client.put(
+            f"/cards/limits/{limit['id']}", json={"category_ids": [foreign]}, headers=headers
+        )
+        assert updated.status_code == 400
 
     def test_deleting_a_limit_leaves_its_categories_unmetered_not_deleted(
         self, client, headers, card_account
@@ -560,19 +750,26 @@ class TestCardEndpoints:
             json={"financial_account_id": str(card_account.id), "statement_day": 18},
             headers=headers,
         ).json()
-        limit = client.post(
-            f"/cards/{card['id']}/limits", json={"name": "Cap", "amount": 1000}, headers=headers
+        dining = client.post(
+            f"/cards/{card['id']}/categories", json={"name": "Dining"}, headers=headers
         ).json()
-        client.post(
-            f"/cards/{card['id']}/categories",
-            json={"name": "Dining", "limit_id": limit["id"]},
+        limit = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Cap", "amount": 1000, "category_ids": [dining["id"]]},
             headers=headers,
-        )
+        ).json()
+        other = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Minimum", "amount": 100, "direction": "floor", "category_ids": [dining["id"]]},
+            headers=headers,
+        ).json()
         assert client.delete(f"/cards/limits/{limit['id']}", headers=headers).status_code == 204
 
         refreshed = client.get(f"/cards/{card['id']}", headers=headers).json()
-        dining = next(c for c in refreshed["categories"] if c["name"] == "Dining")
-        assert dining["limit_id"] is None, "the category survives, merely unmetered"
+        assert any(c["id"] == dining["id"] for c in refreshed["categories"]), "the category survives"
+        assert [(l["id"], l["category_ids"]) for l in refreshed["limits"]] == [
+            (other["id"], [dining["id"]])
+        ], "and still counts towards its other limit"
 
     def test_a_category_in_use_is_a_409_not_a_500(
         self, client, headers, db_session, card_account, dining
@@ -601,24 +798,18 @@ class TestCardEndpoints:
             json={"financial_account_id": str(card_account.id), "statement_day": 18},
             headers=headers,
         ).json()
-        cap = client.post(
-            f"/cards/{card['id']}/limits",
-            json={"name": "Dining cap", "amount": 1000, "direction": "ceiling"},
-            headers=headers,
+        dining_cat = client.post(
+            f"/cards/{card['id']}/categories", json={"name": "Dining"}, headers=headers
         ).json()
-        floor = client.post(
-            f"/cards/{card['id']}/limits",
-            json={"name": "Fee waiver", "amount": 800, "direction": "floor"},
-            headers=headers,
-        ).json()
+        everything = next(c for c in card["categories"] if c["is_default"])
         client.post(
-            f"/cards/{card['id']}/categories",
-            json={"name": "Dining", "limit_id": cap["id"]},
+            f"/cards/{card['id']}/limits",
+            json={"name": "Dining cap", "amount": 1000, "direction": "ceiling", "category_ids": [dining_cat["id"]]},
             headers=headers,
         )
         client.post(
-            f"/cards/{card['id']}/categories",
-            json={"name": "Everything else", "limit_id": floor["id"]},
+            f"/cards/{card['id']}/limits",
+            json={"name": "Fee waiver", "amount": 800, "direction": "floor", "category_ids": [everything["id"]]},
             headers=headers,
         )
 
@@ -793,3 +984,101 @@ class TestUntaggedSpendAlwaysLands:
         res = client.delete(f"/cards/categories/{default_id}", headers=headers)
         assert res.status_code == 409
         assert "the default" in res.json()["detail"].lower()
+
+
+class TestAnniversaryEndpoints:
+    def _new_card(self, client, headers, account, **extra):
+        res = client.post(
+            "/cards",
+            json={"financial_account_id": str(account.id), "statement_day": 18, **extra},
+            headers=headers,
+        )
+        assert res.status_code == 201, res.text
+        return res.json()
+
+    def test_a_card_can_be_created_with_an_anniversary(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        assert card["anniversary_date"] == "2024-03-14"
+
+    def test_a_card_without_one_reads_null(self, client, headers, card_account):
+        assert self._new_card(client, headers, card_account)["anniversary_date"] is None
+
+    def test_an_anniversary_limit_needs_the_date_first(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account)
+        res = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        assert res.status_code == 400
+        assert "anniversary" in res.json()["detail"].lower()
+
+    def test_switching_a_limit_to_card_quarter_needs_the_date_too(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account)
+        limit = client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Cap", "amount": 1000},
+            headers=headers,
+        ).json()
+        res = client.put(
+            f"/cards/limits/{limit['id']}", json={"reset_basis": "card_quarter"}, headers=headers
+        )
+        assert res.status_code == 400
+
+    def test_omitting_the_date_on_update_preserves_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        res = client.put(f"/cards/{card['id']}", json={"statement_day": 5}, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["anniversary_date"] == "2024-03-14"
+
+    def test_an_explicit_null_clears_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": None}, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["anniversary_date"] is None
+
+    def test_clearing_it_is_refused_while_a_limit_counts_from_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": None}, headers=headers)
+        assert res.status_code == 400
+        assert "Annual cap" in res.json()["detail"]
+
+    def test_moving_the_date_is_allowed_while_a_limit_counts_from_it(self, client, headers, card_account):
+        card = self._new_card(client, headers, card_account, anniversary_date="2024-03-14")
+        client.post(
+            f"/cards/{card['id']}/limits",
+            json={"name": "Annual cap", "amount": 25000, "reset_basis": "card_year"},
+            headers=headers,
+        )
+        res = client.put(f"/cards/{card['id']}", json={"anniversary_date": "2024-04-01"}, headers=headers)
+        assert res.status_code == 200
+
+
+class TestAnniversaryMeter:
+    def test_last_aprils_charge_counts_toward_the_card_year_not_the_calendar_year(
+        self, db_session, card_account, dining
+    ):
+        card = _card(db_session, card_account, anniversary=date(2024, 3, 14))
+        card_year = _limit(db_session, card, "Card year", 25000, reset=models.LimitResetBasis.card_year)
+        calendar_year = _limit(db_session, card, "Calendar year", 25000, reset=models.LimitResetBasis.year)
+        a = _category(db_session, card, "A", limit=card_year, is_default=True)
+        b = _category(db_session, card, "B", limit=calendar_year)
+
+        _spend(db_session, card_account, dining, 400, date(2025, 4, 2), card_category=a)
+        _spend(db_session, card_account, dining, 400, date(2025, 4, 2), card_category=b)
+
+        by_name = {
+            s.limit.name: s
+            for s in card_service.card_limit_statuses(db_session, card, on=date(2026, 1, 10))
+        }
+        assert (by_name["Card year"].period_start, by_name["Card year"].period_end) == (
+            date(2025, 3, 14),
+            date(2026, 3, 13),
+        )
+        assert by_name["Card year"].spent == Decimal("400.00")
+        assert by_name["Calendar year"].spent == Decimal("0.00")

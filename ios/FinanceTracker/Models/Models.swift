@@ -1334,6 +1334,16 @@ enum LimitResetBasis: String, Codable, Hashable {
     case calendarMonth = "calendar_month"
     case quarter
     case year
+    case cardYear = "card_year"
+    case cardQuarter = "card_quarter"
+    /// A schedule this build doesn't know — a newer server. Never sent. Not a
+    /// fallback to a known case: that would label a card year a statement cycle.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LimitResetBasis(rawValue: raw) ?? .unknown
+    }
 }
 
 struct CardLimitResponse: Codable, Identifiable, Hashable {
@@ -1343,6 +1353,9 @@ struct CardLimitResponse: Codable, Identifiable, Hashable {
     @MoneyAmount var amount: Double
     let direction: LimitDirection
     let resetBasis: LimitResetBasis
+    /// The card categories counting towards this limit. A category may count
+    /// towards several — a monthly minimum and an annual cap on the same spend.
+    let categoryIds: [String]
 }
 
 struct CardCategoryResponse: Codable, Identifiable, Hashable {
@@ -1351,8 +1364,6 @@ struct CardCategoryResponse: Codable, Identifiable, Hashable {
     let name: String
     let isDefault: Bool
     let sortOrder: Int
-    /// Nil means tracked but unmetered — deliberately distinct from "nothing left".
-    let limitId: String?
 }
 
 struct CardResponse: Codable, Identifiable, Hashable {
@@ -1362,6 +1373,8 @@ struct CardResponse: Codable, Identifiable, Hashable {
     let currency: String?
     let cycleBasis: CycleBasis
     let statementDay: Int
+    /// Anchors card-year / card-quarter limits. A date-only field, parsed at UTC midnight.
+    var anniversaryDate: Date? = nil
     let categories: [CardCategoryResponse]
     let limits: [CardLimitResponse]
 }
@@ -1372,6 +1385,7 @@ struct CardResponse: Codable, Identifiable, Hashable {
 struct CardLimitStatusRow: Codable, Identifiable, Hashable {
     let limitId: String
     let name: String
+    let categoryIds: [String]
     let categoryNames: [String]
     let direction: LimitDirection
     @MoneyAmount var amount: Double
@@ -1413,6 +1427,31 @@ struct CardCreate: Encodable {
     let financialAccountId: String
     let cycleBasis: String
     let statementDay: Int
+    /// Bare "yyyy-MM-dd".
+    var anniversaryDate: String? = nil
+}
+
+/// PUT /cards/{id} from the Edit card sheet, which states the whole card.
+/// `anniversaryDate` is always encoded: the backend reads an omitted key as
+/// "keep it" and only an explicit null as "clear it", and synthesized
+/// `Encodable` would drop a nil — so this is written by hand.
+struct CardUpdate: Encodable {
+    let cycleBasis: String
+    let statementDay: Int
+    /// Bare "yyyy-MM-dd", or nil to clear.
+    let anniversaryDate: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case cycleBasis, statementDay, anniversaryDate
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(cycleBasis, forKey: .cycleBasis)
+        try container.encode(statementDay, forKey: .statementDay)
+        // encode(String?) writes an explicit null when nil — the point.
+        try container.encode(anniversaryDate, forKey: .anniversaryDate)
+    }
 }
 
 struct CardLimitCreate: Encodable {
@@ -1420,15 +1459,23 @@ struct CardLimitCreate: Encodable {
     let amount: Double
     let direction: String
     let resetBasis: String
+    let categoryIds: [String]
 }
 
+/// PUT /cards/limits/{id} carrying only the category set. Always a full list:
+/// the backend reads an omitted key as "leave them alone", so an empty array is
+/// how "counts nothing" is said.
+struct CardLimitCategoriesUpdate: Encodable {
+    let categoryIds: [String]
+}
+
+/// Which limits a category counts towards is set on the limit, not here.
 struct CardCategoryCreate: Encodable {
     let name: String
-    let limitId: String?
 }
 
 /// Sets a category as its card's default. `isDefault` is the only field sent —
-/// the backend's `exclude_unset` leaves name/limit alone on an omitted key.
+/// the backend's `exclude_unset` leaves the name alone on an omitted key.
 struct CardCategoryDefaultUpdate: Encodable {
     let isDefault = true
 }

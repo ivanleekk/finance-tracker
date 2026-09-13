@@ -93,14 +93,59 @@ def statement_bounds(card: models.Card, on: date) -> tuple[date, date]:
     return start, next_close or date.max
 
 
+# Limits counted from the card's anniversary rather than the calendar.
+ANNIVERSARY_RESET_BASES = frozenset(
+    {models.LimitResetBasis.card_year, models.LimitResetBasis.card_quarter}
+)
+
+
+def _months_after(anchor: date, months: int) -> Optional[date]:
+    """`anchor` moved by whole months, clamped to month end; None off the calendar."""
+    total = anchor.year * 12 + (anchor.month - 1) + months
+    year, month_index = divmod(total, 12)
+    return _neighbouring_close(year, month_index + 1, anchor.day)
+
+
+def anniversary_bounds(anchor: date, on: date, step_months: int) -> tuple[date, date]:
+    """
+    The `step_months` window counted from `anchor` that contains `on`.
+
+    Every boundary is `anchor + n × step_months`, clamped to month end — never
+    stepped from the previous boundary, which would clamp 31 Jan to 30 Apr and
+    then stay on the 30th for good. A window ends the day before the next one
+    starts, so every day belongs to exactly one.
+    """
+    months_since = (on.year - anchor.year) * 12 + (on.month - anchor.month)
+    n = months_since // step_months
+    start = _months_after(anchor, n * step_months)
+    # Early in the anchor's month the window has not turned over yet.
+    if start is not None and start > on:
+        n -= 1
+        start = _months_after(anchor, n * step_months)
+    following = _months_after(anchor, (n + 1) * step_months)
+    return (
+        start or date.min,
+        following - ONE_DAY if following else date.max,
+    )
+
+
 def limit_bounds(card: models.Card, limit: models.CardLimit, on: date) -> tuple[date, date]:
     """
     The window a given limit resets over.
 
     Most caps follow the card's own cycle, but a card whose statement closes
     mid-month can still carry a cap the issuer resets on the calendar — so the
-    basis is per limit rather than inherited from the card.
+    basis is per limit rather than inherited from the card. `card_year` and
+    `card_quarter` count from the card's own `anniversary_date` instead of any
+    calendar boundary.
     """
+    if limit.reset_basis in ANNIVERSARY_RESET_BASES:
+        if card.anniversary_date is None:
+            # The router refuses to create this state; reaching it means a
+            # guess would follow, and a guessed window is a wrong meter.
+            raise ValueError("An anniversary limit needs the card's anniversary_date.")
+        step = 12 if limit.reset_basis == models.LimitResetBasis.card_year else 3
+        return anniversary_bounds(card.anniversary_date, on, step)
     if limit.reset_basis == models.LimitResetBasis.cycle:
         return statement_bounds(card, on)
     if limit.reset_basis == models.LimitResetBasis.calendar_month:
@@ -132,6 +177,7 @@ class CardLimitStatus:
     """
 
     limit: models.CardLimit
+    category_ids: List[uuid.UUID]
     category_names: List[str]
     amount: Decimal
     spent: Decimal
@@ -217,10 +263,12 @@ def card_limit_statuses(
     """
     Every limit on this card, with spend so far in the window it resets over.
 
-    Several categories can point at one limit — "the first $1,000 across dining
-    and groceries" — so spend is rolled up from all of them. A category with no
-    limit is tracked but produces no meter here; its spend shows on the
-    breakdown instead.
+    Several categories can count towards one limit — "the first $1,000 across
+    dining and groceries" — so spend is rolled up from all of them. One category
+    can equally count towards several limits, each summed over its own window,
+    so the same dinner draws down a monthly minimum and an annual cap at once. A
+    category with no limit is tracked but produces no meter here; its spend
+    shows on the breakdown instead.
     """
     on = on or datetime.now(timezone.utc).date()
 
@@ -234,7 +282,7 @@ def card_limit_statuses(
             spend_cache[(start, end)] = _card_spend_by_category(db, card, start, end)
         totals = spend_cache[(start, end)]
 
-        categories = [c for c in card.categories if c.limit_id == limit.id]
+        categories = limit.categories
         spent = sum((totals.get(c.id, Decimal("0")) for c in categories), Decimal("0"))
         amount = dec(limit.amount)
 
@@ -257,6 +305,7 @@ def card_limit_statuses(
         statuses.append(
             CardLimitStatus(
                 limit=limit,
+                category_ids=[c.id for c in categories],
                 category_names=[c.name for c in categories],
                 amount=money(amount),
                 spent=money(spent),
