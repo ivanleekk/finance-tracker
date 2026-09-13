@@ -181,7 +181,13 @@ def log_transaction(
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
         amount_charged=transaction.amount_charged,
-        fee_percent=transaction.fee_percent,
+        # Omitted lets a foreign charge take its card's default fee; an explicit
+        # null means "no fee", the same as 0, so a cleared field is not overruled.
+        fee_percent=(
+            (transaction.fee_percent if transaction.fee_percent is not None else Decimal("0"))
+            if "fee_percent" in transaction.model_fields_set
+            else None
+        ),
         description=transaction.description,
         splits=_resolve_splits(db, db_account.household_id, transaction.splits),
         # A receivable arising from a private account stays private, the same way

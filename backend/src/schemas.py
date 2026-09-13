@@ -527,6 +527,9 @@ class CardBase(BaseModel):
     statement_day: int = Field(1, ge=1, le=31)
     # Anchors card_year / card_quarter limits. Only month and day are used.
     anniversary_date: Optional[date] = None
+    # Added to every foreign charge that doesn't state its own fee — see
+    # card_models.Card.foreign_fee_percent.
+    foreign_fee_percent: FeePercent = None
 
 
 class CardCreate(CardBase):
@@ -539,6 +542,8 @@ class CardUpdate(BaseModel):
     # Three states: omitted leaves it alone, null clears it (read via
     # exclude_unset in the router). Clearing is refused while a limit uses it.
     anniversary_date: Optional[date] = None
+    # Three states again: omitted leaves it alone, null clears it.
+    foreign_fee_percent: FeePercent = None
 
 
 class CardLimitBase(BaseModel):

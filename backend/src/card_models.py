@@ -135,6 +135,12 @@ class Card(Base):
     # windows. A full date rather than a month-day pair because it is what the
     # issuer prints, and every client already has a date picker.
     anniversary_date = Column(Date, nullable=True)
+    # The percentage this card adds to every foreign charge — a foreign
+    # transaction fee. A default, not a rule: `create_transaction` takes it when
+    # a foreign charge arrives with no `fee_percent` of its own, and the forms
+    # fill it in visibly, so one purchase can still say 0. Only foreign charges,
+    # because a standing domestic surcharge is rare and varies by merchant.
+    foreign_fee_percent = Column(Numeric, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     account = relationship("FinancialAccount")

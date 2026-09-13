@@ -295,3 +295,117 @@ def test_a_recurring_rule_carries_its_surcharge_onto_every_posting(
     fee = _fee_row(db_session, purchase.id)
     assert Decimal(str(fee.amount)) == Decimal("3.00")
     assert _balance(db_session, account) == Decimal("-103.00")
+
+
+# --- A card's default foreign-transaction fee ---------------------------------
+#
+# `Card.foreign_fee_percent` is the percentage a card adds to every foreign
+# charge. Left out of a create, `fee_percent` takes it for a foreign charge;
+# an explicit value — 0 included — always wins, and an update never applies it.
+
+
+def _card(db_session, account, foreign_fee_percent="3"):
+    card = models.Card(
+        id=uuid.uuid7(),
+        financial_account_id=account.id,
+        statement_day=1,
+        foreign_fee_percent=None if foreign_fee_percent is None else Decimal(foreign_fee_percent),
+    )
+    db_session.add(card)
+    db_session.commit()
+    return card
+
+
+def test_a_foreign_charge_takes_the_cards_default_fee(client, db_session, headers, account, dining):
+    _card(db_session, account)
+    response = _post(client, headers, account, dining, amount=12000, currency="JPY", amount_charged=124.80)
+    assert response.status_code == 201, response.text
+    assert Decimal(response.json()["fee_percent"]) == Decimal("3"), "the row records the fee it was charged"
+    fee = _fee_row(db_session, response.json()["id"])
+    assert Decimal(str(fee.amount)) == Decimal("3.74")
+
+
+def test_a_domestic_charge_on_the_same_card_takes_no_default(client, db_session, headers, account, dining):
+    _card(db_session, account)
+    response = _post(client, headers, account, dining)
+    assert response.status_code == 201, response.text
+    assert response.json()["fee_percent"] in (None, "0")
+    assert _fee_row(db_session, response.json()["id"]) is None
+
+
+@pytest.mark.parametrize("explicit", [0, None])
+def test_an_explicit_zero_or_null_skips_the_default(client, db_session, headers, account, dining, explicit):
+    _card(db_session, account)
+    response = _post(client, headers, account, dining, currency="JPY", fee_percent=explicit)
+    assert response.status_code == 201, response.text
+    assert _fee_row(db_session, response.json()["id"]) is None
+
+
+def test_an_explicit_percentage_beats_the_default(client, db_session, headers, account, dining):
+    _card(db_session, account)
+    response = _post(client, headers, account, dining, currency="JPY", fee_percent=1.5)
+    assert Decimal(str(_fee_row(db_session, response.json()["id"]).amount)) == Decimal("1.50")
+
+
+def test_an_account_with_no_card_has_no_default(client, db_session, headers, account, dining):
+    response = _post(client, headers, account, dining, currency="JPY")
+    assert _fee_row(db_session, response.json()["id"]) is None
+
+
+def test_editing_a_charge_never_applies_the_default(client, db_session, headers, account, dining):
+    """A default set afterwards must not appear on rows that already exist."""
+    created = _post(client, headers, account, dining, currency="JPY")
+    _card(db_session, account)
+    with _no_network():
+        edited = client.put(
+            f"/cashflow/transactions/{created.json()['id']}", json={"amount": 200}, headers=headers
+        )
+    assert edited.status_code == 200, edited.text
+    assert _fee_row(db_session, created.json()["id"]) is None
+
+
+def test_a_foreign_recurring_rule_with_no_fee_of_its_own_takes_the_default(
+    db_session, household, account, dining
+):
+    from datetime import date
+
+    from src.services.recurring_service import materialize_due
+
+    _card(db_session, account)
+    due = date(2026, 3, 4)
+    rule = models.RecurringTransaction(
+        id=uuid.uuid7(), household_id=household.id, account_id=account.id, category_id=dining.id,
+        amount=Decimal("100"), currency="USD", frequency="monthly",
+        start_date=due, next_due_date=due, is_active=True,
+    )
+    db_session.add(rule)
+    db_session.commit()
+
+    with _no_network():
+        assert materialize_due(db_session, household.id, as_of=due) == 1
+    purchase = db_session.query(models.Transaction).filter(
+        models.Transaction.recurring_transaction_id == rule.id
+    ).one()
+    assert Decimal(str(_fee_row(db_session, purchase.id).amount)) == Decimal("3.00")
+
+
+def test_the_card_endpoints_set_and_clear_the_default(client, db_session, headers, account):
+    account.kind = models.AccountKind.liability  # a card is set up on money owed
+    db_session.commit()
+    created = client.post(
+        "/cards",
+        json={"financial_account_id": str(account.id), "statement_day": 18, "foreign_fee_percent": 3.25},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    card_id = created.json()["id"]
+    assert Decimal(str(created.json()["foreign_fee_percent"])) == Decimal("3.25")
+
+    kept = client.put(f"/cards/{card_id}", json={"statement_day": 20}, headers=headers)
+    assert Decimal(str(kept.json()["foreign_fee_percent"])) == Decimal("3.25"), "omitted preserves"
+
+    cleared = client.put(f"/cards/{card_id}", json={"foreign_fee_percent": None}, headers=headers)
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["foreign_fee_percent"] is None
+
+    assert client.put(f"/cards/{card_id}", json={"foreign_fee_percent": 101}, headers=headers).status_code == 422

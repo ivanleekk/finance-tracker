@@ -68,6 +68,7 @@ def _card_response(card: models.Card, account: models.FinancialAccount) -> schem
         cycle_basis=card.cycle_basis,
         statement_day=card.statement_day,
         anniversary_date=card.anniversary_date,
+        foreign_fee_percent=card.foreign_fee_percent,
         categories=[schemas.CardCategoryResponse.model_validate(c) for c in card.categories],
         limits=[schemas.CardLimitResponse.model_validate(l) for l in card.limits],
     )
@@ -118,6 +119,7 @@ def create_card(
         cycle_basis=models.CycleBasis(payload.cycle_basis),
         statement_day=payload.statement_day,
         anniversary_date=payload.anniversary_date,
+        foreign_fee_percent=payload.foreign_fee_percent,
     )
     db.add(card)
     db.flush()
@@ -204,6 +206,8 @@ def update_card(
                     ),
                 )
         card.anniversary_date = fields["anniversary_date"]
+    if "foreign_fee_percent" in fields:
+        card.foreign_fee_percent = fields["foreign_fee_percent"]
     db.commit()
     db.refresh(card)
     return _card_response(card, _account_or_404(db, card.financial_account_id))
