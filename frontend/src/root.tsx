@@ -4,7 +4,7 @@ import {
     Outlet,
     Scripts,
     ScrollRestoration,
-    useLoaderData,
+    useRouteLoaderData,
     data,
     redirect,
 } from "react-router";
@@ -20,6 +20,11 @@ import { CommandBar } from "./components/CommandBar/CommandBar";
 import { QuickAddButton } from "./components/QuickAddButton";
 import { getSSRContext } from "./lib/ssr-helpers";
 import type { HouseholdResponse, UserResponse } from "./types/types";
+
+// Without a root boundary, a loader that throws — the backend unreachable even
+// after `fetchWithRetry` has asked again — renders React Router's bare default
+// 500 page, outside the app shell and with no way back but the address bar.
+export { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Default document title for every route. Routes that want their own (e.g. the
 // landing page) export their own `meta`, which replaces this one.
@@ -68,8 +73,9 @@ export function Layout({
 }: {
     children: React.ReactNode;
 }) {
-    // Read the server-provided auth state
-    const loaderData = useLoaderData<typeof loader>();
+    // Read the server-provided auth state. `useRouteLoaderData`, not `useLoaderData`:
+    // Layout also wraps the ErrorBoundary, where the root loader may have no data.
+    const loaderData = useRouteLoaderData<typeof loader>("root");
     const isAuthenticated = loaderData?.isAuthenticated || false;
     const user = loaderData?.user || null;
     const households = loaderData?.households;

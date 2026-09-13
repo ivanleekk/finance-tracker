@@ -258,6 +258,8 @@ def test_the_counterparty_owes_you_what_you_fronted(
             "counterparty_name": "Alice",
             "direction": "owed_to_you",
             "amount": "80.00",
+            # Fronted from a shared account, so the debt is the household's.
+            "owner_user_id": None,
         }
     ]
 
