@@ -46,7 +46,7 @@ struct TransactionFormView: View {
     /// Loaded on demand when a card account is selected — most accounts are not
     /// cards, so this is not fetched with the form.
     @State private var card: CardResponse?
-    @State private var cardHeadroom: [String: CardLimitStatusRow] = [:]
+    @State private var cardHeadroom: [String: [CardLimitStatusRow]] = [:]
 
     init(
         accounts: [AccountResponse],

@@ -54,7 +54,7 @@ struct QuickAddView: View {
     /// The card behind the selected account, if it is one. Fetched on demand —
     /// most accounts are not cards, and Quick Add is meant to be fast.
     @State private var card: CardResponse?
-    @State private var cardHeadroom: [String: CardLimitStatusRow] = [:]
+    @State private var cardHeadroom: [String: [CardLimitStatusRow]] = [:]
     @State private var cardCategoryId = ""
     /// The rest of what a payment can record. Quick Add used to leave these out
     /// as a "reduced surface", which meant the fastest way to log something was

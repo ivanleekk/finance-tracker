@@ -55,38 +55,67 @@ enum Cards {
     }
 
     /// The cycle window, worded for a header: "19 Aug – 18 Sep".
+    ///
+    /// A window crossing into another year says which years, or a card year
+    /// reads "14 Sep – 13 Sep" — a window of either one day or one year.
     static func cycleLabel(start: Date, end: Date, locale: Locale = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale
-        formatter.setLocalizedDateFormatFromTemplate("d MMM")
+        let calendar = Calendar.current
+        let crossesYear = calendar.component(.year, from: start) != calendar.component(.year, from: end)
+        formatter.setLocalizedDateFormatFromTemplate(crossesYear ? "d MMM y" : "d MMM")
         return "\(formatter.string(from: start)) – \(formatter.string(from: end))"
     }
 
-    /// Headroom for each of a card's categories, keyed by category id.
+    /// A limit's own window, worded like the card's cycle — or nil when it is
+    /// the card's cycle.
+    ///
+    /// The card header shows the statement cycle, which is right for most limits
+    /// and wrong for the rest: a monthly minimum and an annual cap on the same
+    /// category sit side by side, and reading both against the cycle makes the
+    /// annual one look wildly over pace. Only the ones that differ are labelled.
+    static func limitWindowLabel(
+        for row: CardLimitStatusRow,
+        status: CardStatusResponse,
+        locale: Locale = .current
+    ) -> String? {
+        if row.periodStart == status.cycleStart && row.periodEnd == status.cycleEnd { return nil }
+        return cycleLabel(start: row.periodStart, end: row.periodEnd, locale: locale)
+    }
+
+    /// Every limit each of a card's categories counts towards, keyed by category id.
     ///
     /// The status endpoint reports limits, but the picker is a list of
-    /// *categories* — and several categories can share one limit, so this fans
-    /// the limit back out over the categories pointing at it. A category with no
-    /// limit gets no entry rather than a zero, because "unmetered" and "nothing
-    /// left" must not look the same.
-    static func headroomByCategory(
-        card: CardResponse,
-        status: CardStatusResponse
-    ) -> [String: CardLimitStatusRow] {
-        let byLimit = Dictionary(
-            status.limits.map { ($0.limitId, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var out: [String: CardLimitStatusRow] = [:]
-        for category in card.categories {
-            // An unmetered category has no limit id, which matches nothing here
-            // and is skipped by the same lookup that skips a limit missing from
-            // the payload — no separate guard needed.
-            if let limitId = category.limitId, let row = byLimit[limitId] {
-                out[category.id] = row
+    /// *categories* — so this fans each limit back out over the categories
+    /// counting towards it. A category can count towards several, so each gets a
+    /// list in the status payload's order, which is most urgent first. A category
+    /// with no limit gets no entry rather than an empty list, because
+    /// "unmetered" and "nothing left" must not look the same.
+    static func headroomByCategory(status: CardStatusResponse) -> [String: [CardLimitStatusRow]] {
+        var out: [String: [CardLimitStatusRow]] = [:]
+        for row in status.limits {
+            for categoryId in row.categoryIds {
+                out[categoryId, default: []].append(row)
             }
         }
         return out
+    }
+
+    /// Whether any limit counts this category. Read from the card's limits rather
+    /// than the status, so Manage can say "unmetered" without a status fetch.
+    static func isMetered(categoryId: String, limits: [CardLimitResponse]) -> Bool {
+        limits.contains { $0.categoryIds.contains(categoryId) }
+    }
+
+    /// A card category's picker label: its name, then every limit it counts
+    /// towards — "Dining · $300 to go · $11,000 left".
+    static func pickerLabel(
+        for category: CardCategoryResponse,
+        headroom: [String: [CardLimitStatusRow]],
+        formatAmount: (Double) -> String
+    ) -> String {
+        ([category.name] + (headroom[category.id] ?? []).map { headroomLabel(for: $0, formatAmount: formatAmount) })
+            .joined(separator: " · ")
     }
 
     /// The card behind an account, with this cycle's headroom — or nil, which is
@@ -99,14 +128,14 @@ enum Cards {
     static func load(
         householdId: String,
         accountId: String
-    ) async -> (card: CardResponse, headroom: [String: CardLimitStatusRow])? {
+    ) async -> (card: CardResponse, headroom: [String: [CardLimitStatusRow]])? {
         do {
             let cards: [CardResponse] = try await APIClient.shared.get("/cards/household/\(householdId)")
             guard let card = cards.first(where: { $0.financialAccountId == accountId }) else { return nil }
             // A missing meter makes the picker plainer, never the form unusable,
             // so the status is allowed to fail on its own.
             let status: CardStatusResponse? = try? await APIClient.shared.get("/cards/\(card.id)/status")
-            return (card, status.map { headroomByCategory(card: card, status: $0) } ?? [:])
+            return (card, status.map { headroomByCategory(status: $0) } ?? [:])
         } catch {
             return nil
         }

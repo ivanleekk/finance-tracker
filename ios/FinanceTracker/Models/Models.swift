@@ -1353,6 +1353,9 @@ struct CardLimitResponse: Codable, Identifiable, Hashable {
     @MoneyAmount var amount: Double
     let direction: LimitDirection
     let resetBasis: LimitResetBasis
+    /// The card categories counting towards this limit. A category may count
+    /// towards several — a monthly minimum and an annual cap on the same spend.
+    let categoryIds: [String]
 }
 
 struct CardCategoryResponse: Codable, Identifiable, Hashable {
@@ -1361,8 +1364,6 @@ struct CardCategoryResponse: Codable, Identifiable, Hashable {
     let name: String
     let isDefault: Bool
     let sortOrder: Int
-    /// Nil means tracked but unmetered — deliberately distinct from "nothing left".
-    let limitId: String?
 }
 
 struct CardResponse: Codable, Identifiable, Hashable {
@@ -1384,6 +1385,7 @@ struct CardResponse: Codable, Identifiable, Hashable {
 struct CardLimitStatusRow: Codable, Identifiable, Hashable {
     let limitId: String
     let name: String
+    let categoryIds: [String]
     let categoryNames: [String]
     let direction: LimitDirection
     @MoneyAmount var amount: Double
@@ -1457,15 +1459,23 @@ struct CardLimitCreate: Encodable {
     let amount: Double
     let direction: String
     let resetBasis: String
+    let categoryIds: [String]
 }
 
+/// PUT /cards/limits/{id} carrying only the category set. Always a full list:
+/// the backend reads an omitted key as "leave them alone", so an empty array is
+/// how "counts nothing" is said.
+struct CardLimitCategoriesUpdate: Encodable {
+    let categoryIds: [String]
+}
+
+/// Which limits a category counts towards is set on the limit, not here.
 struct CardCategoryCreate: Encodable {
     let name: String
-    let limitId: String?
 }
 
 /// Sets a category as its card's default. `isDefault` is the only field sent —
-/// the backend's `exclude_unset` leaves name/limit alone on an omitted key.
+/// the backend's `exclude_unset` leaves the name alone on an omitted key.
 struct CardCategoryDefaultUpdate: Encodable {
     let isDefault = true
 }
