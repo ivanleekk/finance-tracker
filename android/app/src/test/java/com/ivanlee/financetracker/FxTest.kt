@@ -1,6 +1,7 @@
 package com.ivanlee.financetracker
 
 import com.ivanlee.financetracker.data.model.TransferCreate
+import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.Fx
@@ -110,6 +111,19 @@ class FxTest {
     }
 
     @Test
+    fun `a foreign charge takes the card's foreign fee`() {
+        assertEquals(3.0, Fx.defaultFeePercent(3.0, "JPY", "SGD")!!, 0.0)
+    }
+
+    @Test
+    fun `a domestic charge or a card with no default takes nothing`() {
+        assertNull(Fx.defaultFeePercent(3.0, "SGD", "SGD"))
+        assertNull(Fx.defaultFeePercent(null, "JPY", "SGD"))
+        assertNull(Fx.defaultFeePercent(0.0, "JPY", "SGD"))
+        assertNull(Fx.defaultFeePercent(3.0, "JPY", ""))
+    }
+
+    @Test
     fun `the hint is empty while there is nothing to show`() {
         assertEquals("", Fx.impliedRateLabel(12000.0, null, "JPY", "SGD"))
         assertEquals("", Fx.impliedRateLabel(12000.0, 124.80, "JPY", ""))
@@ -155,6 +169,20 @@ class FxEncodingTest {
     fun `a transfer sends the received amount only when there is one`() {
         assertFalse(transfer(amountReceived = null).containsKey("amount_received"))
         assertEquals(731.0, transfer(amountReceived = 731.0)["amount_received"]!!.jsonPrimitive.double, 0.0)
+    }
+
+    @Test
+    fun `a new charge leaves the fee out until the user types, and sends zero when cleared`() {
+        fun body(fee: Double?) = Api.json.parseToJsonElement(
+            Api.json.encodeToString(
+                TransactionCreate(
+                    date = Instant.EPOCH, amount = 12000.0, accountId = "a", categoryId = "c",
+                    currency = "JPY", feePercent = fee,
+                ),
+            ),
+        ).jsonObject
+        assertFalse("omitted lets the card's default apply", body(null).containsKey("fee_percent"))
+        assertEquals(0.0, body(0.0)["fee_percent"]!!.jsonPrimitive.double, 0.0)
     }
 
     @Test

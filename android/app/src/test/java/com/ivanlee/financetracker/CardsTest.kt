@@ -299,7 +299,7 @@ class CardsTest {
     @Test
     fun aCardUpdateSendsTheAnniversary() {
         val obj = Api.json.parseToJsonElement(
-            Api.json.encodeToString(cardUpdate("statement", 18, "2024-03-14")),
+            Api.json.encodeToString(cardUpdate("statement", 18, "2024-03-14", foreignFeePercent = null)),
         ).jsonObject
         assertEquals("2024-03-14", obj["anniversary_date"]?.jsonPrimitive?.content)
     }
@@ -308,10 +308,32 @@ class CardsTest {
     fun aClearedAnniversaryIsAnExplicitNullNotAnOmittedKey() {
         // explicitNulls = false would drop a Kotlin null; only JsonNull reaches the wire.
         val obj = Api.json.parseToJsonElement(
-            Api.json.encodeToString(cardUpdate("statement", 18, null)),
+            Api.json.encodeToString(cardUpdate("statement", 18, null, foreignFeePercent = null)),
         ).jsonObject
         assertTrue(obj.containsKey("anniversary_date"))
         assertEquals(JsonNull, obj["anniversary_date"])
+    }
+
+    @Test
+    fun aCardUpdateSendsTheForeignFeeAndAClearedOneAsNull() {
+        val set = Api.json.parseToJsonElement(
+            Api.json.encodeToString(cardUpdate("statement", 18, null, foreignFeePercent = 3.25)),
+        ).jsonObject
+        assertEquals("3.25", set["foreign_fee_percent"]?.jsonPrimitive?.content)
+        val cleared = Api.json.parseToJsonElement(
+            Api.json.encodeToString(cardUpdate("statement", 18, null, foreignFeePercent = null)),
+        ).jsonObject
+        assertTrue(cleared.containsKey("foreign_fee_percent"))
+        assertEquals(JsonNull, cleared["foreign_fee_percent"])
+    }
+
+    @Test
+    fun aCardsForeignFeeDecodesFromTheDecimalString() {
+        val card = Api.json.decodeFromString<CardResponse>(
+            """{"id":"c","financial_account_id":"a","account_name":"Card","currency":"SGD",
+               "cycle_basis":"statement","statement_day":18,"foreign_fee_percent":"3.25"}""",
+        )
+        assertEquals(3.25, card.foreignFeePercent!!, 0.0)
     }
 
     @Test

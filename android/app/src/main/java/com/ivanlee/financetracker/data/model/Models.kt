@@ -1402,6 +1402,9 @@ data class CardResponse(
     /** Anchors card-year / card-quarter limits. A date-only field. */
     @Serializable(with = OptionalInstantSerializer::class)
     val anniversaryDate: Instant? = null,
+    /** Percentage added to every foreign charge that states no fee of its own. A Decimal on the wire. */
+    @Serializable(with = OptionalMoneySerializer::class)
+    val foreignFeePercent: Double? = null,
     val categories: List<CardCategoryResponse> = emptyList(),
     val limits: List<CardLimitResponse> = emptyList(),
 )
@@ -1467,6 +1470,8 @@ data class CardCreate(
     val statementDay: Int,
     /** Bare "yyyy-MM-dd". Omitted when null, which is correct on create. */
     val anniversaryDate: String? = null,
+    /** Omitted when null, which on a create is simply "no default". */
+    val foreignFeePercent: Double? = null,
 )
 
 /**
@@ -1480,12 +1485,20 @@ data class CardUpdate(
     val cycleBasis: String,
     val statementDay: Int,
     val anniversaryDate: JsonElement,
+    /** The foreign-transaction fee, or [JsonNull] to clear it — the same reasoning as the date. */
+    val foreignFeePercent: JsonElement,
 )
 
-fun cardUpdate(cycleBasis: String, statementDay: Int, anniversaryDate: String?): CardUpdate = CardUpdate(
+fun cardUpdate(
+    cycleBasis: String,
+    statementDay: Int,
+    anniversaryDate: String?,
+    foreignFeePercent: Double?,
+): CardUpdate = CardUpdate(
     cycleBasis = cycleBasis,
     statementDay = statementDay,
     anniversaryDate = anniversaryDate?.let { JsonPrimitive(it) } ?: JsonNull,
+    foreignFeePercent = foreignFeePercent?.let { JsonPrimitive(it) } ?: JsonNull,
 )
 
 @Serializable

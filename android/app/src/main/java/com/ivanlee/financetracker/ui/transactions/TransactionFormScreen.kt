@@ -117,6 +117,10 @@ fun TransactionFormScreen(
     var amountChargedText by remember { mutableStateOf("") }
     // A surcharge the card adds on top, as a percentage. Blank means none.
     var feePercentText by remember { mutableStateOf("") }
+    // Whether the user has typed in the fee field. Until they do, a new foreign charge shows its
+    // card's default there and sends no fee at all, so the backend applies that same default —
+    // even if the card hadn't loaded yet.
+    var feeTouched by remember { mutableStateOf(false) }
     var currencies by remember { mutableStateOf<List<ReferenceCurrency>>(emptyList()) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     // Part of this bill is one or more other people's. The amount above stays the full sum
@@ -222,7 +226,19 @@ fun TransactionFormScreen(
     // stale one would define a bogus rate.
     val amountCharged =
         if (isForeignCharge) CalculatorInput.evaluateArithmeticExpression(amountChargedText) else null
-    val feePercent = CalculatorInput.evaluateArithmeticExpression(feePercentText)
+    // The card's default for this charge — a new transaction only: an edit shows what the row
+    // recorded, and the backend never applies a default to one.
+    val cardDefaultFeePercent = if (transactionId == null && card?.financialAccountId == accountId) {
+        Fx.defaultFeePercent(card?.foreignFeePercent, chargeCurrency, accountCurrency)
+    } else {
+        null
+    }
+    val feeFieldText = if (feeTouched || transactionId != null) {
+        feePercentText
+    } else {
+        cardDefaultFeePercent?.let { if (it == Math.floor(it)) it.toInt().toString() else it.toString() }.orEmpty()
+    }
+    val feePercent = CalculatorInput.evaluateArithmeticExpression(feeFieldText)
     // The purchase as the account sees it, for the fee hint: the charged amount when the user
     // gave one, the raw amount when no conversion is involved — and null for a foreign charge
     // with neither, where only the server knows the rate and guessing would show a fee that is
@@ -309,7 +325,10 @@ fun TransactionFormScreen(
                             cardCategoryId = cardCategoryId,
                             currency = chargeCurrency.ifEmpty { null },
                             amountCharged = amountCharged,
-                            feePercent = feePercent,
+                            // Untouched: omitted, so a foreign charge takes its card's default
+                            // server-side — the figure the field was showing. Touched: what the
+                            // field holds, and a cleared one is an explicit 0.
+                            feePercent = if (feeTouched) feePercent ?: 0.0 else null,
                         ),
                     )
                 }
@@ -577,8 +596,11 @@ fun TransactionFormScreen(
                 val fee = Fx.feeAmount(amountInAccountCurrency, feePercent)
                 MoneyField(
                     "Card fee (optional, %)",
-                    feePercentText,
-                    { feePercentText = it },
+                    feeFieldText,
+                    {
+                        feePercentText = it
+                        feeTouched = true
+                    },
                     supportingText = if (fee == null) {
                         "Some cards add a percentage on top — a foreign transaction fee, a surcharge."
                     } else {
