@@ -93,3 +93,24 @@ export function feeAmount(
     if (amountInAccountCurrency <= 0 || feePercent <= 0) return null;
     return Math.round(amountInAccountCurrency * feePercent) / 100;
 }
+
+/**
+ * The fee a new charge's form fills in from its card: the card's
+ * foreign-transaction fee, for a foreign charge. Null when there is nothing to
+ * fill in — a domestic charge, no card, or no default on it.
+ *
+ * Mirrors `default_fee_percent` in `backend/src/services/transaction_service.py`,
+ * which applies the same figure to a foreign charge created with no fee. The
+ * form shows it so the user can change it or clear it (to 0) before saving.
+ * Ported to `ios/.../Support/Fx.swift` and `android/.../logic/Fx.kt`.
+ */
+export function defaultFeePercent(
+    cardForeignFeePercent: number | string | null | undefined,
+    chargeCurrency: string | null | undefined,
+    accountCurrency: string | null | undefined,
+): number | null {
+    if (!isForeignCharge(chargeCurrency, accountCurrency)) return null;
+    if (cardForeignFeePercent === null || cardForeignFeePercent === undefined || cardForeignFeePercent === "") return null;
+    const value = Number(cardForeignFeePercent);
+    return Number.isFinite(value) && value > 0 ? value : null;
+}

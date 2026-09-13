@@ -165,7 +165,7 @@ describe('cardCategoryPickerOptions', () => {
     it('states every limit a category counts towards', () => {
         const card = {
             id: 'c', financial_account_id: 'a', account_name: 'Card', currency: 'SGD',
-            cycle_basis: 'statement' as const, statement_day: 18, anniversary_date: null,
+            cycle_basis: 'statement' as const, statement_day: 18, anniversary_date: null, foreign_fee_percent: null,
             categories: [
                 { id: 'cat-1', card_id: 'c', name: 'Dining', is_default: true, sort_order: 0 },
                 { id: 'cat-2', card_id: 'c', name: 'Travel', is_default: false, sort_order: 1 },

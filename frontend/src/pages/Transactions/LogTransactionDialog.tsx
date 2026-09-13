@@ -6,8 +6,8 @@ import { Select } from "../../components/ui/Select"
 import { selectableAccounts } from "../../lib/networth"
 import type { AccountResponse, CategoryResponse, CounterpartyResponse, CurrencyResponse, UserResponse } from "../../types/types"
 import { evenSplitRemainder, parseMoney } from "../../lib/reimbursements"
-import { feeAmount, impliedRateLabel, isForeignCharge } from "../../lib/fx"
-import { splitHint, type SplitFormRow } from "./transactionsHelpers"
+import { defaultFeePercent, feeAmount, impliedRateLabel, isForeignCharge } from "../../lib/fx"
+import { feeFieldText, splitHint, type SplitFormRow } from "./transactionsHelpers"
 
 /** The shape the Income/Expense tab edits. */
 export type TransactionFormData = {
@@ -20,6 +20,8 @@ export type TransactionFormData = {
     amountCharged: string
     /** A surcharge the card adds on top, as a percentage. "" = none. */
     feePercent: string
+    /** True once the user has typed in the fee field — see `feeFieldText`. */
+    feeTouched: boolean
     date: string
     description: string
     mcc: string
@@ -56,6 +58,8 @@ type Props = {
 
     /** Empty unless the selected account is a card. Labels carry this cycle's headroom. */
     cardCategoryOptions: { value: string; label: string }[]
+    /** The selected card's foreign-transaction fee, when the account is a card that has one. */
+    cardForeignFeePercent: number | string | null
     /** Called when the account changes, so the card's headroom can be fetched. */
     onAccountChange: (accountId: string) => void
     user: UserResponse | null | undefined
@@ -118,6 +122,7 @@ export function LogTransactionDialog({
     currencies,
     mccOptions,
     cardCategoryOptions,
+    cardForeignFeePercent,
     onAccountChange,
     user,
     formData,
@@ -152,6 +157,10 @@ export function LogTransactionDialog({
     // before they commit to it — see `impliedRateLabel`.
     // What the fee will come to, so the user sees the money rather than only the
     // percentage — 3% of a large foreign bill is not obvious in the head.
+    // The card's default fills the field for a foreign charge until the user
+    // types in it; what is shown here is what an untouched form lets the
+    // backend apply.
+    const feeText = feeFieldText(formData, defaultFeePercent(cardForeignFeePercent, formData.currency, accountCurrency))
     const feeHint = (() => {
         const charged = parseMoney(formData.amountCharged)
         const amount = parseMoney(formData.amount)
@@ -160,7 +169,7 @@ export function LogTransactionDialog({
         // foreign charge and no charged amount, only the server knows the rate,
         // so the hint stays quiet rather than guessing at one.
         const inAccountCurrency = charged ?? (isForeign ? null : amount)
-        const fee = feeAmount(inAccountCurrency, parseMoney(formData.feePercent))
+        const fee = feeAmount(inAccountCurrency, parseMoney(feeText))
         return fee === null ? "" : `${accountCurrency} ${fee.toFixed(2)}`
     })()
 
@@ -353,8 +362,8 @@ export function LogTransactionDialog({
                             min="0"
                             max="100"
                             placeholder="e.g. 3 for a 3% foreign transaction fee"
-                            value={formData.feePercent}
-                            onChange={(e) => setFormData({ ...formData, feePercent: e.target.value })}
+                            value={feeText}
+                            onChange={(e) => setFormData({ ...formData, feePercent: e.target.value, feeTouched: true })}
                         />
                         <p className="text-xs text-base-500 dark:text-base-400">
                             {feeHint

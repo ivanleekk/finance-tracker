@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feeAmount, formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
+import { defaultFeePercent, feeAmount, formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
 
 describe('isForeignCharge', () => {
     it('is false when the charge is in the account\'s own currency', () => {
@@ -74,5 +74,20 @@ describe('feeAmount', () => {
         expect(feeAmount(null, 3)).toBeNull();
         expect(feeAmount(0, 3)).toBeNull();
         expect(feeAmount(124.8, Number.NaN)).toBeNull();
+    });
+});
+
+describe('defaultFeePercent', () => {
+    it("fills in the card's foreign fee for a foreign charge", () => {
+        expect(defaultFeePercent(3, 'JPY', 'SGD')).toBe(3);
+        // The API serializes a Decimal as a string.
+        expect(defaultFeePercent('3.25', 'JPY', 'SGD')).toBe(3.25);
+    });
+
+    it('fills in nothing for a domestic charge, or a card with no default', () => {
+        expect(defaultFeePercent(3, 'SGD', 'SGD')).toBeNull();
+        expect(defaultFeePercent(null, 'JPY', 'SGD')).toBeNull();
+        expect(defaultFeePercent(0, 'JPY', 'SGD')).toBeNull();
+        expect(defaultFeePercent(3, 'JPY', '')).toBeNull();
     });
 });

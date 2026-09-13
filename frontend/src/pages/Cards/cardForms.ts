@@ -27,7 +27,7 @@ export function resetOptions(hasAnniversary: boolean): SelectOption[] {
 /**
  * The PUT /cards/{id} body from the card-settings form.
  *
- * The form always states the anniversary, so an empty field is an explicit
+ * The form always states the anniversary and the foreign fee, so an empty field is an explicit
  * `null` — the backend's "clear it", as opposed to an omitted key, which would
  * preserve it. The statement day is omitted whenever `Number(...)` on it is
  * falsy — not just when a calendar-basis card hides the field, but also when a
@@ -42,5 +42,17 @@ export function cardUpdateBody(formData: FormData): Record<string, unknown> {
         cycle_basis: formData.get("cycle_basis"),
         ...(day ? { statement_day: day } : {}),
         anniversary_date: anniversary || null,
+        foreign_fee_percent: foreignFeePercent(formData),
     };
+}
+
+/**
+ * The card's foreign-transaction fee from a form. Always stated, so an empty
+ * field is an explicit `null` — clear it — like the anniversary above.
+ */
+export function foreignFeePercent(formData: FormData): number | null {
+    const raw = String(formData.get("foreign_fee_percent") ?? "").trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
 }

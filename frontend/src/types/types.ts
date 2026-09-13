@@ -684,6 +684,8 @@ export interface CardResponse {
   statement_day: number;
   /** "yyyy-MM-dd". Anchors card_year / card_quarter limits; null when unset. */
   anniversary_date: string | null;
+  /** Percentage added to every foreign charge that states no fee of its own; null when none. Decimal, so it may arrive as a string. */
+  foreign_fee_percent: number | string | null;
   categories: CardCategoryResponse[];
   limits: CardLimitResponse[];
 }
