@@ -91,4 +91,24 @@ object Fx {
         if (chargeCurrency.isEmpty() || accountCurrency.isEmpty()) return ""
         return "1 $chargeCurrency = ${formatRate(rate)} $accountCurrency"
     }
+
+    /**
+     * Whether a row belongs to a transfer: one of its two legs, or the "FX Conversion" row a
+     * cross-currency transfer posts beside its withdrawal (a fee row whose parent is a transfer
+     * leg). The backend refuses to edit any of them (409) and deletes the whole set when one is
+     * deleted, so the Activity list treats all three the way it already treats a leg. A card
+     * surcharge is a fee row too, but its parent is an ordinary purchase, so it is not caught.
+     *
+     * Ported from `transfer_id_of` in the backend's `transaction_service.py`; iOS's twin is
+     * `Fx.isPartOfTransfer` in `Support/Fx.swift`.
+     */
+    fun isPartOfTransfer(
+        transferId: String?,
+        feeForTransactionId: String?,
+        transferIdOf: (String) -> String?,
+    ): Boolean {
+        if (transferId != null) return true
+        val parent = feeForTransactionId ?: return false
+        return transferIdOf(parent) != null
+    }
 }

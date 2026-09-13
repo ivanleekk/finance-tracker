@@ -599,6 +599,10 @@ data class TransferCreate(
     @Serializable(with = InstantSerializer::class)
     val date: Instant,
     val description: String? = null,
+    // What arrived, in the destination account's currency. Null means "convert at the close"
+    // and is dropped by `explicitNulls = false`; transfers are create-only, so there is no
+    // update where omitted and null would differ.
+    val amountReceived: Double? = null,
 )
 
 @Serializable

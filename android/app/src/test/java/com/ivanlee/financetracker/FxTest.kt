@@ -1,5 +1,6 @@
 package com.ivanlee.financetracker
 
+import com.ivanlee.financetracker.data.model.TransferCreate
 import com.ivanlee.financetracker.data.model.transactionUpdate
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.Fx
@@ -89,6 +90,26 @@ class FxTest {
     }
 
     @Test
+    fun `a transfer reads as sent over received`() {
+        // S$1,000 out, US$731 in: the rate the bank gave.
+        assertEquals("1 SGD = 0.731 USD", Fx.impliedRateLabel(1000.0, 731.0, "SGD", "USD"))
+    }
+
+    @Test
+    fun `both legs and the conversion row are part of the transfer`() {
+        val legs = mapOf("withdrawal" to "t1", "deposit" to "t1")
+        assertTrue(Fx.isPartOfTransfer("t1", null) { legs[it] })
+        assertTrue(Fx.isPartOfTransfer(null, "withdrawal") { legs[it] })
+    }
+
+    @Test
+    fun `a card surcharge and an ordinary row are not`() {
+        val legs = mapOf("withdrawal" to "t1")
+        assertFalse(Fx.isPartOfTransfer(null, "dinner") { legs[it] })
+        assertFalse(Fx.isPartOfTransfer(null, null) { legs[it] })
+    }
+
+    @Test
     fun `the hint is empty while there is nothing to show`() {
         assertEquals("", Fx.impliedRateLabel(12000.0, null, "JPY", "SGD"))
         assertEquals("", Fx.impliedRateLabel(12000.0, 124.80, "JPY", ""))
@@ -119,6 +140,22 @@ class FxEncodingTest {
             feePercent = feePercent,
         ),
     ).let { Api.json.parseToJsonElement(it).jsonObject }
+
+    private fun transfer(amountReceived: Double?) = Api.json.encodeToString(
+        TransferCreate(
+            fromAccountId = "sgd",
+            toAccountId = "usd",
+            amount = 1000.0,
+            date = Instant.EPOCH,
+            amountReceived = amountReceived,
+        ),
+    ).let { Api.json.parseToJsonElement(it).jsonObject }
+
+    @Test
+    fun `a transfer sends the received amount only when there is one`() {
+        assertFalse(transfer(amountReceived = null).containsKey("amount_received"))
+        assertEquals(731.0, transfer(amountReceived = 731.0)["amount_received"]!!.jsonPrimitive.double, 0.0)
+    }
 
     @Test
     fun `omits the charged amount when there is nothing to say`() {
