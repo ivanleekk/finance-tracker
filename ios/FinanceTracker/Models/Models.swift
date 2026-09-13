@@ -1444,6 +1444,9 @@ struct CardResponse: Codable, Identifiable, Hashable {
     let statementDay: Int
     /// Anchors card-year / card-quarter limits. A date-only field, parsed at UTC midnight.
     var anniversaryDate: Date? = nil
+    /// Percentage added to every foreign charge that states no fee of its own.
+    /// A Decimal on the wire, so it may arrive as a string.
+    @OptionalMoneyAmount var foreignFeePercent: Double? = nil
     let categories: [CardCategoryResponse]
     let limits: [CardLimitResponse]
 }
@@ -1498,6 +1501,8 @@ struct CardCreate: Encodable {
     let statementDay: Int
     /// Bare "yyyy-MM-dd".
     var anniversaryDate: String? = nil
+    /// Nil is omitted, which on a create is simply "no default".
+    var foreignFeePercent: Double? = nil
 }
 
 /// PUT /cards/{id} from the Edit card sheet, which states the whole card.
@@ -1509,9 +1514,12 @@ struct CardUpdate: Encodable {
     let statementDay: Int
     /// Bare "yyyy-MM-dd", or nil to clear.
     let anniversaryDate: String?
+    /// The card's foreign-transaction fee, or nil to clear it. Always encoded,
+    /// for the same reason as `anniversaryDate`.
+    var foreignFeePercent: Double? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case cycleBasis, statementDay, anniversaryDate
+        case cycleBasis, statementDay, anniversaryDate, foreignFeePercent
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -1520,6 +1528,7 @@ struct CardUpdate: Encodable {
         try container.encode(statementDay, forKey: .statementDay)
         // encode(String?) writes an explicit null when nil — the point.
         try container.encode(anniversaryDate, forKey: .anniversaryDate)
+        try container.encode(foreignFeePercent, forKey: .foreignFeePercent)
     }
 }
 
