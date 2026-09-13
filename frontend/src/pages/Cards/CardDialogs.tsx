@@ -6,7 +6,9 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { selectableAccounts } from "../../lib/networth";
 import { Dialog } from "../../components/ui/Dialog";
-import { LimitRow } from "./CardMeters";
+import { LimitCategoryChecklist, LimitRow } from "./CardMeters";
+import { isMeteredCategory } from "../../lib/cards";
+import { resetOptions } from "./cardForms";
 import type { AccountResponse, CardResponse } from "../../types/types";
 
 /**
@@ -20,13 +22,6 @@ import type { AccountResponse, CardResponse } from "../../types/types";
  * Owning the state here is what makes the forms actually work, and the state
  * has to live somewhere that re-renders on change.
  */
-
-const RESET_OPTIONS = [
-    { value: "cycle", label: "Resets each statement cycle" },
-    { value: "calendar_month", label: "Resets each calendar month" },
-    { value: "quarter", label: "Resets each quarter" },
-    { value: "year", label: "Resets each year" },
-];
 
 export function SetUpCardDialog({
     isOpen,
@@ -89,6 +84,12 @@ export function SetUpCardDialog({
                             helperText="Clamped in shorter months, so 31 still closes in February."
                         />
                     )}
+                    <Input
+                        label="Card anniversary (optional)"
+                        name="anniversary_date"
+                        type="date"
+                        helperText="The date the card was opened. Limits that reset each card year or card quarter count from it."
+                    />
                     <div className="flex justify-end gap-2">
                         <Button type="button" variant="secondary" onClick={close}>
                             Cancel
@@ -114,6 +115,7 @@ function AddLimitForm({ card }: { card: CardResponse }) {
     const formRef = useRef<HTMLFormElement>(null);
     const [direction, setDirection] = useState("ceiling");
     const [resetBasis, setResetBasis] = useState("cycle");
+    const resetChoices = resetOptions(Boolean(card.anniversary_date));
 
     const saved = fetcher.state === "idle" && fetcher.data?.success;
     useEffect(() => {
@@ -122,6 +124,21 @@ function AddLimitForm({ card }: { card: CardResponse }) {
         setDirection("ceiling");
         setResetBasis("cycle");
     }, [saved]);
+
+    // Clearing the card's anniversary (in the settings form below, in the same
+    // open dialog) disables the anniversary-basis options here, but a `resetBasis`
+    // already pointed at one of them doesn't know that — the mirrored native
+    // `<select>` would submit it anyway and the backend 400s. Clamp back to the
+    // default whenever the current selection drops out of the enabled set,
+    // derived from `resetOptions`'s own `disabled` flag rather than hardcoding
+    // which values are anniversary-only.
+    useEffect(() => {
+        const stillEnabled = resetOptions(Boolean(card.anniversary_date))
+            .some(o => o.value === resetBasis && !o.disabled);
+        if (!stillEnabled) {
+            setResetBasis("cycle");
+        }
+    }, [card.anniversary_date, resetBasis]);
 
     return (
         <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
@@ -145,8 +162,9 @@ function AddLimitForm({ card }: { card: CardResponse }) {
                 value={resetBasis}
                 onChange={setResetBasis}
                 wrapperClassName="col-span-2"
-                options={RESET_OPTIONS}
+                options={resetChoices}
             />
+            <LimitCategoryChecklist card={card} />
             <p className="col-span-2 text-xs text-base-500 dark:text-base-400">
                 {direction === "floor"
                     ? "The spend you need to reach — a fee waiver or a bonus qualifier."
@@ -173,29 +191,19 @@ function AddLimitForm({ card }: { card: CardResponse }) {
 function AddCategoryForm({ card }: { card: CardResponse }) {
     const fetcher = useFetcher<{ error?: string; success?: boolean }>();
     const formRef = useRef<HTMLFormElement>(null);
-    const [limitId, setLimitId] = useState("");
 
     const saved = fetcher.state === "idle" && fetcher.data?.success;
     useEffect(() => {
-        if (!saved) return;
-        formRef.current?.reset();
-        setLimitId("");
+        if (saved) formRef.current?.reset();
     }, [saved]);
 
     return (
         <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="_intent" value="createCategory" />
             <input type="hidden" name="cardId" value={card.id} />
-            <Input name="name" placeholder="e.g. Online" required />
-            <Select
-                name="limit_id"
-                value={limitId}
-                onChange={setLimitId}
-                options={[
-                    { value: "", label: "No limit — just track it" },
-                    ...card.limits.map(l => ({ value: l.id, label: l.name })),
-                ]}
-            />
+            <div className="col-span-2">
+                <Input name="name" placeholder="e.g. Online" required />
+            </div>
             {fetcher.data?.error && (
                 <p className="col-span-2 text-xs text-red-600 dark:text-red-400">
                     {fetcher.data.error}
@@ -209,6 +217,67 @@ function AddCategoryForm({ card }: { card: CardResponse }) {
                 disabled={fetcher.state !== "idle"}
             >
                 Add category
+            </Button>
+        </fetcher.Form>
+    );
+}
+
+/**
+ * The card's own settings — cycle basis, statement day and anniversary.
+ *
+ * Submitted through a fetcher for the same reason `AddLimitForm` is: a plain
+ * Form would leave a stale error sitting under the fields after a successful
+ * save. The anniversary field always has a value (possibly empty), which is
+ * what lets `cardUpdateBody` send an explicit `null` to clear it rather than
+ * omitting the key, which the backend reads as "leave it alone".
+ */
+function CardSettingsForm({ card }: { card: CardResponse }) {
+    const fetcher = useFetcher<{ error?: string; success?: boolean }>();
+    const [cycleBasis, setCycleBasis] = useState<string>(card.cycle_basis);
+
+    return (
+        <fetcher.Form method="post" className="grid grid-cols-2 gap-2">
+            <input type="hidden" name="_intent" value="updateCard" />
+            <input type="hidden" name="cardId" value={card.id} />
+            <Select
+                label="Limits reset on"
+                name="cycle_basis"
+                value={cycleBasis}
+                onChange={setCycleBasis}
+                wrapperClassName="col-span-2"
+                options={[
+                    { value: "statement", label: "The statement cycle" },
+                    { value: "calendar", label: "The calendar month" },
+                ]}
+            />
+            {cycleBasis === "statement" && (
+                <Input
+                    label="Statement closes on day"
+                    name="statement_day"
+                    type="number"
+                    min="1"
+                    max="31"
+                    defaultValue={String(card.statement_day)}
+                />
+            )}
+            <Input
+                label="Card anniversary"
+                name="anniversary_date"
+                type="date"
+                defaultValue={card.anniversary_date ?? ""}
+                helperText="Clear it to remove. Needed for card-year and card-quarter limits."
+            />
+            {fetcher.data?.error && (
+                <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{fetcher.data.error}</p>
+            )}
+            <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                className="col-span-2"
+                disabled={fetcher.state !== "idle"}
+            >
+                Save card settings
             </Button>
         </fetcher.Form>
     );
@@ -233,17 +302,25 @@ export function ManageCardDialog({
 
                     <section className="mb-6">
                         <h4 className="mb-2 text-sm font-medium text-base-900 dark:text-base-50">
+                            Card
+                        </h4>
+                        <CardSettingsForm
+                            key={`settings-${card.id}-${card.anniversary_date ?? ""}`}
+                            card={card}
+                        />
+                    </section>
+
+                    <section className="mb-6 border-t border-base-100 pt-4 dark:border-base-800">
+                        <h4 className="mb-2 text-sm font-medium text-base-900 dark:text-base-50">
                             Limits
                         </h4>
                         {card.limits.length > 0 ? (
                             <ul className="mb-3 space-y-1.5">
                                 {card.limits.map(limit => (
                                     <LimitRow
-                                        key={limit.id}
-                                        limitId={limit.id}
-                                        name={limit.name}
-                                        amount={limit.amount}
-                                        direction={limit.direction}
+                                        key={`${limit.id}-${limit.category_ids.join(",")}`}
+                                        card={card}
+                                        limit={limit}
                                         formatAmount={formatAmount}
                                     />
                                 ))}
@@ -262,7 +339,8 @@ export function ManageCardDialog({
                         </h4>
                         <p className="mb-2 text-xs text-base-500 dark:text-base-400">
                             This card's own slicing of spend — free to cut across your budget
-                            categories. Untagged spending lands in the default.
+                            categories. Untagged spending lands in the default. Choose which
+                            limits a category counts towards on the limit itself.
                         </p>
                         <ul className="mb-3 space-y-1.5">
                             {card.categories.map(category => (
@@ -275,7 +353,7 @@ export function ManageCardDialog({
                                         {category.is_default && (
                                             <span className="ml-2 text-xs text-base-500">default</span>
                                         )}
-                                        {!category.limit_id && (
+                                        {!isMeteredCategory(card, category.id) && (
                                             <span className="ml-2 text-xs text-base-400">unmetered</span>
                                         )}
                                     </span>

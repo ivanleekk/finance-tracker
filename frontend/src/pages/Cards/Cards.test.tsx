@@ -22,13 +22,14 @@ const loaderData = (): CardsLoaderData => ({
             currency: 'SGD',
             cycle_basis: 'statement',
             statement_day: 18,
+            anniversary_date: null,
             categories: [
-                { id: 'cc-1', card_id: 'card-1', name: 'Dining', is_default: true, sort_order: 0, limit_id: 'lim-cap' },
-                { id: 'cc-2', card_id: 'card-1', name: 'Everything else', is_default: false, sort_order: 1, limit_id: 'lim-min' },
+                { id: 'cc-1', card_id: 'card-1', name: 'Dining', is_default: true, sort_order: 0 },
+                { id: 'cc-2', card_id: 'card-1', name: 'Everything else', is_default: false, sort_order: 1 },
             ],
             limits: [
-                { id: 'lim-cap', card_id: 'card-1', name: 'Dining cap', amount: '1000', direction: 'ceiling', reset_basis: 'cycle' },
-                { id: 'lim-min', card_id: 'card-1', name: 'Fee waiver', amount: '800', direction: 'floor', reset_basis: 'cycle' },
+                { id: 'lim-cap', card_id: 'card-1', name: 'Dining cap', amount: '1000', direction: 'ceiling', reset_basis: 'cycle', category_ids: ['cc-1'] },
+                { id: 'lim-min', card_id: 'card-1', name: 'Fee waiver', amount: '800', direction: 'floor', reset_basis: 'cycle', category_ids: ['cc-2'] },
             ],
         },
     ],
@@ -43,6 +44,7 @@ const loaderData = (): CardsLoaderData => ({
                 {
                     limit_id: 'lim-cap',
                     name: 'Dining cap',
+                    category_ids: ['cc-1'],
                     category_names: ['Dining'],
                     direction: 'ceiling',
                     amount: '1000',
@@ -60,6 +62,7 @@ const loaderData = (): CardsLoaderData => ({
                 {
                     limit_id: 'lim-min',
                     name: 'Fee waiver',
+                    category_ids: ['cc-2'],
                     category_names: ['Everything else'],
                     direction: 'floor',
                     amount: '800',
@@ -120,6 +123,40 @@ describe('Cards page', () => {
         });
         expect(container.textContent).toContain('by the end of the cycle');
         expect(container.textContent).toContain('short of the minimum');
+    });
+
+    it("labels a limit's own window only when it isn't the card cycle", async () => {
+        const data = loaderData();
+        const annual = data.statuses['card-1'].limits[0];
+        annual.period_start = '2025-09-14';
+        annual.period_end = '2026-09-13';
+        const { container } = render(<Cards />, undefined, { loader: () => data });
+
+        await waitFor(() => {
+            expect(screen.getByText('Amex Platinum')).toBeInTheDocument();
+        });
+        expect(container.textContent).toMatch(/2025.*2026/);
+        // The cycle-long minimum keeps the card header's window and adds none of its own.
+        expect(container.textContent).toContain('Everything else');
+        expect(container.textContent).not.toMatch(/Everything else · /);
+    });
+
+    it("lets a limit's categories be changed, including one already counted elsewhere", async () => {
+        const data = loaderData();
+        render(<Cards />, undefined, { loader: () => ({ ...data, availableAccounts: [] }) });
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
+        const [capToggle] = await screen.findAllByRole('button', { name: 'Categories' });
+        fireEvent.click(capToggle);
+
+        // Dining already counts towards the cap; Everything else counts towards
+        // the minimum and is still offered, since stacking limits is the point.
+        const editor = capToggle.closest('li')!;
+        const boxes = editor.querySelectorAll<HTMLInputElement>('input[name="category_ids"]');
+        expect(Array.from(boxes).map(b => [b.value, b.checked])).toEqual([
+            ['cc-1', true],
+            ['cc-2', false],
+        ]);
     });
 
     it('offers setup guidance when there are no cards at all', async () => {

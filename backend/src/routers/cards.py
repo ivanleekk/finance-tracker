@@ -47,7 +47,7 @@ def _visible_card(db: Session, card_id: uuid.UUID, user: models.User) -> models.
     """
     card = (
         db.query(models.Card)
-        .options(joinedload(models.Card.categories), joinedload(models.Card.limits))
+        .options(joinedload(models.Card.categories), joinedload(models.Card.limits).selectinload(models.CardLimit.categories))
         .filter(models.Card.id == card_id)
         .first()
     )
@@ -67,9 +67,28 @@ def _card_response(card: models.Card, account: models.FinancialAccount) -> schem
         currency=account.currency,
         cycle_basis=card.cycle_basis,
         statement_day=card.statement_day,
+        anniversary_date=card.anniversary_date,
         categories=[schemas.CardCategoryResponse.model_validate(c) for c in card.categories],
         limits=[schemas.CardLimitResponse.model_validate(l) for l in card.limits],
     )
+
+
+ANNIVERSARY_NEEDED = (
+    "Set the card's anniversary date first — a card-year or card-quarter "
+    "limit is counted from it."
+)
+
+
+def _require_anniversary_for(card: models.Card, reset_basis: str) -> None:
+    """
+    Refuse an anniversary limit on a card with no anniversary.
+
+    Falling back to the calendar year would meter over a window the issuer never
+    applies and still look plausible — the silent kind of wrong.
+    """
+    basis = models.LimitResetBasis(reset_basis)
+    if basis in card_service.ANNIVERSARY_RESET_BASES and card.anniversary_date is None:
+        raise HTTPException(status_code=400, detail=ANNIVERSARY_NEEDED)
 
 
 # --- The card itself ----------------------------------------------------------
@@ -98,6 +117,7 @@ def create_card(
         financial_account_id=account.id,
         cycle_basis=models.CycleBasis(payload.cycle_basis),
         statement_day=payload.statement_day,
+        anniversary_date=payload.anniversary_date,
     )
     db.add(card)
     db.flush()
@@ -135,7 +155,7 @@ def list_household_cards(
     rows = (
         db.query(models.Card, models.FinancialAccount)
         .join(models.FinancialAccount, models.Card.financial_account_id == models.FinancialAccount.id)
-        .options(joinedload(models.Card.categories), joinedload(models.Card.limits))
+        .options(joinedload(models.Card.categories), joinedload(models.Card.limits).selectinload(models.CardLimit.categories))
         .filter(
             models.FinancialAccount.household_id == household_id,
             (models.FinancialAccount.owner_user_id.is_(None))
@@ -164,10 +184,26 @@ def update_card(
     current_user: models.User = Depends(get_current_user),
 ):
     card = _visible_card(db, card_id, current_user)
+    fields = payload.model_dump(exclude_unset=True)
     if payload.cycle_basis is not None:
         card.cycle_basis = models.CycleBasis(payload.cycle_basis)
     if payload.statement_day is not None:
         card.statement_day = payload.statement_day
+    if "anniversary_date" in fields:
+        if fields["anniversary_date"] is None:
+            dependent = [
+                l.name for l in card.limits
+                if l.reset_basis in card_service.ANNIVERSARY_RESET_BASES
+            ]
+            if dependent:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "These limits count from the anniversary: "
+                        f"{', '.join(dependent)}. Change their reset first, or keep the date."
+                    ),
+                )
+        card.anniversary_date = fields["anniversary_date"]
     db.commit()
     db.refresh(card)
     return _card_response(card, _account_or_404(db, card.financial_account_id))
@@ -201,6 +237,22 @@ def delete_card(
 # --- Limits -------------------------------------------------------------------
 
 
+def _card_categories(card: models.Card, category_ids: List[uuid.UUID]) -> List[models.CardCategory]:
+    """
+    Resolve a limit's category ids against this card's own categories.
+
+    A card category is one card's private taxonomy, so an id from another card is
+    refused rather than dropped — silently ignoring it would create a limit that
+    measures less than the user asked for and still looks right. Duplicates
+    collapse, since counting a category twice towards one limit is meaningless.
+    """
+    by_id = {c.id: c for c in card.categories}
+    unknown = [i for i in category_ids if i not in by_id]
+    if unknown:
+        raise HTTPException(status_code=400, detail="That category belongs to a different card.")
+    return [by_id[i] for i in dict.fromkeys(category_ids)]
+
+
 @router.post(
     "/{card_id}/limits",
     response_model=schemas.CardLimitResponse,
@@ -213,6 +265,7 @@ def create_limit(
     current_user: models.User = Depends(get_current_user),
 ):
     card = _visible_card(db, card_id, current_user)
+    _require_anniversary_for(card, payload.reset_basis)
     limit = models.CardLimit(
         id=uuid.uuid7(),
         card_id=card.id,
@@ -220,6 +273,7 @@ def create_limit(
         amount=payload.amount,
         direction=models.LimitDirection(payload.direction),
         reset_basis=models.LimitResetBasis(payload.reset_basis),
+        categories=_card_categories(card, payload.category_ids),
     )
     db.add(limit)
     db.commit()
@@ -237,7 +291,7 @@ def update_limit(
     limit = db.query(models.CardLimit).filter(models.CardLimit.id == limit_id).first()
     if not limit:
         raise HTTPException(status_code=404, detail="Limit not found")
-    _visible_card(db, limit.card_id, current_user)
+    card = _visible_card(db, limit.card_id, current_user)
 
     if payload.name is not None:
         limit.name = payload.name
@@ -246,7 +300,10 @@ def update_limit(
     if payload.direction is not None:
         limit.direction = models.LimitDirection(payload.direction)
     if payload.reset_basis is not None:
+        _require_anniversary_for(card, payload.reset_basis)
         limit.reset_basis = models.LimitResetBasis(payload.reset_basis)
+    if payload.category_ids is not None:
+        limit.categories = _card_categories(card, payload.category_ids)
     db.commit()
     db.refresh(limit)
     return limit
@@ -262,9 +319,9 @@ def delete_limit(
     if not limit:
         raise HTTPException(status_code=404, detail="Limit not found")
     _visible_card(db, limit.card_id, current_user)
-    # Categories pointing at it are left in place and simply become unmetered —
-    # the FK is ON DELETE SET NULL. Deleting a cap should not delete the user's
-    # taxonomy along with it.
+    # Only the links go (they cascade); the categories stay, and any that
+    # counted towards nothing else become unmetered. Deleting a cap should not
+    # delete the user's taxonomy along with it.
     db.delete(limit)
     db.commit()
 
@@ -299,8 +356,6 @@ def create_category(
     card = _visible_card(db, card_id, current_user)
     if any(c.name.lower() == payload.name.lower() for c in card.categories):
         raise HTTPException(status_code=409, detail="This card already has a category with that name.")
-    if payload.limit_id and not any(l.id == payload.limit_id for l in card.limits):
-        raise HTTPException(status_code=400, detail="That limit belongs to a different card.")
 
     # The first category on a card is the default whether or not the caller said
     # so — untagged spend has to land somewhere from the very first transaction.
@@ -311,7 +366,6 @@ def create_category(
         card_id=card.id,
         name=payload.name,
         is_default=is_default,
-        limit_id=payload.limit_id,
         sort_order=payload.sort_order,
     )
     db.add(category)
@@ -342,12 +396,6 @@ def update_category(
         category.name = fields["name"]
     if "sort_order" in fields and fields["sort_order"] is not None:
         category.sort_order = fields["sort_order"]
-    # Omitted leaves the limit alone; an explicit null detaches it and makes the
-    # category tracked but unmetered.
-    if "limit_id" in fields:
-        if fields["limit_id"] is not None and not any(l.id == fields["limit_id"] for l in card.limits):
-            raise HTTPException(status_code=400, detail="That limit belongs to a different card.")
-        category.limit_id = fields["limit_id"]
     if fields.get("is_default"):
         category.is_default = True
         _clear_other_defaults(db, card.id, category.id)
@@ -430,6 +478,7 @@ def get_card_status(
             schemas.CardLimitStatusRow(
                 limit_id=s.limit.id,
                 name=s.limit.name,
+                category_ids=s.category_ids,
                 category_names=s.category_names,
                 direction=s.limit.direction,
                 amount=s.amount,

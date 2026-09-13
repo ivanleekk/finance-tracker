@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Ca
 import { Button } from "../../components/ui/Button";
 import { TopBar } from "../../components/TopBar";
 import { useHousehold } from "../../lib/HouseholdContext";
-import { cycleLabel } from "../../lib/cards";
+import { cycleLabel, limitWindowLabel } from "../../lib/cards";
 import type { CardsLoaderData } from "./cards.loader";
 import { CategorySpendList, LimitMeter } from "./CardMeters";
 import { ManageCardDialog, SetUpCardDialog } from "./CardDialogs";
@@ -111,7 +111,12 @@ export default function Cards() {
                                 {status && status.limits.length > 0 ? (
                                     <div className="space-y-4">
                                         {status.limits.map(row => (
-                                            <LimitMeter key={row.limit_id} row={row} formatAmount={money} />
+                                            <LimitMeter
+                                                key={row.limit_id}
+                                                row={row}
+                                                windowLabel={limitWindowLabel(row, status)}
+                                                formatAmount={money}
+                                            />
                                         ))}
                                     </div>
                                 ) : (

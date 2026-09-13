@@ -1,5 +1,5 @@
 import { getApiUrl } from "./api-url";
-import { redirect } from "react-router";
+import { data, redirect } from "react-router";
 
 export const parseCookies = (cookieString: string | null) => {
     if (!cookieString) return {};
@@ -13,6 +13,53 @@ export const parseCookies = (cookieString: string | null) => {
             return acc;
         }, {} as Record<string, string>);
 };
+
+/**
+ * How long SSR waits before each retry of a request that failed transiently.
+ * About 2.5s in total: enough to ride out the backend restarting or a proxy that
+ * briefly has no upstream, short enough that a backend that is really down still
+ * reaches the error page rather than hanging the tab.
+ */
+export const SSR_RETRY_DELAYS_MS = [250, 750, 1500];
+
+// What a proxy says when it has nothing healthy to forward to. A plain 500 is not
+// here on purpose: that is the backend answering, and asking again gets the same.
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+/**
+ * `fetch`, but a GET that could not reach the backend is asked again before
+ * anyone sees an error page.
+ *
+ * Every page's loader runs through this on the server, so a single refused
+ * connection — the backend container restarting, or still booting after a
+ * deploy — used to throw straight into React Router's 500, while the refresh a
+ * moment later worked. Only GET and HEAD are retried: repeating a POST that
+ * failed after the backend received it could apply it twice.
+ */
+export async function fetchWithRetry(
+    input: string,
+    init: RequestInit = {},
+    delays: number[] = SSR_RETRY_DELAYS_MS,
+    wait: (ms: number) => Promise<void> = sleep,
+): Promise<Response> {
+    const method = (init.method ?? "GET").toUpperCase();
+    const retryable = method === "GET" || method === "HEAD";
+
+    for (let attempt = 0; ; attempt++) {
+        const canRetry = retryable && attempt < delays.length && !init.signal?.aborted;
+        try {
+            const response = await fetch(input, init);
+            if (!canRetry || !TRANSIENT_STATUSES.has(response.status)) return response;
+            console.warn(`[SSR] ${response.status} from ${input}, retrying`);
+        } catch (error) {
+            if (!canRetry) throw error;
+            console.warn(`[SSR] Could not reach ${input}, retrying`, error);
+        }
+        await wait(delays[attempt]);
+    }
+}
 
 /**
  * Creates a server-side fetch client that automatically forwards cookies
@@ -41,7 +88,7 @@ export async function getSSRContext(request: Request) {
             });
         }
 
-        const response = await fetch(getApiUrl(path), {
+        const response = await fetchWithRetry(getApiUrl(path), {
             ...init,
             headers: mergedHeaders,
         });
@@ -95,7 +142,7 @@ export async function getSSRContext(request: Request) {
                 const retryHeaders = new Headers(mergedHeaders);
                 retryHeaders.set("Cookie", updatedCookieString);
 
-                return fetch(getApiUrl(path), {
+                return fetchWithRetry(getApiUrl(path), {
                     ...init,
                     headers: retryHeaders,
                 });
@@ -116,16 +163,26 @@ export async function getSSRContext(request: Request) {
     };
 
     // Optional household verification - only if we have tokens and aren't on a public route
+    //
+    // Not reaching the backend is an outage, and must not be read as "this user has
+    // no household": every loader redirects to /households on that, and the root
+    // loader reports the user as logged out, so a backend restart used to look
+    // like losing your data. A signed-out 401 still falls through to the redirects.
     let households: any[] = [];
     if (hasAuthTokens && !isPublicRoute) {
+        let hRes: Response;
         try {
-            const hRes = await ssrFetch("/users/households", { skipRedirect: true });
-            if (hRes.ok) {
-                households = await hRes.json();
-            }
+            hRes = await ssrFetch("/users/households", { skipRedirect: true });
         } catch (e) {
-            if (e instanceof Response && (e.status === 302 || e.status === 303)) throw e;
+            if (e instanceof Response) throw e;
             console.error("Failed to fetch households in SSR", e);
+            throw data(null, { status: 503, statusText: "Backend unavailable" });
+        }
+        if (hRes.ok) {
+            households = await hRes.json();
+        } else if (hRes.status >= 500) {
+            console.error(`[SSR] ${hRes.status} fetching households`);
+            throw data(null, { status: 503, statusText: "Backend unavailable" });
         }
     }
 
@@ -165,7 +222,7 @@ export async function getActiveHouseholdId(request: Request, headers: Headers): 
 
     if (!householdId) {
         try {
-            const hRes = await fetch(getApiUrl("/users/households"), { headers });
+            const hRes = await fetchWithRetry(getApiUrl("/users/households"), { headers });
             if (hRes.ok) {
                 const households = await hRes.json();
                 if (households.length > 0) {

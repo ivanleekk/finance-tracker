@@ -395,3 +395,7 @@ iOS's `Support/Cards.swift`. See the root AGENTS.md for the design; the client-s
   plain Kotlin null, which the backend reads as "preserve" — leaving no way to untag a row.
 - `cycleLabel` formats in UTC like every other backend date here: a cycle boundary is a
   calendar fact about the card, not an instant.
+- `CardEditDialog` (More → Cards → a card → Edit) is where `anniversary_date` is set or cleared.
+  The card-year/card-quarter reset options are **omitted** from the picker rather than shown
+  disabled until the card has a date — a native menu row can't reliably render a disabled state
+  — with a hint explaining why; the web form disables them instead.

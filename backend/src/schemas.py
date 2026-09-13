@@ -480,7 +480,8 @@ def _enum_to_value(value: object) -> object:
 CycleBasisField = Annotated[Literal["statement", "calendar"], BeforeValidator(_enum_to_value)]
 LimitDirectionField = Annotated[Literal["ceiling", "floor"], BeforeValidator(_enum_to_value)]
 LimitResetField = Annotated[
-    Literal["cycle", "calendar_month", "quarter", "year"], BeforeValidator(_enum_to_value)
+    Literal["cycle", "calendar_month", "quarter", "year", "card_year", "card_quarter"],
+    BeforeValidator(_enum_to_value),
 ]
 
 
@@ -489,6 +490,8 @@ class CardBase(BaseModel):
     # 1-31, clamped to the end of shorter months so a card closing on the 31st
     # still closes in February.
     statement_day: int = Field(1, ge=1, le=31)
+    # Anchors card_year / card_quarter limits. Only month and day are used.
+    anniversary_date: Optional[date] = None
 
 
 class CardCreate(CardBase):
@@ -498,6 +501,9 @@ class CardCreate(CardBase):
 class CardUpdate(BaseModel):
     cycle_basis: Optional[CycleBasisField] = None
     statement_day: Optional[int] = Field(None, ge=1, le=31)
+    # Three states: omitted leaves it alone, null clears it (read via
+    # exclude_unset in the router). Clearing is refused while a limit uses it.
+    anniversary_date: Optional[date] = None
 
 
 class CardLimitBase(BaseModel):
@@ -511,7 +517,10 @@ class CardLimitBase(BaseModel):
 
 
 class CardLimitCreate(CardLimitBase):
-    pass
+    # The card categories that count towards this limit. A category may count
+    # towards any number of limits — a monthly minimum and an annual cap on the
+    # same spend is the ordinary case, not a conflict.
+    category_ids: List[uuid.UUID] = []
 
 
 class CardLimitUpdate(BaseModel):
@@ -519,11 +528,15 @@ class CardLimitUpdate(BaseModel):
     amount: Optional[PositiveDecimal] = None
     direction: Optional[LimitDirectionField] = None
     reset_basis: Optional[LimitResetField] = None
+    # Omitted (or null) leaves the set alone; a list replaces it, and an empty
+    # list un-meters the limit. Editing the amount must not drop its categories.
+    category_ids: Optional[List[uuid.UUID]] = None
 
 
 class CardLimitResponse(CardLimitBase):
     id: uuid.UUID
     card_id: uuid.UUID
+    category_ids: List[uuid.UUID] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -533,24 +546,22 @@ class CardCategoryBase(BaseModel):
     sort_order: int = 0
 
 
+# Which limits a category counts towards is set on the limit
+# (`CardLimitCreate.category_ids`), not here: a category can count towards
+# several, and a limit is where "what counts" is a question anyone asks.
 class CardCategoryCreate(CardCategoryBase):
-    limit_id: Optional[uuid.UUID] = None
+    pass
 
 
 class CardCategoryUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     is_default: Optional[bool] = None
     sort_order: Optional[int] = None
-    # Three states, the same rule the reimbursement split and `mcc` already use:
-    # omitting the key leaves the limit alone, sending null detaches it. Without
-    # the distinction there is no way to make a metered category unmetered.
-    limit_id: Optional[uuid.UUID] = None
 
 
 class CardCategoryResponse(CardCategoryBase):
     id: uuid.UUID
     card_id: uuid.UUID
-    limit_id: Optional[uuid.UUID] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -575,6 +586,9 @@ class CardLimitStatusRow(BaseModel):
 
     limit_id: uuid.UUID
     name: str
+    # Ids alongside names so a client can fan a limit back out over the
+    # categories in its picker without matching on a renameable string.
+    category_ids: List[uuid.UUID]
     category_names: List[str]
     direction: LimitDirectionField
     amount: Decimal

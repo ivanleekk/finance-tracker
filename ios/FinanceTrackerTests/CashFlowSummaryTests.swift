@@ -108,6 +108,7 @@ struct CashFlowSummaryTests {
             row: CardLimitStatusRow(
                 limitId: id,
                 name: name,
+                categoryIds: [],
                 categoryNames: categoryNames,
                 direction: direction,
                 amount: amount,

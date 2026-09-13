@@ -27,6 +27,7 @@ from src.card_models import (  # noqa: F401
     Card,
     CardCategory,
     CardLimit,
+    CardLimitCategory,
     CycleBasis,
     LimitDirection,
     LimitResetBasis,
