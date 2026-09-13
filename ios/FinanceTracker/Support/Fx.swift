@@ -67,6 +67,25 @@ enum Fx {
         return (amount * percent).rounded() / 100
     }
 
+    /// Whether a row belongs to a transfer: one of its two legs, or the
+    /// "FX Conversion" row a cross-currency transfer posts beside its withdrawal
+    /// (a fee row whose parent is a transfer leg). The backend refuses to edit
+    /// any of them (409) — a transfer is changed by deleting and re-entering it
+    /// — so a list must not offer Edit on them. A card surcharge is a fee row
+    /// too, but its parent is an ordinary purchase, so it stays editable.
+    ///
+    /// Ported from `transfer_id_of` in the backend's `transaction_service.py`;
+    /// Android's twin is `Fx.isPartOfTransfer` in `logic/Fx.kt`.
+    static func isPartOfTransfer(
+        transferId: String?,
+        feeForTransactionId: String?,
+        transferIdOf: (String) -> String?
+    ) -> Bool {
+        if transferId != nil { return true }
+        guard let parent = feeForTransactionId else { return false }
+        return transferIdOf(parent) != nil
+    }
+
     /// The hint a form shows back before the user commits: "1 JPY = 0.0104 SGD".
     ///
     /// Empty when there is no rate yet. It exists because a mistyped charged

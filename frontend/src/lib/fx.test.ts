@@ -48,6 +48,12 @@ describe('impliedRateLabel', () => {
         expect(impliedRateLabel(12000, 124.8, 'JPY', 'SGD')).toBe('1 JPY = 0.0104 SGD');
     });
 
+    it('reads a transfer as sent over received, from the source currency to the destination', () => {
+        // S$1,000 out, US$731 in: the rate the bank gave, which the form shows
+        // before the gap to the close is posted as FX Conversion.
+        expect(impliedRateLabel(1000, 731, 'SGD', 'USD')).toBe('1 SGD = 0.731 USD');
+    });
+
     it('is empty while there is nothing to show', () => {
         expect(impliedRateLabel(12000, null, 'JPY', 'SGD')).toBe('');
         expect(impliedRateLabel(12000, 124.8, 'JPY', '')).toBe('');

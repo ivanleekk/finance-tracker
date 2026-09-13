@@ -383,6 +383,9 @@ struct TransferFormView: View {
     @State private var fromAccountId: String?
     @State private var toAccountId: String?
     @State private var amountText = ""
+    /// What arrived, in the destination's currency. Blank means "convert at the
+    /// close"; only offered when the two accounts' currencies differ.
+    @State private var amountReceivedText = ""
     @State private var date = Date()
     @State private var description = ""
     @State private var isSaving = false
@@ -390,6 +393,19 @@ struct TransferFormView: View {
 
     private var amount: Double? {
         CalculatorInput.evaluateArithmeticExpression(amountText)
+    }
+
+    private var fromCurrency: String { accounts.first { $0.id == fromAccountId }?.currency ?? "" }
+    private var toCurrency: String { accounts.first { $0.id == toAccountId }?.currency ?? "" }
+    private var isCrossCurrency: Bool { Fx.isForeignCharge(fromCurrency, accountCurrency: toCurrency) }
+
+    /// Only sent for a cross-currency transfer — the backend refuses one on a
+    /// same-currency pair, and the text survives switching the accounts back.
+    private var amountReceived: Double? {
+        guard isCrossCurrency,
+              let value = CalculatorInput.evaluateArithmeticExpression(amountReceivedText),
+              value > 0 else { return nil }
+        return value
     }
 
     private var canSave: Bool {
@@ -433,6 +449,26 @@ struct TransferFormView: View {
                     TextField("Description (optional)", text: $description)
                 }
 
+                if isCrossCurrency {
+                    Section {
+                        HStack {
+                            Text("Received (\(toCurrency))")
+                            CalculatorField(placeholder: "Optional", text: $amountReceivedText)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    } footer: {
+                        let hint = Fx.impliedRateLabel(
+                            amount: amount,
+                            charged: amountReceived,
+                            chargeCurrency: fromCurrency,
+                            accountCurrency: toCurrency
+                        )
+                        Text(hint.isEmpty
+                             ? "Leave blank to convert at the \(fromCurrency) to \(toCurrency) rate for this date."
+                             : "Rate \(hint). Anything lost against the day's close is recorded as FX Conversion.")
+                    }
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -448,7 +484,7 @@ struct TransferFormView: View {
                         .disabled(!canSave)
                 }
             }
-            .discardGuard(fields: [fromAccountId, toAccountId, amountText, date, description])
+            .discardGuard(fields: [fromAccountId, toAccountId, amountText, amountReceivedText, date, description])
             .onAppear {
                 if fromAccountId == nil { fromAccountId = accounts.first?.id }
                 if toAccountId == nil { toAccountId = accounts.dropFirst().first?.id }
@@ -468,7 +504,8 @@ struct TransferFormView: View {
                     toAccountId: toAccountId,
                     amount: amount,
                     date: date,
-                    description: description.isEmpty ? nil : description
+                    description: description.isEmpty ? nil : description,
+                    amountReceived: amountReceived
                 )
                 let _: [TransactionResponse] = try await APIClient.shared.post(
                     "/cashflow/transfers", body: body

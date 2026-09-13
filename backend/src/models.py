@@ -117,6 +117,10 @@ SYSTEM_CATEGORY_REIMBURSEMENT = "Reimbursement"
 # than riding on the purchase's so that "what did fees cost me this year" is a
 # question the app can answer, which is the whole reason to record one.
 SYSTEM_CATEGORY_FEE = "Card Fees"
+# What a cross-currency transfer lost to the rate the bank gave, against the
+# mid-market close. Outside SYSTEM_CATEGORY_NAMES for the reason Card Fees is:
+# the money is genuinely gone. Only posted when the user says what arrived.
+SYSTEM_CATEGORY_FX_CONVERSION = "FX Conversion"
 SYSTEM_CATEGORY_NAMES = frozenset(
     {
         SYSTEM_CATEGORY_INVESTMENT,

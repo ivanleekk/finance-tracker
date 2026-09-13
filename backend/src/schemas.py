@@ -962,10 +962,16 @@ class PersonalSpendResponse(BaseModel):
 class TransferCreate(BaseModel):
     from_account_id: uuid.UUID
     to_account_id: uuid.UUID
+    # What left the source account, in its own currency.
     amount: PositiveDecimal
     date: datetime
+    # Must be the source account's currency if sent; `amount` is always in it.
     currency: Optional[str] = None
     description: Optional[str] = None
+    # What actually arrived, in the destination account's currency. Optional:
+    # without it the mid-market close decides. With it, the gap to the close is
+    # posted as an "FX Conversion" expense — see transaction_service.create_transfer.
+    amount_received: Optional[PositiveDecimal] = None
 
 
 # ----------------------------------------
