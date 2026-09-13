@@ -84,6 +84,7 @@ enum Fx {
         if transferId != nil { return true }
         guard let parent = feeForTransactionId else { return false }
         return transferIdOf(parent) != nil
+    }
 
     /// The fee a new charge's form fills in from its card: the card's
     /// foreign-transaction fee, for a foreign charge. Nil when there is nothing

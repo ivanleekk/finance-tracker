@@ -81,6 +81,7 @@ struct FxTests {
         let legs = ["withdrawal": "t1"]
         #expect(!Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: "dinner") { legs[$0] })
         #expect(!Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: nil) { legs[$0] })
+    }
 
     @Test func aForeignChargeTakesTheCardsForeignFee() {
         #expect(Fx.defaultFeePercent(cardForeignFeePercent: 3, chargeCurrency: "JPY", accountCurrency: "SGD") == 3)
@@ -140,6 +141,7 @@ struct FxEncodingTests {
     @Test func aTransferSendsTheReceivedAmountOnlyWhenThereIsOne() throws {
         #expect(try transfer(amountReceived: nil).keys.contains("amount_received") == false)
         #expect(try transfer(amountReceived: 731)["amount_received"] as? Double == 731)
+    }
 
     @Test func aNewChargeLeavesTheFeeOutUntilTheUserTypesAndSendsZeroWhenCleared() throws {
         let encoder = JSONEncoder()
