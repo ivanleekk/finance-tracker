@@ -659,6 +659,8 @@ export interface CardLimitResponse {
   amount: string;
   direction: LimitDirection;
   reset_basis: LimitResetBasis;
+  /** The card categories counting towards this limit. A category may be in several. */
+  category_ids: string[];
 }
 
 export interface CardCategoryResponse {
@@ -667,8 +669,6 @@ export interface CardCategoryResponse {
   name: string;
   is_default: boolean;
   sort_order: number;
-  /** Null means tracked but unmetered. */
-  limit_id: string | null;
 }
 
 export interface CardResponse {
@@ -691,6 +691,7 @@ export interface CardResponse {
 export interface CardLimitStatusRow {
   limit_id: string;
   name: string;
+  category_ids: string[];
   category_names: string[];
   direction: LimitDirection;
   amount: string;

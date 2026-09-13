@@ -96,9 +96,22 @@ export async function action({ request }: ActionFunctionArgs) {
                 amount: Number(formData.get("amount")),
                 direction: formData.get("direction") || "ceiling",
                 reset_basis: formData.get("reset_basis") || "cycle",
+                category_ids: formData.getAll("category_ids").map(String),
             }),
         });
         if (!res.ok) return fail(res, "Couldn't add that limit.");
+        return { success: true };
+    }
+
+    if (intent === "updateLimitCategories") {
+        // Always a full list — an unticked form means "counts nothing", and
+        // sending `[]` is how the API is told that rather than "leave it alone".
+        const res = await ssrFetch(`/cards/limits/${formData.get("limitId")}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category_ids: formData.getAll("category_ids").map(String) }),
+        });
+        if (!res.ok) return fail(res, "Couldn't update that limit's categories.");
         return { success: true };
     }
 
@@ -111,29 +124,19 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "createCategory") {
-        const limitId = formData.get("limit_id");
         const res = await ssrFetch(`/cards/${formData.get("cardId")}/categories`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                name: formData.get("name"),
-                // A blank select means "tracked but unmetered", which is a real
-                // choice rather than a missing one.
-                limit_id: limitId ? String(limitId) : null,
-            }),
+            body: JSON.stringify({ name: formData.get("name") }),
         });
         if (!res.ok) return fail(res, "Couldn't add that category.");
         return { success: true };
     }
 
     if (intent === "updateCategory") {
-        const limitId = formData.get("limit_id");
         const body: Record<string, unknown> = {};
-        // Only the keys the form actually submitted. Sending the whole shape
-        // would clear a limit every time somebody renamed a category — the
-        // omitted-vs-null rule the API is built around.
+        // Only the keys the form actually submitted.
         if (formData.has("name")) body.name = formData.get("name");
-        if (formData.has("limit_id")) body.limit_id = limitId ? String(limitId) : null;
         if (formData.get("make_default") === "on") body.is_default = true;
 
         const res = await ssrFetch(`/cards/categories/${formData.get("categoryId")}`, {

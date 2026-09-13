@@ -6,7 +6,8 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { selectableAccounts } from "../../lib/networth";
 import { Dialog } from "../../components/ui/Dialog";
-import { LimitRow } from "./CardMeters";
+import { LimitCategoryChecklist, LimitRow } from "./CardMeters";
+import { isMeteredCategory } from "../../lib/cards";
 import { resetOptions } from "./cardForms";
 import type { AccountResponse, CardResponse } from "../../types/types";
 
@@ -163,6 +164,7 @@ function AddLimitForm({ card }: { card: CardResponse }) {
                 wrapperClassName="col-span-2"
                 options={resetChoices}
             />
+            <LimitCategoryChecklist card={card} />
             <p className="col-span-2 text-xs text-base-500 dark:text-base-400">
                 {direction === "floor"
                     ? "The spend you need to reach — a fee waiver or a bonus qualifier."
@@ -189,29 +191,19 @@ function AddLimitForm({ card }: { card: CardResponse }) {
 function AddCategoryForm({ card }: { card: CardResponse }) {
     const fetcher = useFetcher<{ error?: string; success?: boolean }>();
     const formRef = useRef<HTMLFormElement>(null);
-    const [limitId, setLimitId] = useState("");
 
     const saved = fetcher.state === "idle" && fetcher.data?.success;
     useEffect(() => {
-        if (!saved) return;
-        formRef.current?.reset();
-        setLimitId("");
+        if (saved) formRef.current?.reset();
     }, [saved]);
 
     return (
         <fetcher.Form method="post" ref={formRef} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="_intent" value="createCategory" />
             <input type="hidden" name="cardId" value={card.id} />
-            <Input name="name" placeholder="e.g. Online" required />
-            <Select
-                name="limit_id"
-                value={limitId}
-                onChange={setLimitId}
-                options={[
-                    { value: "", label: "No limit — just track it" },
-                    ...card.limits.map(l => ({ value: l.id, label: l.name })),
-                ]}
-            />
+            <div className="col-span-2">
+                <Input name="name" placeholder="e.g. Online" required />
+            </div>
             {fetcher.data?.error && (
                 <p className="col-span-2 text-xs text-red-600 dark:text-red-400">
                     {fetcher.data.error}
@@ -326,11 +318,9 @@ export function ManageCardDialog({
                             <ul className="mb-3 space-y-1.5">
                                 {card.limits.map(limit => (
                                     <LimitRow
-                                        key={limit.id}
-                                        limitId={limit.id}
-                                        name={limit.name}
-                                        amount={limit.amount}
-                                        direction={limit.direction}
+                                        key={`${limit.id}-${limit.category_ids.join(",")}`}
+                                        card={card}
+                                        limit={limit}
                                         formatAmount={formatAmount}
                                     />
                                 ))}
@@ -349,7 +339,8 @@ export function ManageCardDialog({
                         </h4>
                         <p className="mb-2 text-xs text-base-500 dark:text-base-400">
                             This card's own slicing of spend — free to cut across your budget
-                            categories. Untagged spending lands in the default.
+                            categories. Untagged spending lands in the default. Choose which
+                            limits a category counts towards on the limit itself.
                         </p>
                         <ul className="mb-3 space-y-1.5">
                             {card.categories.map(category => (
@@ -362,7 +353,7 @@ export function ManageCardDialog({
                                         {category.is_default && (
                                             <span className="ml-2 text-xs text-base-500">default</span>
                                         )}
-                                        {!category.limit_id && (
+                                        {!isMeteredCategory(card, category.id) && (
                                             <span className="ml-2 text-xs text-base-400">unmetered</span>
                                         )}
                                     </span>

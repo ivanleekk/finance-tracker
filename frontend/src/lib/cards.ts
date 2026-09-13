@@ -73,40 +73,70 @@ export function headroomLabel(
  * rendering it west of Greenwich would show the 18th.
  */
 export function cycleLabel(start: string, end: string, locale?: string): string {
+    // A window crossing into another year says which years, or a card year reads
+    // "14 Sep – 13 Sep" — a window of either one day or one year.
+    const withYear = start.slice(0, 4) !== end.slice(0, 4);
     const fmt = (iso: string) => {
         const [year, month, day] = iso.split("-").map(Number);
         if (!year || !month || !day) return iso;
         return new Date(year, month - 1, day).toLocaleDateString(locale, {
             day: "numeric",
             month: "short",
+            ...(withYear ? { year: "numeric" } : {}),
         });
     };
     return `${fmt(start)} – ${fmt(end)}`;
 }
 
 /**
- * Headroom for each of a card's categories, keyed by category id.
+ * Every limit each of a card's categories counts towards, keyed by category id.
  *
  * The status endpoint reports limits, but the picker is a list of *categories* —
- * and several categories can share one limit, so this fans the limit back out
- * over the categories pointing at it. A category with no limit gets no entry
- * rather than a zero, because "unmetered" and "nothing left" must not look the
- * same.
+ * so this fans each limit back out over the categories counting towards it. A
+ * category can count towards several (a monthly minimum and an annual cap on
+ * the same spend), so each gets a list, in the status payload's order, which is
+ * most urgent first. A category with no limit gets no entry rather than an
+ * empty list, because "unmetered" and "nothing left" must not look the same.
  */
 export function headroomByCategory(
-    card: Pick<CardResponse, "categories">,
     status: Pick<CardStatusResponse, "limits">
-): Map<string, CardLimitStatusRow> {
-    const byLimit = new Map(status.limits.map(row => [row.limit_id, row]));
-    const out = new Map<string, CardLimitStatusRow>();
-    for (const category of card.categories) {
-        // An unmetered category has a null limit_id, which matches nothing in
-        // the map and is skipped by the same check that skips a limit missing
-        // from the payload — no separate guard needed for it.
-        const row = category.limit_id ? byLimit.get(category.limit_id) : undefined;
-        if (row) out.set(category.id, row);
+): Map<string, CardLimitStatusRow[]> {
+    const out = new Map<string, CardLimitStatusRow[]>();
+    for (const row of status.limits) {
+        for (const categoryId of row.category_ids) {
+            const rows = out.get(categoryId);
+            if (rows) rows.push(row);
+            else out.set(categoryId, [row]);
+        }
     }
     return out;
+}
+
+/**
+ * Whether any limit counts this category. Read from the card rather than the
+ * status, so the Manage dialog can say "unmetered" without a status fetch.
+ */
+export function isMeteredCategory(card: Pick<CardResponse, "limits">, categoryId: string): boolean {
+    return card.limits.some(limit => limit.category_ids.includes(categoryId));
+}
+
+/**
+ * A limit's own window, worded like the card's cycle — or null when it is the
+ * card's cycle.
+ *
+ * The card header shows the statement cycle, which is right for most limits
+ * and wrong for the rest: a monthly minimum and an annual cap on the same
+ * category sit side by side, and reading both against "19 Aug – 18 Sep" makes
+ * the annual one look wildly over pace. Only the ones that differ are labelled,
+ * so the common case stays quiet.
+ */
+export function limitWindowLabel(
+    row: Pick<CardLimitStatusRow, "period_start" | "period_end">,
+    status: Pick<CardStatusResponse, "cycle_start" | "cycle_end">,
+    locale?: string
+): string | null {
+    if (row.period_start === status.cycle_start && row.period_end === status.cycle_end) return null;
+    return cycleLabel(row.period_start, row.period_end, locale);
 }
 
 /**
@@ -142,12 +172,12 @@ export function cardCategoryPickerOptions(
             currency,
             maximumFractionDigits: 0,
         }).format(value);
-    const headroom = data.status ? headroomByCategory(data.card, data.status) : new Map();
+    const headroom = data.status ? headroomByCategory(data.status) : new Map<string, CardLimitStatusRow[]>();
     return [
         { value: "", label: "— Card's default —" },
         ...data.card.categories.map((c: CardCategoryResponse) => {
-            const row = headroom.get(c.id);
-            return { value: c.id, label: row ? `${c.name} · ${headroomLabel(row, money)}` : c.name };
+            const rows = headroom.get(c.id) ?? [];
+            return { value: c.id, label: [c.name, ...rows.map(row => headroomLabel(row, money))].join(" · ") };
         }),
     ];
 }

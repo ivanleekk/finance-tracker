@@ -1,10 +1,12 @@
-import { Form } from "react-router";
+import { useState } from "react";
+import { Form, useFetcher } from "react-router";
+import { Button } from "../../components/ui/Button";
 import { Trash2 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { budgetBarPercent, periodElapsedPercent } from "../../lib/budgets";
 import { cardLimitTone, headroomLabel, limitMeasuresNothing, type CardLimitTone } from "../../lib/cards";
 import { cn } from "../../lib/utils";
-import type { CardCategorySpendRow, CardLimitStatusRow } from "../../types/types";
+import type { CardCategorySpendRow, CardLimitResponse, CardLimitStatusRow, CardResponse } from "../../types/types";
 
 /**
  * The meters themselves — one bar per limit, plus the cycle's spend by
@@ -29,9 +31,12 @@ const TONE_TEXT: Record<CardLimitTone, string> = {
 
 export function LimitMeter({
     row,
+    windowLabel,
     formatAmount,
 }: {
     row: CardLimitStatusRow;
+    /** The limit's own window when it isn't the card's cycle (`limitWindowLabel`). */
+    windowLabel?: string | null;
     formatAmount: (value: number) => string;
 }) {
     const tone = cardLimitTone(row);
@@ -48,9 +53,9 @@ export function LimitMeter({
                     {row.direction === "floor" && (
                         <Badge className="ml-2 align-middle">Minimum</Badge>
                     )}
-                    {row.category_names.length > 0 && (
+                    {(row.category_names.length > 0 || windowLabel) && (
                         <div className="truncate text-xs text-base-500 dark:text-base-400">
-                            {row.category_names.join(" · ")}
+                            {[...row.category_names, windowLabel].filter(Boolean).join(" · ")}
                         </div>
                     )}
                 </div>
@@ -88,7 +93,7 @@ export function LimitMeter({
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                     {row.direction === "floor"
                         ? `On pace for ${formatAmount(Number(row.projected_spend))} — short of the minimum.`
-                        : `On pace for ${formatAmount(Number(row.projected_spend))} by the end of the cycle.`}
+                        : `On pace for ${formatAmount(Number(row.projected_spend))} by the end of the ${windowLabel ? "period" : "cycle"}.`}
                 </p>
             )}
         </div>
@@ -131,38 +136,121 @@ export function CategorySpendList({
     );
 }
 
-export function LimitRow({
-    limitId,
-    name,
-    amount,
-    direction,
-    formatAmount,
+/**
+ * Which of the card's categories count towards a limit.
+ *
+ * Plain uncontrolled checkboxes sharing one name, so the form submits the ids
+ * with `getAll` and `form.reset()` clears them with the rest of the fields. A
+ * category already counting towards another limit is still offered: stacking a
+ * monthly minimum and an annual cap on the same spend is the point.
+ */
+export function LimitCategoryChecklist({
+    card,
+    checked = [],
 }: {
-    limitId: string;
-    name: string;
-    amount: string;
-    direction: string;
-    formatAmount: (value: number) => string;
+    card: CardResponse;
+    checked?: string[];
 }) {
     return (
-        <li className="flex items-center justify-between gap-2 text-sm">
-            <span className="truncate text-base-700 dark:text-base-300">
-                {name}
-                <span className="ml-2 text-xs text-base-500 dark:text-base-400">
-                    {direction === "floor" ? "min" : "cap"} {formatAmount(Number(amount))}
+        <fieldset className="col-span-2">
+            <legend className="mb-1 text-xs text-base-500 dark:text-base-400">Counts spending in</legend>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {card.categories.map(category => (
+                    <label
+                        key={category.id}
+                        className="flex cursor-pointer items-center gap-2 text-sm text-base-700 dark:text-base-300"
+                    >
+                        <input
+                            type="checkbox"
+                            name="category_ids"
+                            value={category.id}
+                            defaultChecked={checked.includes(category.id)}
+                            className="h-4 w-4 rounded border-base-300 text-primary-600 focus:ring-primary-500 dark:border-base-700"
+                        />
+                        {category.name}
+                    </label>
+                ))}
+            </div>
+        </fieldset>
+    );
+}
+
+/**
+ * A limit in the Manage dialog: what it is, what counts towards it, and the
+ * controls to change the second or remove it.
+ *
+ * Editing the categories is here rather than on each category because a
+ * category can count towards several limits — the limit is the one place where
+ * "what counts" has a single answer.
+ */
+export function LimitRow({
+    card,
+    limit,
+    formatAmount,
+}: {
+    card: CardResponse;
+    limit: CardLimitResponse;
+    formatAmount: (value: number) => string;
+}) {
+    const fetcher = useFetcher<{ error?: string; success?: boolean }>();
+    const [editing, setEditing] = useState(false);
+    const names = card.categories
+        .filter(category => limit.category_ids.includes(category.id))
+        .map(category => category.name);
+
+    return (
+        <li className="space-y-1 text-sm">
+            <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-base-700 dark:text-base-300">
+                    {limit.name}
+                    <span className="ml-2 text-xs text-base-500 dark:text-base-400">
+                        {limit.direction === "floor" ? "min" : "cap"} {formatAmount(Number(limit.amount))}
+                    </span>
                 </span>
-            </span>
-            <Form method="post" className="shrink-0">
-                <input type="hidden" name="_intent" value="deleteLimit" />
-                <input type="hidden" name="limitId" value={limitId} />
-                <button
-                    type="submit"
-                    aria-label={`Remove ${name}`}
-                    className="rounded p-1 text-base-400 hover:text-red-500"
-                >
-                    <Trash2 className="h-3.5 w-3.5" />
-                </button>
-            </Form>
+                <div className="flex shrink-0 items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setEditing(open => !open)}
+                        className="rounded px-1.5 py-0.5 text-xs text-base-500 hover:text-base-900 dark:hover:text-base-50"
+                    >
+                        {editing ? "Done" : "Categories"}
+                    </button>
+                    <Form method="post">
+                        <input type="hidden" name="_intent" value="deleteLimit" />
+                        <input type="hidden" name="limitId" value={limit.id} />
+                        <button
+                            type="submit"
+                            aria-label={`Remove ${limit.name}`}
+                            className="rounded p-1 text-base-400 hover:text-red-500"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                    </Form>
+                </div>
+            </div>
+            {editing ? (
+                <fetcher.Form method="post" className="grid grid-cols-2 gap-2 rounded-md bg-base-50 p-2 dark:bg-base-800/50">
+                    <input type="hidden" name="_intent" value="updateLimitCategories" />
+                    <input type="hidden" name="limitId" value={limit.id} />
+                    <LimitCategoryChecklist card={card} checked={limit.category_ids} />
+                    {fetcher.data?.error && (
+                        <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{fetcher.data.error}</p>
+                    )}
+                    <Button
+                        type="submit"
+                        variant="secondary"
+                        size="sm"
+                        className="col-span-2"
+                        disabled={fetcher.state !== "idle"}
+                    >
+                        Save categories
+                    </Button>
+                </fetcher.Form>
+            ) : (
+                <p className="truncate text-xs text-base-500 dark:text-base-400">
+                    {names.length > 0 ? names.join(" · ") : "No categories — measuring nothing"}
+                </p>
+            )}
         </li>
     );
 }
