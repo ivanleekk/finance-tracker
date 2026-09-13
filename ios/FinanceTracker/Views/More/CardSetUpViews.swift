@@ -16,6 +16,8 @@ struct CardSetUpView: View {
     @State private var statementDay = 1
     @State private var hasAnniversary = false
     @State private var anniversary = Date()
+    /// Optional: blank means the card adds no default fee to foreign charges.
+    @State private var foreignFeeText = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -61,6 +63,17 @@ struct CardSetUpView: View {
                     Text("Optional. Limits that reset each card year or card quarter count from it.")
                 }
 
+                Section {
+                    HStack {
+                        Text("Foreign transaction fee")
+                        CalculatorField(placeholder: "None", text: $foreignFeeText)
+                            .multilineTextAlignment(.trailing)
+                        Text("%").foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Optional. Filled in on every charge in another currency; you can still change it per purchase.")
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -76,7 +89,7 @@ struct CardSetUpView: View {
                         .disabled(accountId == nil || isSaving)
                 }
             }
-            .discardGuard(fields: [accountId, cycleBasis, statementDay, hasAnniversary, anniversary])
+            .discardGuard(fields: [accountId, cycleBasis, statementDay, hasAnniversary, anniversary, foreignFeeText])
         }
     }
 
@@ -93,7 +106,8 @@ struct CardSetUpView: View {
                         financialAccountId: accountId,
                         cycleBasis: cycleBasis.rawValue,
                         statementDay: statementDay,
-                        anniversaryDate: hasAnniversary ? anniversary.apiDateOnly : nil
+                        anniversaryDate: hasAnniversary ? anniversary.apiDateOnly : nil,
+                        foreignFeePercent: CalculatorInput.evaluateArithmeticExpression(foreignFeeText)
                     )
                 )
                 await onSaved()
