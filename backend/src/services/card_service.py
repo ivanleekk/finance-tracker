@@ -177,6 +177,7 @@ class CardLimitStatus:
     """
 
     limit: models.CardLimit
+    category_ids: List[uuid.UUID]
     category_names: List[str]
     amount: Decimal
     spent: Decimal
@@ -262,10 +263,12 @@ def card_limit_statuses(
     """
     Every limit on this card, with spend so far in the window it resets over.
 
-    Several categories can point at one limit — "the first $1,000 across dining
-    and groceries" — so spend is rolled up from all of them. A category with no
-    limit is tracked but produces no meter here; its spend shows on the
-    breakdown instead.
+    Several categories can count towards one limit — "the first $1,000 across
+    dining and groceries" — so spend is rolled up from all of them. One category
+    can equally count towards several limits, each summed over its own window,
+    so the same dinner draws down a monthly minimum and an annual cap at once. A
+    category with no limit is tracked but produces no meter here; its spend
+    shows on the breakdown instead.
     """
     on = on or datetime.now(timezone.utc).date()
 
@@ -279,7 +282,7 @@ def card_limit_statuses(
             spend_cache[(start, end)] = _card_spend_by_category(db, card, start, end)
         totals = spend_cache[(start, end)]
 
-        categories = [c for c in card.categories if c.limit_id == limit.id]
+        categories = limit.categories
         spent = sum((totals.get(c.id, Decimal("0")) for c in categories), Decimal("0"))
         amount = dec(limit.amount)
 
@@ -302,6 +305,7 @@ def card_limit_statuses(
         statuses.append(
             CardLimitStatus(
                 limit=limit,
+                category_ids=[c.id for c in categories],
                 category_names=[c.name for c in categories],
                 amount=money(amount),
                 spent=money(spent),

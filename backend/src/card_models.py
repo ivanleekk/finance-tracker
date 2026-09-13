@@ -177,7 +177,45 @@ class CardLimit(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     card = relationship("Card", back_populates="limits")
-    categories = relationship("CardCategory", back_populates="limit")
+    categories = relationship(
+        "CardCategory",
+        secondary=lambda: CardLimitCategory.__table__,
+        back_populates="limits",
+        order_by="CardCategory.sort_order",
+    )
+
+    @property
+    def category_ids(self) -> list:
+        return [c.id for c in self.categories]
+
+
+class CardLimitCategory(Base):
+    """
+    Which categories count towards which limit — many to many, both ways.
+
+    One limit spanning several categories was always the point ("the first
+    $1,000 across dining and groceries"). The other direction is what this table
+    added: one category measured against several limits at once, because an
+    issuer's rules routinely stack on the same spend — a monthly minimum to earn
+    the bonus *and* an annual cap on it. A single `limit_id` on the category could
+    only ever say one of those.
+
+    Both keys cascade. Deleting a limit un-meters its categories rather than
+    deleting them, and deleting a category (which the router only allows once no
+    transaction is tagged with it) simply stops it counting.
+    """
+
+    __tablename__ = "card_limit_categories"
+
+    limit_id = Column(
+        UUID(as_uuid=True), ForeignKey("card_limits.id", ondelete="CASCADE"), primary_key=True
+    )
+    card_category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("card_categories.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
 
 
 class CardCategory(Base):
@@ -191,6 +229,7 @@ class CardCategory(Base):
 
     A category with no limit is tracked but unmetered, which is useful on its
     own: it answers "where did this card's spending go" before any cap exists.
+    It can equally count towards several limits — see `CardLimitCategory`.
     """
 
     __tablename__ = "card_categories"
@@ -206,16 +245,14 @@ class CardCategory(Base):
     # "exactly one true" is not expressible as a unique index without a partial
     # index the ORM would not maintain on its own.
     is_default = Column(Boolean, nullable=False, default=False)
-    # Nullable: no limit means tracked but unmetered. ON DELETE SET NULL so
-    # removing a limit leaves its categories in place rather than taking the
-    # card's taxonomy down with it.
-    limit_id = Column(
-        UUID(as_uuid=True), ForeignKey("card_limits.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     # This is a picker used during entry, so the order is a UX decision, not an
     # alphabetical accident.
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     card = relationship("Card", back_populates="categories")
-    limit = relationship("CardLimit", back_populates="categories")
+    limits = relationship(
+        "CardLimit",
+        secondary=lambda: CardLimitCategory.__table__,
+        back_populates="categories",
+    )
