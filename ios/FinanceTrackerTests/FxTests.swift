@@ -66,6 +66,23 @@ struct FxTests {
         )
     }
 
+    @Test func aTransferReadsAsSentOverReceived() {
+        // S$1,000 out, US$731 in: the rate the bank gave.
+        #expect(Fx.impliedRateLabel(amount: 1000, charged: 731, chargeCurrency: "SGD", accountCurrency: "USD") == "1 SGD = 0.731 USD")
+    }
+
+    @Test func bothLegsAndTheConversionRowArePartOfTheTransfer() {
+        let legs = ["withdrawal": "t1", "deposit": "t1"]
+        #expect(Fx.isPartOfTransfer(transferId: "t1", feeForTransactionId: nil) { legs[$0] })
+        #expect(Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: "withdrawal") { legs[$0] })
+    }
+
+    @Test func aCardSurchargeAndAnOrdinaryRowAreNot() {
+        let legs = ["withdrawal": "t1"]
+        #expect(!Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: "dinner") { legs[$0] })
+        #expect(!Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: nil) { legs[$0] })
+    }
+
     @Test func theHintIsEmptyWhileThereIsNothingToShow() {
         #expect(Fx.impliedRateLabel(amount: 12000, charged: nil, chargeCurrency: "JPY", accountCurrency: "SGD") == "")
         #expect(Fx.impliedRateLabel(amount: 12000, charged: 124.80, chargeCurrency: "JPY", accountCurrency: "") == "")
@@ -97,6 +114,22 @@ struct FxEncodingTests {
         encoder.keyEncodingStrategy = .convertToSnakeCase
         let data = try encoder.encode(body)
         return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func transfer(amountReceived: Double?) throws -> [String: Any] {
+        let body = TransferCreate(
+            fromAccountId: "sgd", toAccountId: "usd", amount: 1000, date: Date(),
+            description: nil, amountReceived: amountReceived
+        )
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(body)
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test func aTransferSendsTheReceivedAmountOnlyWhenThereIsOne() throws {
+        #expect(try transfer(amountReceived: nil).keys.contains("amount_received") == false)
+        #expect(try transfer(amountReceived: 731)["amount_received"] as? Double == 731)
     }
 
     @Test func omitsTheChargedAmountWhenThereIsNothingToSay() throws {

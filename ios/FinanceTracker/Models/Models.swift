@@ -688,6 +688,10 @@ struct TransferCreate: Encodable {
     let amount: Double
     let date: Date
     let description: String?
+    /// What arrived, in the destination account's currency. Nil means "convert
+    /// at the close" and is omitted from the body; transfers are create-only, so
+    /// there is no update where omitted and null would differ.
+    var amountReceived: Double? = nil
 }
 
 /// POST /cashflow/categories (schemas.CategoryCreate).

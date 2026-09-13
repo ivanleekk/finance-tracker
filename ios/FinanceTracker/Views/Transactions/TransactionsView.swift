@@ -7,6 +7,9 @@ struct TransactionsView: View {
     @Environment(ViewModeStore.self) private var viewModeStore
 
     @State private var transactions: [TransactionResponse] = []
+    /// Transfer id per transfer leg, rebuilt on load, so a row can tell whether it
+    /// belongs to a transfer without rescanning the history — see `Fx.isPartOfTransfer`.
+    @State private var transferIdByTransactionId: [String: String] = [:]
     @State private var accounts: [AccountResponse] = []
     @State private var categories: [CategoryResponse] = []
     @State private var counterparties: [Counterparty] = []
@@ -348,7 +351,15 @@ struct TransactionsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("The account balance it moved is recalculated. This can't be undone.")
+                if let txn = pendingDelete, Fx.isPartOfTransfer(
+                    transferId: txn.transferId,
+                    feeForTransactionId: txn.feeForTransactionId,
+                    transferIdOf: { transferIdByTransactionId[$0] }
+                ) {
+                    Text("This deletes the whole transfer, both accounts' sides included. Balances are recalculated. This can't be undone.")
+                } else {
+                    Text("The account balance it moved is recalculated. This can't be undone.")
+                }
             }
             .task { await loadIfNeeded() }
             // Restore the saved Top-Categories filter/period on appear and whenever the active
@@ -481,9 +492,14 @@ struct TransactionsView: View {
             accountName: accountsById[txn.accountId]?.name,
             baseCurrency: baseCurrency
         )
-        // Transfers are two linked legs; edit them where they're created, not here.
+        // A transfer (either leg, or its FX Conversion row) can't be edited — the
+        // backend refuses; it is changed by deleting and re-entering it.
+        let editable = !Fx.isPartOfTransfer(
+            transferId: txn.transferId,
+            feeForTransactionId: txn.feeForTransactionId
+        ) { transferIdByTransactionId[$0] }
         Group {
-            if txn.transferId == nil {
+            if editable {
                 Button { editingTransaction = txn } label: { row }
                     .buttonStyle(.plain)
             } else {
@@ -504,7 +520,7 @@ struct TransactionsView: View {
         // is out of reach of Voice Control and Switch Control; the menu is the
         // discoverable, nameable half of the same pair.
         .contextMenu {
-            if txn.transferId == nil {
+            if editable {
                 Button { editingTransaction = txn } label: {
                     Label("Edit", systemImage: "pencil")
                 }
@@ -558,6 +574,10 @@ struct TransactionsView: View {
             async let counterpartiesReq: [Counterparty] = APIClient.shared.get("/cashflow/counterparties/household/\(household.id)")
             async let personalSpendReq: PersonalSpendResponse? = optionalGet("/cashflow/household/\(household.id)/personal-spend")
             (transactions, accounts, categories, counterparties) = try await (txnsReq, accountsReq, categoriesReq, counterpartiesReq)
+            transferIdByTransactionId = Dictionary(
+                transactions.compactMap { txn in txn.transferId.map { (txn.id, $0) } },
+                uniquingKeysWith: { first, _ in first }
+            )
             personalSpend = await personalSpendReq
             lastLoadedAt = Date()
         } catch {
