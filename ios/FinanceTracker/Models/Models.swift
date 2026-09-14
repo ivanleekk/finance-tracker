@@ -1234,6 +1234,9 @@ struct RecurringTransactionResponse: Codable, Identifiable, Hashable {
     /// above — a payload without the keys must not fail the whole list.
     let mcc: String?
     let cardCategoryId: String?
+    /// The card surcharge each posting carries. Nil means the card's foreign fee
+    /// applies at posting, if it has one; 0 means none. A Decimal on the wire.
+    @OptionalMoneyAmount var feePercent: Double?
     /// A standing share of every occurrence.
     ///
     /// Optional for the same reason `postedCount` above is: Swift's synthesized
@@ -1264,6 +1267,10 @@ struct RecurringTransactionCreate: Encodable {
     var cardCategoryId: String? = nil
     /// Omitted when nil — nothing recorded yet for an absent key to preserve.
     var splits: [TransactionSplitInput]? = nil
+    /// A foreign currency, or nil (omitted) for the account's own.
+    var currency: String? = nil
+    /// Nil (omitted) lets the card's foreign fee apply at each posting; 0 is no fee.
+    var feePercent: Double? = nil
 }
 
 /// PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone.
@@ -1301,10 +1308,14 @@ struct RecurringTransactionEdit: Encodable {
     /// populated array replaces it. An empty array is already unambiguous, so
     /// unlike `mcc` this needs no forced null.
     let splits: [TransactionSplitInput]?
+    /// Always sent, nil as null: that is how a rule goes back to its account's
+    /// own currency, and back to the card's default fee.
+    var currency: String? = nil
+    var feePercent: Double? = nil
 
     private enum CodingKeys: String, CodingKey {
         case accountId, categoryId, amount, description, frequency, startDate, endDate
-        case mcc, cardCategoryId, splits
+        case mcc, cardCategoryId, splits, currency, feePercent
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1328,6 +1339,10 @@ struct RecurringTransactionEdit: Encodable {
         // `encodeIfPresent`, unlike the two above: an empty array already means
         // "clear it", so nil can keep its ordinary "don't touch it" meaning.
         try container.encodeIfPresent(splits, forKey: .splits)
+        // Explicit null, like `mcc`: an omitted key would keep a foreign
+        // currency or a fee the user just cleared.
+        try container.encode(currency, forKey: .currency)
+        try container.encode(feePercent, forKey: .feePercent)
     }
 }
 

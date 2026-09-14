@@ -12,6 +12,7 @@ from src.auth import get_current_user, verify_household_access, verify_private_o
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
 from src.services.transaction_service import (
+    account_to_home_rate,
     create_transaction,
     create_transfer as create_transfer_rows,
     delete_transfer,
@@ -663,11 +664,9 @@ def settle_with_counterparty(
     )
 
     category = _reimbursement_category(db, account.household_id)
-    home_currency = account.household.base_currency or "USD"
     account_currency = account.currency or "USD"
-    rate_to_home = fetch_and_cache_exchange_rates(
-        db, account_currency, home_currency, payload.date.date()
-    )
+    # Strict: a settlement freezes this into amount_home_currency.
+    rate_to_home = account_to_home_rate(db, account, payload.date.date())
 
     txn = models.Transaction(
         id=uuid.uuid7(),

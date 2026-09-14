@@ -10,7 +10,7 @@ engine must not reimplement them; it calls the same helper the manual
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, Sequence
 import uuid
@@ -73,10 +73,24 @@ def resolve_rates(
             db, txn_currency, acc_currency, date.date(), strict=True
         )
 
-    acc_to_home = fetch_and_cache_exchange_rates(
-        db, acc_currency, home_currency, date.date(), strict=True
-    )
-    return txn_currency, rate, rate * acc_to_home
+    return txn_currency, rate, rate * account_to_home_rate(db, account, date.date())
+
+
+def account_to_home_rate(db: Session, account: models.FinancialAccount, on: date) -> float:
+    """
+    One unit of the account's currency, in the household's base currency, on ``on``.
+
+    The rate every write that stores a home-currency figure should compose
+    through: a settlement, a trade's cash row, a balance, and ``resolve_rates``
+    itself. A home-currency account needs no lookup at all, which is the common
+    case; any other is strict, raising ``ExchangeRateUnavailable`` (a 422 naming
+    the pair and date) rather than the 1.0 the lookup used to fall back to.
+    """
+    acc_currency = (account.currency or "USD").upper()
+    home_currency = (account.household.base_currency or "USD").upper()
+    if acc_currency == home_currency:
+        return 1.0
+    return fetch_and_cache_exchange_rates(db, acc_currency, home_currency, on, strict=True)
 
 
 def _app_category(db: Session, household_id: uuid.UUID, name: str) -> models.Category:

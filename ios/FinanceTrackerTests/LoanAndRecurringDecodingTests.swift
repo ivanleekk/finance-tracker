@@ -457,6 +457,45 @@ struct RecurringPaymentDetailCodingTests {
         #expect((cleared["splits"] as? [Any])?.isEmpty == true)
     }
 
+    @Test("An edit always sends currency and fee, null meaning the account's own and the card's default")
+    func currencyAndFeeAreAlwaysSent() throws {
+        let cleared = try encodedKeys(edit(mcc: nil, cardCategoryId: nil))
+        #expect(cleared["currency"] is NSNull)
+        #expect(cleared["fee_percent"] is NSNull)
+
+        var foreign = edit(mcc: nil, cardCategoryId: nil)
+        foreign.currency = "USD"
+        foreign.feePercent = 0
+        let object = try encodedKeys(foreign)
+        #expect(object["currency"] as? String == "USD")
+        #expect(object["fee_percent"] as? Double == 0)
+    }
+
+    @Test("A new rule omits its currency and fee when it has nothing to say")
+    func createOmitsCurrencyAndFee() throws {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let plain = RecurringTransactionCreate(
+            householdId: "hh", accountId: "acc", categoryId: "cat", amount: 10, description: nil,
+            frequency: .monthly, startDate: "2026-01-01", endDate: nil, ownerUserId: nil
+        )
+        let object = try JSONSerialization.jsonObject(with: encoder.encode(plain)) as! [String: Any]
+        #expect(!object.keys.contains("currency"))
+        #expect(!object.keys.contains("fee_percent"))
+    }
+
+    @Test("A rule's fee decodes from the Decimal string")
+    func decodesRuleFee() throws {
+        let json = """
+        {"id": "r", "household_id": "hh", "account_id": "acc", "category_id": "cat",
+         "amount": "15", "currency": "USD", "description": "Netflix", "frequency": "monthly",
+         "start_date": "2026-01-01", "end_date": null, "next_due_date": "2026-10-01",
+         "last_posted_date": null, "is_active": true, "owner_user_id": null, "fee_percent": "3"}
+        """
+        let rule = try APIClient.decoder.decode(RecurringTransactionResponse.self, from: Data(json.utf8))
+        #expect(rule.feePercent == 3)
+    }
+
     @Test("A recorded code and category are sent as their values")
     func valuesAreSent() throws {
         let object = try encodedKeys(edit(mcc: "5814", cardCategoryId: "cc-1"))

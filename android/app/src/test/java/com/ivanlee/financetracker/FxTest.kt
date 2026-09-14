@@ -124,6 +124,48 @@ class FxTest {
     }
 
     @Test
+    fun `a rule sends a currency only when it is foreign`() {
+        assertNull(Fx.ruleCurrency("", "SGD"))
+        assertNull(Fx.ruleCurrency("SGD", "SGD"))
+        assertEquals("USD", Fx.ruleCurrency("USD", "SGD"))
+    }
+
+    @Test
+    fun `a blank rule fee is the card's default and zero is none`() {
+        assertNull(Fx.ruleFeePercent(""))
+        assertNull(Fx.ruleFeePercent("  "))
+        assertEquals(0.0, Fx.ruleFeePercent("0")!!, 0.0)
+        assertEquals(2.5, Fx.ruleFeePercent("2.5")!!, 0.0)
+    }
+
+    @Test
+    fun `an edited rule always sends currency and fee, and a new one omits them when empty`() {
+        val (noCurrency, noFee) = com.ivanlee.financetracker.data.model.ruleFx(null, null)
+        val edit = Api.json.parseToJsonElement(
+            Api.json.encodeToString(
+                com.ivanlee.financetracker.data.model.RecurringTransactionUpdate(currency = noCurrency, feePercent = noFee),
+            ),
+        ).jsonObject
+        assertTrue(edit.containsKey("currency") && edit.containsKey("fee_percent"))
+        assertEquals(kotlinx.serialization.json.JsonNull, edit["currency"])
+
+        val pause = Api.json.parseToJsonElement(
+            Api.json.encodeToString(com.ivanlee.financetracker.data.model.RecurringTransactionUpdate(isActive = false)),
+        ).jsonObject
+        assertFalse("the pause toggle must not reset a rule's currency", pause.containsKey("currency"))
+
+        val create = Api.json.parseToJsonElement(
+            Api.json.encodeToString(
+                com.ivanlee.financetracker.data.model.RecurringTransactionCreate(
+                    householdId = "hh", accountId = "a", categoryId = "c", amount = 10.0,
+                    frequency = com.ivanlee.financetracker.data.model.RecurrenceFrequency.MONTHLY, startDate = "2026-01-01",
+                ),
+            ),
+        ).jsonObject
+        assertFalse(create.containsKey("currency") || create.containsKey("fee_percent"))
+    }
+
+    @Test
     fun `the hint is empty while there is nothing to show`() {
         assertEquals("", Fx.impliedRateLabel(12000.0, null, "JPY", "SGD"))
         assertEquals("", Fx.impliedRateLabel(12000.0, 124.80, "JPY", ""))

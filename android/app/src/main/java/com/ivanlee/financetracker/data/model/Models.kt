@@ -1181,6 +1181,12 @@ data class RecurringTransactionResponse(
     val lastPostedDate: Instant? = null,
     val isActive: Boolean = true,
     val ownerUserId: String? = null,
+    /**
+     * The card surcharge each posting carries. Null means the card's foreign fee applies at
+     * posting, if it has one; 0 means none. A Decimal on the wire.
+     */
+    @Serializable(with = OptionalMoneySerializer::class)
+    val feePercent: Double? = null,
 )
 
 @Serializable
@@ -1195,6 +1201,10 @@ data class RecurringTransactionCreate(
     val startDate: String,
     val endDate: String? = null,
     val ownerUserId: String? = null,
+    /** A foreign currency, or null (omitted) for the account's own. */
+    val currency: String? = null,
+    /** Null (omitted) lets the card's foreign fee apply at each posting; 0 is no fee. */
+    val feePercent: Double? = null,
 )
 
 /** PUT /cashflow/recurring/{id}. Every field optional; omitted keys are left alone. */
@@ -1208,7 +1218,19 @@ data class RecurringTransactionUpdate(
     val startDate: String? = null,
     val endDate: String? = null,
     val isActive: Boolean? = null,
+    /**
+     * [JsonElement]s for the same reason as [CardUpdate.anniversaryDate]: `explicitNulls = false`
+     * drops a Kotlin null, and an omitted key keeps what the rule has. The edit form sets both
+     * through [ruleFx] — [JsonNull] is how a rule goes back to its account's currency and back
+     * to the card's default fee. Left null (omitted) by the pause toggle.
+     */
+    val currency: JsonElement? = null,
+    val feePercent: JsonElement? = null,
 )
+
+/** The currency and fee an edited rule sends, null reaching the wire as an explicit null. */
+fun ruleFx(currency: String?, feePercent: Double?): Pair<JsonElement, JsonElement> =
+    (currency?.let { JsonPrimitive(it) } ?: JsonNull) to (feePercent?.let { JsonPrimitive(it) } ?: JsonNull)
 
 /** GET /cashflow/recurring/household/{id}/upcoming */
 @Serializable

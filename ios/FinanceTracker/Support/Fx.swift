@@ -103,6 +103,22 @@ enum Fx {
         return fee
     }
 
+    /// The currency a recurring rule's form sends: the picked code when it is
+    /// foreign to the account, nil for the account's own — whether the user left
+    /// the picker alone ("") or picked the account's currency explicitly.
+    /// Ported from `ruleFxFields` in `frontend/src/lib/fx.ts`.
+    static func ruleCurrency(_ picked: String, accountCurrency: String) -> String? {
+        isForeignCharge(picked.isEmpty ? nil : picked, accountCurrency: accountCurrency) ? picked : nil
+    }
+
+    /// A rule's fee field as sent: blank is nil — the card's foreign fee applies
+    /// at posting — and anything else is the typed percentage, 0 included.
+    static func ruleFeePercent(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        return CalculatorInput.evaluateArithmeticExpression(trimmed)
+    }
+
     /// The hint a form shows back before the user commits: "1 JPY = 0.0104 SGD".
     ///
     /// Empty when there is no rate yet. It exists because a mistyped charged

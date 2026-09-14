@@ -536,6 +536,12 @@ struct RecurringFormView: View {
     @State private var isSplitting: Bool
     @State private var splitRows: [SplitRow]
     @State private var counterparties: [Counterparty] = []
+    /// The currency the rule charges in. Empty means the account's own, so it
+    /// follows the account picker until the user picks another.
+    @State private var currency: String
+    /// The card surcharge on each posting. Empty means the card's foreign fee
+    /// applies, if it has one; 0 means none.
+    @State private var feePercentText: String
 
     init(
         accounts: [AccountResponse],
@@ -557,6 +563,10 @@ struct RecurringFormView: View {
         _endDate = State(initialValue: existing?.endDate ?? Date())
         _mcc = State(initialValue: existing?.mcc ?? "")
         _cardCategoryId = State(initialValue: existing?.cardCategoryId ?? "")
+        _currency = State(initialValue: existing?.currency ?? "")
+        _feePercentText = State(initialValue: existing?.feePercent.map {
+            $0 == $0.rounded() ? String(Int($0)) : String($0)
+        } ?? "")
         let recorded = existing?.standingSplits ?? []
         _isSplitting = State(initialValue: !recorded.isEmpty)
         _splitRows = State(initialValue: recorded.map {
@@ -643,6 +653,12 @@ struct RecurringFormView: View {
                     showsHeadroom: false
                 )
 
+                RecurringFxSection(
+                    accountCurrency: accounts.first { $0.id == accountId }?.currency ?? "",
+                    currency: $currency,
+                    feePercentText: $feePercentText
+                )
+
                 MerchantCodeSection(mcc: $mcc, subject: "the transactions it posts")
 
                 if existing == nil {
@@ -678,7 +694,7 @@ struct RecurringFormView: View {
                 }
             }
             .discardGuard(
-                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId, isSplitting, splitRows],
+                fields: [description, categoryId, accountId, amountText, frequency, startDate, hasEndDate, endDate, isPrivate, mcc, cardCategoryId, isSplitting, splitRows, currency, feePercentText],
                 // `onAppear` below fills in the private-by-default toggle;
                 // that isn't an edit the user made.
                 settled: didSeedPrivacy
@@ -728,6 +744,10 @@ struct RecurringFormView: View {
         return hadSplit ? [] : nil
     }
 
+    private var currencyToSend: String? {
+        Fx.ruleCurrency(currency, accountCurrency: accounts.first { $0.id == accountId }?.currency ?? "")
+    }
+
     private func save() {
         guard let amount else { return }
         isSaving = true
@@ -749,7 +769,9 @@ struct RecurringFormView: View {
                             endDate: hasEndDate ? endDate.apiDateOnly : nil,
                             mcc: mcc.isEmpty ? nil : mcc,
                             cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
-                            splits: splitsToSend
+                            splits: splitsToSend,
+                            currency: currencyToSend,
+                            feePercent: Fx.ruleFeePercent(feePercentText)
                         )
                     )
                 } else {
@@ -768,7 +790,9 @@ struct RecurringFormView: View {
                             ownerUserId: isPrivate ? session.user?.id : nil,
                             mcc: mcc.isEmpty ? nil : mcc,
                             cardCategoryId: cardCategoryId.isEmpty ? nil : cardCategoryId,
-                            splits: splitsToSend
+                            splits: splitsToSend,
+                            currency: currencyToSend,
+                            feePercent: Fx.ruleFeePercent(feePercentText)
                         )
                     )
                 }
@@ -777,6 +801,50 @@ struct RecurringFormView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+/// The currency a rule charges in and the card fee each posting carries.
+///
+/// The currency picker starts on the account's own and a foreign pick is
+/// converted at each posting date's rate, so there is no "charged to account"
+/// figure here: a rule has no statement yet. A blank fee lets the card's foreign
+/// fee apply at posting, if it has one; 0 is how to say none.
+struct RecurringFxSection: View {
+    let accountCurrency: String
+    @Binding var currency: String
+    @Binding var feePercentText: String
+
+    private var isForeign: Bool {
+        Fx.ruleCurrency(currency, accountCurrency: accountCurrency) != nil
+    }
+
+    var body: some View {
+        Section {
+            NavigationLink {
+                ReferencePicker(
+                    title: "Charged In",
+                    path: "/reference/currencies",
+                    selection: $currency,
+                    id: \ReferenceCurrency.code,
+                    label: { "\($0.code) — \($0.name)" },
+                    searchText: { "\($0.code) \($0.name)" }
+                )
+            } label: {
+                LabeledContent("Charged in", value: currency.isEmpty ? accountCurrency : currency)
+            }
+            HStack {
+                Text("Card fee")
+                CalculatorField(placeholder: "Card's default", text: $feePercentText)
+                    .multilineTextAlignment(.trailing)
+                Text("%").foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text(
+                (isForeign ? "Converted to \(accountCurrency) at each posting date's rate. " : "")
+                    + "Leave the fee blank to use the card's foreign fee, if it has one; 0 for none."
+            )
         }
     }
 }
