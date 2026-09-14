@@ -149,6 +149,22 @@ class ModelDecodingTest {
     }
 
     @Test
+    fun `a fee percent sent as a Decimal string decodes`() {
+        // Twin of iOS's decodesAFeePercentSentAsADecimalString: the server sends every
+        // Decimal as a string, and a strict decode here would fail the whole activity list.
+        val txns = com.ivanlee.financetracker.data.net.Api.json.decodeFromString<List<TransactionResponse>>(
+            """[{"id":"t1","account_id":"a1","category_id":"c1","date":"2026-09-14T12:00:00",
+                "amount":"100","amount_home_currency":"126.70","currency":"USD","exchange_rate":1.267,
+                "transaction_type":"expense","splits":[],"fee_percent":"3"},
+               {"id":"t2","account_id":"a1","category_id":"c2","date":"2026-09-14T12:00:00",
+                "amount":"3.80","currency":"SGD","transaction_type":"expense","splits":[],
+                "fee_percent":null,"fee_for_transaction_id":"t1"}]"""
+        )
+        assertEquals(3.0, txns[0].feePercent!!, 0.0)
+        assertNull(txns[1].feePercent)
+    }
+
+    @Test
     fun `an emergency fund with no spending history has a null runway, not infinity`() {
         val fund = json.decodeFromString<EmergencyFundResponse>(
             """{"household_id":"h1","base_currency":"SGD","as_of":"2026-07-19",
