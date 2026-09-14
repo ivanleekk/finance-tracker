@@ -86,6 +86,23 @@ enum Fx {
         return transferIdOf(parent) != nil
     }
 
+    /// The fee a new charge's form fills in from its card: the card's
+    /// foreign-transaction fee, for a foreign charge. Nil when there is nothing
+    /// to fill in — a domestic charge, no card, or no default on it.
+    ///
+    /// Mirrors `default_fee_percent` in the backend's `transaction_service.py`,
+    /// which applies the same figure to a foreign charge created with no fee.
+    /// Ported from `defaultFeePercent` in `frontend/src/lib/fx.ts`.
+    static func defaultFeePercent(
+        cardForeignFeePercent: Double?,
+        chargeCurrency: String?,
+        accountCurrency: String?
+    ) -> Double? {
+        guard isForeignCharge(chargeCurrency, accountCurrency: accountCurrency),
+              let fee = cardForeignFeePercent, fee.isFinite, fee > 0 else { return nil }
+        return fee
+    }
+
     /// The hint a form shows back before the user commits: "1 JPY = 0.0104 SGD".
     ///
     /// Empty when there is no rate yet. It exists because a mistyped charged

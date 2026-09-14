@@ -29,6 +29,7 @@ import {
     categoryFilterStorageKey,
     categoryIcon,
     emptyTransactionForm,
+    feePercentPayload,
     mccSelectOptions,
     historyGranularityStorageKey,
     type CategoryPeriodPreset,
@@ -280,9 +281,9 @@ export default function Transactions() {
                 ...(formData.amountCharged.trim() && isForeignCharge(formData.currency, accountCurrencyOf(formData.accountId))
                     ? { amount_charged: parseFloat(formData.amountCharged) }
                     : {}),
-                // Omitted when blank, so a transaction with no surcharge sends
-                // nothing rather than an explicit zero.
-                ...(formData.feePercent.trim() ? { fee_percent: parseFloat(formData.feePercent) } : {}),
+                // Omitted until the user types in the field, so a foreign charge
+                // takes its card's default server-side; a cleared field sends 0.
+                ...feePercentPayload(formData),
                 description: formData.description,
                 // Blank is sent as-is; the API treats "" as "not given" rather than
                 // rejecting it, so there is nothing to convert here.
@@ -689,6 +690,11 @@ export default function Transactions() {
                 currencies={currencies}
                 mccOptions={mccOptions}
                 cardCategoryOptions={cardCategoryOptions}
+                cardForeignFeePercent={
+                    cardData?.card?.financial_account_id === formData.accountId
+                        ? cardData.card.foreign_fee_percent
+                        : null
+                }
                 onAccountChange={loadCardFor}
                 user={user}
                 formData={formData}

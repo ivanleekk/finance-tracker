@@ -1,7 +1,7 @@
 import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
 import type { AccountResponse, CardResponse, CardStatusResponse } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
-import { cardUpdateBody } from "./cardForms";
+import { cardUpdateBody, foreignFeePercent } from "./cardForms";
 
 export type CardsLoaderData = {
     cards: CardResponse[];
@@ -65,6 +65,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 cycle_basis: formData.get("cycle_basis") || "statement",
                 statement_day: Number(formData.get("statement_day")) || 1,
                 anniversary_date: formData.get("anniversary_date") || null,
+                foreign_fee_percent: foreignFeePercent(formData),
             }),
         });
         if (!res.ok) return fail(res, "Couldn't set up that card.");

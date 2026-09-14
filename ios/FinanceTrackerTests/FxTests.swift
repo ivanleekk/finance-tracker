@@ -83,6 +83,17 @@ struct FxTests {
         #expect(!Fx.isPartOfTransfer(transferId: nil, feeForTransactionId: nil) { legs[$0] })
     }
 
+    @Test func aForeignChargeTakesTheCardsForeignFee() {
+        #expect(Fx.defaultFeePercent(cardForeignFeePercent: 3, chargeCurrency: "JPY", accountCurrency: "SGD") == 3)
+    }
+
+    @Test func aDomesticChargeOrACardWithNoDefaultTakesNothing() {
+        #expect(Fx.defaultFeePercent(cardForeignFeePercent: 3, chargeCurrency: "SGD", accountCurrency: "SGD") == nil)
+        #expect(Fx.defaultFeePercent(cardForeignFeePercent: nil, chargeCurrency: "JPY", accountCurrency: "SGD") == nil)
+        #expect(Fx.defaultFeePercent(cardForeignFeePercent: 0, chargeCurrency: "JPY", accountCurrency: "SGD") == nil)
+        #expect(Fx.defaultFeePercent(cardForeignFeePercent: 3, chargeCurrency: "JPY", accountCurrency: "") == nil)
+    }
+
     @Test func theHintIsEmptyWhileThereIsNothingToShow() {
         #expect(Fx.impliedRateLabel(amount: 12000, charged: nil, chargeCurrency: "JPY", accountCurrency: "SGD") == "")
         #expect(Fx.impliedRateLabel(amount: 12000, charged: 124.80, chargeCurrency: "JPY", accountCurrency: "") == "")
@@ -130,6 +141,20 @@ struct FxEncodingTests {
     @Test func aTransferSendsTheReceivedAmountOnlyWhenThereIsOne() throws {
         #expect(try transfer(amountReceived: nil).keys.contains("amount_received") == false)
         #expect(try transfer(amountReceived: 731)["amount_received"] as? Double == 731)
+    }
+
+    @Test func aNewChargeLeavesTheFeeOutUntilTheUserTypesAndSendsZeroWhenCleared() throws {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        func body(_ fee: Double?) throws -> [String: Any] {
+            let create = TransactionCreate(
+                date: Date(), amount: 12000, description: nil, accountId: "a", categoryId: "c",
+                currency: "JPY", feePercent: fee
+            )
+            return try #require(try JSONSerialization.jsonObject(with: encoder.encode(create)) as? [String: Any])
+        }
+        #expect(try body(nil).keys.contains("fee_percent") == false, "omitted lets the card's default apply")
+        #expect(try body(0)["fee_percent"] as? Double == 0, "a cleared field is an explicit no-fee")
     }
 
     @Test func omitsTheChargedAmountWhenThereIsNothingToSay() throws {

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Editing a card after setup: when its limits reset, and the anniversary that
-/// card-year and card-quarter limits count from.
+/// Editing a card after setup: when its limits reset, the anniversary that
+/// card-year and card-quarter limits count from, and the fee it adds to foreign charges.
 ///
 /// Sends the whole card every time (see `CardUpdate`), so a cleared anniversary
 /// goes out as an explicit null. The backend refuses to clear it while a limit
@@ -15,6 +15,8 @@ struct CardEditView: View {
     @State private var statementDay: Int
     @State private var hasAnniversary: Bool
     @State private var anniversary: Date
+    /// The card's foreign-transaction fee as editable text. Empty clears it.
+    @State private var foreignFeeText: String
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -25,6 +27,7 @@ struct CardEditView: View {
         _statementDay = State(initialValue: card.statementDay)
         _hasAnniversary = State(initialValue: card.anniversaryDate != nil)
         _anniversary = State(initialValue: card.anniversaryDate ?? Date())
+        _foreignFeeText = State(initialValue: card.foreignFeePercent.map { String(format: "%g", $0) } ?? "")
     }
 
     var body: some View {
@@ -52,6 +55,17 @@ struct CardEditView: View {
                     Text("Limits that reset each card year or card quarter count from this date.")
                 }
 
+                Section {
+                    HStack {
+                        Text("Foreign transaction fee")
+                        CalculatorField(placeholder: "None", text: $foreignFeeText)
+                            .multilineTextAlignment(.trailing)
+                        Text("%").foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Filled in on every charge in another currency. You can still change it per purchase.")
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -66,7 +80,7 @@ struct CardEditView: View {
                     Button("Save") { save() }.disabled(isSaving)
                 }
             }
-            .discardGuard(fields: [cycleBasis, statementDay, hasAnniversary, anniversary])
+            .discardGuard(fields: [cycleBasis, statementDay, hasAnniversary, anniversary, foreignFeeText])
         }
     }
 
@@ -81,7 +95,8 @@ struct CardEditView: View {
                     body: CardUpdate(
                         cycleBasis: cycleBasis.rawValue,
                         statementDay: statementDay,
-                        anniversaryDate: hasAnniversary ? anniversary.apiDateOnly : nil
+                        anniversaryDate: hasAnniversary ? anniversary.apiDateOnly : nil,
+                        foreignFeePercent: CalculatorInput.evaluateArithmeticExpression(foreignFeeText)
                     )
                 )
                 await onSaved(updated)

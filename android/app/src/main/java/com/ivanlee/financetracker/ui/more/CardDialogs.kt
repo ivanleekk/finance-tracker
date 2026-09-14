@@ -71,6 +71,8 @@ fun CardSetUpDialog(
     var calendarBasis by remember { mutableStateOf(false) }
     var statementDay by remember { mutableStateOf("1") }
     var hasAnniversary by remember { mutableStateOf(false) }
+    // Optional: blank means the card adds no default fee to foreign charges.
+    var foreignFeeText by remember { mutableStateOf("") }
     var anniversary by remember { mutableStateOf(Instant.now()) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -124,6 +126,12 @@ fun CardSetUpDialog(
                 if (hasAnniversary) {
                     DateField("Opened on", anniversary) { anniversary = it }
                 }
+                MoneyField(
+                    "Foreign transaction fee (optional, %)",
+                    foreignFeeText,
+                    { foreignFeeText = it },
+                    supportingText = "Filled in on every charge in another currency. You can still change it per purchase.",
+                )
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -143,6 +151,7 @@ fun CardSetUpDialog(
                                     cycleBasis = if (calendarBasis) "calendar" else "statement",
                                     statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31) ?: 1,
                                     anniversaryDate = if (hasAnniversary) anniversary.apiDateOnly() else null,
+                                    foreignFeePercent = CalculatorInput.evaluateArithmeticExpression(foreignFeeText),
                                 ),
                             )
                             onSaved()
@@ -172,6 +181,10 @@ fun CardEditDialog(
     var statementDay by remember(card.id) { mutableStateOf(card.statementDay.toString()) }
     var hasAnniversary by remember(card.id) { mutableStateOf(card.anniversaryDate != null) }
     var anniversary by remember(card.id) { mutableStateOf(card.anniversaryDate ?: Instant.now()) }
+    // The card's foreign-transaction fee as editable text. Blank clears it.
+    var foreignFeeText by remember(card.id) {
+        mutableStateOf(card.foreignFeePercent?.let { if (it == Math.floor(it)) it.toInt().toString() else it.toString() }.orEmpty())
+    }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -205,6 +218,12 @@ fun CardEditDialog(
                 if (hasAnniversary) {
                     DateField("Opened on", anniversary) { anniversary = it }
                 }
+                MoneyField(
+                    "Foreign transaction fee (optional, %)",
+                    foreignFeeText,
+                    { foreignFeeText = it },
+                    supportingText = "Filled in on every charge in another currency. You can still change it per purchase.",
+                )
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -220,6 +239,7 @@ fun CardEditDialog(
                                 cycleBasis = if (calendarBasis) "calendar" else "statement",
                                 statementDay = statementDay.toIntOrNull()?.coerceIn(1, 31) ?: card.statementDay,
                                 anniversaryDate = if (hasAnniversary) anniversary.apiDateOnly() else null,
+                                foreignFeePercent = CalculatorInput.evaluateArithmeticExpression(foreignFeeText),
                             ),
                         )
                         onSaved(updated)

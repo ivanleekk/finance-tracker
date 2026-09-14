@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { emptyTransactionForm, mccSelectOptions } from './transactionsHelpers';
+import { feeFieldText, feePercentPayload, emptyTransactionForm, mccSelectOptions } from './transactionsHelpers';
 import type { MccResponse } from '../../types/types';
 
 const mcc = (code: string, name: string, is_brand = false, group = 'General'): MccResponse =>
@@ -63,5 +63,22 @@ describe('emptyTransactionForm', () => {
         expect(form.feePercent).toBe('');
         expect(form.description).toBe('');
         expect(form.splits).toEqual([]);
+    });
+});
+
+describe('fee field', () => {
+    const untouched = { feePercent: '', feeTouched: false };
+
+    it("shows the card's default until the user types, and sends nothing so the backend applies it", () => {
+        expect(feeFieldText(untouched, 3)).toBe('3');
+        expect(feeFieldText(untouched, null)).toBe('');
+        expect(feePercentPayload(untouched)).toEqual({});
+    });
+
+    it('sends what the user typed, and a cleared field as 0 — no fee on this one', () => {
+        expect(feeFieldText({ feePercent: '1.5', feeTouched: true }, 3)).toBe('1.5');
+        expect(feePercentPayload({ feePercent: '1.5', feeTouched: true })).toEqual({ fee_percent: 1.5 });
+        expect(feeFieldText({ feePercent: '', feeTouched: true }, 3)).toBe('');
+        expect(feePercentPayload({ feePercent: '', feeTouched: true })).toEqual({ fee_percent: 0 });
     });
 });

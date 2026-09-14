@@ -56,6 +56,10 @@ struct TransactionFormView: View {
     @State private var amountChargedText: String
     /// A surcharge the card adds on top, as a percentage. Empty means none.
     @State private var feePercentText: String
+    /// Whether the user has typed in the fee field. Until they do, a new foreign
+    /// charge shows its card's default there and sends no fee at all, so the
+    /// backend applies that same default — even if the card hadn't loaded yet.
+    @State private var feeTouched = false
 
     init(
         accounts: [AccountResponse],
@@ -138,6 +142,32 @@ struct TransactionFormView: View {
         return CalculatorInput.evaluateArithmeticExpression(amountChargedText)
     }
 
+    /// The card's default fee for this charge, for a new transaction only — an
+    /// edit shows what the row recorded, and the backend never applies a
+    /// default to one. Nil unless the loaded card is the selected account's.
+    private var cardDefaultFeePercent: Double? {
+        guard existing == nil, let card, card.financialAccountId == accountId else { return nil }
+        return Fx.defaultFeePercent(
+            cardForeignFeePercent: card.foreignFeePercent,
+            chargeCurrency: currency,
+            accountCurrency: selectedAccountCurrency
+        )
+    }
+
+    /// The fee field: what the user typed, or the card's default until they type.
+    private var feeFieldText: Binding<String> {
+        Binding(
+            get: {
+                if feeTouched || existing != nil { return feePercentText }
+                return cardDefaultFeePercent.map(Self.amountString) ?? ""
+            },
+            set: { newValue in
+                feePercentText = newValue
+                feeTouched = true
+            }
+        )
+    }
+
     private var canSave: Bool {
         amount ?? 0 > 0 && accountId != nil && categoryId != nil && !isSaving
             && TransactionSplits.isUsable(isSplitting: isSplitting, amount: amount, rows: splitRows)
@@ -216,7 +246,7 @@ struct TransactionFormView: View {
                 CardFeeSection(
                     amountInAccountCurrency: amountInAccountCurrency,
                     accountCurrency: selectedAccountCurrency,
-                    feePercentText: $feePercentText
+                    feePercentText: feeFieldText
                 )
 
                 CardCategorySection(
@@ -357,7 +387,12 @@ struct TransactionFormView: View {
                         mcc: mcc,
                         currency: currency.isEmpty ? nil : currency,
                         amountCharged: amountCharged,
-                        feePercent: CalculatorInput.evaluateArithmeticExpression(feePercentText)
+                        // Untouched: omitted, so a foreign charge takes its card's
+                        // default server-side — the figure the field was showing.
+                        // Touched: what the field holds, and a cleared one is 0.
+                        feePercent: feeTouched
+                            ? (CalculatorInput.evaluateArithmeticExpression(feePercentText) ?? 0)
+                            : nil
                     )
                     let _: TransactionResponse = try await APIClient.shared.post(
                         "/cashflow/transactions", body: body

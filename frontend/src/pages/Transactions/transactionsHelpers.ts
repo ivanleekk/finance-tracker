@@ -145,6 +145,10 @@ export function emptyTransactionForm(accountId: string, currency: string) {
         // the fee posts as its own linked row, so carrying a stale one over
         // would charge the next purchase a fee it never incurred.
         feePercent: "",
+        // Whether the user has typed in the fee field. Until they do, the field
+        // shows the card's default for a foreign charge and nothing is sent, so
+        // the backend applies that same default — even if the card hadn't loaded.
+        feeTouched: false,
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
         description: "",
         // Optional even when the field is shown — most purchases have no code the
@@ -189,4 +193,27 @@ export function mccSelectOptions(mccs: MccResponse[]) {
         options.push({ value: m.code, label: `${m.code} · ${m.name}` });
     }
     return options;
+}
+
+/**
+ * What the fee field shows: what the user typed, or — until they type — the
+ * card's default for this charge (`defaultFeePercent`), or blank.
+ */
+export function feeFieldText(form: { feePercent: string; feeTouched: boolean }, cardDefault: number | null): string {
+    if (form.feeTouched) return form.feePercent;
+    return cardDefault === null ? "" : String(cardDefault);
+}
+
+/**
+ * The `fee_percent` part of a new transaction's body.
+ *
+ * Untouched, the key is omitted: the backend then applies the card's default to
+ * a foreign charge, which is the figure the field was showing. Touched, the
+ * field is sent as it stands, and a cleared field is an explicit 0 — "no fee on
+ * this one", which the backend never overrules.
+ */
+export function feePercentPayload(form: { feePercent: string; feeTouched: boolean }): { fee_percent?: number } {
+    if (!form.feeTouched) return {};
+    const value = parseFloat(form.feePercent);
+    return { fee_percent: Number.isFinite(value) ? value : 0 };
 }

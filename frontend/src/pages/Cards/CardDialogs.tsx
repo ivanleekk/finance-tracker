@@ -90,6 +90,16 @@ export function SetUpCardDialog({
                         type="date"
                         helperText="The date the card was opened. Limits that reset each card year or card quarter count from it."
                     />
+                    <Input
+                        label="Foreign transaction fee % (optional)"
+                        name="foreign_fee_percent"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        placeholder="e.g. 3.25"
+                        helperText="Filled in on every charge in another currency. You can still change it per purchase."
+                    />
                     <div className="flex justify-end gap-2">
                         <Button type="button" variant="secondary" onClick={close}>
                             Cancel
@@ -267,6 +277,16 @@ function CardSettingsForm({ card }: { card: CardResponse }) {
                 defaultValue={card.anniversary_date ?? ""}
                 helperText="Clear it to remove. Needed for card-year and card-quarter limits."
             />
+            <Input
+                label="Foreign transaction fee %"
+                name="foreign_fee_percent"
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                defaultValue={card.foreign_fee_percent == null ? "" : String(card.foreign_fee_percent)}
+                helperText="Filled in on charges in another currency. Clear it to remove."
+            />
             {fetcher.data?.error && (
                 <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{fetcher.data.error}</p>
             )}
@@ -305,7 +325,7 @@ export function ManageCardDialog({
                             Card
                         </h4>
                         <CardSettingsForm
-                            key={`settings-${card.id}-${card.anniversary_date ?? ""}`}
+                            key={`settings-${card.id}-${card.anniversary_date ?? ""}-${card.foreign_fee_percent ?? ""}`}
                             card={card}
                         />
                     </section>

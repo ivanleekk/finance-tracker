@@ -114,6 +114,33 @@ def fee_category(db: Session, household_id: uuid.UUID) -> models.Category:
     return _app_category(db, household_id, models.SYSTEM_CATEGORY_FEE)
 
 
+def default_fee_percent(
+    db: Session, account: models.FinancialAccount, charge_currency: str
+) -> Optional[Decimal]:
+    """
+    The fee a charge takes when it states none: the card's foreign-transaction
+    fee, for a foreign charge on a card that has one. None otherwise.
+
+    Applied only where a charge is *created* with no ``fee_percent``, never on
+    an update — a default set later must not appear on rows that already exist.
+    It reaches every path that creates one, which is the reason it lives here
+    rather than only in the forms: Quick Add, ⌘K and the recurring engine have
+    no fee field. The forms fill the same figure in visibly and send what the
+    field holds, so a user who clears it sends 0. Mirrored for the forms by
+    ``defaultFeePercent`` in the clients' fx modules.
+    """
+    if charge_currency == (account.currency or "USD"):
+        return None
+    card = (
+        db.query(models.Card)
+        .filter(models.Card.financial_account_id == account.id)
+        .one_or_none()
+    )
+    if card is None or card.foreign_fee_percent is None:
+        return None
+    return dec(card.foreign_fee_percent)
+
+
 def fee_amount(amount: Decimal, rate: float, fee_percent: Optional[Decimal]) -> Decimal:
     """
     What a surcharge comes to, in the account's own currency, rounded to cents.
@@ -221,6 +248,8 @@ def create_transaction(
     # rate when given, spread included — see `resolve_rates`.
     amount_charged: Optional[Decimal] = None,
     # What the card added on top, as a percentage. Posted as its own linked row.
+    # None means "not stated": a foreign charge on a card then takes the card's
+    # `foreign_fee_percent`. Pass 0 for "no fee" — see `default_fee_percent`.
     fee_percent: Optional[Decimal] = None,
     description: Optional[str] = None,
     recurring_transaction_id: Optional[uuid.UUID] = None,
@@ -251,6 +280,9 @@ def create_transaction(
         exchange_rate=exchange_rate,
         amount_charged=amount_charged,
     )
+
+    if fee_percent is None:
+        fee_percent = default_fee_percent(db, account, txn_currency)
 
     db_transaction = models.Transaction(
         id=uuid.uuid7(),

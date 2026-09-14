@@ -263,6 +263,23 @@ struct CardsTests {
         #expect(object["anniversary_date"] is NSNull)
     }
 
+    @Test func aCardUpdateSendsTheForeignFeeAndAClearedOneAsNull() throws {
+        let set = try encodedObject(CardUpdate(cycleBasis: "statement", statementDay: 18, anniversaryDate: nil, foreignFeePercent: 3.25))
+        #expect(set["foreign_fee_percent"] as? Double == 3.25)
+        let cleared = try encodedObject(CardUpdate(cycleBasis: "statement", statementDay: 18, anniversaryDate: nil, foreignFeePercent: nil))
+        #expect(cleared.keys.contains("foreign_fee_percent"))
+        #expect(cleared["foreign_fee_percent"] is NSNull)
+    }
+
+    @Test func aCardsForeignFeeDecodesFromTheDecimalString() throws {
+        let json = Data("""
+        {"id":"c","financial_account_id":"a","account_name":"Card","currency":"SGD","cycle_basis":"statement",
+         "statement_day":18,"anniversary_date":null,"foreign_fee_percent":"3.25","categories":[],"limits":[]}
+        """.utf8)
+        let card = try APIClient.decoder.decode(CardResponse.self, from: json)
+        #expect(card.foreignFeePercent == 3.25)
+    }
+
     @Test func anniversaryResetsAreOnlyOfferedOnceTheCardHasADate() {
         let without = Cards.resetOptions(hasAnniversary: false)
         #expect(without.filter(\.isAvailable).map(\.basis) == [.cycle, .calendarMonth, .quarter, .year])
