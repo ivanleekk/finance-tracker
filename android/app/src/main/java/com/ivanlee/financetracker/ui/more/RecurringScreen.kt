@@ -39,6 +39,9 @@ import com.ivanlee.financetracker.data.model.RecurringRunResponse
 import com.ivanlee.financetracker.data.model.RecurringTransactionCreate
 import com.ivanlee.financetracker.data.model.RecurringTransactionResponse
 import com.ivanlee.financetracker.data.model.RecurringTransactionUpdate
+import com.ivanlee.financetracker.data.model.ReferenceCurrency
+import com.ivanlee.financetracker.data.model.ruleFx
+import com.ivanlee.financetracker.logic.Fx
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.model.UpcomingOccurrence
 import com.ivanlee.financetracker.data.net.Api
@@ -57,6 +60,7 @@ import com.ivanlee.financetracker.ui.components.DropdownField
 import com.ivanlee.financetracker.ui.components.EmptyState
 import com.ivanlee.financetracker.ui.components.FormField
 import com.ivanlee.financetracker.ui.components.MoneyField
+import com.ivanlee.financetracker.ui.components.SearchablePickerDialog
 import com.ivanlee.financetracker.ui.components.SectionCard
 import com.ivanlee.financetracker.ui.components.StatTileData
 import com.ivanlee.financetracker.ui.components.SwipeActionRow
@@ -344,11 +348,27 @@ private fun RecurringFormDialog(
     var startDate by remember { mutableStateOf(existing?.startDate ?: Instant.now()) }
     var accountId by remember { mutableStateOf(existing?.accountId ?: accounts.firstOrNull()?.id) }
     var categoryId by remember { mutableStateOf(existing?.categoryId ?: categories.firstOrNull()?.id) }
+    // The currency the rule charges in. Empty means the account's own, so it follows the account
+    // picker until another is picked.
+    var chargeCurrency by remember { mutableStateOf(existing?.currency.orEmpty()) }
+    // The card surcharge on each posting. Blank means the card's foreign fee applies, if it has
+    // one; 0 means none.
+    var feePercentText by remember {
+        mutableStateOf(existing?.feePercent?.let { if (it == Math.floor(it)) it.toInt().toString() else it.toString() }.orEmpty())
+    }
+    var currencies by remember { mutableStateOf<List<ReferenceCurrency>>(emptyList()) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
+    val accountCurrency = accounts.firstOrNull { it.id == accountId }?.currency.orEmpty()
+    val currencyToSend = Fx.ruleCurrency(chargeCurrency, accountCurrency)
+
+    LaunchedEffect(Unit) {
+        currencies = runCatching { Api.get<List<ReferenceCurrency>>("/reference/currencies") }.getOrDefault(emptyList())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -379,6 +399,25 @@ private fun RecurringFormDialog(
                     optionLabel = { "${it.name} (${if (it.type == TransactionType.INCOME) "income" else "expense"})" },
                     onSelect = { categoryId = it.id },
                 )
+                FormField(
+                    "Charged in",
+                    chargeCurrency.ifEmpty { accountCurrency },
+                    {},
+                    supportingText = if (currencyToSend != null) {
+                        "Converted to $accountCurrency at each posting date's rate."
+                    } else {
+                        null
+                    },
+                    trailingIcon = {
+                        TextButton(onClick = { showCurrencyPicker = true }) { Text("Change") }
+                    },
+                )
+                MoneyField(
+                    "Card fee (optional, %)",
+                    feePercentText,
+                    { feePercentText = it },
+                    supportingText = "Blank uses the card's foreign fee, if it has one. 0 for none.",
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -402,9 +441,12 @@ private fun RecurringFormDialog(
                                         startDate = startDate.apiDateOnly(),
                                         endDate = null,
                                         ownerUserId = if (defaultPrivate) userId else null,
+                                        currency = currencyToSend,
+                                        feePercent = Fx.ruleFeePercent(feePercentText),
                                     ),
                                 )
                             } else {
+                                val (currencyField, feeField) = ruleFx(currencyToSend, Fx.ruleFeePercent(feePercentText))
                                 Api.put<RecurringTransactionUpdate, RecurringTransactionResponse>(
                                     "/cashflow/recurring/${existing.id}",
                                     RecurringTransactionUpdate(
@@ -414,6 +456,8 @@ private fun RecurringFormDialog(
                                         description = description,
                                         frequency = frequency,
                                         startDate = startDate.apiDateOnly(),
+                                        currency = currencyField,
+                                        feePercent = feeField,
                                     ),
                                 )
                             }
@@ -430,4 +474,16 @@ private fun RecurringFormDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showCurrencyPicker) {
+        SearchablePickerDialog(
+            title = "Charged in",
+            options = currencies,
+            optionLabel = { "${it.code} — ${it.name}" },
+            optionKey = { it.code },
+            searchText = { "${it.code} ${it.name}" },
+            onSelect = { chargeCurrency = it.code },
+            onDismiss = { showCurrencyPicker = false },
+        )
+    }
 }

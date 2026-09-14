@@ -126,4 +126,17 @@ object Fx {
         val fee = cardForeignFeePercent ?: return null
         return if (fee.isFinite() && fee > 0) fee else null
     }
+
+    /**
+     * The currency a recurring rule's form sends: the picked code when it is foreign to the
+     * account, null for the account's own — whether the picker was left alone ("") or the
+     * account's currency was picked explicitly. Ported from `ruleFxFields` in
+     * `frontend/src/lib/fx.ts`; iOS's twin is in `Support/Fx.swift`.
+     */
+    fun ruleCurrency(picked: String, accountCurrency: String): String? =
+        if (isForeignCharge(picked.ifEmpty { null }, accountCurrency)) picked else null
+
+    /** A rule's fee field as sent: blank is null — the card's foreign fee applies — else the typed percentage, 0 included. */
+    fun ruleFeePercent(text: String): Double? =
+        text.trim().takeIf { it.isNotEmpty() }?.let { CalculatorInput.evaluateArithmeticExpression(it) }
 }
