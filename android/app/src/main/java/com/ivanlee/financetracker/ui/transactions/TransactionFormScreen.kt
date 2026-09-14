@@ -37,8 +37,10 @@ import com.ivanlee.financetracker.data.model.CardResponse
 import com.ivanlee.financetracker.data.model.CardStatusResponse
 import com.ivanlee.financetracker.data.model.Counterparty
 import com.ivanlee.financetracker.data.model.CounterpartyCreate
+import com.ivanlee.financetracker.data.model.ReferenceCurrency
 import com.ivanlee.financetracker.data.model.ReferenceMcc
 import com.ivanlee.financetracker.logic.Cards
+import com.ivanlee.financetracker.logic.Fx
 import com.ivanlee.financetracker.logic.CalculatorInput
 import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
@@ -107,6 +109,16 @@ fun TransactionFormScreen(
     var showCardCategoryPicker by remember { mutableStateOf(false) }
     var mccs by remember { mutableStateOf<List<ReferenceMcc>>(emptyList()) }
     var showMccPicker by remember { mutableStateOf(false) }
+    // The currency the merchant billed in. Starts as the selected account's own — a charge is
+    // in the account's currency unless the user says otherwise.
+    var chargeCurrency by remember { mutableStateOf("") }
+    // What the account was actually charged, in its own currency. Blank means "I don't know it",
+    // which is the normal case: the backend then pulls the spot rate for the date.
+    var amountChargedText by remember { mutableStateOf("") }
+    // A surcharge the card adds on top, as a percentage. Blank means none.
+    var feePercentText by remember { mutableStateOf("") }
+    var currencies by remember { mutableStateOf<List<ReferenceCurrency>>(emptyList()) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
     // Part of this bill is one or more other people's. The amount above stays the full sum
     // that leaves the account — this only records whose the rest was.
     var counterparties by remember { mutableStateOf<List<Counterparty>>(emptyList()) }
@@ -140,10 +152,18 @@ fun TransactionFormScreen(
                             .getOrDefault(emptyList())
                     } else emptyList()
                 }
+                // Same treatment as the MCC catalogue beside it: joined to this block so the
+                // picker is reachable as soon as the form is, and carrying its own catch so a
+                // failed catalogue leaves an empty picker rather than taking the form down.
+                val cur = async {
+                    runCatching { Api.get<List<ReferenceCurrency>>("/reference/currencies") }
+                        .getOrDefault(emptyList())
+                }
                 accounts = a.await()
                 categories = c.await()
                 counterparties = p.await()
                 mccs = m.await()
+                currencies = cur.await()
             }
             if (transactionId != null) {
                 // Transactions are only listed per household — no single-transaction GET.
@@ -160,6 +180,22 @@ fun TransactionFormScreen(
                 splitRows = txn.splits.map { SplitFormRow(it.counterpartyId, it.amount.toString()) }
                 mcc = txn.mcc.orEmpty()
                 cardCategoryId = txn.cardCategoryId
+                val openingAccountCurrency = accounts.firstOrNull { it.id == txn.accountId }?.currency
+                chargeCurrency = txn.currency ?: openingAccountCurrency.orEmpty()
+                // Recovered from the two figures the row already stores rather than left blank:
+                // the backend re-derives the rate whenever an edit carries an amount or a date,
+                // and this form always sends both, so dropping it would re-price the row at the
+                // mid-market close and throw away the rate the user's own statement gave.
+                val storedRate = txn.exchangeRate
+                amountChargedText =
+                    if (storedRate != null && Fx.isForeignCharge(txn.currency, openingAccountCurrency)) {
+                        // Same `toString()` idiom the amount field above uses, so the two
+                        // money fields on this form read back the same way.
+                        (Math.round(txn.amount * storedRate * 100) / 100.0).toString()
+                    } else ""
+                feePercentText = txn.feePercent?.let {
+                    if (it == Math.floor(it)) it.toInt().toString() else it.toString()
+                }.orEmpty()
             } else {
                 accountId = accounts.firstOrNull { it.id == sessionVm.user?.defaultAccountId }?.id
                     ?: accounts.firstOrNull { it.id == h.defaultFundingAccountId }?.id
@@ -178,8 +214,20 @@ fun TransactionFormScreen(
     }
 
     val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
-    val selectedCurrency = accounts.firstOrNull { it.id == accountId }?.currency
-        ?: sessionVm.activeHousehold?.baseCurrency
+    val accountCurrency = accounts.firstOrNull { it.id == accountId }?.currency
+    val selectedCurrency = accountCurrency ?: sessionVm.activeHousehold?.baseCurrency
+    val isForeignCharge = Fx.isForeignCharge(chargeCurrency, accountCurrency)
+    // Sent only when it means something: the user typed it *and* the charge is in another
+    // currency. A figure in the account's own currency would just restate the amount, and a
+    // stale one would define a bogus rate.
+    val amountCharged =
+        if (isForeignCharge) CalculatorInput.evaluateArithmeticExpression(amountChargedText) else null
+    val feePercent = CalculatorInput.evaluateArithmeticExpression(feePercentText)
+    // The purchase as the account sees it, for the fee hint: the charged amount when the user
+    // gave one, the raw amount when no conversion is involved — and null for a foreign charge
+    // with neither, where only the server knows the rate and guessing would show a fee that is
+    // not the fee.
+    val amountInAccountCurrency = amountCharged ?: if (isForeignCharge) null else amount
 
     // Only rows with a person picked count as an entry — a still-blank "+ Add person" row
     // must not itself make the split invalid.
@@ -235,6 +283,11 @@ fun TransactionFormScreen(
                             mcc = mcc,
                             // Null clears the tag; the factory sends JsonNull for it.
                             cardCategoryId = cardCategoryId,
+                            currency = chargeCurrency.ifEmpty { null },
+                            amountCharged = amountCharged,
+                            // 0 rather than null for "no fee": null omits the key, which the
+                            // API reads as "preserve", leaving no way to remove a surcharge.
+                            feePercent = feePercent ?: 0.0,
                         ),
                     )
                 } else {
@@ -254,6 +307,9 @@ fun TransactionFormScreen(
                             // Blank goes as-is; the API reads "" as "not given".
                             mcc = mcc,
                             cardCategoryId = cardCategoryId,
+                            currency = chargeCurrency.ifEmpty { null },
+                            amountCharged = amountCharged,
+                            feePercent = feePercent,
                         ),
                     )
                 }
@@ -477,6 +533,61 @@ fun TransactionFormScreen(
                 }
             }
 
+            // The currency the merchant billed in, and — only when that is not the account's
+            // own — what the account was actually charged. The charged amount is optional and
+            // the form works without it: left blank, the backend pulls the spot rate for the
+            // date. Given, it is the better answer, because the card's spread is inside it.
+            SectionCard {
+                FormField(
+                    "Charged in",
+                    chargeCurrency.ifEmpty { accountCurrency.orEmpty() },
+                    {},
+                    supportingText = "The currency the merchant billed you in.",
+                    trailingIcon = {
+                        TextButton(onClick = { showCurrencyPicker = true }) { Text("Change") }
+                    },
+                )
+                if (isForeignCharge) {
+                    val rateHint = Fx.impliedRateLabel(
+                        amount,
+                        CalculatorInput.evaluateArithmeticExpression(amountChargedText),
+                        chargeCurrency,
+                        accountCurrency.orEmpty(),
+                    )
+                    MoneyField(
+                        "Charged to account (optional)",
+                        amountChargedText,
+                        { amountChargedText = it },
+                        currencyCode = accountCurrency,
+                        supportingText = if (rateHint.isEmpty()) {
+                            "Leave blank to convert at the $chargeCurrency rate for this date."
+                        } else {
+                            "$rateHint — the rate your statement implies, spread included."
+                        },
+                    )
+                }
+            }
+
+            // A surcharge the card adds on top. Deliberately not inside the foreign-charge
+            // section above, despite usually appearing with one: a card can surcharge a
+            // domestic transaction too, and hiding the field behind a currency mismatch would
+            // make those unrecordable. The money posts as its own row under "Card Fees", so
+            // the amount above keeps matching the receipt.
+            SectionCard {
+                val fee = Fx.feeAmount(amountInAccountCurrency, feePercent)
+                MoneyField(
+                    "Card fee (optional, %)",
+                    feePercentText,
+                    { feePercentText = it },
+                    supportingText = if (fee == null) {
+                        "Some cards add a percentage on top — a foreign transaction fee, a surcharge."
+                    } else {
+                        "Posts a separate ${fee.currency(accountCurrency ?: "")} row under " +
+                            "Card Fees, so this purchase keeps the amount on your receipt."
+                    },
+                )
+            }
+
             // Only when the selected account is actually a card. The headroom sits in
             // the row because this is the one moment the number can still change the
             // decision — a meter you have to go and look at will not stop anyone
@@ -537,6 +648,16 @@ fun TransactionFormScreen(
         if (loaded?.card?.id != card?.id) {
             cardCategoryId = existing?.cardCategoryId.takeIf { existing?.accountId == account }
         }
+        // The currency follows the account for the same reason it defaults to it, and a charged
+        // amount named in the account you just left means nothing in the one you landed on.
+        // A row being edited keeps what it was actually charged in.
+        val moved = accounts.firstOrNull { it.id == account }?.currency
+        if (moved != null && existing?.accountId != account) {
+            chargeCurrency = moved
+            amountChargedText = ""
+        } else if (chargeCurrency.isEmpty() && moved != null) {
+            chargeCurrency = moved
+        }
         card = loaded?.card
         cardHeadroom = loaded?.headroom ?: emptyMap()
     }
@@ -555,6 +676,18 @@ fun TransactionFormScreen(
                 onDismiss = { showCardCategoryPicker = false },
             )
         }
+    }
+
+    if (showCurrencyPicker) {
+        SearchablePickerDialog(
+            title = "Charged in",
+            options = currencies,
+            optionLabel = { "${it.code} — ${it.name}" },
+            optionKey = { it.code },
+            searchText = { "${it.code} ${it.name}" },
+            onSelect = { chargeCurrency = it.code },
+            onDismiss = { showCurrencyPicker = false },
+        )
     }
 
     if (showMccPicker) {

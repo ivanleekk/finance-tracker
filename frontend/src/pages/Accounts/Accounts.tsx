@@ -11,7 +11,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
-import { summarizeAccounts, cashChartAccountsOf, latestBalanceHome } from "../../lib/networth";
+import { summarizeAccounts, cashChartAccountsOf, clusterByInstitution, latestBalanceHome } from "../../lib/networth";
 import { counterpartyTotals } from "../../lib/reimbursements";
 import { AccountKind, LiquidityStatus } from "../../types/types";
 import type { AccountsLoaderData } from "./accounts.loader";
@@ -432,7 +432,24 @@ export default function Accounts() {
                             </div>
                             <Card className="overflow-hidden">
                                 <CardContent className="p-0">
-                                    {group.accounts.map(acc => {
+                                    {/* Accounts held at the same bank read as one — "DBS" over
+                                        "DBS SGD" and "DBS USD". A subheading rather than a merge:
+                                        each account keeps its own row, currency and balance,
+                                        because each really is its own account. */}
+                                    {clusterByInstitution(group.accounts).map(cluster => (
+                                      <div key={cluster.institution ?? cluster.accounts[0].id}>
+                                        {cluster.institution && (
+                                            <div className="flex items-baseline justify-between gap-2 px-4 pt-3 pb-1 bg-base-50/60 dark:bg-base-900/30 border-b border-base-100 dark:border-base-800/70">
+                                                <span className="text-[11px] font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">{cluster.institution}</span>
+                                                <span className="font-mono text-[11px] text-base-500 dark:text-base-400">
+                                                    {formatCurrency(cluster.accounts.reduce((sum, a) => {
+                                                        const home = getCurrentBalanceDetails(a.history).balanceHome;
+                                                        return sum + (a.kind === AccountKind.Liability ? -home : home);
+                                                    }, 0))}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {cluster.accounts.map(acc => {
                                         const { balance, balanceHome } = getCurrentBalanceDetails(acc.history);
                                         const isLiability = acc.kind === AccountKind.Liability;
                                         const liquidityMeta = LIQUIDITY_META[acc.liquidity];
@@ -483,7 +500,9 @@ export default function Accounts() {
                                                 </div>
                                             </div>
                                         );
-                                    })}
+                                        })}
+                                      </div>
+                                    ))}
                                 </CardContent>
                             </Card>
                         </div>
@@ -529,6 +548,12 @@ export default function Accounts() {
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900 dark:text-base-50">Account Name</label>
                                         <Input name="name" defaultValue={editAccount.name} required />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                            Institution <span className="font-normal text-base-500">— optional</span>
+                                        </label>
+                                        <Input name="institution" defaultValue={editAccount.institution ?? ""} placeholder="e.g. DBS" />
                                     </div>
 
                                     {editAccount.kind === AccountKind.Liability && (

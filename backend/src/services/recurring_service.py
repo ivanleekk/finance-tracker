@@ -14,6 +14,7 @@ pointer, and a second run in the same day posts nothing.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import List, Optional
@@ -23,7 +24,10 @@ from sqlalchemy.orm import Session
 
 from src import models
 from src.services.date_utils import add_months
+from src.services.market_data import ExchangeRateUnavailable
 from src.services.transaction_service import create_transaction
+
+logger = logging.getLogger(__name__)
 
 # A rule left alone for years shouldn't post thousands of rows in one request.
 # Anything beyond this is a sign of bad data, so we stop and leave next_due_date
@@ -195,31 +199,20 @@ def materialize_due(
                 rule.is_active = False
                 break
 
-            create_transaction(
-                db,
-                account=account,
-                category=category,
-                date=datetime.combine(due, time.min).replace(tzinfo=timezone.utc),
-                amount=Decimal(str(rule.amount)),
-                currency=rule.currency,
-                description=rule.description or f"Recurring: {category.name}",
-                recurring_transaction_id=rule.id,
-                # Whatever the rule records about the payment travels onto every
-                # row it posts — otherwise the fields would have to be re-entered
-                # by hand on each occurrence, which is the work a rule exists to
-                # avoid.
-                mcc=rule.mcc,
-                card_category_id=rule.card_category_id,
-                # The rule's standing split, replayed into this occurrence. A
-                # transaction's split lives in the journal entry it posts, so
-                # each posting gets its own entry carving out the same shares —
-                # which is what puts them on the counterparty's receivable
-                # month after month.
-                splits=[
-                    (split.counterparty, Decimal(str(split.amount)))
-                    for split in rule.splits
-                ],
-            )
+            try:
+                _post_occurrence(db, rule, account, category, due)
+            except ExchangeRateUnavailable as exc:
+                # A rule priced in a currency we cannot get a rate for today is
+                # skipped, not failed and not deactivated. `next_due_date` stays
+                # where it is, so tomorrow's run picks the occurrence up once the
+                # rate is available — and, crucially, one household's missing
+                # rate does not abort the nightly job for every household after
+                # it. The alternative to skipping is writing the row at a rate we
+                # made up, which is the whole thing strict mode exists to stop.
+                logger.warning(
+                    "Skipping recurring rule %s due %s: %s", rule.id, due, exc
+                )
+                break
             posted += 1
 
             rule.last_posted_date = due
@@ -230,6 +223,42 @@ def materialize_due(
                 break
 
     return posted
+
+
+def _post_occurrence(
+    db: Session,
+    rule: models.RecurringTransaction,
+    account: models.FinancialAccount,
+    category: models.Category,
+    due: date,
+) -> models.Transaction:
+    """One occurrence of a rule, posted through the shared transaction service."""
+    return create_transaction(
+        db,
+        account=account,
+        category=category,
+        date=datetime.combine(due, time.min).replace(tzinfo=timezone.utc),
+        amount=Decimal(str(rule.amount)),
+        currency=rule.currency,
+        description=rule.description or f"Recurring: {category.name}",
+        recurring_transaction_id=rule.id,
+        # Whatever the rule records about the payment travels onto every
+        # row it posts — otherwise the fields would have to be re-entered
+        # by hand on each occurrence, which is the work a rule exists to
+        # avoid.
+        mcc=rule.mcc,
+        card_category_id=rule.card_category_id,
+        fee_percent=rule.fee_percent,
+        # The rule's standing split, replayed into this occurrence. A
+        # transaction's split lives in the journal entry it posts, so
+        # each posting gets its own entry carving out the same shares —
+        # which is what puts them on the counterparty's receivable
+        # month after month.
+        splits=[
+            (split.counterparty, Decimal(str(split.amount)))
+            for split in rule.splits
+        ],
+    )
 
 
 def materialize_due_all_households(db: Session, as_of: Optional[date] = None) -> int:

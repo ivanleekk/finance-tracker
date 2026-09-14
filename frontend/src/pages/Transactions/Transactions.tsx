@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
+import { isForeignCharge } from "../../lib/fx";
+import { parseMoney } from "../../lib/reimbursements";
 import { useLoaderData, useNavigation, useRevalidator, useFetcher } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Badge } from "../../components/ui/Badge"
@@ -151,8 +153,18 @@ export default function Transactions() {
         ? user.default_account_id
         : "";
 
-    // Form state for normal transactions
-    const blankForm = () => emptyTransactionForm(defaultAccountId(), activeHousehold?.base_currency || "USD");
+    // Form state for normal transactions. The currency starts as the preselected
+    // account's own, not the household's base: a charge is in the currency of
+    // the account it hit unless the user says otherwise, and defaulting to base
+    // made a USD account in an SGD household convert a figure needlessly.
+    const blankForm = () => {
+        const accountId = defaultAccountId();
+        const account = accounts.find(a => a.id === accountId);
+        return emptyTransactionForm(
+            accountId,
+            account?.currency || activeHousehold?.base_currency || "USD",
+        );
+    };
     const [formData, setFormData] = useState(blankForm);
     const [isSplitting, setIsSplitting] = useState(false);
 
@@ -162,7 +174,8 @@ export default function Transactions() {
         toAccountId: "",
         amount: "",
         date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-        description: ""
+        description: "",
+        amountReceived: ""
     });
 
     if (!activeHousehold) {
@@ -239,6 +252,9 @@ export default function Transactions() {
         }
     };
 
+    const accountCurrencyOf = (accountId: string) =>
+        accounts.find(a => a.id === accountId)?.currency || "";
+
     const handleLogTransaction = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
@@ -258,6 +274,15 @@ export default function Transactions() {
                 date: formData.date,
                 amount: parseFloat(formData.amount),
                 currency: formData.currency,
+                // Only sent when the user actually knows it. Given, it defines
+                // the rate — spread included — and the backend looks nothing
+                // up; omitted, the backend pulls the spot rate for this date.
+                ...(formData.amountCharged.trim() && isForeignCharge(formData.currency, accountCurrencyOf(formData.accountId))
+                    ? { amount_charged: parseFloat(formData.amountCharged) }
+                    : {}),
+                // Omitted when blank, so a transaction with no surcharge sends
+                // nothing rather than an explicit zero.
+                ...(formData.feePercent.trim() ? { fee_percent: parseFloat(formData.feePercent) } : {}),
                 description: formData.description,
                 // Blank is sent as-is; the API treats "" as "not given" rather than
                 // rejecting it, so there is nothing to convert here.
@@ -288,7 +313,12 @@ export default function Transactions() {
                 to_account_id: transferData.toAccountId,
                 amount: parseFloat(transferData.amount),
                 date: transferData.date,
-                description: transferData.description
+                description: transferData.description,
+                // Only sent when typed; the field is hidden for same-currency
+                // transfers, where the backend refuses one.
+                ...(parseMoney(transferData.amountReceived) !== null
+                    ? { amount_received: parseMoney(transferData.amountReceived) }
+                    : {}),
             });
             setIsLogModalOpen(false);
             setTransferData({
@@ -296,12 +326,16 @@ export default function Transactions() {
                 toAccountId: "",
                 amount: "",
                 date: new Date().toISOString().split('T')[0] + 'T12:00:00Z',
-                description: ""
+                description: "",
+                amountReceived: ""
             });
             revalidator.revalidate();
         } catch (error) {
             console.error("Failed to perform transfer", error);
-            alert("Failed to perform transfer. Please check all fields.");
+            // A missing exchange rate is a 422 that names the pair and date;
+            // show it rather than a generic "check all fields".
+            const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+            alert(typeof detail === "string" ? detail : "Failed to perform transfer. Please check all fields.");
         } finally {
             setIsSubmitting(false);
         }

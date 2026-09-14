@@ -85,6 +85,9 @@ export function emptyNewAccount(defaultPrivate: boolean) {
         kind: AccountKind.Asset as AccountKind,
         balance: "",
         currency: "USD",
+        // Who holds it. Blank is the normal case — a grouping label only earns
+        // its heading once a second account at the same bank exists.
+        institution: "",
         date: new Date().toISOString().split("T")[0],
         isPrivate: defaultPrivate,
         // Optional loan terms — blank means "no terms", i.e. the old flat-balance

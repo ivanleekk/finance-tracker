@@ -13,6 +13,29 @@ from src.models import MarketPrice, ExchangeRate, Asset
 
 logger = logging.getLogger(__name__)
 
+
+class ExchangeRateUnavailable(RuntimeError):
+    """
+    No rate could be found for a pair on a date, and the caller cannot proceed
+    without one.
+
+    The alternative — the 1.0 this module used to fall back to — is a nonsense
+    number that reads as a real one. A snapshot survives it, because the engine
+    replays; a transaction does not, because the rate is frozen into the balance
+    chain and into `amount_home_currency` at write time, and a JPY 12,000 dinner
+    silently becomes SGD 12,000 from that day forward with nothing saying so.
+    Callers that write money ask for `strict=True` and let this surface.
+    """
+
+    def __init__(self, base: str, target: str, on_date: date):
+        self.base = base
+        self.target = target
+        self.on_date = on_date
+        super().__init__(
+            f"No exchange rate available for {base}->{target} on {on_date}. "
+            "Supply an explicit rate, or the amount actually charged to the account."
+        )
+
 def fetch_and_cache_market_prices(db: Session, tickers: List[str], target_date: date):
     """
     Fetches end-of-day closing prices for a list of tickers.
@@ -222,11 +245,16 @@ def fetch_and_cache_treasury_rates(db: Session, ticker: str = "^IRX", days: int 
         db.rollback()
         logger.error(f"Error fetching treasury rates: {e}")
 
-def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_date: date):
+def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_date: date, *, strict: bool = False):
     """
     Fetches exchange rate between base and target currency. 
     If not in cache, fetches the entire YEAR of data to minimize future yfinance calls.
     Ticker format: {BASE}{TARGET}=X (e.g. EURUSD=X)
+
+    With `strict=True`, a pair that cannot be resolved raises
+    `ExchangeRateUnavailable` instead of falling back to 1.0. Anything that
+    freezes the rate into stored money — a transaction, a transfer — wants
+    strict; the snapshot and dividend engines, which recompute, do not.
     """
     base = base.upper()
     target = target.upper()
@@ -361,6 +389,9 @@ def fetch_and_cache_exchange_rates(db: Session, base: str, target: str, target_d
         logger.error(f"Error fetching yearly reverse exchange rate {ticker_rev}: {e}")
         db.rollback()
         
+    if strict:
+        raise ExchangeRateUnavailable(base, target, target_date)
+
     print(f"DEBUG: Exchange rate fallback for {base}->{target} on {target_date} is 1.0")
     return 1.0 # Last resort fallback
 

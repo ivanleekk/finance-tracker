@@ -28,6 +28,58 @@ func selectableAccounts(_ accounts: [AccountResponse]) -> [AccountResponse] {
     accounts.filter { $0.isArchived != true }
 }
 
+/// One row of an account list: a lone account, or several at the same institution.
+struct AccountCluster: Identifiable {
+    /// The shared institution, or nil for an account that stands on its own.
+    let institution: String?
+    var accounts: [AccountResponse]
+
+    var id: String { institution ?? accounts.first?.id ?? "" }
+}
+
+/// Gather the accounts a household holds at one bank under a single heading —
+/// "DBS" over "DBS SGD" and "DBS USD".
+///
+/// This is what the app offers instead of a multi-currency account, so the rules
+/// are about reading rather than about money: nothing here changes a balance, a
+/// total, or which account anything is charged to.
+///
+/// Two of them are judgements the three clients share. A **lone** labelled
+/// account gets no heading, because a heading over one row says nothing and adds
+/// a level of nesting to every list. And accounts are gathered **wherever they
+/// appear**, not only when adjacent, since the list they come from is ordered by
+/// something else entirely.
+///
+/// Swift port of the web's `clusterByInstitution` in `lib/networth.ts`.
+func clusterByInstitution(_ accounts: [AccountResponse]) -> [AccountCluster] {
+    var counts: [String: Int] = [:]
+    for account in accounts {
+        if let label = account.institution, !label.isEmpty {
+            counts[label, default: 0] += 1
+        }
+    }
+
+    var clusters: [AccountCluster] = []
+    var indexByInstitution: [String: Int] = [:]
+    for account in accounts {
+        // A label shared with nobody is not a group, so the account keeps its
+        // own row rather than becoming a heading over itself.
+        guard let label = account.institution, !label.isEmpty, (counts[label] ?? 0) >= 2 else {
+            clusters.append(AccountCluster(institution: nil, accounts: [account]))
+            continue
+        }
+        if let existing = indexByInstitution[label] {
+            clusters[existing].accounts.append(account)
+            continue
+        }
+        // The cluster takes the position of its first member, so gathering an
+        // account from further down the list never reorders the list around it.
+        indexByInstitution[label] = clusters.count
+        clusters.append(AccountCluster(institution: label, accounts: [account]))
+    }
+    return clusters
+}
+
 struct NetWorthAccountInput {
     let kind: String?
     let liquidity: LiquidityStatus

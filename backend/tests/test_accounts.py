@@ -602,3 +602,67 @@ class TestArchiving:
             f"/accounts/balances/household/{test_household.id}", headers=auth_headers
         ).json()
         assert any(b["account_id"] == account["id"] for b in balances), "history is untouched"
+
+
+# --- The institution grouping label ---
+#
+# The app's answer to "one account, several currencies": two accounts under one
+# heading. The label is free text and nothing is derived from it, so the only
+# things worth pinning are the two coercions that decide whether two accounts
+# actually land in the same group.
+
+
+def _account_body(household, **overrides):
+    return {
+        "household_id": str(household.id),
+        "name": "DBS SGD",
+        "liquidity": "liquid",
+        "tax_status": "taxable",
+        "currency": "SGD",
+        **overrides,
+    }
+
+
+def test_two_accounts_at_one_bank_share_a_grouping_label(client, auth_headers, test_household):
+    sgd = client.post("/accounts/", headers=auth_headers, json=_account_body(test_household, institution="DBS"))
+    usd = client.post(
+        "/accounts/",
+        headers=auth_headers,
+        json=_account_body(test_household, name="DBS USD", currency="USD", institution="DBS"),
+    )
+    assert sgd.status_code == 201, sgd.text
+    assert usd.status_code == 201, usd.text
+    assert sgd.json()["institution"] == usd.json()["institution"] == "DBS"
+    # Each keeps its own currency: the grouping is a heading, not a merge.
+    assert {sgd.json()["currency"], usd.json()["currency"]} == {"SGD", "USD"}
+
+
+def test_a_label_is_trimmed_so_one_bank_cannot_become_two(client, auth_headers, test_household):
+    response = client.post("/accounts/", headers=auth_headers, json=_account_body(test_household, institution="  DBS  "))
+    assert response.status_code == 201, response.text
+    assert response.json()["institution"] == "DBS"
+
+
+def test_a_blank_label_is_no_label_rather_than_a_group_of_its_own(client, auth_headers, test_household):
+    blank = client.post("/accounts/", headers=auth_headers, json=_account_body(test_household, institution="   "))
+    omitted = client.post(
+        "/accounts/", headers=auth_headers, json=_account_body(test_household, name="Cash")
+    )
+    assert blank.status_code == 201, blank.text
+    assert blank.json()["institution"] is None
+    assert omitted.json()["institution"] is None
+
+
+def test_clearing_a_label_is_a_different_request_from_not_mentioning_it(
+    client, auth_headers, test_household
+):
+    created = client.post("/accounts/", headers=auth_headers, json=_account_body(test_household, institution="DBS"))
+    account_id = created.json()["id"]
+
+    # Renaming says nothing about the grouping, so the grouping survives —
+    # `update_account` uses exclude_unset.
+    renamed = client.put(f"/accounts/{account_id}", headers=auth_headers, json={"name": "DBS Savings"})
+    assert renamed.json()["institution"] == "DBS"
+
+    cleared = client.put(f"/accounts/{account_id}", headers=auth_headers, json={"institution": ""})
+    assert cleared.json()["institution"] is None

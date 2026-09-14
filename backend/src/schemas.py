@@ -59,6 +59,35 @@ MerchantCategoryCode = Annotated[
     BeforeValidator(_blank_to_none),
 ]
 
+def _trimmed_or_none(value: object) -> object:
+    """Trim a name, and treat what is left of a blank one as "not given"."""
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return value
+
+
+# Who holds an account — a free-text grouping label, or nothing.
+#
+# Trimming is what makes it a *group* rather than a string: " DBS " and "DBS"
+# must land under one heading, or the feature quietly produces two banks with
+# the same name. Blank coercion is the same rule `MerchantCategoryCode` needs
+# and for the same reason — a cleared text field sends "" from all three
+# clients, and "I'm not grouping this one" must not be a 422.
+InstitutionName = Annotated[
+    Optional[Annotated[str, Field(max_length=120)]],
+    BeforeValidator(_trimmed_or_none),
+]
+
+# A card's surcharge on one purchase, as a percentage of it.
+#
+# Bounded rather than open: a foreign-transaction fee is 1-3%, and the worst
+# real-world surcharges are single digits, so 100 is already absurd and a
+# mistyped 300 is a typo rather than a fee. 0 is allowed and means the same as
+# absent — a fee of nothing is no fee, and rejecting it would make "I set it
+# back to zero" an error.
+FeePercent = Annotated[Optional[Decimal], Field(ge=0, le=100, allow_inf_nan=False)]
+
 # A password long enough to be meaningfully hashed. Empty/1-char passwords are
 # a red flag for automated account creation.
 Password = Annotated[str, Field(min_length=8, max_length=256)]
@@ -243,6 +272,10 @@ class AccountBase(AccountLoanTerms):
     tax_status: TaxTreatment
     kind: AccountKind = AccountKind.asset
     currency: str
+    # Who holds the account, for grouping "DBS SGD" and "DBS USD" under one
+    # heading. Blank and whitespace both land as None, so a cleared field is not
+    # a group of its own and " DBS " does not become a second bank.
+    institution: InstitutionName = None
     owner_user_id: Optional[uuid.UUID] = None
     # Earmarks the account to a sub-portfolio/goal (#252). The balance still counts
     # once towards net worth; this additionally counts it towards that goal.
@@ -261,6 +294,8 @@ class AccountUpdate(AccountLoanTerms):
     tax_status: Optional[TaxTreatment] = None
     kind: Optional[AccountKind] = None
     currency: Optional[str] = None
+    # Omit to preserve; send null or "" to clear the grouping label.
+    institution: InstitutionName = None
     owner_user_id: Optional[uuid.UUID] = None
     # Send an explicit null to un-earmark; omitting the key leaves the link alone
     # (update_account uses exclude_unset).
@@ -632,6 +667,10 @@ class TransactionBase(BaseModel):
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
     description: Optional[str] = None
+    # What the card added on top, as a percentage of this purchase. The money is
+    # posted as its own linked row under "Card Fees" rather than folded into the
+    # amount — see models.Transaction.fee_percent.
+    fee_percent: FeePercent = None
     # Optional, and recorded rather than evaluated — see models.Transaction.mcc.
     mcc: MerchantCategoryCode = None
     # Which of the card's own categories this counts towards. Null falls to the
@@ -661,6 +700,12 @@ class TransactionSplitRow(BaseModel):
 class TransactionCreate(TransactionBase):
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # What the account was actually charged, in the account's own currency —
+    # the figure on the statement. When given it *defines* the rate
+    # (`charged / amount`), so the card's spread is carried rather than
+    # replaced by a mid-market close, and no rate lookup happens at all. Not
+    # stored: `amount * exchange_rate` reproduces it exactly.
+    amount_charged: Optional[PositiveDecimal] = None
     # Part of this expense was one or more other people's. `amount` stays the
     # full sum that left the account — that really happened — while each
     # split's amount is carved off onto that counterparty's receivable, so
@@ -685,6 +730,9 @@ class TransactionUpdate(BaseModel):
     amount_home_currency: Optional[FiniteDecimal] = None
     currency: Optional[str] = None
     exchange_rate: Optional[PositiveFloat] = None
+    # See TransactionCreate.amount_charged. Sending it on an edit re-derives
+    # the rate from the new pair of figures.
+    amount_charged: Optional[PositiveDecimal] = None
     description: Optional[str] = None
     account_id: Optional[uuid.UUID] = None
     category_id: Optional[uuid.UUID] = None
@@ -698,12 +746,18 @@ class TransactionUpdate(BaseModel):
     mcc: MerchantCategoryCode = None
     # Same three-state rule: omit to preserve, send null to untag.
     card_category_id: Optional[uuid.UUID] = None
+    # Same again: omit to preserve the fee already recorded, send null or 0 to
+    # remove it. Changing it reprices the linked fee row.
+    fee_percent: FeePercent = None
 
 
 class TransactionResponse(TransactionBase):
     id: uuid.UUID
     account_id: uuid.UUID
     category_id: uuid.UUID
+    # Set on a fee row, naming the purchase that caused it, so a client can show
+    # the two together instead of as unrelated neighbours.
+    fee_for_transaction_id: Optional[uuid.UUID] = None
     # Populated from the ledger where the row was split. Empty means none of it
     # was somebody else's — including for everything logged before the ledger.
     splits: List[TransactionSplitRow] = []
@@ -739,6 +793,9 @@ class RecurringTransactionBase(BaseModel):
     # so recording them once on the rule is the difference between a rule that
     # describes a payment and one that only half-describes it.
     mcc: MerchantCategoryCode = None
+    # The card's surcharge on each posting — a foreign subscription's 3% does
+    # not change month to month, so the rule carries it like the two above.
+    fee_percent: FeePercent = None
     card_category_id: Optional[uuid.UUID] = None
 
 
@@ -766,6 +823,8 @@ class RecurringTransactionUpdate(BaseModel):
     # it. Editing a rule's amount must not silently discard a code the user
     # looked up once.
     mcc: MerchantCategoryCode = None
+    # Three-state like the two beside it: omit to preserve, null or 0 to remove.
+    fee_percent: FeePercent = None
     card_category_id: Optional[uuid.UUID] = None
     # Plain optional list, the same three states `TransactionUpdate.splits` uses:
     # omit to leave the recorded split alone, `[]` to clear it, a populated list
@@ -903,10 +962,16 @@ class PersonalSpendResponse(BaseModel):
 class TransferCreate(BaseModel):
     from_account_id: uuid.UUID
     to_account_id: uuid.UUID
+    # What left the source account, in its own currency.
     amount: PositiveDecimal
     date: datetime
+    # Must be the source account's currency if sent; `amount` is always in it.
     currency: Optional[str] = None
     description: Optional[str] = None
+    # What actually arrived, in the destination account's currency. Optional:
+    # without it the mid-market close decides. With it, the gap to the close is
+    # posted as an "FX Conversion" expense — see transaction_service.create_transfer.
+    amount_received: Optional[PositiveDecimal] = None
 
 
 # ----------------------------------------

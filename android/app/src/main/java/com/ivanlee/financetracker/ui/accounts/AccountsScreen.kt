@@ -33,6 +33,8 @@ import com.ivanlee.financetracker.state.ViewModeViewModel
 import com.ivanlee.financetracker.ui.components.EmptyState
 import com.ivanlee.financetracker.ui.components.MainScreenScaffold
 import com.ivanlee.financetracker.ui.components.SectionCard
+import com.ivanlee.financetracker.logic.clusterByInstitution
+import androidx.compose.foundation.layout.padding
 import com.ivanlee.financetracker.ui.dashboard.AccountRow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -147,17 +149,12 @@ fun AccountsScreen(
         grouped.forEach { (liquidity, group) ->
             item(key = liquidity.wire) {
                 SectionCard(title = liquidity.label) {
-                    group.forEachIndexed { index, account ->
-                        if (index > 0) HorizontalDivider()
-                        AccountRow(
-                            account = account,
-                            latestBalance = latestByAccount[account.id],
-                            onClick = { onOpenAccount(account.id) },
-                            baseCurrency = baseCurrency,
-                            // The section header above already names the bucket.
-                            showsLiquidity = false,
-                        )
-                    }
+                    ClusteredAccountRows(
+                        accounts = group,
+                        latestByAccount = latestByAccount,
+                        baseCurrency = baseCurrency,
+                        onOpenAccount = onOpenAccount,
+                    )
                 }
             }
         }
@@ -165,16 +162,12 @@ fun AccountsScreen(
         if (liabilities.isNotEmpty()) {
             item(key = "liabilities") {
                 SectionCard(title = "Loans & liabilities") {
-                    liabilities.forEachIndexed { index, account ->
-                        if (index > 0) HorizontalDivider()
-                        AccountRow(
-                            account = account,
-                            latestBalance = latestByAccount[account.id],
-                            onClick = { onOpenAccount(account.id) },
-                            baseCurrency = baseCurrency,
-                            showsLiquidity = false,
-                        )
-                    }
+                    ClusteredAccountRows(
+                        accounts = liabilities,
+                        latestByAccount = latestByAccount,
+                        baseCurrency = baseCurrency,
+                        onOpenAccount = onOpenAccount,
+                    )
                 }
             }
         }
@@ -184,16 +177,12 @@ fun AccountsScreen(
                 // No section total: these are closed, and a heading figure would
                 // invite reading them as a live bucket.
                 SectionCard(title = "Archived") {
-                    archived.forEachIndexed { index, account ->
-                        if (index > 0) HorizontalDivider()
-                        AccountRow(
-                            account = account,
-                            latestBalance = latestByAccount[account.id],
-                            onClick = { onOpenAccount(account.id) },
-                            baseCurrency = baseCurrency,
-                            showsLiquidity = false,
-                        )
-                    }
+                    ClusteredAccountRows(
+                        accounts = archived,
+                        latestByAccount = latestByAccount,
+                        baseCurrency = baseCurrency,
+                        onOpenAccount = onOpenAccount,
+                    )
                 }
             }
         }
@@ -258,5 +247,47 @@ fun EquityRow(row: LinkedEquityRow, currencyCode: String) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * The rows of one section, with the accounts held at the same bank gathered under a heading of
+ * their own — "DBS" over "DBS SGD" and "DBS USD".
+ *
+ * A subheading rather than a merge: each account keeps its own row, its own currency and its own
+ * balance, because each really is its own account. [clusterByInstitution] decides what earns a
+ * heading (never a lone account), so the same rule holds on web and iOS.
+ */
+@Composable
+private fun ClusteredAccountRows(
+    accounts: List<AccountResponse>,
+    latestByAccount: Map<String, BalanceResponse>,
+    baseCurrency: String?,
+    onOpenAccount: (String) -> Unit,
+) {
+    var first = true
+    clusterByInstitution(accounts).forEach { cluster ->
+        cluster.institution?.let { institution ->
+            if (!first) HorizontalDivider()
+            Text(
+                institution,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+            )
+            first = true
+        }
+        cluster.accounts.forEach { account ->
+            if (!first) HorizontalDivider()
+            first = false
+            AccountRow(
+                account = account,
+                latestBalance = latestByAccount[account.id],
+                onClick = { onOpenAccount(account.id) },
+                baseCurrency = baseCurrency,
+                // The section header above already names the bucket.
+                showsLiquidity = false,
+            )
+        }
     }
 }

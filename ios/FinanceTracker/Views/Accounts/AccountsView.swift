@@ -65,6 +65,31 @@ struct AccountsListView: View {
         }
     }
 
+    /// The rows of one section, with the accounts held at the same bank gathered
+    /// under a heading of their own — "DBS" over "DBS SGD" and "DBS USD".
+    ///
+    /// A subheading rather than a merge: each account keeps its own row, its own
+    /// currency and its own balance, because each really is its own account.
+    /// `clusterByInstitution` decides what earns a heading (never a lone
+    /// account), so the same rule holds on web and Android.
+    @ViewBuilder
+    private func clusteredRows(
+        _ accounts: [AccountResponse],
+        latestByAccount: [String: BalanceResponse]
+    ) -> some View {
+        ForEach(clusterByInstitution(accounts)) { cluster in
+            if let institution = cluster.institution {
+                Text(institution)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(cluster.accounts) { account in
+                accountLink(account, latestByAccount: latestByAccount)
+            }
+        }
+    }
+
     /// Properties a loan can be secured against, for the account form's picker.
     private var propertyAccounts: [AccountResponse] {
         visibleAccounts.filter { $0.liquidity == .illiquid && !$0.isLiability }
@@ -92,17 +117,13 @@ struct AccountsListView: View {
 
             ForEach(grouped, id: \.liquidity) { group in
                 Section(group.liquidity.label) {
-                    ForEach(group.accounts) { account in
-                        accountLink(account, latestByAccount: latestByAccount)
-                    }
+                    clusteredRows(group.accounts, latestByAccount: latestByAccount)
                 }
             }
 
             if !liabilities.isEmpty {
                 Section("Loans & liabilities") {
-                    ForEach(liabilities) { account in
-                        accountLink(account, latestByAccount: latestByAccount)
-                    }
+                    clusteredRows(liabilities, latestByAccount: latestByAccount)
                 }
             }
 
@@ -110,9 +131,7 @@ struct AccountsListView: View {
                 // No section total: these are closed, and a heading figure would
                 // invite reading them as a live bucket.
                 Section("Archived") {
-                    ForEach(archived) { account in
-                        accountLink(account, latestByAccount: latestByAccount)
-                    }
+                    clusteredRows(archived, latestByAccount: latestByAccount)
                 }
             }
         }
@@ -404,6 +423,9 @@ struct AccountFormView: View {
     @State private var taxStatus: TaxTreatment
     @State private var kind: AccountKind
     @State private var currency: String
+    /// Who holds it. Blank is the normal case — the label only earns a heading
+    /// once a second account at the same bank exists.
+    @State private var institution: String
     @State private var isPrivate: Bool
     /// On create, `isPrivate` is seeded from the user's "default new items private"
     /// preference in onAppear — SessionStore isn't reachable from init.
@@ -431,6 +453,7 @@ struct AccountFormView: View {
         self.existing = existing
         self.onSaved = onSaved
         _name = State(initialValue: existing?.name ?? "")
+        _institution = State(initialValue: existing?.institution ?? "")
         _liquidity = State(initialValue: existing?.liquidity ?? .liquid)
         _taxStatus = State(initialValue: existing.flatMap { TaxTreatment(rawValue: $0.taxStatus) } ?? .taxable)
         _kind = State(initialValue: existing?.kind.flatMap(AccountKind.init(rawValue:)) ?? .asset)
@@ -462,6 +485,9 @@ struct AccountFormView: View {
                     TextField("Currency (e.g. USD)", text: $currency)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                    TextField("Institution (optional)", text: $institution)
+                } footer: {
+                    Text("Accounts sharing an institution are listed together — how to hold one bank's SGD and USD balances side by side.")
                 }
 
                 Section {
@@ -535,7 +561,7 @@ struct AccountFormView: View {
                 }
             }
             .discardGuard(
-                fields: [name, liquidity, taxStatus, kind, currency, isPrivate, principalText,
+                fields: [name, liquidity, taxStatus, kind, currency, institution, isPrivate, principalText,
                          rateText, termMonthsText, paymentText, hasLoanStart, loanStartDate,
                          appreciationText, linkedAccountId],
                 // `onAppear` above fills in the household currency and the private-by-default
@@ -594,7 +620,8 @@ struct AccountFormView: View {
                         "/accounts/\(existing.id)",
                         body: AccountUpdate(
                             name: cleanName, liquidity: liquidity, taxStatus: taxStatus,
-                            kind: kind, currency: cleanCurrency, ownerUserId: owner,
+                            kind: kind, currency: cleanCurrency,
+                            institution: institution, ownerUserId: owner,
                             originalPrincipal: loanNumber(principalText),
                             interestRateAnnual: loanNumber(rateText),
                             loanTermMonths: loanInt(termMonthsText),
@@ -609,7 +636,8 @@ struct AccountFormView: View {
                         "/accounts",
                         body: AccountCreate(
                             householdId: household.id, name: cleanName, liquidity: liquidity,
-                            taxStatus: taxStatus, kind: kind, currency: cleanCurrency, ownerUserId: owner,
+                            taxStatus: taxStatus, kind: kind, currency: cleanCurrency,
+                            institution: institution, ownerUserId: owner,
                             originalPrincipal: loanNumber(principalText),
                             interestRateAnnual: loanNumber(rateText),
                             loanTermMonths: loanInt(termMonthsText),

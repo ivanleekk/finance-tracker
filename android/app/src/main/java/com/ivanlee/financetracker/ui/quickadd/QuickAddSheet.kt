@@ -54,6 +54,7 @@ import com.ivanlee.financetracker.data.model.TransactionCreate
 import com.ivanlee.financetracker.data.model.TransactionResponse
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.model.TransferCreate
+import com.ivanlee.financetracker.logic.Fx
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.data.net.apiDateOnly
 import com.ivanlee.financetracker.logic.currency
@@ -129,6 +130,8 @@ fun QuickAddSheet(
     }
     var fromAccountId by remember { mutableStateOf<String?>(null) }
     var toAccountId by remember { mutableStateOf<String?>(null) }
+    // What arrived, in the destination's currency. Blank means "convert at the close".
+    var amountReceivedText by remember { mutableStateOf("") }
 
     var subPortfolioId by remember { mutableStateOf<String?>(null) }
     var assetId by remember { mutableStateOf<String?>(null) }
@@ -150,6 +153,13 @@ fun QuickAddSheet(
     val fundingCurrency = accounts.firstOrNull { it.id == accountId }?.currency ?: baseCurrency
 
     val amount = CalculatorInput.evaluateArithmeticExpression(amountText)
+    val transferFromCurrency = accounts.firstOrNull { it.id == fromAccountId }?.currency.orEmpty()
+    val transferToCurrency = accounts.firstOrNull { it.id == toAccountId }?.currency.orEmpty()
+    val isCrossCurrencyTransfer = Fx.isForeignCharge(transferFromCurrency, transferToCurrency)
+    // Only sent for a cross-currency pair: the backend refuses one otherwise, and the text
+    // survives switching the accounts back to a same-currency pair.
+    val amountReceived = CalculatorInput.evaluateArithmeticExpression(amountReceivedText)
+        ?.takeIf { isCrossCurrencyTransfer && it > 0 }
     val quantity = CalculatorInput.evaluateArithmeticExpression(quantityText)
     val price = CalculatorInput.evaluateArithmeticExpression(priceText)
 
@@ -240,6 +250,7 @@ fun QuickAddSheet(
                             amount = amount!!,
                             date = date,
                             description = description.ifBlank { null },
+                            amountReceived = amountReceived,
                         ),
                     )
 
@@ -423,6 +434,21 @@ fun QuickAddSheet(
                     "Amount", amountText, { amountText = it },
                     currencyCode = accounts.firstOrNull { it.id == fromAccountId }?.currency ?: baseCurrency,
                 )
+                if (isCrossCurrencyTransfer) {
+                    MoneyField(
+                        "Received (optional)", amountReceivedText, { amountReceivedText = it },
+                        currencyCode = transferToCurrency,
+                    )
+                    val hint = Fx.impliedRateLabel(amount, amountReceived, transferFromCurrency, transferToCurrency)
+                    Text(
+                        if (hint.isEmpty()) {
+                            "Leave blank to convert at the $transferFromCurrency to $transferToCurrency rate for this date."
+                        } else {
+                            "Rate $hint. Anything lost against the day's close is recorded as FX Conversion."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 DateField("Date", date) { date = it }
                 FormField("Description (optional)", description, { description = it })
             }

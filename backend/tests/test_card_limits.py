@@ -535,6 +535,30 @@ class TestRollupRules:
         [status] = card_service.card_limit_statuses(db_session, card, on=date(2026, 9, 5))
         assert status.spent == Decimal("300.00"), "the card was charged 300, not 100"
 
+    def test_a_cards_surcharge_moves_no_meter(self, db_session, card_account, dining):
+        """
+        A foreign-transaction fee is money genuinely gone, so it reaches the
+        balance and the budgets — but issuers leave fees out of both bonus caps
+        and minimum spends. With stacked limits, counting it would draw down
+        every limit the purchase's category counts towards.
+        """
+        from src.services.transaction_service import sync_fee_transaction
+
+        card = _card(db_session, card_account, day=18)
+        minimum = _limit(db_session, card, "Minimum", 800, direction=models.LimitDirection.floor)
+        cap = _limit(db_session, card, "Bonus cap", 1000)
+        travel = _category(db_session, card, "Travel", limit=[minimum, cap], is_default=True)
+        purchase = _spend(db_session, card_account, dining, 200, date(2026, 9, 1), card_category=travel)
+        purchase.fee_percent = Decimal("3")
+        fee = sync_fee_transaction(db_session, purchase, card_account)
+        db_session.commit()
+        assert fee is not None and fee.amount == Decimal("6.00")
+
+        db_session.refresh(card)
+        by_name = {s.limit.name: s for s in card_service.card_limit_statuses(db_session, card, on=date(2026, 9, 5))}
+        assert by_name["Minimum"].spent == Decimal("200.00"), "the fee does not count towards the minimum"
+        assert by_name["Bonus cap"].spent == Decimal("200.00"), "nor towards the cap"
+
 
 class TestBreakdown:
     def test_a_card_with_no_limits_still_reports_where_the_money_went(self, db_session, card_account, dining):

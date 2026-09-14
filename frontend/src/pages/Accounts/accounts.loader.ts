@@ -123,6 +123,9 @@ export async function action({ request }: ActionFunctionArgs) {
                 tax_status,
                 kind,
                 currency,
+                // Blank is fine and normal: the API trims it and reads an empty
+                // string as "not grouped", so nothing here has to special-case it.
+                institution: formData.get("institution") as string,
                 owner_user_id: isPrivate && currentUserId ? currentUserId : null,
                 ...loanTermsFromForm(formData),
             }),
@@ -158,6 +161,10 @@ export async function action({ request }: ActionFunctionArgs) {
             },
             body: JSON.stringify({
                 name,
+                // Always sent from this form, so clearing the field clears the
+                // grouping — the API reads "" as null. A caller that omits the
+                // key preserves it instead.
+                institution: formData.get("institution") as string,
                 ...loanTermsFromForm(formData),
             }),
         });

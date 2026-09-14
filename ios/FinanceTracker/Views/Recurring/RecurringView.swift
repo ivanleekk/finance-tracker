@@ -668,6 +668,7 @@ struct RecurringFormView: View {
                 cardCategoryId = ""
                 Task { await loadCard(for: newValue) }
             }
+            .calculatorKeyboard()
             .navigationTitle(existing == nil ? "New Recurring" : "Edit Recurring")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

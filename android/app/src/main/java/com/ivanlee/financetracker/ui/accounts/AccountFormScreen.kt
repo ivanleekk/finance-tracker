@@ -67,6 +67,9 @@ fun AccountFormScreen(
     var taxStatus by remember { mutableStateOf(TaxTreatment.TAXABLE) }
     var kind by remember { mutableStateOf(AccountKind.ASSET) }
     var currency by remember { mutableStateOf("") }
+    // Who holds it. Blank is the normal case — the label only earns a heading once a second
+    // account at the same bank exists.
+    var institution by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var seededPrivacy by remember { mutableStateOf(false) }
 
@@ -98,6 +101,7 @@ fun AccountFormScreen(
                 taxStatus = TaxTreatment.entries.firstOrNull { it.wire == account.taxStatus } ?: TaxTreatment.TAXABLE
                 kind = AccountKind.entries.firstOrNull { it.wire == account.kind } ?: AccountKind.ASSET
                 currency = account.currency
+                institution = account.institution.orEmpty()
                 isPrivate = account.ownerUserId != null
                 seededPrivacy = true
                 principalText = account.originalPrincipal?.toString() ?: ""
@@ -159,6 +163,7 @@ fun AccountFormScreen(
                             taxStatus = taxStatus,
                             kind = kind,
                             currency = cleanCurrency,
+                            institution = institution,
                             ownerUserId = owner,
                             originalPrincipal = loanNumber(principalText),
                             interestRateAnnual = loanNumber(rateText),
@@ -179,6 +184,7 @@ fun AccountFormScreen(
                             taxStatus = taxStatus,
                             kind = kind,
                             currency = cleanCurrency,
+                            institution = institution,
                             ownerUserId = owner,
                             originalPrincipal = loanNumber(principalText),
                             interestRateAnnual = loanNumber(rateText),
@@ -225,6 +231,15 @@ fun AccountFormScreen(
                     { currency = it.uppercase() },
                     placeholder = "USD",
                     supportingText = "Three-letter ISO code",
+                )
+                FormField(
+                    "Institution (optional)",
+                    institution,
+                    { institution = it },
+                    placeholder = "e.g. DBS",
+                    supportingText =
+                        "Accounts sharing an institution are listed together — how to hold " +
+                            "one bank's SGD and USD balances side by side.",
                 )
             }
 
