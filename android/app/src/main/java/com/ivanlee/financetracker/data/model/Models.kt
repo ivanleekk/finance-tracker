@@ -159,6 +159,12 @@ data class AccountResponse(
     val taxStatus: String,
     val kind: String? = null,
     val currency: String,
+    /**
+     * Who holds it — a free-text grouping label, so one bank's SGD and USD accounts list
+     * together. Optional on the wire: a client that has not been updated sees an ungrouped
+     * account rather than failing to decode one.
+     */
+    val institution: String? = null,
     /** null = shared with the household; set = private to that user. */
     val ownerUserId: String? = null,
 
@@ -209,6 +215,11 @@ data class AccountCreate(
     val taxStatus: TaxTreatment,
     val kind: AccountKind,
     val currency: String,
+    /**
+     * Who holds it. Blank is coerced to null server-side, so an empty field is "not grouped"
+     * rather than a group of its own.
+     */
+    val institution: String? = null,
     val ownerUserId: String? = null,
     val originalPrincipal: Double? = null,
     val interestRateAnnual: Double? = null,
@@ -239,6 +250,11 @@ data class AccountUpdate(
     val taxStatus: TaxTreatment,
     val kind: AccountKind,
     val currency: String,
+    /**
+     * Who holds it. This form always sends it, so clearing the field clears the grouping —
+     * the API reads "" as null.
+     */
+    val institution: String? = null,
     val ownerUserId: String? = null,
     val originalPrincipal: Double? = null,
     val interestRateAnnual: Double? = null,
@@ -355,6 +371,19 @@ data class TransactionResponse(
     val mcc: String? = null,
     /** Which of the card's own categories this counts towards, if any. */
     val cardCategoryId: String? = null,
+    /**
+     * A surcharge the card added on top, as a percentage of this purchase. The money itself is
+     * a separate row — see [feeForTransactionId].
+     */
+    val feePercent: Double? = null,
+    /** Set on a fee row, naming the purchase that caused it. */
+    val feeForTransactionId: String? = null,
+    /**
+     * The rate from [currency] to the *account's* currency, frozen when the row was written.
+     * `amount * exchangeRate` is what the account was charged — which is how the edit form
+     * recovers the figure the user typed.
+     */
+    val exchangeRate: Double? = null,
 )
 
 @Serializable
@@ -374,6 +403,21 @@ data class TransactionCreate(
     val mcc: String? = null,
     /** Null falls to the card's default category, so untagged spend is still metered. */
     val cardCategoryId: String? = null,
+    /**
+     * The currency the merchant billed in. Null means the account's own, which is the normal
+     * case; anything else makes the backend pull the spot rate for [date].
+     */
+    val currency: String? = null,
+    /**
+     * What the account was actually charged, in its own currency — the figure on the statement.
+     * Given, it *defines* the rate (spread included) and no rate is looked up at all.
+     */
+    val amountCharged: Double? = null,
+    /**
+     * A surcharge the card adds on top, as a percentage. Posts its own linked row under
+     * "Card Fees" rather than inflating this one.
+     */
+    val feePercent: Double? = null,
 )
 
 /**
@@ -406,6 +450,27 @@ data class TransactionUpdate(
      * at all. [JsonNull] is the explicit clear.
      */
     val cardCategoryId: JsonElement? = null,
+    /**
+     * The currency the merchant billed in. Plain nullables, not [JsonElement]s like
+     * [cardCategoryId] above: there is no such thing as *clearing* a rate — a transaction always
+     * has one — so "omitted" is the only second state either of these needs, and
+     * `explicitNulls = false` already gives it.
+     */
+    val currency: String? = null,
+    /**
+     * What the account was actually charged, in its own currency. Sent on every edit of a
+     * foreign-currency row, and that is load-bearing rather than tidy: the backend re-derives the
+     * rate whenever an edit carries an amount or a date, so a row whose rate came from the user's
+     * own statement would silently be re-priced at the mid-market close by an unrelated
+     * description fix. Sending it back keeps the round trip lossless.
+     */
+    val amountCharged: Double? = null,
+    /**
+     * The card's surcharge. Always sent by the transaction form, and **0 is the clear**: the
+     * field is three-state like [mcc], where an omitted key preserves what the row has, so
+     * sending null for "no fee" would make removing a surcharge impossible.
+     */
+    val feePercent: Double? = null,
 )
 
 fun transactionUpdate(
@@ -419,6 +484,12 @@ fun transactionUpdate(
     splits: List<TransactionSplitInput>? = null,
     /** Null clears the tag; a value sets it. Always sent either way. */
     cardCategoryId: String? = null,
+    /** Null omits the key, which preserves what the row already recorded. */
+    currency: String? = null,
+    /** Null omits the key; a value re-derives the rate from the two figures. */
+    amountCharged: Double? = null,
+    /** 0 removes a recorded surcharge; null omits the key and preserves it. */
+    feePercent: Double? = null,
 ): TransactionUpdate = TransactionUpdate(
     date = date,
     amount = amount,
@@ -429,6 +500,9 @@ fun transactionUpdate(
     splits = splits,
     // Always sent: JsonNull when there is no pick, which is what clears it.
     cardCategoryId = cardCategoryId?.let { JsonPrimitive(it) } ?: JsonNull,
+    currency = currency,
+    amountCharged = amountCharged,
+    feePercent = feePercent,
 )
 
 // MARK: Reimbursements
@@ -525,6 +599,10 @@ data class TransferCreate(
     @Serializable(with = InstantSerializer::class)
     val date: Instant,
     val description: String? = null,
+    // What arrived, in the destination account's currency. Null means "convert at the close"
+    // and is dropped by `explicitNulls = false`; transfers are create-only, so there is no
+    // update where omitted and null would differ.
+    val amountReceived: Double? = null,
 )
 
 @Serializable

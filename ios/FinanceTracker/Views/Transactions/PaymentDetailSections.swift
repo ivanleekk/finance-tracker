@@ -77,3 +77,110 @@ struct MerchantCodeSection: View {
         }
     }
 }
+
+/// The currency a charge happened in, and — when that isn't the account's own —
+/// what the account was actually charged.
+///
+/// Shared by the transaction form and Quick Add for the same reason the two
+/// sections above are: a charge in a foreign currency is not a rare enough
+/// thing to be loggable from only one of the ways you can log a payment.
+///
+/// The charged amount is optional and the form works without it: left blank,
+/// the backend pulls the spot rate for the transaction's date. Given, it is the
+/// better answer, because the card's spread is already inside it.
+struct ForeignChargeSection: View {
+    /// The currency of the selected account. Empty while nothing is selected.
+    let accountCurrency: String
+    /// The amount as currently typed, for the rate hint.
+    let amount: Double?
+    @Binding var currency: String
+    @Binding var amountChargedText: String
+
+    private var isForeign: Bool {
+        Fx.isForeignCharge(currency, accountCurrency: accountCurrency)
+    }
+
+    private var rateHint: String {
+        Fx.impliedRateLabel(
+            amount: amount,
+            charged: CalculatorInput.evaluateArithmeticExpression(amountChargedText),
+            chargeCurrency: currency,
+            accountCurrency: accountCurrency
+        )
+    }
+
+    var body: some View {
+        Section {
+            NavigationLink {
+                ReferencePicker(
+                    title: "Charged In",
+                    path: "/reference/currencies",
+                    selection: $currency,
+                    id: \ReferenceCurrency.code,
+                    label: { "\($0.code) — \($0.name)" },
+                    searchText: { "\($0.code) \($0.name)" }
+                )
+            } label: {
+                LabeledContent("Charged in", value: currency.isEmpty ? accountCurrency : currency)
+            }
+
+            if isForeign {
+                HStack {
+                    Text("Charged to account")
+                    CalculatorField(placeholder: accountCurrency, text: $amountChargedText)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        } footer: {
+            if isForeign {
+                Text(
+                    rateHint.isEmpty
+                        ? "Optional. Leave blank to convert at the \(currency) rate for this date."
+                        : "\(rateHint) — the rate your statement implies, spread included."
+                )
+            }
+        }
+    }
+}
+
+
+/// A surcharge the card adds on top of a purchase, as a percentage.
+///
+/// Not part of `ForeignChargeSection` above, despite usually appearing with
+/// one: a card can surcharge a domestic transaction too, and hiding the field
+/// behind a currency mismatch would make those unrecordable.
+///
+/// The money posts as its own row under "Card Fees" rather than inflating the
+/// purchase, so the amount on this form keeps matching the receipt.
+struct CardFeeSection: View {
+    /// The account-currency value of the purchase, for the money hint. Nil when
+    /// only the server knows it — a foreign charge with no charged amount typed.
+    let amountInAccountCurrency: Double?
+    let accountCurrency: String
+    @Binding var feePercentText: String
+
+    private var feeHint: String {
+        guard let fee = Fx.feeAmount(
+            amountInAccountCurrency: amountInAccountCurrency,
+            feePercent: CalculatorInput.evaluateArithmeticExpression(feePercentText)
+        ) else { return "" }
+        return fee.currency(accountCurrency)
+    }
+
+    var body: some View {
+        Section {
+            HStack {
+                Text("Card fee")
+                CalculatorField(placeholder: "0%", text: $feePercentText)
+                    .multilineTextAlignment(.trailing)
+                Text("%").foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text(
+                feeHint.isEmpty
+                    ? "Optional. Some cards add a percentage on top — a foreign transaction fee, a surcharge."
+                    : "Posts a separate \(feeHint) row under Card Fees, so this purchase keeps the amount on your receipt."
+            )
+        }
+    }
+}

@@ -161,6 +161,62 @@ export function selectableAccounts<T extends Pick<AccountResponse, "is_archived"
     return accounts.filter(a => !a.is_archived);
 }
 
+/** One row of an account list: a lone account, or several at the same institution. */
+export type AccountCluster<T> = {
+    /** The shared institution, or null for an account that stands on its own. */
+    institution: string | null;
+    accounts: T[];
+};
+
+/**
+ * Gather the accounts a household holds at one bank under a single heading —
+ * "DBS" over "DBS SGD" and "DBS USD".
+ *
+ * This is what the app offers instead of a multi-currency account, so the rules
+ * are about reading rather than about money: nothing here changes a balance, a
+ * total, or which account anything is charged to.
+ *
+ * Two of them are judgements the three clients have to share. A **lone**
+ * labelled account gets no heading, because a heading over one row says
+ * nothing and adds a level of nesting to every list. And accounts are gathered
+ * **wherever they appear**, not only when adjacent, since the list they come
+ * from is ordered by something else entirely.
+ *
+ * Ported to `ios/.../Support/NetWorth.swift` and `android/.../logic/NetWorth.kt`.
+ */
+export function clusterByInstitution<T extends { institution?: string | null }>(
+    accounts: T[]
+): AccountCluster<T>[] {
+    const counts = new Map<string, number>();
+    for (const account of accounts) {
+        const label = account.institution;
+        if (label) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+
+    const clusters: AccountCluster<T>[] = [];
+    const byInstitution = new Map<string, AccountCluster<T>>();
+    for (const account of accounts) {
+        const label = account.institution;
+        // A label shared with nobody is not a group, so the account keeps its
+        // own row rather than becoming a heading over itself.
+        if (!label || (counts.get(label) ?? 0) < 2) {
+            clusters.push({ institution: null, accounts: [account] });
+            continue;
+        }
+        const existing = byInstitution.get(label);
+        if (existing) {
+            existing.accounts.push(account);
+            continue;
+        }
+        // The cluster takes the position of its first member, so gathering an
+        // account from further down the list never reorders the list around it.
+        const cluster: AccountCluster<T> = { institution: label, accounts: [account] };
+        byInstitution.set(label, cluster);
+        clusters.push(cluster);
+    }
+    return clusters;
+}
+
 export function cashChartAccountsOf<T extends Pick<AccountResponse, "kind" | "liquidity">>(accounts: T[]): T[] {
     return accounts.filter(
         a => a.kind !== AccountKind.Liability && a.liquidity !== LiquidityStatus.Illiquid

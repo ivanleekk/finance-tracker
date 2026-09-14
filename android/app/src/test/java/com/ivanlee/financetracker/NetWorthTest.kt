@@ -12,6 +12,7 @@ import com.ivanlee.financetracker.logic.summarizeAccounts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import com.ivanlee.financetracker.logic.clusterByInstitution
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -250,5 +251,62 @@ class SelectableAccountsTest {
     fun `treats a missing flag as open`() {
         // The field is optional on the wire; absent must never hide an account.
         assertEquals(1, selectableAccounts(listOf(account("c", null))).size)
+    }
+}
+
+/**
+ * Grouping a bank's accounts under one heading — twin of the web `clusterByInstitution` tests in
+ * `lib/networth.test.ts` and iOS's `ClusterByInstitutionTests`. This is what the app offers
+ * instead of a multi-currency account, so the three clients have to gather the same rows the
+ * same way.
+ */
+class ClusterByInstitutionTest {
+    private fun account(id: String, institution: String?) = AccountResponse(
+        id = id,
+        householdId = "h",
+        name = "A",
+        liquidity = LiquidityStatus.LIQUID,
+        taxStatus = "taxable",
+        kind = "asset",
+        currency = "USD",
+        institution = institution,
+    )
+
+    @Test
+    fun `gathers two accounts at one bank under a single heading`() {
+        val clusters = clusterByInstitution(listOf(account("sgd", "DBS"), account("usd", "DBS")))
+        assertEquals(1, clusters.size)
+        assertEquals("DBS", clusters[0].institution)
+        assertEquals(listOf("sgd", "usd"), clusters[0].accounts.map { it.id })
+    }
+
+    @Test
+    fun `leaves a lone labelled account without a heading`() {
+        // A heading over one row says nothing and nests the whole list a level deeper.
+        val clusters = clusterByInstitution(listOf(account("sgd", "DBS"), account("cash", "Mattress")))
+        assertEquals(listOf(null, null), clusters.map { it.institution })
+    }
+
+    @Test
+    fun `gathers accounts wherever they appear, not only when adjacent`() {
+        val clusters = clusterByInstitution(
+            listOf(
+                account("dbs-sgd", "DBS"),
+                account("chase", "Chase"),
+                account("dbs-usd", "DBS"),
+                account("chase-2", "Chase"),
+            ),
+        )
+        // Each cluster sits where its *first* member was, so gathering one from further down
+        // never reorders the list around it.
+        assertEquals(listOf("DBS", "Chase"), clusters.map { it.institution })
+        assertEquals(listOf("dbs-sgd", "dbs-usd"), clusters[0].accounts.map { it.id })
+    }
+
+    @Test
+    fun `leaves unlabelled accounts standing on their own`() {
+        val clusters = clusterByInstitution(listOf(account("a", null), account("b", "")))
+        assertEquals(2, clusters.size)
+        assertTrue(clusters.all { it.institution == null })
     }
 }

@@ -6,6 +6,7 @@ import { Select } from "../../components/ui/Select"
 import { selectableAccounts } from "../../lib/networth"
 import type { AccountResponse, CategoryResponse, CounterpartyResponse, CurrencyResponse, UserResponse } from "../../types/types"
 import { evenSplitRemainder, parseMoney } from "../../lib/reimbursements"
+import { feeAmount, impliedRateLabel, isForeignCharge } from "../../lib/fx"
 import { splitHint, type SplitFormRow } from "./transactionsHelpers"
 
 /** The shape the Income/Expense tab edits. */
@@ -13,7 +14,12 @@ export type TransactionFormData = {
     accountId: string
     categoryId: string
     amount: string
+    /** The currency the charge was in. Defaults to the selected account's own. */
     currency: string
+    /** What the account was actually charged, in its own currency. "" = unknown. */
+    amountCharged: string
+    /** A surcharge the card adds on top, as a percentage. "" = none. */
+    feePercent: string
     date: string
     description: string
     mcc: string
@@ -31,6 +37,9 @@ export type TransferFormData = {
     amount: string
     date: string
     description: string
+    // What arrived, in the destination's currency. Blank means "convert at the
+    // close"; only offered when the two accounts' currencies differ.
+    amountReceived: string
 }
 
 type Props = {
@@ -137,6 +146,41 @@ export function LogTransactionDialog({
     isSavingCategory,
     onCreateCategory,
 }: Props) {
+    const accountCurrency = accounts.find(a => a.id === formData.accountId)?.currency || ""
+    const isForeign = isForeignCharge(formData.currency, accountCurrency)
+    // Shown back to the user so the rate their two figures imply is visible
+    // before they commit to it — see `impliedRateLabel`.
+    // What the fee will come to, so the user sees the money rather than only the
+    // percentage — 3% of a large foreign bill is not obvious in the head.
+    const feeHint = (() => {
+        const charged = parseMoney(formData.amountCharged)
+        const amount = parseMoney(formData.amount)
+        // The account-currency figure: the charged amount if the user gave one,
+        // otherwise the raw amount when no conversion is involved. With a
+        // foreign charge and no charged amount, only the server knows the rate,
+        // so the hint stays quiet rather than guessing at one.
+        const inAccountCurrency = charged ?? (isForeign ? null : amount)
+        const fee = feeAmount(inAccountCurrency, parseMoney(formData.feePercent))
+        return fee === null ? "" : `${accountCurrency} ${fee.toFixed(2)}`
+    })()
+
+    const fromCurrency = accounts.find(a => a.id === transferData.fromAccountId)?.currency || ""
+    const toCurrency = accounts.find(a => a.id === transferData.toAccountId)?.currency || ""
+    const isCrossCurrencyTransfer = isForeignCharge(fromCurrency, toCurrency)
+    const receivedRateHint = impliedRateLabel(
+        parseMoney(transferData.amount),
+        parseMoney(transferData.amountReceived),
+        fromCurrency,
+        toCurrency,
+    )
+
+    const chargedRateHint = impliedRateLabel(
+        parseMoney(formData.amount),
+        parseMoney(formData.amountCharged),
+        formData.currency,
+        accountCurrency,
+    )
+
     return (
         <Dialog isOpen={isOpen} onClose={onClose}>
             <DialogHeader>
@@ -179,7 +223,23 @@ export function LogTransactionDialog({
                                     // Moving to a different card makes any pick
                                     // from the old one meaningless, so it is
                                     // cleared here as well as server-side.
-                                    setFormData({ ...formData, accountId, cardCategoryId: "" });
+                                    //
+                                    // The currency follows the account for the
+                                    // same reason it defaults to it: the charge
+                                    // is in the account's currency unless the
+                                    // user says otherwise, and a rate carried
+                                    // over from the previous account's currency
+                                    // would convert a figure twice. A charged
+                                    // amount named in the old account's
+                                    // currency is meaningless here too.
+                                    const account = accounts.find(a => a.id === accountId);
+                                    setFormData({
+                                        ...formData,
+                                        accountId,
+                                        cardCategoryId: "",
+                                        currency: account?.currency || formData.currency,
+                                        amountCharged: "",
+                                    });
                                     onAccountChange(accountId);
                                 }}
                                 options={selectableAccounts(accounts).map(acc => ({ value: acc.id, label: acc.name }))}
@@ -260,6 +320,47 @@ export function LogTransactionDialog({
                                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                             />
                         </div>
+                    </div>
+
+                    {isForeign && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                Charged to the account ({accountCurrency})
+                                <span className="ml-1 font-normal text-base-500">— optional</span>
+                            </label>
+                            <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={`Amount in ${accountCurrency}`}
+                                value={formData.amountCharged}
+                                onChange={(e) => setFormData({ ...formData, amountCharged: e.target.value })}
+                            />
+                            <p className="text-xs text-base-500 dark:text-base-400">
+                                {chargedRateHint
+                                    ? `Rate ${chargedRateHint} — the one your statement implies, spread included.`
+                                    : `Leave blank to convert at the ${formData.currency} rate for this date.`}
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                            Card fee <span className="font-normal text-base-500">— optional, %</span>
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="e.g. 3 for a 3% foreign transaction fee"
+                            value={formData.feePercent}
+                            onChange={(e) => setFormData({ ...formData, feePercent: e.target.value })}
+                        />
+                        <p className="text-xs text-base-500 dark:text-base-400">
+                            {feeHint
+                                ? `Posts a separate ${feeHint} row under Card Fees, so the purchase keeps the amount on your receipt.`
+                                : "Some cards add a percentage on top — a foreign transaction fee, a surcharge."}
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -521,6 +622,28 @@ export function LogTransactionDialog({
                             />
                         </div>
                     </div>
+
+                    {isCrossCurrencyTransfer && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-base-700 dark:text-base-300">
+                                Amount received ({toCurrency})
+                                <span className="ml-1 font-normal text-base-500">— optional</span>
+                            </label>
+                            <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={`Amount in ${toCurrency}`}
+                                value={transferData.amountReceived}
+                                onChange={(e) => setTransferData({ ...transferData, amountReceived: e.target.value })}
+                            />
+                            <p className="text-xs text-base-500 dark:text-base-400">
+                                {receivedRateHint
+                                    ? `Rate ${receivedRateHint}. Anything lost against the day's close is recorded as FX Conversion.`
+                                    : `Leave blank to convert at the ${fromCurrency} to ${toCurrency} rate for this date.`}
+                            </p>
+                        </div>
+                    )}
 
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-base-700 dark:text-base-300">Description</label>

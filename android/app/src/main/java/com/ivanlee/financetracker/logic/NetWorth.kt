@@ -28,6 +28,60 @@ import com.ivanlee.financetracker.data.model.LiquidityStatus
 fun selectableAccounts(accounts: List<AccountResponse>): List<AccountResponse> =
     accounts.filter { it.isArchived != true }
 
+/** One row of an account list: a lone account, or several at the same institution. */
+data class AccountCluster(
+    /** The shared institution, or null for an account that stands on its own. */
+    val institution: String?,
+    val accounts: List<AccountResponse>,
+)
+
+/**
+ * Gather the accounts a household holds at one bank under a single heading — "DBS" over
+ * "DBS SGD" and "DBS USD".
+ *
+ * This is what the app offers instead of a multi-currency account, so the rules are about
+ * reading rather than about money: nothing here changes a balance, a total, or which account
+ * anything is charged to.
+ *
+ * Two of them are judgements the three clients share. A **lone** labelled account gets no
+ * heading, because a heading over one row says nothing and adds a level of nesting to every
+ * list. And accounts are gathered **wherever they appear**, not only when adjacent, since the
+ * list they come from is ordered by something else entirely.
+ *
+ * Kotlin port of the web's `clusterByInstitution` in `lib/networth.ts` and iOS's in
+ * `Support/NetWorth.swift`.
+ */
+fun clusterByInstitution(accounts: List<AccountResponse>): List<AccountCluster> {
+    val counts = accounts.mapNotNull { it.institution?.takeIf(String::isNotEmpty) }
+        .groupingBy { it }
+        .eachCount()
+
+    val clusters = mutableListOf<MutableList<AccountResponse>>()
+    val labels = mutableListOf<String?>()
+    val indexByInstitution = mutableMapOf<String, Int>()
+    for (account in accounts) {
+        val label = account.institution?.takeIf { it.isNotEmpty() && (counts[it] ?: 0) >= 2 }
+        // A label shared with nobody is not a group, so the account keeps its own row rather
+        // than becoming a heading over itself.
+        if (label == null) {
+            clusters.add(mutableListOf(account))
+            labels.add(null)
+            continue
+        }
+        val existing = indexByInstitution[label]
+        if (existing != null) {
+            clusters[existing].add(account)
+            continue
+        }
+        // The cluster takes the position of its first member, so gathering an account from
+        // further down the list never reorders the list around it.
+        indexByInstitution[label] = clusters.size
+        clusters.add(mutableListOf(account))
+        labels.add(label)
+    }
+    return clusters.mapIndexed { i, group -> AccountCluster(labels[i], group.toList()) }
+}
+
 fun latestBalanceHome(history: List<BalanceResponse>): Double =
     history.maxByOrNull { it.date }?.homeValue ?: 0.0
 

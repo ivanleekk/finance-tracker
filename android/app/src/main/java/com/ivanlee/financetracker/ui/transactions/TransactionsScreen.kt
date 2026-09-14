@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.ivanlee.financetracker.data.model.AccountResponse
 import com.ivanlee.financetracker.data.model.CategoryResponse
 import com.ivanlee.financetracker.data.model.TransactionResponse
+import com.ivanlee.financetracker.logic.Fx
 import com.ivanlee.financetracker.data.model.TransactionType
 import com.ivanlee.financetracker.data.net.Api
 import com.ivanlee.financetracker.logic.Reimbursements
@@ -147,6 +148,11 @@ fun TransactionsScreen(
     onOpenCategories: () -> Unit,
 ) {
     var transactions by remember { mutableStateOf<List<TransactionResponse>>(emptyList()) }
+    // Transfer id per transfer leg, so a row can tell it belongs to a transfer without
+    // rescanning the history once per row.
+    val transferIdById = remember(transactions) {
+        transactions.mapNotNull { txn -> txn.transferId?.let { txn.id to it } }.toMap()
+    }
     var categories by remember { mutableStateOf<List<CategoryResponse>>(emptyList()) }
     var accounts by remember { mutableStateOf<List<AccountResponse>>(emptyList()) }
     var filter by remember { mutableStateOf(TxnFilter.ALL) }
@@ -491,7 +497,11 @@ fun TransactionsScreen(
                 SectionCard {
                     items.forEachIndexed { index, txn ->
                         if (index > 0) HorizontalDivider()
-                        val isTransfer = txn.transferId != null
+                        // Either leg, or the FX Conversion row beside a cross-currency
+                        // transfer's withdrawal — see Fx.isPartOfTransfer.
+                        val isTransfer = Fx.isPartOfTransfer(txn.transferId, txn.feeForTransactionId) {
+                            transferIdById[it]
+                        }
                         SwipeActionRow(
                             onEndAction = if (isTransfer) null else ({ pendingDelete = txn }),
                         ) {

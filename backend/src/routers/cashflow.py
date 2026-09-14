@@ -11,7 +11,14 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility, visible_account_ids
 from src.services.account_service import sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
-from src.services.transaction_service import create_transaction
+from src.services.transaction_service import (
+    create_transaction,
+    create_transfer as create_transfer_rows,
+    delete_transfer,
+    resolve_rates,
+    sync_fee_transaction,
+    transfer_id_of,
+)
 from src.services import ledger_service, recurring_service, budget_service
 
 router = APIRouter(prefix="/cashflow", tags=["Income & Expenses"])
@@ -173,6 +180,8 @@ def log_transaction(
         amount=transaction.amount,
         currency=transaction.currency,
         exchange_rate=transaction.exchange_rate,
+        amount_charged=transaction.amount_charged,
+        fee_percent=transaction.fee_percent,
         description=transaction.description,
         splits=_resolve_splits(db, db_account.household_id, transaction.splits),
         # A receivable arising from a private account stays private, the same way
@@ -210,84 +219,31 @@ def create_transfer(
     if from_account.id == to_account.id:
         raise HTTPException(status_code=400, detail="Cannot transfer to the same account")
 
-    # 2. Find/Create "Transfer" category
-    transfer_cat = db.query(models.Category).filter(
-        models.Category.household_id == from_account.household_id,
-        models.Category.name == models.SYSTEM_CATEGORY_TRANSFER
-    ).first()
-    
-    if not transfer_cat:
-        transfer_cat = models.Category(
-            id=uuid.uuid7(),
-            household_id=from_account.household_id,
-            name=models.SYSTEM_CATEGORY_TRANSFER,
-            type="expense" # Base type for the category table, but we override in transaction
+    if transfer.currency and transfer.currency.upper() != (from_account.currency or "USD").upper():
+        raise HTTPException(
+            status_code=422,
+            detail=f"A transfer's amount is in the source account's currency ({from_account.currency}), not {transfer.currency}.",
         )
-        db.add(transfer_cat)
-        db.flush()
+    if transfer.amount_received is not None and (from_account.currency or "USD") == (to_account.currency or "USD"):
+        raise HTTPException(
+            status_code=400,
+            detail="Both accounts are in the same currency, so there is no conversion to record an amount received for.",
+        )
 
-    # 3. Handle Cross-Currency Transfer
-    from_curr = from_account.currency or "USD"
-    to_curr = to_account.currency or "USD"
-    home_curr = from_account.household.base_currency or "USD"
-    
-    rate = 1.0
-    if from_curr != to_curr:
-        rate = fetch_and_cache_exchange_rates(db, from_curr, to_curr, transfer.date.date())
-
-    rate_from_to_home = fetch_and_cache_exchange_rates(db, from_curr, home_curr, transfer.date.date())
-    rate_to_to_home = fetch_and_cache_exchange_rates(db, to_curr, home_curr, transfer.date.date())
-
-    transfer_id = uuid.uuid7()
-    
-    # Withdrawal from source account (in source currency)
-    withdrawal = models.Transaction(
-        id=uuid.uuid7(),
-        account_id=transfer.from_account_id,
-        category_id=transfer_cat.id,
-        date=transfer.date,
+    withdrawal, deposit = create_transfer_rows(
+        db,
+        from_account=from_account,
+        to_account=to_account,
         amount=transfer.amount,
-        amount_home_currency=transfer.amount * Decimal(str(rate_from_to_home)),
-        currency=from_curr,
-        exchange_rate=1.0, # Source account is the reference
-        description=transfer.description or f"Transfer to {to_account.name}",
-        transaction_type=models.TransactionType.expense,
-        transfer_id=transfer_id
-    )
-    
-    # Deposit to destination account (converted to destination currency)
-    deposit_amount = float(transfer.amount) * rate
-    deposit = models.Transaction(
-        id=uuid.uuid7(),
-        account_id=transfer.to_account_id,
-        category_id=transfer_cat.id,
         date=transfer.date,
-        amount=Decimal(str(deposit_amount)),
-        amount_home_currency=Decimal(str(deposit_amount)) * Decimal(str(rate_to_to_home)),
-        currency=to_curr,
-        exchange_rate=1.0, 
-        description=transfer.description or f"Transfer from {from_account.name}",
-        transaction_type=models.TransactionType.income,
-        transfer_id=transfer_id
-    )
-    
-    db.add(withdrawal)
-    db.add(deposit)
-    db.flush()
-    
-    # 5. Sync balances
-    sync_transaction_to_balances(db, transfer.from_account_id, transfer.date.date(), -transfer.amount)
-    sync_transaction_to_balances(db, transfer.to_account_id, transfer.date.date(), Decimal(str(deposit_amount)))
-
-    # 6. One ledger entry for the pair. Two rows, but a single event.
-    ledger_service.post_transfer(
-        db, transfer_id=transfer_id, withdrawal=withdrawal, deposit=deposit
+        description=transfer.description,
+        amount_received=transfer.amount_received,
     )
 
     db.commit()
     db.refresh(withdrawal)
     db.refresh(deposit)
-    
+
     return [withdrawal, deposit]
 
 
@@ -351,6 +307,15 @@ def update_transaction(
     verify_household_access(db_account.household_id, current_user, db)
     verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
+    # A transfer is two or three rows posted as one event; editing one of them
+    # here would reprice it alone, leave its partner behind and post a second
+    # journal entry beside the transfer's own. Refuse, and say what does work.
+    if transfer_id_of(db, db_transaction) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This row is part of a transfer. Delete the transfer and enter it again to change it.",
+        )
+
     # Capture old impact for sync before any modifications
     # Capture old impact for sync before any modifications
     old_account_id = db_transaction.account_id
@@ -375,10 +340,11 @@ def update_transaction(
         db_transaction.transaction_type = new_category.type
 
     update_data = transaction_update.model_dump(exclude_unset=True)
-    # The split is not a column on this row — it is applied to the ledger entry
-    # further down. Setting it here would put a stray attribute on the model.
+    # Neither is a column on this row: the split is applied to the ledger entry
+    # further down, and `amount_charged` only ever defines the rate. Setting
+    # either here would put a stray attribute on the model.
     column_updates = {
-        k: v for k, v in update_data.items() if k != "splits"
+        k: v for k, v in update_data.items() if k not in ("splits", "amount_charged")
     }
 
     # A card category belongs to one card. Moving the transaction to another
@@ -402,15 +368,28 @@ def update_transaction(
     for key, value in column_updates.items():
         setattr(db_transaction, key, value)
 
-    # Recalculate amount_home_currency if needed
-    if any(k in column_updates for k in ('amount', 'currency', 'date', 'account_id')):
-        target_account = db_account
-        if transaction_update.account_id:
-            target_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == transaction_update.account_id).first()
-        
-        home_curr = target_account.household.base_currency or "USD"
-        trans_curr = db_transaction.currency or target_account.currency or "USD"
-        rate_to_home = fetch_and_cache_exchange_rates(db, trans_curr, home_curr, db_transaction.date.date())
+    # Re-derive both rates, not just the home one. The account rate is what the
+    # balance chain is moved by, so leaving it stale applied a USD rate to a JPY
+    # figure the moment someone corrected a row's currency — or moved it to an
+    # account denominated in something else. Same helper `create_transaction`
+    # uses, so the two paths cannot drift.
+    if any(
+        k in update_data
+        for k in ("amount", "currency", "date", "account_id", "exchange_rate", "amount_charged")
+    ):
+        txn_currency, rate, rate_to_home = resolve_rates(
+            db,
+            account=target_account,
+            date=db_transaction.date,
+            amount=db_transaction.amount,
+            currency=db_transaction.currency,
+            # An explicit rate or charged amount in *this* request wins; without
+            # one the spot close for the (possibly new) date is used.
+            exchange_rate=transaction_update.exchange_rate,
+            amount_charged=transaction_update.amount_charged,
+        )
+        db_transaction.currency = txn_currency
+        db_transaction.exchange_rate = rate
         db_transaction.amount_home_currency = db_transaction.amount * Decimal(str(rate_to_home))
 
     # Calculate new impact
@@ -458,6 +437,12 @@ def update_transaction(
         owner_user_id=target_account.owner_user_id if target_account else None,
     )
 
+    # The fee row is derived from this one, so it is re-derived here rather than
+    # patched: a changed amount, rate, date or percentage all move it, and
+    # `sync_fee_transaction` converges on whatever the purchase now says.
+    if target_account is not None:
+        sync_fee_transaction(db, db_transaction, target_account)
+
     db.commit()
     db.refresh(db_transaction)
     return _with_split(db, [db_transaction])[0]
@@ -476,29 +461,36 @@ def delete_transaction(
     verify_household_access(db_account.household_id, current_user, db)
     verify_private_owner_visibility(db_account.owner_user_id, current_user)
 
+    # Any part of a transfer — either leg, or its FX Conversion row — takes the
+    # whole transfer with it.
+    transfer_id = transfer_id_of(db, db_transaction)
+    if transfer_id is not None:
+        delete_transfer(db, transfer_id)
+        db.commit()
+        return
+
     # Reverse impact
     # Reverse impact
     multiplier = 1 if db_transaction.transaction_type == models.TransactionType.income else -1
     exchange_rate = db_transaction.exchange_rate if db_transaction.exchange_rate else 1.0
     sync_transaction_to_balances(db, db_transaction.account_id, db_transaction.date.date(), -(db_transaction.amount * Decimal(str(exchange_rate)) * multiplier))
     
-    transfer_id = db_transaction.transfer_id
-    ledger_service.delete_entry_for(db, models.JournalSource.transaction, db_transaction.id)
-    if transfer_id:
-        ledger_service.delete_entry_for(db, models.JournalSource.transfer, transfer_id)
-    db.delete(db_transaction)
+    # A fee row means nothing without the purchase that caused it, so deleting
+    # the purchase takes it along — through the same reversal, not through a DB
+    # cascade, which would drop the row while leaving its balance impact and its
+    # journal entry behind.
+    for fee in db.query(models.Transaction).filter(
+        models.Transaction.fee_for_transaction_id == db_transaction.id
+    ).all():
+        sync_transaction_to_balances(
+            db, fee.account_id, fee.date.date(),
+            fee.amount * Decimal(str(fee.exchange_rate or 1.0)),
+        )
+        ledger_service.delete_entry_for(db, models.JournalSource.transaction, fee.id)
+        db.delete(fee)
 
-    # If transfer, delete counterpart
-    if transfer_id:
-        counterpart = db.query(models.Transaction).filter(
-            models.Transaction.transfer_id == transfer_id,
-            models.Transaction.id != transaction_id
-        ).first()
-        if counterpart:
-            counterpart_multiplier = 1 if counterpart.transaction_type == models.TransactionType.income else -1
-            counterpart_exchange = counterpart.exchange_rate if counterpart.exchange_rate else 1.0
-            sync_transaction_to_balances(db, counterpart.account_id, counterpart.date.date(), -(counterpart.amount * Decimal(str(counterpart_exchange)) * counterpart_multiplier))
-            db.delete(counterpart)
+    ledger_service.delete_entry_for(db, models.JournalSource.transaction, db_transaction.id)
+    db.delete(db_transaction)
 
     db.commit()
     return

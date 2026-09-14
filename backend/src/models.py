@@ -110,6 +110,17 @@ SYSTEM_CATEGORY_TRANSFER = "Transfer"
 # hit a category then, and the rest went to a receivable/payable. Counting the
 # settlement as spending too would charge the same dinner twice.
 SYSTEM_CATEGORY_REIMBURSEMENT = "Reimbursement"
+# What a card charged on top of a purchase — a foreign-transaction fee, a
+# surcharge. Created by the app like the names above, and deliberately **not**
+# one of SYSTEM_CATEGORY_NAMES below: a fee is money genuinely gone, so the
+# emergency-fund burn rate must count it. It has a category of its own rather
+# than riding on the purchase's so that "what did fees cost me this year" is a
+# question the app can answer, which is the whole reason to record one.
+SYSTEM_CATEGORY_FEE = "Card Fees"
+# What a cross-currency transfer lost to the rate the bank gave, against the
+# mid-market close. Outside SYSTEM_CATEGORY_NAMES for the reason Card Fees is:
+# the money is genuinely gone. Only posted when the user says what arrived.
+SYSTEM_CATEGORY_FX_CONVERSION = "FX Conversion"
 SYSTEM_CATEGORY_NAMES = frozenset(
     {
         SYSTEM_CATEGORY_INVESTMENT,
@@ -302,6 +313,20 @@ class FinancialAccount(Base):
     # as a positive number; aggregates subtract them instead of adding.
     kind = Column(Enum(AccountKind, native_enum=False), nullable=False, default=AccountKind.asset, server_default="asset")
     currency = Column(String)
+    # Who holds the account — "DBS", "Chase". Free text, purely a grouping label:
+    # nothing is derived from it and no total depends on it.
+    #
+    # This is the app's answer to "one account, several currencies". A bank's
+    # multi-currency account is, in double-entry terms, several balances under
+    # one relationship that can only be moved between by an FX conversion — which
+    # is a transfer, which already exists. Two accounts model that exactly, and
+    # each keeps its own currency, chain, chart account and reconciliation; all
+    # that was missing was a heading to gather them under. Making the *balance*
+    # chain multi-currency would mean a per-currency chain on the hottest write
+    # path, splitting the one-chart-account-per-account constraint the ledger
+    # relies on, and a daily FX revaluation the architecture deliberately avoids
+    # elsewhere — for a shorter list.
+    institution = Column(String, nullable=True)
     # NULL = shared with the whole household (default). Non-null = private, visible only to that user.
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
@@ -404,6 +429,23 @@ class Transaction(Base):
     transaction_type = Column(Enum(TransactionType, name="transaction_type", schema="finance_tracker"))
     currency = Column(String, nullable=True) # If null, assume account currency
     exchange_rate = Column(Float, nullable=True) # Rate from currency to account currency
+    # A percentage the card added on top of this purchase — a foreign-transaction
+    # fee, a surcharge. Recorded on the purchase for display and re-derivation;
+    # the money itself is a separate row (see `fee_for_transaction_id`), because
+    # `amount * exchange_rate` means "what left the account" to the balance
+    # chain, the card meters and all three clients, and folding a fee into
+    # either factor would quietly redefine it everywhere.
+    fee_percent = Column(Numeric, nullable=True)
+    # Set on the fee row itself, pointing at the purchase that caused it. The
+    # pair is kept in step by the write paths (like a transfer's two legs)
+    # rather than by a DB cascade: deleting a row has to reverse its balance
+    # impact and its journal entry, which a cascade would skip.
+    fee_for_transaction_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     transfer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     # The merchant category code the acquirer assigned, when the user happens to
     # know it. Recorded, never evaluated: nothing in the app derives a category,
@@ -489,6 +531,10 @@ class RecurringTransaction(Base):
         nullable=True,
         index=True,
     )
+    # And the card's surcharge, for the same reason: a card that adds 3% to a
+    # foreign subscription adds it every month, so the rule records it once and
+    # each posting gets its own fee row.
+    fee_percent = Column(Numeric, nullable=True)
 
     household = relationship("Household", back_populates="recurring_transactions")
     account = relationship("FinancialAccount")

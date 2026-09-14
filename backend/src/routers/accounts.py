@@ -81,6 +81,7 @@ def create_account(
         tax_status=account.tax_status,
         kind=account.kind,
         currency=account.currency,
+        institution=account.institution,
         owner_user_id=account.owner_user_id,
         original_principal=account.original_principal,
         interest_rate_annual=account.interest_rate_annual,
