@@ -6,6 +6,7 @@ from src import schemas, models
 from src.auth import get_current_user, verify_household_access, verify_private_owner_visibility
 from src.services.account_service import propagate_balance_change, sync_transaction_to_balances
 from src.services.market_data import fetch_and_cache_exchange_rates
+from src.services.transaction_service import account_to_home_rate
 from src.services import ledger_service, loan_service
 from src.services.snapshot_engine import run_snapshot_range
 from sqlalchemy import desc, func, select
@@ -381,9 +382,9 @@ def add_account_balance(
     delta = balance.balance - expected_balance
 
     # Handle Currency Conversion for manual balance
-    home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
     acc_curr = db_account.currency or "USD"
-    rate = fetch_and_cache_exchange_rates(db, acc_curr, home_curr, balance.date)
+    # Strict: this stamp is frozen, and a missing rate must not become 1.0.
+    rate = account_to_home_rate(db, db_account, balance.date)
 
     if db_balance:
         db_balance.balance = balance.balance
@@ -537,14 +538,14 @@ def update_account_balance(
     update_data = balance_update.model_dump(exclude_unset=True)
     
     if 'balance' in update_data:
+        # Looked up before anything moves, so a missing rate refuses the edit
+        # rather than failing halfway through propagating it.
+        rate = account_to_home_rate(db, db_account, db_balance.date)
         delta = Decimal(str(update_data['balance'])) - db_balance.balance
         propagate_balance_change(db, db_balance.account_id, db_balance.date, delta)
         db_balance.balance = Decimal(str(update_data['balance']))
 
         # Update home currency balance
-        home_curr = db.query(models.Household).filter(models.Household.id == db_account.household_id).first().base_currency or "USD"
-        acc_curr = db_account.currency or "USD"
-        rate = fetch_and_cache_exchange_rates(db, acc_curr, home_curr, db_balance.date)
         db_balance.balance_home_currency = float(update_data['balance']) * rate
 
     for key, value in update_data.items():

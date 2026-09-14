@@ -13,6 +13,7 @@ from src.services.dividend_engine import sync_dividends_range, materialize_sched
 from src.services.account_service import sync_transaction_to_balances
 from src.services import ledger_service
 from src.services.performance import calculate_performance_metrics, fetch_rf_and_benchmark_rows
+from src.services.transaction_service import account_to_home_rate
 from src.services.market_data import fetch_and_cache_treasury_rates, fetch_and_cache_exchange_rates, fetch_and_cache_market_prices_range
 from src.services.cash_service import get_or_create_cash_asset, get_subportfolio_cash_balance, settle_trade_from_cash
 from src.services.asset_service import asset_edit_replay_range, migrate_market_prices, normalize_asset_edit
@@ -67,6 +68,20 @@ def get_ticker_price(
     except Exception as e:
         print(f"yfinance error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to fetch price for {ticker}: {str(e)}")
+
+def _trade_home_value(db: Session, account, amount_in_acc: Decimal, db_trade: models.Trade) -> Decimal:
+    """
+    A trade's cash in the household's base currency, composed *through* the
+    funding account: the trade's own ``exchange_rate`` already says what left
+    the account, so only account→home is left to find, and a home-currency
+    account needs no lookup at all. Looking the trade's currency up against home
+    separately could disagree with the balance chain, and fell back to 1.0 —
+    valuing a ¥10,000 buy at US$10,000. Strict where a lookup is needed.
+    """
+    if account is None:
+        return amount_in_acc
+    return amount_in_acc * Decimal(str(account_to_home_rate(db, account, db_trade.date.date())))
+
 
 def sync_trade_transaction(db: Session, db_trade: models.Trade):
     """
@@ -135,9 +150,7 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
 
             # Calculate amount_home_currency
             db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
-            home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
-            rate_to_home = fetch_and_cache_exchange_rates(db, db_transaction.currency, home_curr, db_trade.date.date())
-            db_transaction.amount_home_currency = amount * Decimal(str(rate_to_home))
+            db_transaction.amount_home_currency = _trade_home_value(db, db_account, amount_in_acc, db_trade)
 
             # New impact for balance sync
             new_multiplier = 1 if trans_type == models.TransactionType.income else -1
@@ -159,9 +172,7 @@ def sync_trade_transaction(db: Session, db_trade: models.Trade):
             return db_transaction
 
     db_account = db.query(models.FinancialAccount).filter(models.FinancialAccount.id == db_trade.account_id).first()
-    home_curr = db_account.household.base_currency if db_account and db_account.household else "USD"
-    rate_to_home = fetch_and_cache_exchange_rates(db, db_trade.currency, home_curr, db_trade.date.date())
-    amount_home_currency = amount * Decimal(str(rate_to_home))
+    amount_home_currency = _trade_home_value(db, db_account, amount_in_acc, db_trade)
 
     db_transaction = models.Transaction(
         id=uuid.uuid7(),
@@ -660,6 +671,10 @@ def execute_trade(
                     status_code=400,
                     detail=f"Insufficient cash: {balance:.2f} {acc_curr} available on {trade.date.date()}",
                 )
+    else:
+        # The cash row will need account→home. Ask now, so a missing rate refuses
+        # the trade before the trade row is written rather than after.
+        account_to_home_rate(db, funding_account, trade.date.date())
 
     db_trade = models.Trade(
         id=uuid.uuid7(),
