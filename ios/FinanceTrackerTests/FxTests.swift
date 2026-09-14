@@ -94,6 +94,19 @@ struct FxTests {
         #expect(Fx.defaultFeePercent(cardForeignFeePercent: 3, chargeCurrency: "JPY", accountCurrency: "") == nil)
     }
 
+    @Test func aRuleSendsACurrencyOnlyWhenItIsForeign() {
+        #expect(Fx.ruleCurrency("", accountCurrency: "SGD") == nil)
+        #expect(Fx.ruleCurrency("SGD", accountCurrency: "SGD") == nil)
+        #expect(Fx.ruleCurrency("USD", accountCurrency: "SGD") == "USD")
+    }
+
+    @Test func aBlankRuleFeeIsTheCardsDefaultAndZeroIsNone() {
+        #expect(Fx.ruleFeePercent("") == nil)
+        #expect(Fx.ruleFeePercent("  ") == nil)
+        #expect(Fx.ruleFeePercent("0") == 0)
+        #expect(Fx.ruleFeePercent("2.5") == 2.5)
+    }
+
     @Test func theHintIsEmptyWhileThereIsNothingToShow() {
         #expect(Fx.impliedRateLabel(amount: 12000, charged: nil, chargeCurrency: "JPY", accountCurrency: "SGD") == "")
         #expect(Fx.impliedRateLabel(amount: 12000, charged: 124.80, chargeCurrency: "JPY", accountCurrency: "") == "")
