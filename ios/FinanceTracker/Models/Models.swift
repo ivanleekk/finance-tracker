@@ -501,7 +501,9 @@ struct TransactionResponse: Codable, Identifiable {
         mcc = try container.decodeIfPresent(String.self, forKey: .mcc)
         cardCategoryId = try container.decodeIfPresent(String.self, forKey: .cardCategoryId)
         exchangeRate = try container.decodeIfPresent(Double.self, forKey: .exchangeRate)
-        feePercent = try container.decodeIfPresent(Double.self, forKey: .feePercent)
+        // A Decimal on the wire, so a string ("3") as often as a number — the same
+        // tolerance `amount` gets. A strict Double decode failed the whole list.
+        feePercent = try container.decodeIfPresent(OptionalMoneyAmount.self, forKey: .feePercent)?.wrappedValue
         feeForTransactionId = try container.decodeIfPresent(String.self, forKey: .feeForTransactionId)
     }
 }

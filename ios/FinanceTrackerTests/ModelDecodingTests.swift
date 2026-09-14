@@ -42,6 +42,27 @@ struct ModelDecodingTests {
         #expect(acc.ownerUserId == "user-9")
     }
 
+    /// The server sends `fee_percent` as a Decimal string, like every other
+    /// Decimal. Decoding it as a plain Double failed the *whole* transaction list
+    /// — and with it the Dashboard — the moment one purchase carried a surcharge.
+    @Test func decodesAFeePercentSentAsADecimalString() throws {
+        let json = """
+        [{"id":"t1","account_id":"a1","category_id":"c1","date":"2026-09-14T12:00:00",
+          "amount":"100","amount_home_currency":"126.7070055007934600","currency":"USD",
+          "exchange_rate":1.2670700550079346,"description":null,"transaction_type":"expense",
+          "transfer_id":null,"splits":[],"mcc":null,"card_category_id":null,
+          "fee_percent":"3","fee_for_transaction_id":null},
+         {"id":"t2","account_id":"a1","category_id":"c2","date":"2026-09-14T12:00:00",
+          "amount":"3.80","amount_home_currency":"3.80","currency":"SGD","exchange_rate":1.0,
+          "description":"3% fee","transaction_type":"expense","transfer_id":null,"splits":[],
+          "fee_percent":null,"fee_for_transaction_id":"t1"}]
+        """.data(using: .utf8)!
+        let txns = try decoder.decode([TransactionResponse].self, from: json)
+        #expect(txns[0].feePercent == 3)
+        #expect(txns[1].feePercent == nil)
+        #expect(txns[1].feeForTransactionId == "t1")
+    }
+
     @Test func decodesTransactionWithDecimalStrings() throws {
         let json = """
         {
