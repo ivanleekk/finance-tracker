@@ -2,16 +2,27 @@ import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "reac
 import type {
     AccountResponse,
     CategoryResponse,
+    CurrencyResponse,
     RecurringTransactionResponse,
     UpcomingOccurrence,
 } from "../../types/types";
 import { getSSRContext } from "../../lib/ssr-helpers";
+import { ruleFxFields } from "../../lib/fx";
+
+/** The rule form's currency ("" = the account's own) and fee fields. */
+function fxForm(formData: FormData) {
+    return {
+        currency: String(formData.get("currency") ?? ""),
+        feePercent: String(formData.get("fee_percent") ?? ""),
+    };
+}
 
 export type RecurringLoaderData = {
     rules: RecurringTransactionResponse[];
     upcoming: UpcomingOccurrence[];
     accounts: AccountResponse[];
     categories: CategoryResponse[];
+    currencies: CurrencyResponse[];
 };
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<RecurringLoaderData> {
@@ -21,11 +32,12 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<Recurring
         throw redirect("/households");
     }
 
-    const [rulesRes, upcomingRes, accountsRes, categoriesRes] = await Promise.all([
+    const [rulesRes, upcomingRes, accountsRes, categoriesRes, currenciesRes] = await Promise.all([
         ssrFetch(`/cashflow/recurring/household/${householdId}`),
         ssrFetch(`/cashflow/recurring/household/${householdId}/upcoming?days=90`),
         ssrFetch(`/accounts/household/${householdId}`),
         ssrFetch(`/cashflow/categories/household/${householdId}`),
+        ssrFetch(`/reference/currencies`),
     ]);
 
     return {
@@ -33,6 +45,7 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<Recurring
         upcoming: upcomingRes.ok ? await upcomingRes.json() : [],
         accounts: accountsRes.ok ? await accountsRes.json() : [],
         categories: categoriesRes.ok ? await categoriesRes.json() : [],
+        currencies: currenciesRes.ok ? await currenciesRes.json() : [],
     };
 }
 
@@ -59,6 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 start_date: formData.get("start_date"),
                 end_date: endDate || null,
                 owner_user_id: isPrivate && currentUserId ? currentUserId : null,
+                ...ruleFxFields(fxForm(formData), formData.get("account_currency") as string, "create"),
             }),
         });
         if (!res.ok) {
@@ -82,6 +96,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 frequency: formData.get("frequency"),
                 start_date: formData.get("start_date"),
                 end_date: endDate || null,
+                ...ruleFxFields(fxForm(formData), formData.get("account_currency") as string, "update"),
             }),
         });
         if (!res.ok) {

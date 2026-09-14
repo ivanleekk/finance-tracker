@@ -11,7 +11,8 @@ import { useHousehold } from "../../lib/HouseholdContext";
 import { useAuth } from "../../lib/AuthContext";
 import { useViewMode, isVisibleInViewMode } from "../../lib/ViewModeContext";
 import { RecurrenceFrequency, TransactionType } from "../../types/types";
-import type { AccountResponse, CategoryResponse, RecurringTransactionResponse } from "../../types/types";
+import type { AccountResponse, CategoryResponse, CurrencyResponse, RecurringTransactionResponse } from "../../types/types";
+import { isForeignCharge } from "../../lib/fx";
 import { frequencyLabel, groupOccurrencesByMonth, netUpcoming } from "../../lib/budgets";
 import type { RecurringLoaderData } from "./recurring.loader";
 
@@ -26,6 +27,7 @@ export default function Recurring() {
         upcoming = [],
         accounts = [],
         categories = [],
+        currencies = [],
     } = (useLoaderData() as RecurringLoaderData) || {};
 
     const createFetcher = useFetcher();
@@ -41,6 +43,10 @@ export default function Recurring() {
         start_date: new Date().toISOString().split("T")[0],
         end_date: "",
         isPrivate: user?.default_new_items_private ?? true,
+        // "" = the account's own currency, so it follows the account picker.
+        currency: "",
+        // "" = the card's foreign fee at each posting, if it has one.
+        feePercent: "",
     };
     const [newRule, setNewRule] = useState(emptyRule);
 
@@ -205,6 +211,7 @@ export default function Recurring() {
                                 showOwnershipTag={hasHousehold && viewMode === "blended"}
                                 selectableAccounts={selectableAccounts}
                                 selectableCategories={selectableCategories}
+                                currencies={currencies}
                             />
                         ))}
 
@@ -345,6 +352,14 @@ export default function Recurring() {
                                         </div>
                                     </div>
 
+                                    <RuleFxFields
+                                        currencies={currencies}
+                                        accountCurrency={selectableAccounts.find(a => a.id === newRule.account_id)?.currency ?? ""}
+                                        currency={newRule.currency}
+                                        feePercent={newRule.feePercent}
+                                        onChange={(fx) => setNewRule({ ...newRule, ...fx })}
+                                    />
+
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-base-900 dark:text-base-50">First occurrence</label>
@@ -414,6 +429,7 @@ function RuleRow({
     showOwnershipTag,
     selectableAccounts,
     selectableCategories,
+    currencies,
 }: {
     rule: RecurringTransactionResponse;
     category: CategoryResponse | undefined;
@@ -422,6 +438,7 @@ function RuleRow({
     showOwnershipTag: boolean;
     selectableAccounts: AccountResponse[];
     selectableCategories: CategoryResponse[];
+    currencies: CurrencyResponse[];
 }) {
     // Each row gets its own fetchers — sharing one across every row in the list
     // meant two rows' submissions could stomp on each other's pending/error state.
@@ -440,6 +457,7 @@ function RuleRow({
         frequency: rule.frequency as string,
         start_date: rule.start_date,
         end_date: rule.end_date || "",
+        ...ruleFxState(rule),
     });
 
     useEffect(() => {
@@ -457,6 +475,7 @@ function RuleRow({
             frequency: rule.frequency as string,
             start_date: rule.start_date,
             end_date: rule.end_date || "",
+            ...ruleFxState(rule),
         });
         setIsEditOpen(true);
     };
@@ -605,6 +624,14 @@ function RuleRow({
                                     </div>
                                 </div>
 
+                                <RuleFxFields
+                                    currencies={currencies}
+                                    accountCurrency={selectableAccounts.find(a => a.id === editFields.account_id)?.currency ?? ""}
+                                    currency={editFields.currency}
+                                    feePercent={editFields.feePercent}
+                                    onChange={(fx) => setEditFields({ ...editFields, ...fx })}
+                                />
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium text-base-900 dark:text-base-50">First occurrence</label>
@@ -648,6 +675,80 @@ function RuleRow({
                     </Card>
                 </div>
             )}
+        </div>
+    );
+}
+
+/** A stored rule's currency and fee, as the form holds them. */
+function ruleFxState(rule: RecurringTransactionResponse) {
+    return {
+        currency: rule.currency ?? "",
+        feePercent: rule.fee_percent === null || rule.fee_percent === undefined ? "" : String(Number(rule.fee_percent)),
+    };
+}
+
+/**
+ * The currency a rule charges in and the card fee each posting carries.
+ *
+ * The currency defaults to the account's own ("" here), so it follows the
+ * account picker until the user picks another. A blank fee means the card's
+ * foreign-transaction fee applies at each posting, if the card has one; 0 is
+ * how to say "no fee". `ruleFxFields` turns both into the request body.
+ */
+function RuleFxFields({
+    currencies,
+    accountCurrency,
+    currency,
+    feePercent,
+    onChange,
+}: {
+    currencies: CurrencyResponse[];
+    accountCurrency: string;
+    currency: string;
+    feePercent: string;
+    onChange: (fx: { currency: string; feePercent: string }) => void;
+}) {
+    const foreign = isForeignCharge(currency || null, accountCurrency);
+    return (
+        <div className="grid grid-cols-2 gap-4">
+            <input type="hidden" name="account_currency" value={accountCurrency} />
+            <div className="space-y-2">
+                <label className="text-sm font-medium text-base-900 dark:text-base-50">Charged in</label>
+                <Select
+                    name="currency"
+                    value={currency}
+                    onChange={(value) => onChange({ currency: value, feePercent })}
+                    options={[
+                        { value: "", label: accountCurrency ? `Account's currency (${accountCurrency})` : "Account's currency" },
+                        ...currencies
+                            .filter(c => c.code !== accountCurrency)
+                            .map(c => ({ value: c.code, label: `${c.code} — ${c.name}` })),
+                    ]}
+                />
+                {foreign && (
+                    <p className="text-xs text-base-500 dark:text-base-400">
+                        Converted to {accountCurrency} at each posting date's rate.
+                    </p>
+                )}
+            </div>
+            <div className="space-y-2">
+                <label className="text-sm font-medium text-base-900 dark:text-base-50">
+                    Card fee % <span className="font-normal text-base-500">(optional)</span>
+                </label>
+                <Input
+                    name="fee_percent"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="Card's default"
+                    value={feePercent}
+                    onChange={(e) => onChange({ currency, feePercent: e.target.value })}
+                />
+                <p className="text-xs text-base-500 dark:text-base-400">
+                    Blank uses the card's foreign fee, if it has one. 0 for none.
+                </p>
+            </div>
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultFeePercent, feeAmount, formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
+import { defaultFeePercent, feeAmount, ruleFxFields, formatRate, impliedRate, impliedRateLabel, isForeignCharge } from './fx';
 
 describe('isForeignCharge', () => {
     it('is false when the charge is in the account\'s own currency', () => {
@@ -89,5 +89,23 @@ describe('defaultFeePercent', () => {
         expect(defaultFeePercent(null, 'JPY', 'SGD')).toBeNull();
         expect(defaultFeePercent(0, 'JPY', 'SGD')).toBeNull();
         expect(defaultFeePercent(3, 'JPY', '')).toBeNull();
+    });
+});
+
+describe('ruleFxFields', () => {
+    it('leaves a plain rule on create with nothing extra to say', () => {
+        expect(ruleFxFields({ currency: '', feePercent: '' }, 'SGD', 'create')).toEqual({});
+        // Picking the account's own currency is the same as leaving it.
+        expect(ruleFxFields({ currency: 'SGD', feePercent: '' }, 'SGD', 'create')).toEqual({});
+    });
+
+    it('sends a foreign currency and a typed fee on create, including an explicit 0', () => {
+        expect(ruleFxFields({ currency: 'USD', feePercent: '3' }, 'SGD', 'create')).toEqual({ currency: 'USD', fee_percent: 3 });
+        expect(ruleFxFields({ currency: 'USD', feePercent: '0' }, 'SGD', 'create')).toEqual({ currency: 'USD', fee_percent: 0 });
+    });
+
+    it("sends every key on update, so a rule can go back to its account's currency and the card's default fee", () => {
+        expect(ruleFxFields({ currency: '', feePercent: '' }, 'SGD', 'update')).toEqual({ currency: null, fee_percent: null });
+        expect(ruleFxFields({ currency: 'USD', feePercent: '2.5' }, 'SGD', 'update')).toEqual({ currency: 'USD', fee_percent: 2.5 });
     });
 });

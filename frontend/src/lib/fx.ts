@@ -114,3 +114,36 @@ export function defaultFeePercent(
     const value = Number(cardForeignFeePercent);
     return Number.isFinite(value) && value > 0 ? value : null;
 }
+
+/**
+ * The currency and fee fields of a recurring rule's request body.
+ *
+ * A rule's form holds `currency` as "" for "the account's own" — so it follows
+ * the account picker for free — or a code. A code equal to the account's
+ * currency means the same thing and is sent the same way.
+ *
+ * The fee is three ways on a rule, and blank is not zero: blank means "use the
+ * card's foreign-transaction fee at each posting, if it has one", 0 means "no
+ * fee", and a number is that fee. That mirrors the backend, where a rule with
+ * `fee_percent` null takes the card's default and 0 does not.
+ *
+ * On create, anything with nothing to say is omitted. On update every key is
+ * sent, because an omitted key means "keep what the rule has" and there would be
+ * no way to switch a rule back to its account's currency, or back to the card's
+ * default fee.
+ */
+export function ruleFxFields(
+    form: { currency: string; feePercent: string },
+    accountCurrency: string | null | undefined,
+    mode: "create" | "update",
+): { currency?: string | null; fee_percent?: number | null } {
+    const foreign = isForeignCharge(form.currency || null, accountCurrency) ? form.currency : null;
+    const raw = form.feePercent.trim();
+    const parsed = raw === "" ? null : Number(raw);
+    const fee = parsed !== null && Number.isFinite(parsed) ? parsed : null;
+    if (mode === "update") return { currency: foreign, fee_percent: fee };
+    return {
+        ...(foreign ? { currency: foreign } : {}),
+        ...(fee !== null ? { fee_percent: fee } : {}),
+    };
+}

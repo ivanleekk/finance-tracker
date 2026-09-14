@@ -557,6 +557,8 @@ export type RecurringTransactionResponse = {
   // Positive magnitude; direction comes from the category.
   amount: number;
   currency?: string | null;
+  /** Card surcharge on each posting. Null means "the card's foreign fee, if any"; 0 means none. Decimal, so it may arrive as a string. */
+  fee_percent?: number | string | null;
   description?: string | null;
   frequency: RecurrenceFrequency;
   start_date: string;
